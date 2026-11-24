@@ -18,7 +18,7 @@ from houmao.gateway.plugins import (
     PluginContext,
     PluginDispatchError,
     PluginEvent,
-    plugin_route_access,
+    plugin_route_action,
 )
 from houmao_cccc.client import ProviderClient, ProviderError
 from houmao_cccc.configuration import CcccConfiguration, validate_credentials
@@ -647,67 +647,76 @@ class CcccPlugin:
         """Stage namespace-relative HTTP operations for host validation."""
 
         self.m_router.add_api_route(
-            "/binding", self.binding, methods=["GET"], openapi_extra=plugin_route_access("private")
+            "/binding",
+            self.binding,
+            methods=["GET"],
+            openapi_extra=plugin_route_action("plugin.cccc.binding.read"),
         )
         self.m_router.add_api_route(
             "/capabilities",
             self.capabilities,
             methods=["GET"],
-            openapi_extra=plugin_route_access("private"),
+            openapi_extra=plugin_route_action("plugin.cccc.capabilities.read"),
         )
         self.m_router.add_api_route(
-            "/members", self.members, methods=["GET"], openapi_extra=plugin_route_access("private")
+            "/members",
+            self.members,
+            methods=["GET"],
+            openapi_extra=plugin_route_action("plugin.cccc.members.read"),
         )
         self.m_router.add_api_route(
             "/connection/connect",
             self.connect,
             methods=["POST"],
-            openapi_extra=plugin_route_access("admin"),
+            openapi_extra=plugin_route_action("plugin.cccc.connection.connect"),
         )
         self.m_router.add_api_route(
             "/connection/disconnect",
             self.disconnect,
             methods=["POST"],
-            openapi_extra=plugin_route_access("admin"),
+            openapi_extra=plugin_route_action("plugin.cccc.connection.disconnect"),
         )
         self.m_router.add_api_route(
             "/connection/reconnect",
             self.reconnect,
             methods=["POST"],
-            openapi_extra=plugin_route_access("admin"),
+            openapi_extra=plugin_route_action("plugin.cccc.connection.reconnect"),
         )
         self.m_router.add_api_route(
             "/connection/refresh-credentials",
             self.refresh_credentials,
             methods=["POST"],
-            openapi_extra=plugin_route_access("admin"),
+            openapi_extra=plugin_route_action("plugin.cccc.connection.refresh-credentials"),
         )
         self.m_router.add_api_route(
-            "/chat/send", self.send, methods=["POST"], openapi_extra=plugin_route_access("private")
+            "/chat/send",
+            self.send,
+            methods=["POST"],
+            openapi_extra=plugin_route_action("plugin.cccc.chat.send"),
         )
         self.m_router.add_api_route(
             "/chat/reply",
             self.reply,
             methods=["POST"],
-            openapi_extra=plugin_route_access("private"),
+            openapi_extra=plugin_route_action("plugin.cccc.chat.reply"),
         )
         self.m_router.add_api_route(
             "/chat/retry",
             self.retry,
             methods=["POST"],
-            openapi_extra=plugin_route_access("private"),
+            openapi_extra=plugin_route_action("plugin.cccc.chat.retry"),
         )
         self.m_router.add_api_route(
             "/chat/history",
             self.history,
             methods=["GET"],
-            openapi_extra=plugin_route_access("private"),
+            openapi_extra=plugin_route_action("plugin.cccc.chat.history.read"),
         )
         self.m_router.add_api_route(
             "/chat/deliveries",
             self.deliveries,
             methods=["GET"],
-            openapi_extra=plugin_route_access("private"),
+            openapi_extra=plugin_route_action("plugin.cccc.chat.deliveries.read"),
         )
         assert self.m_mail is not None
         self.m_router.include_router(self.m_mail.router)

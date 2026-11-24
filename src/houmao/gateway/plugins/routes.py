@@ -1,13 +1,13 @@
-"""Route access declarations for independently installed gateway plugins."""
+"""Explicit route action declarations for independently installed gateway plugins."""
 
-from typing import Literal
-
-
-PluginRouteAccess = Literal["private", "admin"]
-PLUGIN_ROUTE_ACCESS_FIELD = "x-houmao-gateway-access"
+PLUGIN_ROUTE_ACTION_FIELD = "x-houmao-gateway-action"
 
 
-def plugin_route_access(access: PluginRouteAccess) -> dict[str, str]:
-    """Return the `openapi_extra` metadata for one plugin HTTP route."""
+def plugin_route_action(action: str) -> dict[str, str]:
+    """Declare a `plugin.<implementation>.<action>` for an HTTP route.
 
-    return {PLUGIN_ROUTE_ACCESS_FIELD: access}
+    The gateway host validates the declaration and selects the resource for
+    the installed instance.
+    """
+
+    return {PLUGIN_ROUTE_ACTION_FIELD: action}

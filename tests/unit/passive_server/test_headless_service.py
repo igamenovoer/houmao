@@ -479,7 +479,11 @@ class TestManagedHeadlessRouting:
 
         assert response.status == "ok"
         svc.m_headless.submit_turn.assert_called_once_with(
-            "tracked-alpha", "hello", chat_session=None, execution=None
+            "tracked-alpha",
+            "hello",
+            chat_session=None,
+            execution=None,
+            authorize_effect=svc._claim_direct_effect,
         )
 
     def test_interrupt_and_stop_accept_tracked_and_published_refs(
@@ -516,8 +520,12 @@ class TestManagedHeadlessRouting:
 
         assert interrupt_response.status == "ok"
         assert stop_response.status == "ok"
-        svc.m_headless.interrupt_managed.assert_called_once_with("tracked-alpha")
-        svc.m_headless.stop_managed.assert_called_once_with("tracked-alpha")
+        svc.m_headless.interrupt_managed.assert_called_once_with(
+            "tracked-alpha", authorize_effect=svc._claim_direct_effect
+        )
+        svc.m_headless.stop_managed.assert_called_once_with(
+            "tracked-alpha", authorize_effect=svc._claim_direct_effect
+        )
 
     def test_stop_managed_removes_registry_record_from_configured_root(
         self,

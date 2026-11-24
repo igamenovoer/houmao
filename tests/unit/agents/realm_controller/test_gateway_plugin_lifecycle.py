@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from tests.fixtures.gateway_access import (
     FixtureProofAuth,
     enroll_fixture_admin,
+    enroll_fixture_caller,
     fixture_admin_key,
     gateway_fixture_client,
     self_fixture_auth,
@@ -49,10 +50,11 @@ from houmao.gateway.plugins import (
     PluginDefinition,
     PluginInstanceConfiguration,
     PluginListener,
-    plugin_route_access,
+    plugin_route_action,
 )
 from houmao.gateway.plugins.discovery import LoadedPluginDefinition
 from houmao.gateway.deployment import GatewayDeployment
+from houmao.gateway.authorization_models import Permission
 
 pytestmark = pytest.mark.usefixtures("gateway_fixture_access")
 
@@ -77,15 +79,19 @@ class _ObservedPlugin:
         self.m_exits: int = 0
         self.m_listener: PluginListener | None = None
 
-        @self.m_router.get("/ordinary", openapi_extra=plugin_route_access("private"))
+        @self.m_router.get(
+            "/ordinary", openapi_extra=plugin_route_action("plugin.observed.ordinary.read")
+        )
         def ordinary() -> dict[str, str]:
             """Return the plugin's owner-bound identity under its ordinary route."""
 
-            return {"instance": self.m_context.instance_id}
+            return {"instance": self.m_context.instance_id, "binding_id": self.m_context.binding_id}
 
-        @self.m_router.post("/control")
+        @self.m_router.post(
+            "/control", openapi_extra=plugin_route_action("plugin.observed.control")
+        )
         def control() -> dict[str, bool]:
-            """Expose a control with the default admin access class."""
+            """Expose a separately grantable control operation."""
 
             return {"accepted": True}
 
@@ -115,6 +121,7 @@ def _runtime(
     monkeypatch: pytest.MonkeyPatch,
     *,
     plugins_enabled: bool = True,
+    instance_ids: tuple[str, ...] = ("one",),
     port: int = 12345,
     hold_start: bool = False,
 ) -> tuple[GatewayServiceRuntime, list[_ObservedPlugin], list[str]]:
@@ -171,7 +178,10 @@ def _runtime(
             desired.model_copy(
                 update={
                     "desired_plugins": GatewayPluginConfiguration(
-                        plugins={"one": PluginInstanceConfiguration(implementation="observed")},
+                        plugins={
+                            name: PluginInstanceConfiguration(implementation="observed")
+                            for name in instance_ids
+                        },
                         startup_timeout_seconds=2.0,
                         shutdown_timeout_seconds=0.1,
                     )
@@ -230,40 +240,67 @@ async def _wait_running(runtime: GatewayServiceRuntime) -> None:
     """Wait for the independent host task without issuing provider I/O."""
 
     async with asyncio.timeout(1.0):
-        while runtime.m_plugin_host.status()[0].lifecycle != "running":
+        while any(item.lifecycle != "running" for item in runtime.m_plugin_host.status()):
             await asyncio.sleep(0.001)
 
 
-def test_plugin_private_access_precedes_lifecycle_and_uses_current_policy(
+def test_plugin_actions_use_current_policy_and_exact_instance_resources(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Plugin routes apply open and keyed admission before handling lifecycle."""
 
-    runtime, observed, _ = _runtime(tmp_path, monkeypatch, hold_start=True)
+    runtime, observed, _ = _runtime(
+        tmp_path, monkeypatch, hold_start=True, instance_ids=("one", "two")
+    )
     app = create_app(runtime=runtime)
     ordinary_path = "/v1/plugins/one/ordinary"
     control_path = "/v1/plugins/one/control"
+    status_path = "/v1/plugins/one/_status"
     with TestClient(app, base_url=runtime.owner_connect_url) as client:
         self_auth = self_fixture_auth(runtime)
         assert client.get(ordinary_path).status_code == 503
         assert client.get(ordinary_path, auth=self_auth).status_code == 503
         assert client.post(control_path).status_code == 503
+        assert client.get(status_path).status_code == 200
         assert client.portal is not None
-        client.portal.call(observed[0].m_gate.set)
+        for plugin in observed:
+            client.portal.call(plugin.m_gate.set)
         client.portal.call(_wait_running, runtime)
+        bound_instance = client.get(ordinary_path).json()
+        assert bound_instance["instance"] == "one"
+        assert bound_instance["binding_id"] == observed[0].m_context.binding_id
         assert client.post(control_path).status_code == 200
-        assert client.get(ordinary_path).json() == {"instance": "one"}
-        assert client.get(ordinary_path, auth=self_auth).json() == {"instance": "one"}
+        assert client.get(ordinary_path, auth=self_auth).json() == bound_instance
 
         key, signer = fixture_admin_key(tmp_path, "plugin-admin")
         enroll_fixture_admin(client, key, signer)
-        admin_auth = FixtureProofAuth(signer, purpose="admin")
+        admin_auth = FixtureProofAuth(signer)
+        scoped_key, scoped_signer = fixture_admin_key(tmp_path, "plugin-reader")
+        resource = runtime.m_plugin_host.instance_resource("one")
+        assert resource is not None
+        enroll_fixture_caller(
+            runtime,
+            scoped_key,
+            permissions=(
+                Permission(resource=resource, action="plugin.observed.ordinary.read"),
+                Permission(resource=resource, action="plugin.status.read"),
+            ),
+        )
+        scoped_auth = FixtureProofAuth(scoped_signer)
         assert client.post(control_path).status_code == 401
         assert client.get(ordinary_path).status_code == 401
         assert client.post(control_path, auth=self_auth).status_code == 403
+        assert client.get(ordinary_path, auth=self_auth).status_code == 403
         assert client.post(control_path, auth=admin_auth).status_code == 200
-        assert client.get(ordinary_path, auth=self_auth).status_code == 200
-        assert client.get(ordinary_path, auth=admin_auth).status_code == 200
+        assert client.get(ordinary_path, auth=admin_auth).json() == bound_instance
+        assert client.get(ordinary_path, auth=scoped_auth).json() == bound_instance
+        assert client.get(status_path, auth=scoped_auth).status_code == 200
+        assert client.post(control_path, auth=scoped_auth).status_code == 403
+        assert client.get("/v1/plugins/two/ordinary", auth=scoped_auth).status_code == 403
+        assert client.get("/v1/plugins/two/_status", auth=scoped_auth).status_code == 403
+        second = client.get("/v1/plugins/two/ordinary", auth=admin_auth).json()
+        assert second["instance"] == "two"
+        assert second["binding_id"] != bound_instance["binding_id"]
 
 
 def test_embedded_app_owns_exactly_one_core_and_plugin_lifecycle(

@@ -118,7 +118,7 @@ def _write_instance(
             },
             "presence_id": "gateway-instance",
             "advertised_url": None,
-            "admin_access": "open",
+            "admin_mode": "open",
         }
     )
     instance = GatewayCurrentInstanceV1(

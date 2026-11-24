@@ -100,7 +100,7 @@ class GatewayPlugin(Protocol):
 
     @property
     def router(self) -> APIRouter:
-        """Return resource-free relative HTTP routes for the host to validate."""
+        """Return resource-free relative HTTP routes with explicit SDK actions."""
 
     def lifespan(self) -> AbstractAsyncContextManager[None]:
         """Open and close service resources under the host's supervisor."""

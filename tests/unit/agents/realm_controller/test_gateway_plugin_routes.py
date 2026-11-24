@@ -13,29 +13,56 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from houmao.agents.realm_controller.gateway_plugin_routes import (
     PluginRouteDeclaration,
     PluginRouteError,
+    PluginRoutePermission,
+    declared_plugin_action,
     paths_overlap,
     plugin_route_declarations,
     route_conflicts,
 )
-from houmao.gateway.plugins import plugin_route_access
+from houmao.gateway.plugins import plugin_route_action
 
 
-def test_route_access_declaration_and_admin_default() -> None:
-    """Apply an explicit private declaration and default omitted controls to admin."""
+def _declarations(instance: str, router: APIRouter) -> tuple[PluginRouteDeclaration, ...]:
+    """Validate fixture routes for their exact configured instance."""
+
+    return plugin_route_declarations(
+        instance, router, implementation="fixture", resource=f"plugin:{instance}:binding"
+    )
+
+
+def test_route_action_is_bound_to_selected_instance() -> None:
+    """Two instances of the same implementation use different policy resources."""
 
     router = APIRouter()
     router.add_api_route(
-        "/ordinary", lambda: None, methods=["GET"], openapi_extra=plugin_route_access("private")
+        "/ordinary",
+        lambda: None,
+        methods=["GET"],
+        openapi_extra=plugin_route_action("plugin.fixture.observe"),
     )
-    router.add_api_route("/control", lambda: None, methods=["POST"])
-    assert [route.access for route in plugin_route_declarations("fixture", router)] == [
-        "private",
-        "admin",
-    ]
+    assert _declarations("one", router)[0].permission == PluginRoutePermission(
+        action="plugin.fixture.observe", resource="plugin:one:binding"
+    )
+    assert _declarations("two", router)[0].permission == PluginRoutePermission(
+        action="plugin.fixture.observe", resource="plugin:two:binding"
+    )
 
 
-@pytest.mark.parametrize("access", ["public", "operator", None])
-def test_plugin_route_access_rejects_unsupported_declarations(access: str | None) -> None:
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        None,
+        {"x-houmao-gateway-access": "admin"},
+        {"x-houmao-gateway-action": "public"},
+        {"x-houmao-gateway-action": "plugin.fixture"},
+        {"x-houmao-gateway-action": "plugin.fixture.bad..name"},
+        {"x-houmao-gateway-action": "plugin.other.observe"},
+        {"x-houmao-gateway-action": None},
+    ],
+)
+def test_missing_or_invalid_plugin_route_action_is_rejected(
+    metadata: dict[str, object] | None,
+) -> None:
     """Reject an invalid plugin route before it can register resources."""
 
     router = APIRouter()
@@ -43,10 +70,25 @@ def test_plugin_route_access_rejects_unsupported_declarations(access: str | None
         "/invalid",
         lambda: None,
         methods=["GET"],
-        openapi_extra={"x-houmao-gateway-access": access},
+        openapi_extra=metadata,
     )
-    with pytest.raises(PluginRouteError, match="private or admin"):
-        plugin_route_declarations("fixture", router)
+    with pytest.raises(PluginRouteError, match="namespac") as caught:
+        _declarations("fixture", router)
+    assert caught.value.error_code == "invalid_route_action"
+
+
+def test_plugin_cannot_declare_host_status_action() -> None:
+    """Reserve the host status permission independently of plugin namespaces."""
+
+    router = APIRouter()
+    router.add_api_route(
+        "/custom",
+        lambda: None,
+        methods=["POST"],
+        openapi_extra=plugin_route_action("plugin.status.read"),
+    )
+    with pytest.raises(PluginRouteError, match="namespaced"):
+        declared_plugin_action(router.routes[0])
 
 
 @pytest.mark.parametrize(
@@ -111,8 +153,14 @@ def test_default_nested_routers_and_automatic_head_are_supported() -> None:
     nested = APIRouter()
     nested.routes.append(Route("/items/{id}", endpoint=lambda request: None, methods=["GET"]))
     router.include_router(nested)
-    assert plugin_route_declarations("one", router) == (
-        PluginRouteDeclaration("one", "/v1/plugins/one/items/{id}", frozenset({"GET", "HEAD"})),
+    setattr(router.routes[0], "openapi_extra", plugin_route_action("plugin.fixture.observe"))
+    assert _declarations("one", router) == (
+        PluginRouteDeclaration(
+            "one",
+            "/v1/plugins/one/items/{id}",
+            frozenset({"GET", "HEAD"}),
+            PluginRoutePermission(action="plugin.fixture.observe", resource="plugin:one:binding"),
+        ),
     )
 
 
@@ -138,7 +186,7 @@ def test_unsupported_or_reserved_paths_fail_before_mount(path: str) -> None:
     router = APIRouter()
     router.routes.append(Route(path, endpoint=lambda request: None, methods=["POST"]))
     with pytest.raises(PluginRouteError):
-        plugin_route_declarations("one", router)
+        _declarations("one", router)
 
 
 @pytest.mark.parametrize(
@@ -167,4 +215,4 @@ def test_unsupported_router_mutations_fail(kind: str) -> None:
     elif kind == "exception":
         setattr(router, "exception_handlers", {ValueError: lambda request, error: None})
     with pytest.raises(PluginRouteError):
-        plugin_route_declarations("one", router)
+        _declarations("one", router)

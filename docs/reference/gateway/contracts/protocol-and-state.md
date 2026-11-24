@@ -202,7 +202,7 @@ Use the exact configured owner-local HTTP origin and a loopback connection for a
 
 | Operation | Request and authority | Success |
 | --- | --- | --- |
-| `POST /v1/web/entry-ticket` | Empty body. Unsigned with a valid empty admin roster, or direct SSHSIG proof from an enrolled admin with a keyed roster | HTTP 200 with `url` and `expires_at_utc` |
+| `POST /v1/web/entry-ticket` | Empty body. Unsigned with a valid empty admin roster, or direct SSHSIG proof from an enrolled caller with `web.enter` | HTTP 200 with `url` and `expires_at_utc` |
 | `GET /v1/web/enter` | Empty query and valid policy | HTTP 302 to the verified native destination with an empty admin roster. HTTP 200 with the interactive sign-in page with a keyed roster |
 | `GET /v1/web/enter?ticket=<ticket>` | Exactly one `ticket` parameter with an outstanding bearer from this listener | HTTP 302 to the verified native authentication destination |
 | `POST /v1/web/login` | Empty body, same-origin browser action | HTTP 200 with `attempt_id`, base64url `challenge`, `expires_at_utc`, and tab `claim_secret` |
@@ -211,11 +211,11 @@ Use the exact configured owner-local HTTP origin and a loopback connection for a
 
 The gateway rechecks open access after looking up the native destination for bare browser entry and before issuing an unsigned ticket. If the admin roster changes during that lookup, the request is refused. Unavailable policy returns HTTP 503.
 
-Signed issuance uses the existing `POST /v1/auth/challenge` protocol. Missing proof on a keyed roster or invalid supplied proof returns HTTP 401. Self and delegated gateway proof return HTTP 403. Use `GatewayClient.issue_web_entry_ticket()` or the scoped manager command from the owner-local endpoint. The client holds that endpoint and refuses redirects.
+Signed issuance uses the `sshsig-v2` challenge at `POST /v1/auth/challenge`. Missing proof on a keyed roster or invalid supplied proof returns HTTP 401. A caller that lacks `web.enter` and any attempt using relay authority receive HTTP 403. Use `GatewayClient.issue_web_entry_ticket()` or the scoped manager command from the owner-local endpoint. The client holds that endpoint and refuses redirects.
 
 Interactive attempts last two minutes and use a distinct `houmao-web-entry-login-v1` SSHSIG namespace. Sign the exact decoded challenge bytes. They bind the issuer, attempt and approval route, expiry, purpose, and native execution identity. The terminal may submit several complete armored signatures. The gateway approves the attempt once when any signature verifies against a current admin enrollment. The terminal receives its approval outcome only. The browser keeps its claim secret in tab memory and uses it once to obtain a normal ticket.
 
-Tickets last 60 seconds. The gateway consumes a ticket before rechecking its issuing authority and full native execution identity. An unsigned ticket requires the same empty roster revision that issued it. A signed ticket requires its issuing admin's current enrollment. Failed revalidation leaves the ticket consumed. Gateway restart expires tickets and login attempts. Expired, used, or stale tickets return HTTP 410 with a link back to the bare entry path. Duplicate or extraneous query parameters are refused.
+Tickets last 60 seconds. The gateway consumes a ticket before rechecking its issuing authority and full native execution identity. A ticket retains the issuing caller, selected resource, and admitted authority. Open access requires the same open epoch. Keyed access requires the current credential and the relevant scoped grant or per-key admin qualification. Failed revalidation leaves the ticket consumed. Gateway restart expires tickets and login attempts. Expired, used, or stale tickets return HTTP 410 with a link back to the bare entry path. Duplicate or extraneous query parameters are refused.
 
 Every Web entry and login response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The gateway exposes native authentication parameters in the successful browser redirect only. The provider creates and controls the browser session. Public state, logs, and error responses omit the proof, claim secret, tickets, and native credentials.
 

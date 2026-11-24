@@ -29,13 +29,19 @@ from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
     GatewayChallengeRequest,
-    GatewayGrant,
     GatewayRequestBinding,
     load_gateway_signer,
     sign_sshsig,
     sshsig_header,
 )
 from houmao.gateway._web_login import WEB_LOGIN_NAMESPACE, WEB_LOGIN_PROOF_MAX_BYTES
+from houmao.gateway.authorization_models import (
+    AuthorizationActor,
+    Credential,
+    Principal,
+    ScopedGrant,
+)
+from houmao.gateway.operations import WEB_ENTRY
 from houmao.gateway.deployment import GatewayDeployment
 from houmao.gateway.owner_authority import BACKING_HEADER, RELAY_HEADER, issue_gateway_relay
 from tests.fixtures.gateway_access import (
@@ -90,7 +96,7 @@ def _enroll(client: TestClient, tmp_path: Path) -> tuple[object, Path, FixturePr
 
     key, path = fixture_admin_key(tmp_path, "web-admin")
     enroll_fixture_admin(client, key, path)
-    return key, path, FixtureProofAuth(path, purpose="admin")
+    return key, path, FixtureProofAuth(path, purpose="caller")
 
 
 def _no_disclosure(response, *secrets: str) -> None:
@@ -218,7 +224,7 @@ def test_dashboard_reports_unavailable_entry(dashboard_entry, gateway_fixture_ac
     elif condition == "owner":
         runtime._verified_owner_manifest.side_effect = OwnerAdmissionError("unavailable", "private")
     else:
-        next(gateway_fixture_access.private_root.glob("*/admin.json")).unlink()
+        (gateway_fixture_access.private_root / "authorization.sqlite3").unlink()
     page = _client(app).get("/")
     assert page.status_code == 200
     assert "<dd>Healthy</dd>" in page.text
@@ -353,7 +359,7 @@ def test_missing_policy_denies_entry(entry, gateway_fixture_access: FixtureGatew
     _, app, native, _ = entry
     client = _client(app)
     ticket = _ticket(client)
-    next(gateway_fixture_access.private_root.glob("*/admin.json")).unlink()
+    (gateway_fixture_access.private_root / "authorization.sqlite3").unlink()
     for response in (
         client.get(WEB_ENTER_PATH),
         client.post(WEB_TICKET_PATH),
@@ -375,17 +381,21 @@ def test_direct_ticket_admission_precedes_any_native_access(entry, tmp_path: Pat
     _no_disclosure(denied, "untrusted-body")
     denied = client.post(WEB_TICKET_PATH, headers={CHALLENGE_HEADER: "malformed"})
     assert denied.status_code == 401
-    assert denied.json()["detail"]["purposes"] == ["admin"]
+    assert denied.json()["detail"]["purposes"] == ["caller"]
     _no_disclosure(denied, "malformed")
+    key, _, auth = _enroll(client, tmp_path)
     policy = runtime._require_access_policy()
     challenge = policy.issue(
         _ORIGIN,
         GatewayChallengeRequest(
-            purpose="self",
+            purpose="caller",
+            key_id=runtime._access_self().key_id,
             request=GatewayRequestBinding.from_request("POST", WEB_TICKET_PATH, "", b""),
         ),
     )
-    signer = load_gateway_signer(policy.store.self_signer_path(challenge.target.incarnation))
+    signer = load_gateway_signer(
+        runtime.m_access_runtime.self_store.self_signer_path(challenge.target.incarnation)
+    )
     self_proof = {
         CHALLENGE_HEADER: challenge.challenge_id,
         SIGNATURE_HEADER: sshsig_header(sign_sshsig(signer, challenge.signing_bytes())),
@@ -396,24 +406,21 @@ def test_direct_ticket_admission_precedes_any_native_access(entry, tmp_path: Pat
     assert client.post(WEB_TICKET_PATH, headers={"Forwarded": "proto=http"}).status_code == 403
     native.assert_not_called()
 
-    key, _, auth = _enroll(client, tmp_path)
     denied = client.post(WEB_TICKET_PATH)
     assert denied.status_code == 401
-    assert denied.json()["detail"]["purposes"] == ["admin"]
+    assert denied.json()["detail"]["purposes"] == ["caller"]
     _no_disclosure(denied, "synthetic-native-secret")
     access = runtime.m_access_runtime
-    state = access.store.load()
+    policy = runtime._require_access_policy()
+    key_entry = access.store.snapshot().find_credential(key.key_id)
+    assert key_entry is not None
+    grant = policy.authorize(AuthorizationActor.from_credential(key_entry), (WEB_ENTRY,))
     relay = issue_gateway_relay(
         access.private_root,
-        grant=GatewayGrant(
-            role="admin",
-            target=access.target,
-            key_id=key.key_id,
-            principal=key.principal,
-            enrollment=state.find(key.key_id).enrollment,
-            revision=state.revision,
-        ),
+        grant=grant,
         request=GatewayRequestBinding.from_request("POST", WEB_TICKET_PATH, "", b""),
+        receiver_id=policy.listener_id,
+        permissions=(WEB_ENTRY,),
     )
     refused = client.post(WEB_TICKET_PATH, headers={RELAY_HEADER: relay})
     assert refused.status_code == 403
@@ -428,6 +435,51 @@ def test_direct_ticket_admission_precedes_any_native_access(entry, tmp_path: Pat
     native.assert_not_called()
     _ticket(client, auth)
     native.assert_called_once()
+
+
+def test_scoped_web_caller_loses_unredeemed_ticket_when_grant_is_revoked(entry, tmp_path) -> None:
+    """Allow an exact Web entry grant and retire the ticket without revoking its signer."""
+
+    runtime, app, native, _ = entry
+    client = _client(app)
+    _enroll(client, tmp_path)
+    scoped_key, scoped_signer = fixture_admin_key(tmp_path, "web-reviewer")
+    store = runtime._require_access_policy().store
+    principal = Principal(principal_id="reviewer", kind="operator", label="Reviewer")
+    credential = Credential(principal_id=principal.principal_id, public_key=scoped_key.public_key)
+    store.update(
+        lambda state: state.model_copy(
+            update={
+                "principals": (*state.principals, principal),
+                "credentials": (*state.credentials, credential),
+            }
+        ),
+        actor="owner",
+        action="test.web.enroll",
+    )
+    auth = FixtureProofAuth(scoped_signer)
+    assert client.post(WEB_TICKET_PATH, auth=auth).status_code == 403
+    native.assert_not_called()
+    store.update(
+        lambda state: state.model_copy(
+            update={
+                "grants": (ScopedGrant(principal_id=principal.principal_id, permission=WEB_ENTRY),),
+            }
+        ),
+        actor="owner",
+        action="test.web.grant",
+    )
+    ticket = _ticket(client, auth)
+    store.update(
+        lambda state: state.model_copy(update={"grants": ()}),
+        actor="owner",
+        action="test.web.revoke",
+    )
+    response = client.get(ticket)
+    assert response.status_code == 410
+    assert store.snapshot().find_credential(credential.key_id) is not None
+    native.assert_called_once()
+    _no_disclosure(response, "synthetic-native-secret", ticket)
 
 
 def test_open_ticket_expires_in_one_minute_and_redeems_once(entry) -> None:
@@ -721,7 +773,7 @@ def test_new_listener_drops_pending_logins_and_refuses_delegated_proof(
     login = _start(client)
     proof = _login_proof(login, path)
     proof_path = f"{WEB_LOGIN_PATH}/{login['attempt_id']}/prove"
-    self_signer = runtime._require_access_policy().store.self_signer_path(
+    self_signer = runtime.m_access_runtime.self_store.self_signer_path(
         read_binding.return_value.target.incarnation
     )
     assert _approval(client, login, _login_proof(login, self_signer)).status_code == 401

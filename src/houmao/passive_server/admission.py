@@ -19,8 +19,10 @@ from starlette.routing import compile_path
 from starlette.types import Message
 
 from houmao.agents.realm_controller.gateway_access_runtime import GatewayRuntimeAccess
+from houmao.agents.realm_controller.gateway_models import (
+    GatewayRequestPayloadSubmitPromptV1,
+)
 from houmao.gateway.access import (
-    AccessClass,
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
     GatewayAccessError,
@@ -30,6 +32,16 @@ from houmao.gateway.access import (
     GatewayRequestBinding,
     parse_access_document,
 )
+from houmao.gateway.authorization_models import AuthorizationDecision, Permission
+from houmao.gateway.operations import (
+    CORE_OPERATIONS,
+    INTERRUPT,
+    MAIL_ACTIONS,
+    PROMPT,
+    STATUS,
+    GatewayOperation,
+    prompt_permissions,
+)
 from houmao.gateway.owner_authority import (
     BACKING_HEADER,
     RELAY_HEADER,
@@ -37,67 +49,19 @@ from houmao.gateway.owner_authority import (
     consume_passive_backing,
 )
 
+from houmao.passive_server.models import PassiveHeadlessTurnRequest, PassiveProofEndpoint
+
 if TYPE_CHECKING:
     from houmao.passive_server.service import PassiveServerService
 
 
 _PREFIX = "/houmao/agents/{agent_ref}"
 _MAX_PROTECTED_BYTES = 16 * 1024 * 1024
-_PUBLIC = {("GET", ""), ("GET", "/resolve"), ("POST", "/auth/challenge")}
-_PRIVATE = {
-    ("GET", "/usage"),
-    ("GET", "/gateway"),
-    ("GET", "/gateway/memory"),
-    ("GET", "/gateway/memory/memo"),
-    ("PUT", "/gateway/memory/memo"),
-    ("POST", "/gateway/memory/memo/append"),
-    *(
-        ("POST", f"/gateway/memory/pages/{name}")
-        for name in ("tree", "resolve", "read", "write", "append", "delete")
-    ),
-    ("GET", "/mail/status"),
-    *(
-        ("POST", f"/mail/{{channel}}/{name}")
-        for name in ("list", "peek", "read", "send", "reply", "mark", "move", "archive")
-    ),
-    ("GET", "/managed-state"),
-}
-_ADMIN = {
-    ("GET", "/gateway/native-home"),
-    ("GET", "/gateway/control/refresh"),
-    ("POST", "/gateway/control/refresh"),
-    ("GET", "/gateway/tui/state"),
-    ("GET", "/gateway/tui/history"),
-    ("GET", "/gateway/web/state"),
-    ("GET", "/gateway/web/history"),
-    ("POST", "/gateway/tui/note-prompt"),
-    ("GET", "/gateway/control/headless/state"),
-    ("POST", "/gateway/control/headless/next-prompt-session"),
-    ("POST", "/gateway/requests"),
-    ("POST", "/gateway/control/prompt"),
-    ("POST", "/gateway/control/send-keys"),
-    ("POST", "/gateway/attach"),
-    ("POST", "/gateway/detach"),
-    *((method, "/gateway/mail-notifier/{channel}") for method in ("GET", "PUT", "DELETE")),
-    ("GET", "/gateway/reminders"),
-    ("POST", "/gateway/reminders"),
-    *((method, "/gateway/reminders/{reminder_id}") for method in ("GET", "PUT", "DELETE")),
-    *((method, "/mail/online/binding") for method in ("GET", "PUT", "DELETE")),
-    ("POST", "/mail/online/binding/refresh"),
-    ("POST", "/mail/online/binding/reconnect"),
-    ("POST", "/mail/{channel}/post"),
-    ("GET", "/state"),
-    ("GET", "/state/detail"),
-    ("GET", "/history"),
-    ("GET", "/managed-state/detail"),
-    ("GET", "/managed-history"),
-    ("POST", "/requests"),
-    ("POST", "/interrupt"),
-    ("POST", "/stop"),
-    ("POST", "/turns"),
-    ("GET", "/turns/{turn_id}"),
-    ("GET", "/turns/{turn_id}/events"),
-    ("GET", "/turns/{turn_id}/artifacts/{name}"),
+_PUBLIC = {
+    ("GET", ""),
+    ("GET", "/resolve"),
+    ("GET", "/auth/endpoint"),
+    ("POST", "/auth/challenge"),
 }
 _BACKING = {
     ("GET", "/gateway/internal/inspect"),
@@ -105,9 +69,157 @@ _BACKING = {
     ("POST", "/gateway/internal/interrupt"),
 }
 _PROOF_HEADERS = (CHALLENGE_HEADER, SIGNATURE_HEADER, RELAY_HEADER, BACKING_HEADER)
-_CLIENT_ROUTE_PATTERNS = tuple(
-    (method, compile_path(path)[0]) for method, path in _PRIVATE | _ADMIN
+
+
+@dataclass(frozen=True)
+class PassiveOperation:
+    """Declare a matched passive effect and the exact gateway routes it may use."""
+
+    permission: Permission | None = None
+    downstream: tuple[tuple[str, GatewayOperation], ...] = ()
+    selector: Literal["turn"] | None = None
+    additional_permissions: tuple[Permission, ...] = ()
+
+    def permissions(self, body: bytes, *, channel: str | None) -> tuple[Permission, ...]:
+        """Check local intent or evaluate the explicit set of proxy operations."""
+
+        if self.selector == "turn":
+            try:
+                payload = parse_access_document(PassiveHeadlessTurnRequest, body)
+            except ValueError:
+                raise GatewayAccessError(422, "invalid_operation") from None
+            return prompt_permissions(
+                GatewayRequestPayloadSubmitPromptV1(
+                    prompt=payload.prompt,
+                    chat_session=payload.chat_session,
+                    execution=payload.execution,
+                )
+            )
+        if self.permission is not None:
+            return (self.permission, *self.additional_permissions)
+        return tuple(
+            permission
+            for _method, operation in self.downstream
+            for permission in operation.bind_channel(channel).permissions(body)
+        )
+
+
+def _gateway_operation(method: str, path: str) -> tuple[str, GatewayOperation]:
+    """Resolve a declared core route before running the passive HTTP listener."""
+
+    return method, CORE_OPERATIONS[method, path]
+
+
+def _proxy(method: str, path: str) -> PassiveOperation:
+    """Declare one passive proxy forwarding a core gateway operation."""
+
+    return PassiveOperation(downstream=(_gateway_operation(method, path),))
+
+
+def _local(resource: str, action: str) -> PassiveOperation:
+    """Declare an effect performed directly in the passive server."""
+
+    return PassiveOperation(permission=Permission(resource=resource, action=action))
+
+
+_OPERATIONS = {
+    ("GET", "/usage"): _proxy("GET", "/v1/usage"),
+    ("GET", "/gateway"): _proxy("GET", "/v1/status"),
+    **{
+        (method, f"/gateway{path}"): _proxy(method, f"/v1{path}")
+        for method, path in (
+            ("GET", "/memory"),
+            ("GET", "/memory/memo"),
+            ("PUT", "/memory/memo"),
+            ("POST", "/memory/memo/append"),
+            *(
+                ("POST", f"/memory/pages/{action}")
+                for action in (
+                    "tree",
+                    "resolve",
+                    "read",
+                    "write",
+                    "append",
+                    "delete",
+                )
+            ),
+            ("GET", "/native-home"),
+            ("GET", "/control/headless/state"),
+            ("POST", "/control/headless/next-prompt-session"),
+            ("POST", "/requests"),
+            ("POST", "/control/prompt"),
+            ("POST", "/control/send-keys"),
+            *((method, "/mail-notifier/{channel}") for method in ("GET", "PUT", "DELETE")),
+            ("GET", "/reminders"),
+            ("POST", "/reminders"),
+            *((method, "/reminders/{reminder_id}") for method in ("GET", "PUT", "DELETE")),
+        )
+    },
+    **{
+        (method, "/gateway/control/refresh"): PassiveOperation(
+            downstream=(
+                _gateway_operation("GET", "/v1/native-home"),
+                _gateway_operation(method, "/v1/control/refresh"),
+            ),
+        )
+        for method in ("GET", "POST")
+    },
+    **{
+        (method, f"/gateway{path}"): _proxy(method, f"/v1/control{path}")
+        for method, path in (
+            ("GET", "/tui/state"),
+            ("GET", "/tui/history"),
+            ("GET", "/web/state"),
+            ("GET", "/web/history"),
+            ("POST", "/tui/note-prompt"),
+        )
+    },
+    ("POST", "/gateway/attach"): _local("gateway", "gateway.attach"),
+    ("POST", "/gateway/detach"): _local("gateway", "gateway.detach"),
+    **{
+        (method, path): _proxy(method, f"/v1{path}")
+        for method, path in (
+            ("GET", "/mail/status"),
+            *(("POST", f"/mail/{{channel}}/{action}") for action in MAIL_ACTIONS),
+            *((method, "/mail/online/binding") for method in ("GET", "PUT", "DELETE")),
+            ("POST", "/mail/online/binding/refresh"),
+            ("POST", "/mail/online/binding/reconnect"),
+        )
+    },
+    **{
+        ("GET", path): PassiveOperation(
+            STATUS, downstream=(_gateway_operation("GET", "/v1/status"),)
+        )
+        for path in ("/state", "/managed-state")
+    },
+    **{
+        ("GET", path): PassiveOperation(
+            Permission(resource="agent", action="agent.state.detail.read"),
+            downstream=(_gateway_operation("GET", "/v1/status"),),
+            additional_permissions=(STATUS,),
+        )
+        for path in ("/state/detail", "/managed-state/detail")
+    },
+    **{
+        ("GET", path): _local("agent", "agent.history.read")
+        for path in ("/history", "/managed-history")
+    },
+    ("POST", "/requests"): PassiveOperation(
+        PROMPT, downstream=(_gateway_operation("POST", "/v1/requests"),)
+    ),
+    ("POST", "/interrupt"): PassiveOperation(
+        INTERRUPT, downstream=(_gateway_operation("POST", "/v1/requests"),)
+    ),
+    ("POST", "/stop"): _local("agent", "agent.stop"),
+    ("POST", "/turns"): PassiveOperation(selector="turn"),
+    ("GET", "/turns/{turn_id}"): _local("agent", "agent.turn.read"),
+    ("GET", "/turns/{turn_id}/events"): _local("agent", "agent.turn.events.read"),
+    ("GET", "/turns/{turn_id}/artifacts/{name}"): _local("agent", "agent.turn.artifact.read"),
+}
+PASSIVE_PERMISSIONS = frozenset(
+    operation.permission for operation in _OPERATIONS.values() if operation.permission is not None
 )
+_CLIENT_ROUTE_PATTERNS = tuple((method, compile_path(path)[0]) for method, path in _OPERATIONS)
 
 
 @dataclass(frozen=True)
@@ -126,7 +238,7 @@ class PassiveAdmission:
 
     target: PassiveAccessTarget
     grant: GatewayGrant | None
-    relay_operations: frozenset[tuple[str, str]] = frozenset()
+    relay_operations: tuple[tuple[str, str, GatewayOperation], ...] = ()
 
 
 CURRENT_ADMISSION: ContextVar[PassiveAdmission | None] = ContextVar(
@@ -134,21 +246,19 @@ CURRENT_ADMISSION: ContextVar[PassiveAdmission | None] = ContextVar(
 )
 
 
-def passive_route_access(method: str, path: str) -> AccessClass | Literal["backing"]:
-    """Require an explicit classification for every selected-agent operation."""
+def passive_route_operation(
+    method: str, path: str
+) -> PassiveOperation | Literal["public", "backing"]:
+    """Select the declared effect for every selected-agent route."""
 
-    if not path.startswith(_PREFIX):
+    key = method, path.removeprefix(_PREFIX)
+    if not path.startswith(_PREFIX) or key in _PUBLIC:
         return "public"
-    key = (method, path.removeprefix(_PREFIX))
-    if key in _PUBLIC:
-        return "public"
-    if key in _PRIVATE:
-        return "private"
-    if key in _ADMIN:
-        return "admin"
     if key in _BACKING:
         return "backing"
-    raise RuntimeError(f"Missing passive target access classification for {method} {path}")
+    if key not in _OPERATIONS:
+        raise RuntimeError(f"Missing passive target operation for {method} {path}")
+    return _OPERATIONS[key]
 
 
 def challenge_headers(agent_ref: str) -> dict[str, str]:
@@ -173,31 +283,23 @@ def passive_client_challenge_path(method: str, path: str) -> str | None:
     return None
 
 
-def _relay_operations(http_request: Request) -> frozenset[tuple[str, str]]:
-    """Restrict relays to the matched proxy's existing downstream operations."""
+def _relay_operations(
+    operation: PassiveOperation, request: Request
+) -> tuple[tuple[str, str, GatewayOperation], ...]:
+    """Resolve the matched route's allowed downstream paths and operations."""
 
-    path = http_request.scope["route"].path.removeprefix(_PREFIX)
-    method = http_request.method
-    for key in ("channel", "reminder_id"):
-        if key in http_request.path_params:
-            path = path.replace("{" + key + "}", quote(str(http_request.path_params[key]), safe=""))
-    if path in {"/gateway", "/state", "/state/detail", "/managed-state", "/managed-state/detail"}:
-        return frozenset({("GET", "/v1/status")})
-    if path in {"/requests", "/interrupt"}:
-        return frozenset({("POST", "/v1/requests")})
-    if path == "/gateway/control/refresh":
-        return frozenset({("GET", "/v1/native-home"), (method, "/v1/control/refresh")})
-    if path.startswith(("/gateway/tui/", "/gateway/web/")):
-        return frozenset({(method, f"/v1/control{path.removeprefix('/gateway')}")})
-    if path.startswith("/gateway/"):
-        return frozenset({(method, f"/v1{path.removeprefix('/gateway')}")})
-    if path == "/usage" or path.startswith("/mail/"):
-        return frozenset({(method, f"/v1{path}")})
-    return frozenset()
+    routes = []
+    for method, declaration in operation.downstream:
+        path = declaration.path
+        for name, value in request.path_params.items():
+            path = path.replace("{" + name + "}", quote(str(value), safe=""))
+        downstream = declaration.bind_channel(request.path_params.get("channel"))
+        routes.append((method, path, downstream))
+    return tuple(routes)
 
 
 def proof_failure(
-    agent_ref: str, exc: GatewayAccessError, *, offer_challenge: bool = True
+    agent_ref: str | None, exc: GatewayAccessError, *, offer_challenge: bool = True
 ) -> JSONResponse:
     """Return a safe admission result applicable to this ingress."""
 
@@ -205,10 +307,13 @@ def proof_failure(
     detail = {
         401: "Caller proof is required or invalid",
         403: "Caller has insufficient authority",
+        409: "Target authorization changed",
+        413: "Protected request is too large",
+        422: "Invalid protected request",
         503: "Target access policy is unavailable",
     }.get(status, "Target access denied")
     headers = {"Cache-Control": "no-store"}
-    if status == 401 and offer_challenge:
+    if status == 401 and offer_challenge and agent_ref is not None:
         headers.update(challenge_headers(agent_ref))
     return JSONResponse(
         status_code=status,
@@ -262,25 +367,43 @@ def bind_request(request: Request, body: bytes) -> GatewayRequestBinding:
         raise GatewayAccessError(401, "invalid_proof") from None
 
 
+def describe_passive_endpoint(service: PassiveServerService, agent_ref: str) -> Response:
+    """Expose the selected target and current passive proof listener."""
+
+    selected = service.resolve_access_target(agent_ref)
+    if isinstance(selected, tuple):
+        return JSONResponse(status_code=selected[0], content=selected[1])
+    try:
+        service.require_access_target_current(selected)
+        state = selected.policy.store.snapshot()
+    except GatewayAccessError as exc:
+        return proof_failure(agent_ref, exc, offer_challenge=False)
+    descriptor = PassiveProofEndpoint(
+        target=selected.runtime.target,
+        presence_id=selected.policy.listener_id,
+        admin_mode=state.admin_mode,
+        challenge_path=f"/houmao/agents/{quote(agent_ref, safe='')}/auth/challenge",
+    )
+    return JSONResponse(
+        content=descriptor.model_dump(mode="json"), headers={"Cache-Control": "no-store"}
+    )
+
+
 async def issue_passive_challenge(
     service: PassiveServerService, request: Request, agent_ref: str
 ) -> Response:
-    """Issue a self or admin challenge for the current selected target."""
+    """Issue a caller challenge for the current selected target."""
 
     try:
         issuer = ingress_issuer(request, service.m_config.api_base_url)
         encoded = await read_bound_body(request, limit=64 * 1024)
         challenge = parse_access_document(GatewayChallengeRequest, encoded)
-        if challenge.purpose == "register" or any(
-            name in request.headers for name in _PROOF_HEADERS
-        ):
+        if challenge.purpose == "register":
             raise GatewayAccessError(403, "insufficient_authority")
-        path_parts = challenge.request.path.split("/")
-        if len(path_parts) < 5 or path_parts[1:4] != [
-            "houmao",
-            "agents",
-            quote(agent_ref, safe=""),
-        ]:
+        challenge_path = passive_client_challenge_path(
+            challenge.request.method, challenge.request.path
+        )
+        if challenge_path != f"/houmao/agents/{quote(agent_ref, safe='')}/auth/challenge":
             raise GatewayAccessError(403, "insufficient_authority")
         target = await run_in_threadpool(service.resolve_access_target, agent_ref)
         if isinstance(target, tuple):
@@ -302,13 +425,17 @@ class PassiveTargetRoute(APIRoute):
         """Wrap the matched route with selected-agent admission."""
 
         handler = super().get_route_handler()
-        classes = {method: passive_route_access(method, self.path) for method in self.methods or ()}
+        operations = {
+            method: passive_route_operation(method, self.path) for method in self.methods or ()
+        }
 
         async def admitted_handler(request: Request) -> Response:
             """Resolve the target, admit the caller, then run the matched operation."""
 
-            access = classes[request.method]
-            if access == "public":
+            operation = operations[request.method]
+            if operation == "public":
+                if any(name in request.headers for name in _PROOF_HEADERS):
+                    return proof_failure(None, GatewayAccessError(401, "invalid_proof"))
                 return await handler(request)
             agent_ref = str(request.path_params["agent_ref"])
             service: PassiveServerService = request.app.state.passive_service
@@ -316,10 +443,12 @@ class PassiveTargetRoute(APIRoute):
             if isinstance(target, tuple):
                 return JSONResponse(status_code=target[0], content=target[1])
             try:
-                admission, admitted_request = await _admit_request(service, request, target, access)
+                admission, admitted_request = await _admit_request(
+                    service, request, target, operation
+                )
                 await run_in_threadpool(service.require_access_target_current, target)
             except GatewayAccessError as exc:
-                return proof_failure(agent_ref, exc, offer_challenge=access != "backing")
+                return proof_failure(agent_ref, exc, offer_challenge=operation != "backing")
             except ClientDisconnect:
                 return JSONResponse(status_code=400, content={"detail": "Incomplete request"})
             except (OSError, RuntimeError, ValueError):
@@ -327,12 +456,12 @@ class PassiveTargetRoute(APIRoute):
             token = CURRENT_ADMISSION.set(admission)
             try:
                 response = await handler(admitted_request)
-                if response.status_code == 401 and access != "backing":
+                if response.status_code == 401 and operation != "backing":
                     response.headers.update(challenge_headers(agent_ref))
                     response.headers["Cache-Control"] = "no-store"
                 return response
             except GatewayAccessError as exc:
-                return proof_failure(agent_ref, exc, offer_challenge=access != "backing")
+                return proof_failure(agent_ref, exc, offer_challenge=operation != "backing")
             finally:
                 CURRENT_ADMISSION.reset(token)
 
@@ -343,7 +472,7 @@ async def _admit_request(
     service: PassiveServerService,
     request: Request,
     target: PassiveAccessTarget,
-    access: AccessClass | Literal["backing"],
+    operation: PassiveOperation | Literal["backing"],
 ) -> tuple[PassiveAdmission, Request]:
     """Admit only a current selected credential through its matching mechanism."""
 
@@ -354,7 +483,7 @@ async def _admit_request(
     signature = next(iter(proof[SIGNATURE_HEADER]), None)
     backing_token = next(iter(proof[BACKING_HEADER]), None)
     base_url = service.m_config.api_base_url
-    if access == "backing":
+    if operation == "backing":
         if not backing_token or challenge_id is not None or signature is not None:
             raise GatewayAccessError(403, "insufficient_authority")
         if target.tracked_agent_id is None:
@@ -377,23 +506,20 @@ async def _admit_request(
         raise GatewayAccessError(403, "insufficient_authority")
     if bool(challenge_id) != bool(signature) or challenge_id == "" or signature == "":
         raise GatewayAccessError(401, "invalid_proof")
-    if challenge_id is None:
-        grant = await run_in_threadpool(
-            target.policy.admit, access, issuer=base_url, request=bind_request(request, b"")
-        )
-        return PassiveAdmission(target, grant, _relay_operations(request)), request
-    issuer = ingress_issuer(request, base_url)
+    issuer = ingress_issuer(request, base_url) if challenge_id is not None else base_url
     body = await read_bound_body(request)
     grant = await run_in_threadpool(
         target.policy.admit,
-        access,
+        lambda: operation.permissions(body, channel=request.path_params.get("channel")),
         issuer=issuer,
         request=bind_request(request, body),
         challenge_id=challenge_id,
         signature=signature,
     )
-    return PassiveAdmission(target, grant, _relay_operations(request)), _request_with_body(
-        request, body
+    if not isinstance(grant, AuthorizationDecision):
+        raise GatewayAccessError(403, "insufficient_authority")
+    return PassiveAdmission(target, grant, _relay_operations(operation, request)), (
+        _request_with_body(request, body)
     )
 
 

@@ -93,7 +93,7 @@ def test_duplicate_advertised_names_never_import(tmp_path: Path) -> None:
         ("definition = object()", "invalid_definition"),
         (
             "from pydantic import BaseModel\nfrom houmao.gateway.plugins import PluginDefinition\n"
-            "definition = PluginDefinition(config_model=BaseModel,binding_identity=str,create=str,sdk_version=2)",
+            "definition = PluginDefinition(config_model=BaseModel,binding_identity=str,create=str,sdk_version=1)",
             "sdk_version_unsupported",
         ),
         (

@@ -273,6 +273,12 @@
           "maxItems": 256,
           "title": "Admin Keys",
           "type": "array"
+        },
+        "schema_version": {
+          "const": 2,
+          "default": 2,
+          "title": "Schema Version",
+          "type": "integer"
         }
       },
       "title": "GatewayLaunchSeed",

@@ -90,19 +90,19 @@ The mailbox facade is deliberately narrower than generic gateway availability.
 | --- | --- |
 | session is gateway-capable but no live gateway is attached | no `/v1/mail/*` routes are available |
 | live gateway is attached with a usable mailbox binding and a valid empty admin list | routine mail, operator post, and mailbox binding controls admit anonymous callers |
-| live gateway has a nonempty admin list | routine mail accepts current self or verified admin proof. Operator post and mailbox binding controls require verified admin proof |
+| live gateway has a nonempty admin list | routine mail accepts current self and callers with the relevant binding permission. Operator post and mailbox binding controls require their own actions |
 | readable manifest with neither channel configured | summary status reports both channels absent |
 | a lifecycle request selects an absent channel, stale binding, or wrong-scope reference | explicit failure with no other-channel fallback |
 | manifest is unreadable | mailbox operations fail explicitly |
 
-Private send and reply forms with owner-file attachment paths accept current anonymous authority with an empty list or verified admin proof with a nonempty list. The gateway checks authority before opening a file or calling the provider. The configured mailbox supplies the sender identity. The gateway tracks the initiating caller separately. [Gateway Access and Remote Deployment](access.md)
+Send, reply, and post with owner-file paths require the mailbox operation and the additional `mail.attachment.owner_file` action on that binding. The gateway checks authority before opening a file or calling the provider. The configured mailbox supplies the sender identity. The gateway tracks the initiating caller separately. [Gateway Access and Remote Deployment](access.md)
 
 ## Direct Versus Gateway Mailbox Paths
 
 The mailbox facade does not eliminate direct transport-specific mailbox behavior.
 
 - If no gateway is attached, use the maintained scoped manager mail command with explicit channel and expected binding ID. The manager owns provider access; ordinary discovery supplies no credential file or private store path.
-- With a live gateway, run `houmao-mgr agents self mail ...` for current self proof. An operator selects an explicit admin signer for protected HTTP calls. Admission refusal ends the call.
+- With a live gateway, run `houmao-mgr agents self mail ...` for current self proof. An operator selects an enrolled signer for protected HTTP calls. Admission refusal ends the call.
 - `message_ref` stays opaque in both paths.
 
 That split is why the mailbox docs and gateway docs stay adjacent but separate. Use [Stalwart Setup And First Session](../../mailbox/operations/stalwart-setup-and-first-session.md) for the operator path and [Mailbox Runtime Contracts](../../mailbox/contracts/runtime-contracts.md) for the slot, resolver, and prompt contract.

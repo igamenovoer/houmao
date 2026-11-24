@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+import hashlib
 from http.client import HTTPConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from ipaddress import IPv4Address
@@ -15,6 +17,7 @@ import shutil
 from socket import socket as Socket
 import ssl
 import subprocess
+import sys
 import threading
 from uuid import uuid4
 
@@ -56,6 +59,7 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
     RegistryIdentityV1,
+    RegistryGatewayV1,
     RegistryLifecycleV1,
     RegistryLivenessV1,
     RegistryMailboxesV1,
@@ -63,19 +67,25 @@ from houmao.agents.realm_controller.registry_models import (
     RegistryRuntimeV1,
     RegistryTerminalV2,
 )
-from houmao.agents.realm_controller.registry_storage import publish_managed_agent_record
+from houmao.agents.realm_controller.registry_storage import (
+    load_managed_agent_record_by_agent_id,
+    publish_managed_agent_record,
+    record_path_for_agent_id,
+)
 from houmao.agents.realm_controller.runtime import RuntimeSessionController
 from houmao.execution.context import observed_local_binding
 from houmao.execution.tmux import tmux_server_scope
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
+    GatewayAccessError,
     GatewayAdminKey,
     GatewayChallenge,
     GatewayChallengeRequest,
     GatewayClientBinding,
     GatewayLaunchSeed,
     GatewayRequestBinding,
+    GatewayTarget,
     load_gateway_signer,
     public_key_text,
     sign_sshsig,
@@ -83,6 +93,11 @@ from houmao.gateway.access import (
 )
 from houmao.gateway.deployment import GatewayDeployment
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
+from houmao.passive_server import discovery as passive_discovery
+from houmao.passive_server.app import create_app as create_passive_app
+from houmao.passive_server.config import PassiveServerConfig
+from houmao.passive_server.service import PassiveServerService
+from houmao.server.managed_agents import ManagedHeadlessAuthorityRecord
 from houmao.srv_ctrl.commands.main import cli
 
 _PREFIX = "/agents/tls-fixture"
@@ -180,7 +195,13 @@ def _isolated_tmux(tmp_path: Path) -> Iterator[Path]:
 
 
 def _provision_runtime(
-    tmp_path: Path, *, tmux_socket: Path, advertised_url: str
+    tmp_path: Path,
+    *,
+    tmux_socket: Path,
+    advertised_url: str | None,
+    agent_id: str = _AGENT,
+    session_name: str = _TMUX_SESSION,
+    provision_access: bool = True,
 ) -> tuple[Path, str]:
     """Prepare observed owner authority and normal gateway discovery inputs."""
 
@@ -200,7 +221,7 @@ def _provision_runtime(
     agent_def.mkdir()
     home_path = tmp_path / "fixture-agent-home"
     home_path.mkdir()
-    memory = tmp_path / ".houmao" / "memory" / "agents" / _AGENT
+    memory = tmp_path / ".houmao" / "memory" / "agents" / agent_id
     (memory / "pages").mkdir(parents=True)
     brain = _fixture_brain(tmp_path, agent_def=agent_def, home_path=home_path)
     launch = LaunchPlan(
@@ -225,7 +246,7 @@ def _provision_runtime(
         "role_bootstrap_applied": True,
         "working_directory": str(tmp_path),
         "resume_selection_kind": "none",
-        "tmux_session_name": _TMUX_SESSION,
+        "tmux_session_name": session_name,
         "tmux_socket_path": str(tmux_socket),
     }
     payload = build_session_manifest_payload(
@@ -234,9 +255,9 @@ def _provision_runtime(
             role_name="fixture",
             brain_manifest_path=brain,
             backend_state=backend_state,
-            agent_name=_TMUX_SESSION,
-            agent_id=_AGENT,
-            tmux_session_name=_TMUX_SESSION,
+            agent_name=session_name,
+            agent_id=agent_id,
+            tmux_session_name=session_name,
             session_id=session_id,
             agent_def_dir=agent_def,
             registry_generation_id=generation,
@@ -253,25 +274,26 @@ def _provision_runtime(
             backend=backend,
             tool="codex",
             session_id=session_id,
-            tmux_session_name=_TMUX_SESSION,
+            tmux_session_name=session_name,
             working_directory=tmp_path,
             backend_state=backend_state,
             agent_def_dir=agent_def,
         )
     )
-    gateway_access_runtime.provision_gateway_generation(
-        binding=binding, agent_id=_AGENT, generation_id=generation, seed=GatewayLaunchSeed()
-    )
-    gateway_access_runtime.save_gateway_deployment(
-        manifest_path,
-        GatewayDeployment(public_input_enabled=True, advertised_url=advertised_url),
-    )
+    if provision_access:
+        gateway_access_runtime.provision_gateway_generation(
+            binding=binding, agent_id=agent_id, generation_id=generation, seed=GatewayLaunchSeed()
+        )
+        gateway_access_runtime.save_gateway_deployment(
+            manifest_path,
+            GatewayDeployment(public_input_enabled=True, advertised_url=advertised_url),
+        )
 
     now = datetime.now(UTC)
     empty_slot = RegistryMailboxSlotV1(revision="fixture-empty", binding=None)
     record = ManagedAgentRegistryRecordV3(
-        agent_name=_TMUX_SESSION,
-        agent_id=_AGENT,
+        agent_name=session_name,
+        agent_id=agent_id,
         generation_id=generation,
         execution_binding=binding,
         mode=mode_for_backend(backend),
@@ -282,8 +304,8 @@ def _provision_runtime(
             agent_def_dir=str(agent_def),
         ),
         terminal=RegistryTerminalV2(
-            current_session_name=_TMUX_SESSION,
-            last_session_name=_TMUX_SESSION,
+            current_session_name=session_name,
+            last_session_name=session_name,
             socket_path=str(tmux_socket),
         ),
         lifecycle=RegistryLifecycleV1(
@@ -301,7 +323,7 @@ def _provision_runtime(
     publish_managed_agent_record(record, env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(registry)})
     with tmux_server_scope(tmux_socket):
         set_tmux_session_environment(
-            session_name=_TMUX_SESSION,
+            session_name=session_name,
             env_vars={
                 AGENT_MANIFEST_PATH_ENV_VAR: str(manifest_path),
                 AGENT_DEF_DIR_ENV_VAR: str(agent_def),
@@ -672,8 +694,8 @@ def _exercise_access(
     unsigned = GatewayClient(base_url=advertised, ca_bundle_path=ca)
     local = GatewayClient(base_url=local_url)
     descriptor = unsigned.describe_endpoint()
-    assert descriptor.admin_access == "open"
-    assert descriptor.private_proof == "none"
+    assert descriptor.admin_mode == "open"
+    assert descriptor.proof_protocol == "sshsig-v2"
     assert descriptor.advertised_url == advertised
     assert set(descriptor.public_operations) == {"messages", "public_prompt"}
     assert unsigned.health().model_dump() == {"protocol_version": "v1", "status": "ok"}
@@ -706,7 +728,7 @@ def _exercise_access(
         binding = GatewayClientBinding(
             base_url=advertised,
             owner=descriptor.target.owner,
-            purpose="register" if purpose == "register" else "admin",
+            purpose="register" if purpose == "register" else "caller",
             private_key_path=str(path),
             ca_bundle_path=str(ca),
         )
@@ -724,8 +746,8 @@ def _exercise_access(
     second, second_client, _ = admin_client("second", "admin")
     assert register.add_admin_key(first) == first.key_id
     keyed = unsigned.describe_endpoint()
-    assert keyed.admin_access == "key_required"
-    assert keyed.private_proof == "self_or_admin"
+    assert keyed.admin_mode == "keyed"
+    assert keyed.proof_protocol == "sshsig-v2"
     with pytest.raises(GatewayHttpError) as private:
         unsigned.status()
     assert private.value.status_code == 401
@@ -737,7 +759,7 @@ def _exercise_access(
         binding=GatewayClientBinding(
             base_url=advertised,
             owner=descriptor.target.owner,
-            purpose="admin",
+            purpose="caller",
             private_key_path=str(first_path),
             ca_bundle_path=str(ca),
         ),
@@ -754,7 +776,7 @@ def _exercise_access(
     assert cli_payload["execution_path"] == "gateway_backed"
     self_signer = gateway_access_runtime.gateway_access_for_manifest(
         manifest
-    ).store.self_signer_path(descriptor.target.incarnation)
+    ).self_store.self_signer_path(descriptor.target.incarnation)
     assert str(self_signer) not in result.output
     assert "SSHSIG" not in result.output
 
@@ -787,9 +809,9 @@ def _exercise_access(
     second_client.remove_admin_key(first.key_id)
     with pytest.raises(GatewayHttpError) as revoked:
         first_client.status()
-    assert revoked.value.status_code == 401
+    assert revoked.value.status_code == 403
     second_client.remove_admin_key(second.key_id)
-    assert unsigned.describe_endpoint().admin_access == "open"
+    assert unsigned.describe_endpoint().admin_mode == "open"
     assert unsigned.list_reminders().reminders == []
     assert unsigned.status().gateway_health == "healthy"
 
@@ -802,7 +824,7 @@ def _assert_web_entry_requires_direct_ingress(
     path = "/v1/web/entry-ticket"
     binding = GatewayRequestBinding.from_request("POST", path, "", b"")
     challenge_request = GatewayChallengeRequest(
-        purpose="admin", key_id=admin.key_id, request=binding
+        purpose="caller", key_id=admin.key_id, request=binding
     )
     challenge_result = caller.post(
         "/v1/auth/challenge", json=challenge_request.model_dump(mode="json")
@@ -831,3 +853,589 @@ def _assert_web_entry_requires_direct_ingress(
         assert response.headers["referrer-policy"] == "no-referrer"
         assert "location" not in response.headers
         assert "owner-local" in response.text or "owner_local_web_entry_required" in response.text
+
+
+_PEER_AGENT = "tls-cross-account-peer"
+_PEER_SESSION = "HOUMAO-tls-cross-account-peer"
+# Run the second managed fixture and its signers inside the other account.
+_PEER_SCRIPT = """
+import json
+from pathlib import Path
+import runpy
+import sys
+from uuid import uuid4
+
+from houmao.agents.realm_controller import gateway_access_runtime
+from houmao.agents.realm_controller.manifest import load_session_manifest, update_session_manifest
+from houmao.agents.realm_controller.registry_storage import (
+    load_managed_agent_record_by_agent_id,
+    publish_managed_agent_record,
+)
+from houmao.cao.rest_client import CaoApiError
+from houmao.gateway.access import GatewayClientBinding, GatewayOwner
+from houmao.passive_server.client import PassiveServerClient
+from houmao.srv_ctrl.commands.main import cli
+
+operation, root, fixture_path, *arguments = sys.argv[1:]
+root = Path(root)
+gateway_access_runtime.resolve_houmao_home_root = lambda: root / "owner"
+if operation == "provision":
+    fixture = runpy.run_path(fixture_path)
+    fixture["_provision_runtime"](
+        root, tmux_socket=root / "tmux.sock", advertised_url=None,
+        agent_id=fixture["_PEER_AGENT"], session_name=fixture["_PEER_SESSION"],
+    )
+elif operation == "relaunch":
+    current = load_managed_agent_record_by_agent_id(arguments[0])
+    assert current is not None and current.execution_binding is not None
+    manifest = Path(current.runtime.manifest_path)
+    generation = str(uuid4())
+    gateway_access_runtime.provision_gateway_generation(
+        binding=current.execution_binding, agent_id=current.agent_id, generation_id=generation,
+    )
+    runtime = dict(load_session_manifest(manifest).payload["runtime"])
+    runtime["registry_generation_id"] = generation
+    update_session_manifest(manifest, {"registry_generation_id": generation, "runtime": runtime})
+    publish_managed_agent_record(
+        current.model_copy(update={"generation_id": generation}),
+        expected_generation_id=current.generation_id,
+    )
+elif operation == "cli":
+    cli.main(args=arguments)
+elif operation == "passive":
+    url, agent_id, context_id, generation, route = arguments
+    client = PassiveServerClient(
+        url,
+        binding=GatewayClientBinding(
+            base_url=url, owner=GatewayOwner(agent_id=agent_id, context_id=context_id),
+            purpose="caller", private_key_path=str(root / "peer-key"),
+        ),
+        target_incarnation=generation,
+    )
+    try:
+        _, status, _ = client._request_root_json("GET", f"/houmao/agents/{agent_id}/{route}")
+    except CaoApiError as error:
+        status = error.status_code
+    print(json.dumps({"status": status}))
+"""
+
+
+@dataclass(frozen=True)
+class _PeerAccount:
+    """Run a synthetic source agent as a previously provisioned separate OS user."""
+
+    username: str
+    root: Path
+
+    def run(self, *argv: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        """Run without ambient credentials, terminal coordinates, or config roots."""
+
+        return subprocess.run(
+            [
+                "sudo",
+                "-n",
+                "-u",
+                self.username,
+                "--",
+                "env",
+                "-i",
+                "PATH=/usr/bin:/bin",
+                "PYTHONDONTWRITEBYTECODE=1",
+                f"{HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR}={self.root / 'registry'}",
+                *argv,
+            ],
+            cwd=self.root if os.access(self.root, os.X_OK) else "/tmp",
+            capture_output=True,
+            text=True,
+            check=check,
+            timeout=20,
+        )
+
+    def python(
+        self, operation: str, *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        """Run the fixture or its actual manager and typed passive client."""
+
+        return self.run(
+            sys.executable,
+            "-c",
+            _PEER_SCRIPT,
+            operation,
+            str(self.root),
+            str(Path(__file__).resolve()),
+            *args,
+            check=check,
+        )
+
+
+@contextmanager
+def _provision_peer_account(username: str) -> Iterator[tuple[_PeerAccount, dict[str, str]]]:
+    """Start an isolated tmux server and managed fixture under the second UID."""
+
+    identity = subprocess.run(
+        ["sudo", "-n", "-u", username, "--", "id", "-u"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert int(identity.stdout) != os.geteuid()
+    directory = subprocess.run(
+        ["sudo", "-n", "-u", username, "--", "mktemp", "-d", "/tmp/houmao-access-peer.XXXXXXXX"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    root = Path(directory.stdout.strip())
+    assert root.parent == Path("/tmp") and root.name.startswith("houmao-access-peer.")
+    peer = _PeerAccount(username, root)
+    socket = root / "tmux.sock"
+    try:
+        peer.run(
+            "tmux",
+            "-S",
+            str(socket),
+            "-f",
+            os.devnull,
+            "new-session",
+            "-d",
+            "-s",
+            _PEER_SESSION,
+            "sleep 120",
+        )
+        peer.python("provision")
+        peer.run("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(root / "peer-key"))
+        provisioned = peer.python(
+            "cli",
+            "--print-json",
+            "agents",
+            "single",
+            "--agent-id",
+            _PEER_AGENT,
+            "access",
+            "peer-signer",
+            "--key",
+            str(root / "peer-key"),
+        )
+        yield peer, json.loads(provisioned.stdout)
+    finally:
+        peer.run("tmux", "-S", str(socket), "kill-session", "-t", f"={_PEER_SESSION}", check=False)
+        peer.run("rm", "-rf", "--", str(root))
+
+
+@contextmanager
+def _serve_passive_target(
+    tmp_path: Path,
+    manifest: Path,
+    *,
+    track_detached_usage: bool,
+) -> Iterator[str]:
+    """Serve genuine passive routing, with retained headless authority when detached."""
+
+    with Socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(128)
+        base_url = f"http://127.0.0.1:{listener.getsockname()[1]}"
+        config = PassiveServerConfig(
+            api_base_url=base_url,
+            runtime_root=tmp_path / "runtime",
+            registry_root=tmp_path / "registry",
+            discovery_poll_interval_seconds=0.1,
+        )
+        service = PassiveServerService(config)
+        if track_detached_usage:
+            service.m_headless.m_store.ensure_directories()
+            service.m_headless.m_store.write_authority(
+                ManagedHeadlessAuthorityRecord(
+                    tracked_agent_id=_AGENT,
+                    backend="codex_headless",
+                    tool="codex",
+                    agent_id=_AGENT,
+                    agent_name=_TMUX_SESSION,
+                    manifest_path=str(manifest),
+                    session_root=str(manifest.parent),
+                    tmux_session_name=_TMUX_SESSION,
+                    agent_def_dir=str(tmp_path / "agent-def"),
+                    created_at_utc=datetime.now(UTC).isoformat(),
+                    updated_at_utc=datetime.now(UTC).isoformat(),
+                )
+            )
+        ready = threading.Event()
+
+        class ReadyPassive(uvicorn.Server):
+            """Wait for discovery service startup and listener setup."""
+
+            async def startup(self, sockets: list[Socket] | None = None) -> None:
+                """Release the test after the live passive endpoint is ready."""
+
+                await super().startup(sockets=sockets)
+                ready.set()
+
+        server = ReadyPassive(
+            uvicorn.Config(
+                create_passive_app(service=service),
+                log_level="error",
+                access_log=False,
+            )
+        )
+        worker = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
+        worker.start()
+        try:
+            assert ready.wait(5) and server.started
+            yield base_url
+        finally:
+            server.should_exit = True
+            worker.join(5)
+            assert not worker.is_alive()
+
+
+@contextmanager
+def _publish_fixture_gateway(base_url: str, manifest: Path) -> Iterator[None]:
+    """Publish the real listener alongside the isolated synthetic runtime record."""
+
+    record = load_managed_agent_record_by_agent_id(_AGENT)
+    assert record is not None and record.gateway is None
+    descriptor = GatewayClient(base_url=base_url).describe_endpoint()
+    connection = RegistryGatewayV1(
+        host="127.0.0.1",
+        port=int(base_url.rsplit(":", 1)[1]),
+        state_path=str(manifest.parent / "gateway" / "state.json"),
+        protocol_version="v1",
+        owner_connect_url=base_url,
+        endpoint_descriptor=descriptor,
+    )
+    publish_managed_agent_record(record.model_copy(update={"gateway": connection}))
+    try:
+        yield
+    finally:
+        publish_managed_agent_record(record)
+
+
+def _target_access_cli(*arguments: str) -> dict[str, object]:
+    """Run the owner-side policy workflow and return its receipt."""
+
+    result = CliRunner().invoke(
+        cli, ["--print-json", "agents", "single", "--agent-id", _AGENT, "access", *arguments]
+    )
+    assert result.exit_code == 0, result.output
+    return json.loads(result.output)
+
+
+def _peer_gateway_call(
+    peer: _PeerAccount,
+    base_url: str,
+    *,
+    path: str,
+    expected_status: int,
+) -> str:
+    """Invoke the remote peer CLI with an explicit canonical target and listener."""
+
+    descriptor = GatewayClient(base_url=base_url).describe_endpoint()
+    result = peer.python(
+        "cli",
+        "--print-json",
+        "agents",
+        "single",
+        "--agent-id",
+        descriptor.target.owner.agent_id,
+        "access",
+        "request",
+        "--url",
+        base_url,
+        "--context-id",
+        descriptor.target.owner.context_id,
+        "--generation",
+        descriptor.target.incarnation,
+        "--presence",
+        descriptor.presence_id,
+        "--source-agent-id",
+        _PEER_AGENT,
+        "GET",
+        path,
+        check=False,
+    )
+    if expected_status == 200:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode == 1 and f"HTTP {expected_status}" in result.stderr, result.stderr
+    assert str(peer.root) not in result.stderr
+    return result.stdout
+
+
+def _peer_passive_call(
+    peer: _PeerAccount,
+    base_url: str,
+    *,
+    target: GatewayTarget,
+    route: str,
+    expected_status: int,
+) -> None:
+    """Check the same enrolled source from a signed passive request."""
+
+    result = peer.python(
+        "passive",
+        base_url,
+        target.owner.agent_id,
+        target.owner.context_id,
+        target.incarnation,
+        route,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"status": expected_status}
+
+
+def test_cross_account_peer_policy_on_distinct_tmux_servers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify live and detached target policy using a key held only by a separate account."""
+
+    peer_user = os.environ.get("HOUMAO_TEST_PEER_USER")
+    if not peer_user:
+        pytest.skip("Set HOUMAO_TEST_PEER_USER to an existing account accessible with sudo -n -u")
+    monkeypatch.setattr(
+        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
+    )
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    with _provision_peer_account(peer_user) as (peer, public), _isolated_tmux(tmp_path) as socket:
+        observe_sessions = passive_discovery._get_live_tmux_session_names
+
+        def isolated_discovery(socket_path: str | None = None) -> set[str] | None:
+            """Constrain every discovery probe, including the default scan, to the fixture."""
+
+            assert socket_path in {None, str(socket)}
+            return observe_sessions(str(socket))
+
+        monkeypatch.setattr(passive_discovery, "_get_live_tmux_session_names", isolated_discovery)
+        manifest, generation = _provision_runtime(tmp_path, tmux_socket=socket, advertised_url=None)
+        assert socket != peer.root / "tmux.sock"
+        access = gateway_access_runtime.gateway_access_for_manifest(manifest)
+        policy_path = access.private_root / "authorization.sqlite3"
+        assert peer.run("test", "-r", str(policy_path), check=False).returncode == 1
+        assert not os.access(peer.root / "peer-key", os.R_OK)
+        assert public["logical_agent_id"] == _PEER_AGENT
+
+        key_path = tmp_path / "peer.pub"
+        key_path.write_text(public["public_key"], encoding="utf-8")
+        admin_secret = Ed25519PrivateKey.generate()
+        admin_private_key = tmp_path / "admin.key"
+        admin_public_key = tmp_path / "admin.pub"
+        _write_private_key(admin_private_key, admin_secret)
+        admin_public_key.write_text(public_key_text(admin_secret.public_key()), encoding="utf-8")
+
+        with _serve_gateway(manifest, monkeypatch, generation) as (url, _):
+            unsigned = GatewayClient(base_url=url)
+            before = unsigned.describe_endpoint()
+            assert before.admin_mode == "open"
+            assert unsigned.status().gateway_health == "healthy"
+            admin = _target_access_cli(
+                "admin-add",
+                "--first",
+                "--signer",
+                str(admin_private_key),
+                "--principal",
+                "owner-admin",
+                "--public-key",
+                str(admin_public_key),
+            )
+            assert admin["admin_mode"] == "keyed"
+            assert (
+                _target_access_cli(
+                    "principal-add",
+                    "peer",
+                    "--kind",
+                    "agent",
+                    "--label",
+                    "Independent peer",
+                    "--logical-agent-id",
+                    public["logical_agent_id"],
+                )["admin_mode"]
+                == "keyed"
+            )
+            assert (
+                _target_access_cli("credential-enroll", "peer", "--public-key", str(key_path))[
+                    "key_id"
+                ]
+                == public["key_id"]
+            )
+            _target_access_cli(
+                "role-put",
+                "observe",
+                "--permission",
+                "agent",
+                "agent.status.read",
+                "--permission",
+                "agent",
+                "agent.usage.read",
+            )
+            _target_access_cli("role-assign", "peer", "observe")
+            state = _peer_gateway_call(peer, url, path="/v1/status", expected_status=200)
+            assert json.loads(state)["gateway_health"] == "healthy"
+            peer.run(
+                "tmux",
+                "-S",
+                str(peer.root / "tmux.sock"),
+                "respawn-pane",
+                "-k",
+                "-t",
+                f"{_PEER_SESSION}:0.0",
+                "sleep 120",
+            )
+            peer.python("relaunch", _PEER_AGENT)
+            _peer_gateway_call(peer, url, path="/v1/status", expected_status=200)
+            _peer_gateway_call(peer, url, path="/v1/reminders", expected_status=403)
+            with (
+                _publish_fixture_gateway(url, manifest),
+                _serve_passive_target(tmp_path, manifest, track_detached_usage=False) as passive,
+            ):
+                _peer_passive_call(
+                    peer, passive, target=before.target, route="gateway", expected_status=200
+                )
+                _peer_passive_call(
+                    peer,
+                    passive,
+                    target=before.target,
+                    route="gateway/reminders",
+                    expected_status=403,
+                )
+
+        with _serve_passive_target(tmp_path, manifest, track_detached_usage=True) as passive:
+            _peer_passive_call(
+                peer, passive, target=before.target, route="usage", expected_status=200
+            )
+            with httpx.Client(base_url=passive, trust_env=False) as unsigned_passive:
+                assert unsigned_passive.get(f"/houmao/agents/{_AGENT}/usage").status_code == 401
+
+            with _serve_gateway(manifest, monkeypatch, generation) as (url, _):
+                current = GatewayClient(base_url=url).describe_endpoint()
+                assert (current.target, current.admin_mode) == (before.target, "keyed")
+                assert current.presence_id != before.presence_id
+                _peer_gateway_call(peer, url, path="/v1/status", expected_status=200)
+                _target_access_cli("role-revoke", "peer", "observe")
+                _peer_gateway_call(peer, url, path="/v1/status", expected_status=403)
+                _peer_passive_call(
+                    peer, passive, target=before.target, route="usage", expected_status=403
+                )
+                _target_access_cli("credential-revoke", public["key_id"])
+                _peer_gateway_call(peer, url, path="/v1/status", expected_status=401)
+                removed = _target_access_cli(
+                    "admin-remove", str(admin["key_id"]), "--signer", str(admin_private_key)
+                )
+                assert removed["admin_mode"] == "open" and removed["removed"] is True
+                _peer_gateway_call(peer, url, path="/v1/status", expected_status=401)
+                assert GatewayClient(base_url=url).status().gateway_health == "healthy"
+
+            with httpx.Client(base_url=passive, trust_env=False) as anonymous:
+                assert anonymous.get(f"/houmao/agents/{_AGENT}/usage").status_code == 200
+
+
+@pytest.mark.parametrize("mode", ["open", "keyed"])
+def test_explicit_reprovisioning_bypasses_retired_discovery_and_roster(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    """Use current owner manifest authority when retired registry records cannot be selected."""
+
+    monkeypatch.setattr(
+        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
+    )
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    with _isolated_tmux(tmp_path) as socket:
+        manifest, generation = _provision_runtime(
+            tmp_path,
+            tmux_socket=socket,
+            advertised_url=None,
+            provision_access=False,
+        )
+        access = gateway_access_runtime.gateway_access_for_manifest(manifest)
+        digest = hashlib.sha256(access.owner.model_dump_json().encode()).hexdigest()
+        legacy_root = access.private_root / digest
+        legacy_root.mkdir(mode=0o700, parents=True)
+        access.private_root.chmod(0o700)
+        legacy_marker = access.private_root / f"{digest}.initialized"
+        legacy_marker.touch(mode=0o600)
+        legacy_marker.write_text("houmao-gateway-access-v1\n")
+        old_key = GatewayAdminKey(
+            principal="retired-key",
+            public_key=public_key_text(Ed25519PrivateKey.generate().public_key()),
+        )
+        old_roster = legacy_root / "admin.json"
+        old_roster.touch(mode=0o600)
+        old_roster.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "owner": access.owner.model_dump(mode="json"),
+                    "revision": 0,
+                    "keys": [{"key": old_key.model_dump(mode="json"), "enrollment": 0}],
+                }
+            )
+        )
+        preserved = old_roster.read_bytes()
+
+        record = record_path_for_agent_id(_AGENT)
+        obsolete = json.loads(record.read_bytes())
+        obsolete["gateway"] = {
+            "host": "127.0.0.1",
+            "port": 45000,
+            "state_path": str(manifest.parent / "state.json"),
+            "protocol_version": "v1",
+            "owner_connect_url": "http://127.0.0.1:45000",
+            "endpoint_descriptor": {
+                "protocol": "v1",
+                "target": access.target.model_dump(mode="json"),
+                "presence_id": "retired-listener",
+                "advertised_url": None,
+                "admin_access": "key_required",
+                "private_proof": "self_or_admin",
+            },
+        }
+        record.write_text(json.dumps(obsolete))
+
+        runner = CliRunner()
+        command = ["--print-json", "agents", "single", "--agent-id", _AGENT, "access", "init"]
+        refused = runner.invoke(cli, [*command, "--empty"])
+        assert refused.exit_code == 1 and "verified local execution owner" in refused.output
+        mismatched = [
+            *command[:3],
+            "--agent-id",
+            "different-agent",
+            "access",
+            "init",
+            "--manifest",
+            str(manifest),
+            "--empty",
+        ]
+        denied = runner.invoke(cli, mismatched)
+        assert denied.exit_code == 1 and "verified local execution owner" in denied.output
+        with pytest.raises(GatewayAccessError, match="unavailable"):
+            access.store.snapshot()
+        with pytest.raises(GatewayAccessError) as automatic:
+            access.store.initialize()
+        assert automatic.value.code == "retired_policy_requires_owner_init"
+
+        if mode == "keyed":
+            current_key = GatewayAdminKey(
+                principal="current-operator",
+                public_key=public_key_text(Ed25519PrivateKey.generate().public_key()),
+            )
+            seed = tmp_path / "explicit.json"
+            seed.touch(mode=0o600)
+            seed.write_text(GatewayLaunchSeed(admin_keys=(current_key,)).model_dump_json())
+            initial = ["--seed", str(seed)]
+        else:
+            initial = ["--empty"]
+        result = runner.invoke(cli, [*command, "--manifest", str(manifest), *initial])
+        assert result.exit_code == 0, result.output
+        state = access.store.snapshot()
+        assert json.loads(result.output)["admin_mode"] == state.admin_mode == mode
+        assert state.find_credential(old_key.key_id) is None
+        assert access.self_store.load_self(generation).owner == access.owner
+        assert old_roster.read_bytes() == preserved

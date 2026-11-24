@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 from dataclasses import dataclass
@@ -33,6 +34,8 @@ from houmao.gateway.access import (
     read_private_access_file,
 )
 from houmao.gateway.deployment import GatewayDeployment, owner_gateway_base_url
+from houmao.gateway.authorization_models import seed_snapshot
+from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, resolve_houmao_home_root
 
 
@@ -44,7 +47,8 @@ class GatewayRuntimeAccess:
     execution_binding: ExecutionBindingV1
     target: GatewayTarget
     private_root: Path
-    store: GatewayAccessStore
+    store: AuthorizationStore
+    self_store: GatewayAccessStore
 
     @property
     def owner(self) -> GatewayOwner:
@@ -87,19 +91,17 @@ class GatewayRuntimeAccess:
             for pane in panes
         ):
             return None
-        return self.store.load_self(self.target.incarnation)
+        return self.self_store.load_self(self.target.incarnation)
 
 
-def _owner_access(
-    binding: ExecutionBindingV1, agent_id: str
-) -> tuple[GatewayOwner, Path, GatewayAccessStore]:
+def _owner_access(binding: ExecutionBindingV1, agent_id: str) -> tuple[GatewayOwner, Path]:
     """Select one external owner-private directory for a bound logical agent."""
 
     validate_execution_owner(binding)
     owner = GatewayOwner(agent_id=agent_id, context_id=binding.context_id)
     scope = hashlib.sha256(f"{binding.context_id}\0{agent_id}".encode()).hexdigest()
     root = resolve_houmao_home_root() / "gateway-access" / scope
-    return owner, root, GatewayAccessStore.from_root(root, owner=owner)
+    return owner, root
 
 
 def gateway_access_for_manifest(manifest_path: Path) -> GatewayRuntimeAccess:
@@ -113,7 +115,7 @@ def gateway_access_for_manifest(manifest_path: Path) -> GatewayRuntimeAccess:
         binding = payload.runtime.execution_binding
         if binding is None or payload.registry_generation_id is None:
             raise ValueError("Gateway access requires a bound managed generation.")
-        owner, root, store = _owner_access(binding, payload.agent_id)
+        owner, root = _owner_access(binding, payload.agent_id)
     except (SessionManifestError, OSError, ValueError, RuntimeError):
         raise SessionManifestError("Gateway execution authority is unavailable.") from None
     return GatewayRuntimeAccess(
@@ -121,7 +123,8 @@ def gateway_access_for_manifest(manifest_path: Path) -> GatewayRuntimeAccess:
         execution_binding=binding,
         target=GatewayTarget(owner=owner, incarnation=payload.registry_generation_id),
         private_root=root,
-        store=store,
+        store=AuthorizationStore(root, owner),
+        self_store=GatewayAccessStore.from_root(root, owner),
     )
 
 
@@ -134,19 +137,20 @@ def provision_gateway_generation(
 ) -> None:
     """Prepare a fresh generation, optionally initializing the first owner policy."""
 
-    owner, _, store = _owner_access(binding, agent_id)
+    owner, root = _owner_access(binding, agent_id)
+    store = AuthorizationStore(root, owner)
     if seed is None:
-        store.load()
+        store.snapshot()
     else:
         record = load_managed_agent_record_by_agent_id(
             agent_id, env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: binding.registry_root}
         )
         previous_binding = record.execution_binding if record is not None else None
         if previous_binding is not None and previous_binding.context_id == owner.context_id:
-            store.load()
+            store.snapshot()
         else:
-            store.initialize(seed)
-    store.provision_self(generation_id)
+            store.initialize(seed_snapshot(owner, seed))
+    GatewayAccessStore.from_root(root, owner).provision_self(generation_id)
 
 
 def load_gateway_access_config(path: Path) -> GatewayDeployment:
@@ -154,8 +158,9 @@ def load_gateway_access_config(path: Path) -> GatewayDeployment:
 
     try:
         deployment = parse_access_document(GatewayDeployment, read_private_access_file(path))
-        if deployment.admin_signer_path is not None:
-            load_gateway_signer(Path(deployment.admin_signer_path))
+        for signer_path in (deployment.admin_signer_path, deployment.peer_signer_path):
+            if signer_path is not None:
+                load_gateway_signer(Path(signer_path))
         return deployment
     except (OSError, ValueError):
         raise SessionManifestError(
@@ -167,7 +172,11 @@ def load_gateway_admin_seed(path: Path) -> GatewayLaunchSeed:
     """Read an explicit launch seed before runtime or backend changes."""
 
     try:
-        return parse_access_document(GatewayLaunchSeed, read_private_access_file(path))
+        raw = read_private_access_file(path)
+        seed = parse_access_document(GatewayLaunchSeed, raw)
+        if json.loads(raw).get("schema_version") != 2:
+            raise ValueError("An explicit current seed schema is required.")
+        return seed
     except (OSError, ValueError):
         raise SessionManifestError("Gateway admin seed is unavailable or invalid.") from None
 
@@ -191,7 +200,7 @@ def save_gateway_deployment(manifest_path: Path, deployment: GatewayDeployment) 
     """Atomically retain selected deployment settings after validating owner authority."""
 
     access = gateway_access_for_manifest(manifest_path)
-    access.store.load()
+    access.store.snapshot()
     descriptor, temporary = tempfile.mkstemp(prefix=".deployment-", dir=access.private_root)
     temporary_path = Path(temporary)
     try:
@@ -223,7 +232,7 @@ def owner_gateway_client_binding(
             GatewayClientBinding(
                 base_url=base_url,
                 owner=access.owner,
-                purpose="admin",
+                purpose="caller",
                 private_key_path=deployment.admin_signer_path,
             ),
             generation,
@@ -236,8 +245,8 @@ def owner_gateway_client_binding(
         GatewayClientBinding(
             base_url=base_url,
             owner=access.owner,
-            purpose="self",
-            private_key_path=str(access.store.self_signer_path(generation)),
+            purpose="caller",
+            private_key_path=str(access.self_store.self_signer_path(generation)),
         ),
         generation,
     )

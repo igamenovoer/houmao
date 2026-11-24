@@ -25,4 +25,4 @@ houmao-mgr --print-json agents self mail peek --channel "$MAIL_CHANNEL" \
 
 Choose JSON on the first reply or on `peek`. If the outcome remains uncertain, check `mail list --box sent` on the replying agent's original binding. Use the parent's thread as a correlation hint. If the sent-box evidence is inconclusive, report the reply outcome as unresolved. An answered parent alone cannot confirm this particular reply.
 
-The gateway requires verified admin proof for owner-file attachments on this private route. Keep transport-local threading identifiers opaque.
+The gateway requires the mail action and `mail.attachment.owner_file` on the selected mailbox binding. Keep transport-local threading identifiers opaque.

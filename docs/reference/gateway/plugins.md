@@ -61,7 +61,7 @@ definition = PluginDefinition(
     config_model=NotificationConfiguration,
     binding_identity=lambda config: "example-account:" + config.account,
     create=NotificationPlugin.from_config,
-    sdk_version=1,
+    sdk_version=2,
 )
 ```
 
@@ -159,15 +159,17 @@ Adapters that cannot confirm actual handoff fail with `503`. Native headless exe
 
 ## Inspect and Operate the Host
 
-With a valid empty admin roster, an unsigned gateway client can read the inventory and instance status. With enrolled keys, use a binding for current self or admin proof. Call `GatewayClient.get_plugins()` and `GatewayClient.get_plugin_status("team-chat")` with the selected client. Custom plugin routes are available through `GatewayClient.request_plugin_json()`. [Gateway Access and Remote Deployment](operations/access.md)
+With a valid empty admin roster, an unsigned gateway client can use the full set of supported plugin actions for the selected agent. Enrolled administrators have the same access in keyed mode. Other callers need the applicable permission on the selected resource. Use `GatewayClient.get_plugins()` and `GatewayClient.get_plugin_status("team-chat")` for host-owned status and `GatewayClient.request_plugin_json()` for a custom route. [Gateway Access and Remote Deployment](operations/access.md)
 
 Status exposes implementation/distribution versions, SDK version, lifecycle, connection state, binding identity, worker names, and safe failure/conflict details. It excludes configuration contents, selected credential paths, and event bodies.
 
-Declare a private route with `openapi_extra=plugin_route_access("private")` using the helper exported by `houmao.gateway.plugins`. Declare `"admin"` for controls. Omitted declarations use admin access. A valid empty roster permits anonymous calls to both classes. The host reserves public routes and rejects incompatible declarations and paths outside the instance namespace before activating the instance. A route's access check precedes plugin lifecycle errors. The plugin handler uses its configured service identity independently of HTTP caller proof.
+Declare each custom route with `openapi_extra=plugin_route_action("plugin.example-notifications.notify")` using the helper exported by `houmao.gateway.plugins`. The action starts with `plugin.`, then the installed entry-point name and a dot-separated operation. The host binds the action to the selected instance and its service binding. Missing or invalid declarations fail before resource activation. The host checks permission before returning plugin lifecycle errors.
+
+For a scoped caller in keyed mode, enroll its key and grant the action through the selected agent's `houmao-mgr agents single access` commands. Use the bound instance resource, such as `plugin:team-chat:<binding-id>`, and the declared action together. A grant for `team-chat` leaves other instances to their own policy. The plugin uses its configured service identity for provider calls and keeps the HTTP caller's proof out of the plugin context.
 
 Validated access settings enable plugin activation and ordinary background event delivery on broader listeners. Invalid required policy prevents startup before imports or worker activation. Workers use their configured service authority and preserve the existing readiness, current-body, and confirmed handoff checks.
 
-For package upgrades or changed selection, detach the live gateway, install the package or update the configuration, and attach again. This restarts the sidecar without relaunching the managed agent. Detaching a gateway does not imply that the agent body has stopped.
+For package upgrades or changed selection, detach the live gateway, install the package or update the configuration, and attach again. This restarts the sidecar without relaunching the managed agent. SDK 2 requires explicit actions on all custom routes. Update and reinstall SDK 1 plugins during the authorization cutover, and provision the target's current policy before serving protected traffic.
 
 ## Qualification
 

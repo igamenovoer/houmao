@@ -181,15 +181,13 @@
       "additionalProperties": false,
       "description": "Publish a live endpoint and its access requirements without credentials.",
       "properties": {
-        "protocol": {
-          "title": "Protocol",
-          "type": "string"
-        },
-        "target": {
-          "$ref": "#/$defs/GatewayTarget"
-        },
-        "presence_id": {
-          "title": "Presence Id",
+        "admin_mode": {
+          "enum": [
+            "open",
+            "keyed",
+            "unavailable"
+          ],
+          "title": "Admin Mode",
           "type": "string"
         },
         "advertised_url": {
@@ -203,23 +201,24 @@
           ],
           "title": "Advertised Url"
         },
-        "admin_access": {
-          "enum": [
-            "open",
-            "key_required",
-            "unavailable"
-          ],
-          "title": "Admin Access",
+        "challenge_path": {
+          "const": "/v1/auth/challenge",
+          "default": "/v1/auth/challenge",
+          "title": "Challenge Path",
           "type": "string"
         },
-        "private_proof": {
-          "default": "self_or_admin",
-          "enum": [
-            "none",
-            "self_or_admin",
-            "unavailable"
-          ],
-          "title": "Private Proof",
+        "presence_id": {
+          "title": "Presence Id",
+          "type": "string"
+        },
+        "proof_protocol": {
+          "const": "sshsig-v2",
+          "default": "sshsig-v2",
+          "title": "Proof Protocol",
+          "type": "string"
+        },
+        "protocol": {
+          "title": "Protocol",
           "type": "string"
         },
         "public_operations": {
@@ -233,6 +232,9 @@
           },
           "title": "Public Operations",
           "type": "array"
+        },
+        "target": {
+          "$ref": "#/$defs/GatewayTarget"
         }
       },
       "required": [
@@ -240,7 +242,7 @@
         "target",
         "presence_id",
         "advertised_url",
-        "admin_access"
+        "admin_mode"
       ],
       "title": "GatewayEndpointDescriptor",
       "type": "object"

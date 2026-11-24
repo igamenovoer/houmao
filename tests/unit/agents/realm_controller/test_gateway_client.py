@@ -22,14 +22,18 @@ from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
     GatewayAccessPolicy,
-    GatewayAccessStore,
     GatewayChallengeRequest,
     GatewayClientBinding,
+    GatewayGrant,
     GatewayLaunchSeed,
     GatewayOwner,
     GatewayRequestBinding,
     GatewayTarget,
 )
+
+from houmao.gateway.authorization_models import seed_snapshot
+from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.gateway.operations import WEB_ENTRY
 from tests.fixtures.gateway_access import fixture_admin_key
 
 _PROXY_ENV_KEYS = (
@@ -87,7 +91,7 @@ def test_gateway_client_refuses_redirects_and_retargeting() -> None:
             binding = GatewayClientBinding(
                 base_url=f"{base}/selected",
                 owner=GatewayOwner(agent_id="agent", context_id="context"),
-                purpose="admin",
+                purpose="caller",
                 private_key_path="/unused-private-signer",
             )
             with pytest.raises(ValueError, match="binding differs"):
@@ -109,9 +113,11 @@ def test_web_entry_client_uses_selected_direct_authority_and_keeps_native_result
     admin, signer = fixture_admin_key(tmp_path, "web-entry-admin")
     owner = GatewayOwner(agent_id="web-agent", context_id="web-owner")
     target = GatewayTarget(owner=owner, incarnation="generation-web")
-    store = GatewayAccessStore.from_root(tmp_path / "access", owner)
-    store.initialize(GatewayLaunchSeed(admin_keys=(admin,) if signed else ()))
-    policy = GatewayAccessPolicy(store=store, target=lambda: target, current_self=lambda: None)
+    store = AuthorizationStore(tmp_path / "access", owner)
+    store.initialize(seed_snapshot(owner, GatewayLaunchSeed(admin_keys=(admin,) if signed else ())))
+    policy = GatewayAccessPolicy(
+        store=store, target=lambda: target, current_self=lambda: None, listener_id="web"
+    )
     calls: list[tuple[str, str]] = []
     issued_url = ""
     expiry = "2026-11-20T12:00:00.012345+00:00"
@@ -136,7 +142,7 @@ def test_web_entry_client_uses_selected_direct_authority_and_keeps_native_result
             if self.path == "/v1/auth/challenge":
                 assert signed
                 challenge_request = GatewayChallengeRequest.model_validate_json(body)
-                assert challenge_request.purpose == "admin"
+                assert challenge_request.purpose == "caller"
                 assert challenge_request.key_id == admin.key_id
                 assert challenge_request.request == expected_request
                 challenge = policy.issue(base, challenge_request)
@@ -150,13 +156,14 @@ def test_web_entry_client_uses_selected_direct_authority_and_keeps_native_result
                 assert self.headers.get(CHALLENGE_HEADER) is None
                 assert self.headers.get(SIGNATURE_HEADER) is None
             grant = policy.admit(
-                "private",
+                (WEB_ENTRY,),
                 issuer=base,
                 request=expected_request,
                 challenge_id=self.headers.get(CHALLENGE_HEADER),
                 signature=self.headers.get(SIGNATURE_HEADER),
             )
-            assert grant.role == ("admin" if signed else "anonymous")
+            assert isinstance(grant, GatewayGrant)
+            assert grant.basis == ("admin" if signed else "open")
             if outcome == "redirect":
                 self.send_response(302)
                 self.send_header("Location", issued_url)
@@ -176,7 +183,7 @@ def test_web_entry_client_uses_selected_direct_authority_and_keeps_native_result
         issued_url = f"{base}/v1/web/enter?ticket={'A' * 43}"
         binding = (
             GatewayClientBinding(
-                base_url=base, owner=owner, purpose="admin", private_key_path=str(signer)
+                base_url=base, owner=owner, purpose="caller", private_key_path=str(signer)
             )
             if signed
             else None
@@ -185,6 +192,7 @@ def test_web_entry_client_uses_selected_direct_authority_and_keeps_native_result
             base_url=base,
             binding=binding,
             target_incarnation=target.incarnation,
+            target_presence_id="web",
             respect_proxy_env=False,
         )
         worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -221,17 +229,16 @@ def test_web_entry_client_uses_selected_direct_authority_and_keeps_native_result
 @pytest.mark.parametrize(
     ("base", "purpose", "proxy_env", "reason"),
     [
-        ("http://127.0.0.1:43123", "self", False, "direct enrolled gateway admin signer"),
         ("http://127.0.0.1:43123", None, True, "direct owner-local gateway"),
-        ("http://127.0.0.1:43123", "admin", True, "direct owner-local gateway"),
-        ("http://127.0.0.1:43123/prefix", "admin", False, "direct owner-local gateway"),
-        ("https://gateway.example/agents/web", "admin", False, "direct owner-local gateway"),
+        ("http://127.0.0.1:43123", "caller", True, "direct owner-local gateway"),
+        ("http://127.0.0.1:43123/prefix", "caller", False, "direct owner-local gateway"),
+        ("https://gateway.example/agents/web", "caller", False, "direct owner-local gateway"),
     ],
 )
 def test_web_entry_client_requires_direct_authority_before_contacting_gateway(
     base: str, purpose: str | None, proxy_env: bool, reason: str
 ) -> None:
-    """Reject self proof and proxy-selected issuance before signer access."""
+    """Reject proxy-selected issuance before signer access."""
 
     binding = None
     if purpose is not None:
@@ -259,7 +266,7 @@ def test_web_entry_client_refuses_a_delegated_proof_source() -> None:
     client = GatewayClient(
         base_url="http://127.0.0.1:43123", request_proof=unexpected_proof, respect_proxy_env=False
     )
-    with pytest.raises(ValueError, match="direct enrolled gateway admin signer"):
+    with pytest.raises(ValueError, match="direct gateway caller"):
         client.issue_web_entry_ticket()
 
 

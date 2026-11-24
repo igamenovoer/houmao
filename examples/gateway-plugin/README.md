@@ -19,7 +19,7 @@ The example advertises `example-notifications` through package entry-point metad
 
 ## Exercise the Routes
 
-Resolve the live endpoint through managed-agent discovery and bind a current self or admin signer. The owner and notify routes declare private access. Use the same configured client to query host status and send a notification. [Gateway Access and Remote Deployment](../../docs/reference/gateway/operations/access.md)
+Resolve the live endpoint through managed-agent discovery. Use an unsigned client under a valid empty roster, or bind an enrolled signer with permission in keyed mode. For a scoped caller, grant `plugin.example-notifications.owner.read` and `plugin.example-notifications.notify` on the selected instance resource and grant host-owned status access separately. [Gateway Access and Remote Deployment](../../docs/reference/gateway/operations/access.md)
 
 ```python
 from houmao.gateway.client import GatewayClient

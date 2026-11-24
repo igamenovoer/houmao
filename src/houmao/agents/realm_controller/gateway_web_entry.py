@@ -35,9 +35,10 @@ from houmao.gateway.access import (
     GatewayAccessError,
     GatewayAccessPolicy,
     GatewayGrant,
-    GatewayRequestBinding,
     GatewayTarget,
 )
+from houmao.gateway.authorization_models import AuthorizationActor
+from houmao.gateway.operations import WEB_ENTRY
 
 WEB_TICKET_PATH = "/v1/web/entry-ticket"
 WEB_ENTER_PATH = "/v1/web/enter"
@@ -306,10 +307,10 @@ def register_web_entry_routes(
     store = _WebEntryStore()
 
     def require_current_grant(grant: GatewayGrant, target: GatewayTarget, *, status: int) -> None:
-        """Recheck the bound owner and current enrollment or empty revision."""
+        """Recheck Web permission and the exact admitted authority."""
 
         if (
-            grant.role in {"admin", "anonymous"}
+            WEB_ENTRY in grant.permissions
             and grant.target == target
             and access_policy().revalidate(grant)
         ):
@@ -332,32 +333,39 @@ def register_web_entry_routes(
         require_current_grant(grant, binding.target, status=stale_status)
         return binding, destination
 
-    def open_destination(base: str) -> str | None:
+    def redirect_destination(grant: GatewayGrant, expected: WebEntryBinding | None = None) -> str:
+        """Fence native entry immediately before disclosing the redirect."""
+
+        _, destination = resolve_authorized(grant, expected)
+        try:
+            access_policy().handoff(grant)
+        except GatewayAccessError as error:
+            if error.status_code == 503:
+                raise
+            raise HTTPException(410, _ENTRY_ENDED) from None
+        return destination
+
+    def open_destination() -> str | None:
         """Resolve an anonymous handoff or signal that the login page is required."""
 
         try:
-            grant = access_policy().admit(
-                "admin",
-                issuer=base,
-                request=GatewayRequestBinding.from_request("GET", WEB_ENTER_PATH, "", b""),
-            )
+            grant = access_policy().authorize(AuthorizationActor(kind="anonymous"), (WEB_ENTRY,))
         except GatewayAccessError as error:
             if error.code == "proof_required":
                 return None
             raise
-        _, destination = resolve_authorized(grant)
-        return destination
+        return redirect_destination(grant)
 
     @app.post(WEB_TICKET_PATH, response_model=GatewayWebEntryTicketV1)
     async def _issue(request: Request) -> GatewayWebEntryTicketV1:
-        """Mint a ticket after direct open or signed admin admission."""
+        """Mint a ticket after direct Web entry admission."""
 
         base = issuer()
         require_web_entry_origin(request, base)
         _require_no_query(request)
         grant = getattr(request.state, "gateway_grant", None)
-        if not isinstance(grant, GatewayGrant) or grant.role not in {"admin", "anonymous"}:
-            raise HTTPException(403, "Direct open access or gateway admin proof is required.")
+        if not isinstance(grant, GatewayGrant) or WEB_ENTRY not in grant.permissions:
+            raise HTTPException(403, "Current gateway Web entry permission is required.")
         await _bounded_request(request, 0)
 
         def issue() -> GatewayWebEntryTicketV1:
@@ -376,7 +384,7 @@ def register_web_entry_routes(
         require_web_entry_origin(request, base)
         query = request.scope["query_string"]
         if not query:
-            open_url = await run_in_threadpool(open_destination, base)
+            open_url = await run_in_threadpool(open_destination)
             if open_url is not None:
                 return RedirectResponse(open_url, status_code=302)
             nonce = secrets.token_urlsafe(24)
@@ -395,8 +403,8 @@ def register_web_entry_routes(
         if ticket is None:
             return _retry_page()
         try:
-            _, destination = await _within_deadline(
-                ticket.deadline, lambda: resolve_authorized(ticket.grant, ticket.binding)
+            destination = await _within_deadline(
+                ticket.deadline, lambda: redirect_destination(ticket.grant, ticket.binding)
             )
         except HTTPException:
             return _retry_page()
@@ -415,7 +423,7 @@ def register_web_entry_routes(
 
     @app.post(WEB_PROVE_PATH)
     async def _prove(request: Request, attempt_id: str) -> dict[str, str]:
-        """Approve the pending attempt using its exact enrolled-admin SSH proof."""
+        """Approve the pending attempt using a current signer with Web entry permission."""
 
         require_web_entry_origin(request, issuer())
         _require_no_query(request)

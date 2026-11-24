@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from time import monotonic
 from typing import Protocol
@@ -38,6 +38,7 @@ from houmao.agents.realm_controller.backends.headless_output import (
     CanonicalHeadlessEvent,
     load_canonical_headless_events,
 )
+from houmao.gateway.authorization_models import AuthorizationDecision
 
 
 class AgUiRunDisconnectProbe(Protocol):
@@ -76,7 +77,13 @@ class AgUiRunService:
         self.m_poll_interval_seconds: float = poll_interval_seconds
         self.m_observation_timeout_seconds: float = observation_timeout_seconds
 
-    def admit_run(self, run_input: RunAgentInput) -> AgUiAdmittedRun:
+    def admit_run(
+        self,
+        run_input: RunAgentInput,
+        *,
+        authorize: Callable[[GatewayRequestPayloadSubmitPromptV1], AuthorizationDecision]
+        | None = None,
+    ) -> AgUiAdmittedRun:
         """Admit one AG-UI run through existing gateway request controls."""
 
         try:
@@ -89,6 +96,9 @@ class AgUiRunService:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        submit = request_payload.payload
+        assert isinstance(submit, GatewayRequestPayloadSubmitPromptV1)
+        authority = authorize(submit) if authorize is not None else None
 
         target_transport_family = self.m_runtime.ag_ui_target_transport_family()
         if target_transport_family == "unknown":
@@ -122,8 +132,6 @@ class AgUiRunService:
                 raise HTTPException(status_code=503, detail="The native service is unavailable")
             native_service_session_id = service.native_session_id
             service_incarnation = service.service_incarnation
-            submit = request_payload.payload
-            assert isinstance(submit, GatewayRequestPayloadSubmitPromptV1)
             if submit.chat_session is None or submit.chat_session.mode == "current":
                 request_payload = request_payload.model_copy(
                     update={
@@ -141,8 +149,6 @@ class AgUiRunService:
             web = getattr(status, "web", None)
             if isinstance(web, GatewayWebControlStateV1):
                 native_web_identity = web.identity
-                submit = request_payload.payload
-                assert isinstance(submit, GatewayRequestPayloadSubmitPromptV1)
                 if submit.chat_session is None or submit.chat_session.mode == "current":
                     request_payload = request_payload.model_copy(
                         update={
@@ -156,7 +162,15 @@ class AgUiRunService:
                         }
                     )
 
-        accepted_request = self.m_runtime.create_request(request_payload, ready_only=True)
+        if authority is None:
+            accepted_request = self.m_runtime.create_request(request_payload, ready_only=True)
+        else:
+            accepted_request = self.m_runtime.create_request(
+                request_payload,
+                ready_only=True,
+                expected_generation=authority.target.incarnation,
+                authority=authority,
+            )
         return AgUiAdmittedRun(
             run_input=run_input,
             accepted_request=accepted_request,

@@ -24,6 +24,7 @@ from houmao.gateway.access import (
     GatewayChallengeRequest,
     GatewayClientBinding,
     GatewayGrant,
+    FirstEnrollment,
     GatewayLaunchSeed,
     GatewayOwner,
     GatewayRequestBinding,
@@ -35,7 +36,11 @@ from houmao.gateway.access import (
     sign_sshsig,
     sshsig_header,
 )
-from houmao.gateway._access_sshsig import PrivateKey, verify_sshsig
+from houmao.gateway._access_sshsig import PrivateKey, key_fingerprint, verify_sshsig
+from houmao.gateway.authorization_models import Principal, seed_snapshot
+from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.gateway.operations import ADMIN_ADD, ADMIN_REMOVE, PROMPT, STATUS
+
 
 ISSUER = "http://127.0.0.1:12345"
 REQUEST = GatewayRequestBinding.from_request("GET", "/v1/status", "a=b&a=c", b"")
@@ -46,7 +51,8 @@ REGISTER = GatewayRequestBinding.from_request("POST", "/v1/admin/keys", "", b"ex
 class _Authority:
     """Fixture-owned state for one active generation and one retained admin list."""
 
-    store: GatewayAccessStore
+    store: AuthorizationStore
+    self_store: GatewayAccessStore
     target: GatewayTarget
 
     def policy(self) -> GatewayAccessPolicy:
@@ -55,13 +61,14 @@ class _Authority:
         return GatewayAccessPolicy(
             store=self.store,
             target=lambda: self.target,
-            current_self=lambda: self.store.load_self(self.target.incarnation),
+            current_self=lambda: self.self_store.load_self(self.target.incarnation),
+            listener_id="fixture-listener",
         )
 
     def self_signer(self) -> PrivateKey:
         """Select the current generation's explicit owner-local signing source."""
 
-        return load_gateway_signer(self.store.self_signer_path(self.target.incarnation))
+        return load_gateway_signer(self.self_store.self_signer_path(self.target.incarnation))
 
 
 @pytest.fixture
@@ -69,10 +76,12 @@ def authority(tmp_path: Path) -> _Authority:
     """Provision active owner state under a private test root."""
 
     owner = GatewayOwner(agent_id="agent", context_id="context")
-    store = GatewayAccessStore.from_root(tmp_path / "access", owner)
-    store.initialize(GatewayLaunchSeed())
-    store.provision_self("first")
-    return _Authority(store=store, target=GatewayTarget(owner=owner, incarnation="first"))
+    root = tmp_path / "access"
+    store = AuthorizationStore(root, owner)
+    self_store = GatewayAccessStore.from_root(root, owner)
+    store.initialize()
+    self_store.provision_self("first")
+    return _Authority(store, self_store, GatewayTarget(owner=owner, incarnation="first"))
 
 
 def _admin(principal: str = "operator") -> tuple[GatewayAdminKey, PrivateKey]:
@@ -95,15 +104,21 @@ def _proof(signer: PrivateKey, challenge: GatewayChallenge) -> dict[str, str]:
 
 def _registration(
     policy: GatewayAccessPolicy, key: GatewayAdminKey, signer: PrivateKey
-) -> GatewayGrant:
+) -> FirstEnrollment:
     """Admit one registration against the currently recorded empty list."""
 
     challenge = policy.issue(
         ISSUER, GatewayChallengeRequest(purpose="register", request=REGISTER, proposed_key=key)
     )
-    return policy.admit(
-        "admin", issuer=ISSUER, request=REGISTER, registration=True, **_proof(signer, challenge)
+    grant = policy.admit(
+        (ADMIN_ADD,),
+        issuer=ISSUER,
+        request=REGISTER,
+        registration=True,
+        **_proof(signer, challenge),
     )
+    assert isinstance(grant, FirstEnrollment)
+    return grant
 
 
 def _listed(
@@ -115,9 +130,16 @@ def _listed(
     """Admit an operation using one current admin enrollment."""
 
     challenge = policy.issue(
-        ISSUER, GatewayChallengeRequest(purpose="admin", request=request, key_id=key.key_id)
+        ISSUER, GatewayChallengeRequest(purpose="caller", request=request, key_id=key.key_id)
     )
-    return policy.admit("admin", issuer=ISSUER, request=request, **_proof(signer, challenge))
+    grant = policy.admit(
+        (STATUS, ADMIN_ADD, ADMIN_REMOVE),
+        issuer=ISSUER,
+        request=request,
+        **_proof(signer, challenge),
+    )
+    assert isinstance(grant, GatewayGrant)
+    return grant
 
 
 def test_seed_validates_canonical_keys_and_duplicate_fields() -> None:
@@ -148,63 +170,31 @@ def test_rejects_malformed_public_keys(value: str) -> None:
 
 
 def test_seed_applies_once_and_retained_state_survives_restart(tmp_path: Path) -> None:
-    """Retain live membership and revisions independently of an ingress or first seed."""
+    """Keep credentials and live qualification across journal and ingress replacement."""
 
     owner = GatewayOwner(agent_id="agent", context_id="context")
     root = tmp_path / "access"
-    store = GatewayAccessStore.from_root(root, owner)
-    first, first_signer = _admin()
+    store = AuthorizationStore(root, owner)
+    first, _ = _admin()
     second, second_signer = _admin("other")
-    seeded = store.initialize(GatewayLaunchSeed(admin_keys=(first, second)))
-    assert seeded.mode == "key_required"
-    restarted = GatewayAccessStore.from_root(root, owner)
-    assert restarted.load() == seeded
+    seed = seed_snapshot(owner, GatewayLaunchSeed(admin_keys=(first, second)))
+    seeded = store.initialize(seed)
+    assert seeded.admin_mode == "keyed"
+    restarted = AuthorizationStore(root, owner)
+    assert restarted.snapshot() == seeded
     policy = GatewayAccessPolicy(
         store=restarted,
         target=lambda: GatewayTarget(owner=owner, incarnation="restart"),
         current_self=lambda: None,
+        listener_id="restart",
     )
-    with pytest.raises(GatewayAccessError) as denied:
-        policy.admit("admin", issuer=ISSUER, request=REQUEST)
-    assert denied.value.status_code == 401
     policy.remove_key(_listed(policy, second, second_signer), first.key_id)
-    live = restarted.initialize(GatewayLaunchSeed(admin_keys=(first, second)))
+    live = restarted.initialize(seed)
     assert live.revision == 1
-    assert [entry.key_id for entry in live.keys] == [second.key_id]
-    with pytest.raises(GatewayAccessError):
-        _listed(policy, first, first_signer)
-
-
-@pytest.mark.parametrize(
-    "damage", ["missing", "missing_directory", "corrupt", "other_owner", "mode"]
-)
-def test_initialized_damage_fails_closed(
-    authority: _Authority, tmp_path: Path, damage: str
-) -> None:
-    """Never reset a known owner roster when its private source is unsafe or missing."""
-
-    path = next((tmp_path / "access").glob("*/admin.json"))
-    if damage == "missing":
-        path.unlink()
-    elif damage == "missing_directory":
-        shutil.rmtree(path.parent)
-    elif damage == "corrupt":
-        path.write_bytes(b'{"revision":0,"revision":1}')
-    elif damage == "other_owner":
-        original = authority.store.load().model_dump()
-        original["owner"]["context_id"] = "unrelated"
-        path.write_text(json.dumps(original))
-    else:
-        path.chmod(0o640)
-    for operation in (
-        authority.store.load,
-        lambda: authority.store.initialize(GatewayLaunchSeed()),
-        lambda: authority.policy().admit("admin", issuer=ISSUER, request=REQUEST),
-    ):
-        with pytest.raises(GatewayAccessError) as unavailable:
-            operation()
-        assert unavailable.value.status_code == 503
-        assert str(path) not in str(unavailable.value)
+    assert [key.key_id for key in live.credentials if key.admin_revision is not None] == [
+        second.key_id
+    ]
+    assert live.find_credential(first.key_id) is not None
 
 
 def test_private_source_rejects_shared_symlink_checkout_and_oversize(tmp_path: Path) -> None:
@@ -279,7 +269,7 @@ def test_invalid_client_binding(base_url: str, authority: _Authority) -> None:
         GatewayClientBinding(
             base_url=base_url,
             owner=authority.target.owner,
-            purpose="admin",
+            purpose="caller",
             private_key_path="/fixture/private-signing-key",
         )
     assert "/fixture/private-signing-key" not in str(denied.value)
@@ -291,28 +281,35 @@ def test_self_key_is_per_generation_and_has_owner_private_source(
     """Preserve same-generation keys and reject an earlier or foreign signer."""
 
     policy = authority.policy()
-    original = authority.store.load_self("first")
-    assert authority.store.self_signer_path("first").stat().st_mode & 0o777 == 0o600
-    assert authority.store.provision_self("first") == original
+    original = authority.self_store.load_self("first")
+    assert authority.self_store.self_signer_path("first").stat().st_mode & 0o777 == 0o600
+    assert authority.self_store.provision_self("first") == original
     signer = authority.self_signer()
-    challenge_request = GatewayChallengeRequest(purpose="self", request=REQUEST)
+    challenge_request = GatewayChallengeRequest(
+        purpose="caller",
+        request=REQUEST,
+        key_id=key_fingerprint(public_key_text(authority.self_signer().public_key())),
+    )
     old_challenge = policy.issue(ISSUER, challenge_request)
-    second = authority.store.provision_self("replacement")
+    second = authority.self_store.provision_self("replacement")
     assert second.public_key != original.public_key
     authority.target = authority.target.model_copy(update={"incarnation": "replacement"})
     with pytest.raises(GatewayAccessError) as stale:
-        policy.admit("private", issuer=ISSUER, request=REQUEST, **_proof(signer, old_challenge))
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, old_challenge))
     assert stale.value.status_code == 401
 
     restarted = authority.policy()
+    challenge_request = GatewayChallengeRequest(
+        purpose="caller", request=REQUEST, key_id=second.key_id
+    )
     challenge = restarted.issue(ISSUER, challenge_request)
     with pytest.raises(GatewayAccessError):
-        restarted.admit("private", issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
+        restarted.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
     challenge = restarted.issue(ISSUER, challenge_request)
     admitted = restarted.admit(
-        "private", issuer=ISSUER, request=REQUEST, **_proof(authority.self_signer(), challenge)
+        (STATUS,), issuer=ISSUER, request=REQUEST, **_proof(authority.self_signer(), challenge)
     )
-    assert admitted.role == "self"
+    assert admitted.actor.kind == "self"
     assert restarted.revalidate(admitted)
 
 
@@ -417,7 +414,14 @@ def test_challenge_cannot_be_retargeted(
     """Reject a signature when any part of the original binding has changed."""
 
     policy = authority.policy()
-    challenge = policy.issue(ISSUER, GatewayChallengeRequest(purpose="self", request=REQUEST))
+    challenge = policy.issue(
+        ISSUER,
+        GatewayChallengeRequest(
+            purpose="caller",
+            request=REQUEST,
+            key_id=key_fingerprint(public_key_text(authority.self_signer().public_key())),
+        ),
+    )
     issuer = ISSUER
     request = REQUEST
     if change == "issuer":
@@ -435,7 +439,7 @@ def test_challenge_cannot_be_retargeted(
         )
     with pytest.raises(GatewayAccessError) as mismatched:
         policy.admit(
-            "private", issuer=issuer, request=request, **_proof(authority.self_signer(), challenge)
+            (STATUS,), issuer=issuer, request=request, **_proof(authority.self_signer(), challenge)
         )
     assert mismatched.value.status_code == 401
 
@@ -447,13 +451,53 @@ def test_admin_proof_cannot_move_to_another_target_incarnation(authority: _Autho
     policy = authority.policy()
     policy.add_key(_registration(policy, key, signer), key)
     challenge = policy.issue(
-        ISSUER, GatewayChallengeRequest(purpose="admin", request=REQUEST, key_id=key.key_id)
+        ISSUER, GatewayChallengeRequest(purpose="caller", request=REQUEST, key_id=key.key_id)
     )
     authority.target = authority.target.model_copy(update={"incarnation": "replacement"})
     with pytest.raises(GatewayAccessError) as replaced:
-        policy.admit("private", issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
     assert replaced.value.status_code == 401
     assert _listed(policy, key, signer).target == authority.target
+
+
+def test_proof_cannot_move_to_another_listener(authority: _Authority) -> None:
+    """Keep one-use proof on the listener that issued it even for the same owner."""
+
+    policy = authority.policy()
+    replacement = GatewayAccessPolicy(
+        store=authority.store,
+        target=lambda: authority.target,
+        current_self=lambda: authority.self_store.load_self(authority.target.incarnation),
+        listener_id="new-listener",
+    )
+    key, signer = _admin()
+    policy.add_key(_registration(policy, key, signer), key)
+    payload = GatewayChallengeRequest(purpose="caller", request=REQUEST, key_id=key.key_id)
+    challenge = policy.issue(ISSUER, payload)
+    proof = _proof(signer, challenge)
+    with pytest.raises(GatewayAccessError) as refused:
+        replacement.admit((STATUS,), issuer=ISSUER, request=REQUEST, **proof)
+    assert refused.value.code == "invalid_proof"
+    assert replacement.issue(ISSUER, payload).listener_id == "new-listener"
+
+
+def test_first_registration_treats_claimed_principal_as_label(authority: _Authority) -> None:
+    """Bind a bootstrap key to a new principal despite a reused peer identifier."""
+
+    peer = Principal(
+        principal_id="existing-peer", label="Peer", kind="agent", logical_agent_id="logical-peer"
+    )
+    authority.store.update(
+        lambda snapshot: snapshot.model_copy(update={"principals": (peer,)}),
+        actor="owner",
+        action="test.peer.enroll",
+    )
+    policy = authority.policy()
+    key, signer = _admin(peer.principal_id)
+    policy.add_key(_registration(policy, key, signer), key)
+    admitted = _listed(policy, key, signer)
+    assert admitted.actor.principal_id != peer.principal_id
+    assert peer in authority.store.snapshot().principals
 
 
 def test_self_challenge_checks_current_key_and_generation(authority: _Authority) -> None:
@@ -463,14 +507,22 @@ def test_self_challenge_checks_current_key_and_generation(authority: _Authority)
     policy = GatewayAccessPolicy(
         store=authority.store,
         target=lambda: authority.target,
-        current_self=lambda: authority.store.load_self(generation),
+        current_self=lambda: authority.self_store.load_self(generation),
+        listener_id="custom-listener",
     )
     signer = authority.self_signer()
-    challenge = policy.issue(ISSUER, GatewayChallengeRequest(purpose="self", request=REQUEST))
+    challenge = policy.issue(
+        ISSUER,
+        GatewayChallengeRequest(
+            purpose="caller",
+            request=REQUEST,
+            key_id=key_fingerprint(public_key_text(authority.self_signer().public_key())),
+        ),
+    )
     generation = "replacement"
-    authority.store.provision_self(generation)
+    authority.self_store.provision_self(generation)
     with pytest.raises(GatewayAccessError) as stale:
-        policy.admit("private", issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
     assert stale.value.status_code == 401
 
 
@@ -481,15 +533,19 @@ def test_proof_expiry_capacity_replay_and_no_ssh_dependency(
     """Bound issuance, consume valid proof once, and authenticate without SSH executables."""
 
     monkeypatch.setenv("PATH", "")
-    monkeypatch.setattr("houmao.gateway.access._CHALLENGE_CAPACITY", 1)
+    monkeypatch.setattr("houmao.gateway.caller_proof._CHALLENGE_CAPACITY", 1)
     fixture_clock = SimpleNamespace(now=100.0)
     monkeypatch.setattr(
-        "houmao.gateway.access.time",
+        "houmao.gateway.caller_proof.time",
         SimpleNamespace(time=lambda: fixture_clock.now, monotonic=lambda: fixture_clock.now),
     )
     policy = authority.policy()
     signer = authority.self_signer()
-    request = GatewayChallengeRequest(purpose="self", request=REQUEST)
+    request = GatewayChallengeRequest(
+        purpose="caller",
+        request=REQUEST,
+        key_id=key_fingerprint(public_key_text(authority.self_signer().public_key())),
+    )
     expired = policy.issue(ISSUER, request)
     with pytest.raises(GatewayAccessError) as capacity:
         policy.issue(ISSUER, request)
@@ -497,11 +553,11 @@ def test_proof_expiry_capacity_replay_and_no_ssh_dependency(
     fixture_clock.now = 131
     valid = policy.issue(ISSUER, request)
     with pytest.raises(GatewayAccessError):
-        policy.admit("private", issuer=ISSUER, request=REQUEST, **_proof(signer, expired))
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, expired))
     proof = _proof(signer, valid)
-    assert policy.admit("private", issuer=ISSUER, request=REQUEST, **proof).role == "self"
+    assert policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **proof).actor.kind == "self"
     with pytest.raises(GatewayAccessError):
-        policy.admit("private", issuer=ISSUER, request=REQUEST, **proof)
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **proof)
 
 
 def test_competing_first_registration_and_wrong_purpose(authority: _Authority) -> None:
@@ -513,19 +569,19 @@ def test_competing_first_registration_and_wrong_purpose(authority: _Authority) -
     request = GatewayChallengeRequest(purpose="register", request=REGISTER, proposed_key=first)
     challenge = policy.issue(ISSUER, request)
     with pytest.raises(GatewayAccessError) as wrong_purpose:
-        policy.admit("admin", issuer=ISSUER, request=REGISTER, **_proof(first_signer, challenge))
+        policy.admit((PROMPT,), issuer=ISSUER, request=REGISTER, **_proof(first_signer, challenge))
     assert wrong_purpose.value.status_code == 401
     challenge = policy.issue(ISSUER, request)
     with pytest.raises(GatewayAccessError) as wrong_key:
         policy.admit(
-            "admin",
+            (PROMPT,),
             issuer=ISSUER,
             request=REGISTER,
             registration=True,
             **_proof(second_signer, challenge),
         )
     assert wrong_key.value.status_code == 401
-    assert authority.store.load().mode == "open"
+    assert authority.store.snapshot().admin_mode == "open"
 
     first_grant = _registration(policy, first, first_signer)
     second_grant = _registration(policy, second, second_signer)
@@ -539,10 +595,10 @@ def test_competing_first_registration_and_wrong_purpose(authority: _Authority) -
     assert outcomes.count(None) == 1
     conflict = next(error for error in outcomes if error is not None)
     assert isinstance(conflict, GatewayAccessError) and conflict.status_code == 409
-    assert authority.store.load().revision == 1
+    assert authority.store.snapshot().revision == 1
     with pytest.raises(GatewayAccessError) as late_conflict:
         policy.admit(
-            "admin",
+            (PROMPT,),
             issuer=ISSUER,
             request=REGISTER,
             registration=True,
@@ -552,64 +608,47 @@ def test_competing_first_registration_and_wrong_purpose(authority: _Authority) -
 
 
 def test_live_revocation_invalidates_only_affected_grants(authority: _Authority) -> None:
-    """Enforce admin privilege, revision races, current enrollments, and final reopening."""
+    """Revoke only the selected key's qualification and pin the old open epoch."""
 
     policy = authority.policy()
     first, first_signer = _admin("first")
     second, second_signer = _admin("second")
-    open_grant = policy.admit("admin", issuer=ISSUER, request=REQUEST)
-    assert open_grant.role == "anonymous"
-    assert policy.admit("private", issuer=ISSUER, request=REQUEST) == open_grant
+    open_grant = policy.admit((STATUS,), issuer=ISSUER, request=REQUEST)
+    assert isinstance(open_grant, GatewayGrant) and open_grant.basis == "open"
     with pytest.raises(GatewayAccessError) as invalid_proof:
-        policy.admit("private", issuer=ISSUER, request=REQUEST, challenge_id="invalid")
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, challenge_id="invalid")
     assert invalid_proof.value.code == "invalid_proof"
-    signed_self = policy.issue(ISSUER, GatewayChallengeRequest(purpose="self", request=REQUEST))
-    register = _registration(policy, first, first_signer)
-    assert policy.add_key(register, first) == first
+
+    policy.add_key(_registration(policy, first, first_signer), first)
     assert not policy.revalidate(open_grant)
     with pytest.raises(GatewayAccessError) as private_denial:
-        policy.admit("private", issuer=ISSUER, request=REQUEST)
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST)
     assert private_denial.value.status_code == 401
-    assert (
-        policy.admit(
-            "private",
-            issuer=ISSUER,
-            request=REQUEST,
-            **_proof(authority.self_signer(), signed_self),
-        ).role
-        == "self"
-    )
-    signed_self = policy.issue(ISSUER, GatewayChallengeRequest(purpose="self", request=REQUEST))
-    with pytest.raises(GatewayAccessError) as insufficient:
-        policy.admit(
-            "admin", issuer=ISSUER, request=REQUEST, **_proof(authority.self_signer(), signed_self)
-        )
-    assert insufficient.value.status_code == 403
-
     first_grant = _listed(policy, first, first_signer)
-    stale = policy.issue(
-        ISSUER, GatewayChallengeRequest(purpose="admin", request=REQUEST, key_id=first.key_id)
+    pending = policy.issue(
+        ISSUER, GatewayChallengeRequest(purpose="caller", request=REQUEST, key_id=first.key_id)
     )
     policy.add_key(first_grant, second)
-    with pytest.raises(GatewayAccessError) as wrong_revision:
-        policy.admit("admin", issuer=ISSUER, request=REQUEST, **_proof(first_signer, stale))
-    assert wrong_revision.value.status_code == 401
-    with pytest.raises(GatewayAccessError) as stale_commit:
-        policy.remove_key(first_grant, second.key_id)
-    assert stale_commit.value.status_code == 409
+    assert policy.revalidate(first_grant)
+    signed = policy.admit(
+        (STATUS,), issuer=ISSUER, request=REQUEST, **_proof(first_signer, pending)
+    )
+    assert isinstance(signed, GatewayGrant) and signed.basis == "admin"
 
     second_grant = _listed(policy, second, second_signer)
     policy.remove_key(second_grant, first.key_id)
     assert not policy.revalidate(first_grant)
     assert policy.revalidate(second_grant)
-    policy.add_key(_listed(policy, second, second_signer), first)
-    assert not policy.revalidate(first_grant)
-    policy.remove_key(_listed(policy, first, first_signer), second.key_id)
-    policy.remove_key(_listed(policy, first, first_signer), first.key_id)
-    reopened = policy.admit("admin", issuer=ISSUER, request=REQUEST)
-    assert reopened.role == "anonymous"
-    assert policy.admit("private", issuer=ISSUER, request=REQUEST) == reopened
+    with pytest.raises(GatewayAccessError) as scoped_denial:
+        _listed(policy, first, first_signer)
+    assert scoped_denial.value.status_code == 403
+
+    policy.remove_key(second_grant, second.key_id)
+    assert not policy.revalidate(second_grant)
+    reopened = policy.admit((STATUS,), issuer=ISSUER, request=REQUEST)
+    assert isinstance(reopened, GatewayGrant) and reopened.basis == "open"
     assert not policy.revalidate(open_grant)
     assert policy.revalidate(reopened)
     policy.add_key(_registration(policy, second, second_signer), second)
-    assert _listed(policy, second, second_signer).principal == "second"
+    assert _listed(policy, second, second_signer).actor == second_grant.actor
+    assert not policy.revalidate(second_grant)

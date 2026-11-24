@@ -173,6 +173,7 @@ def _qualify(source_root: Path, wheelhouse: Path, work_root: Path) -> dict[str, 
     runner = work_root / "installed_runner.py"
     shutil.copyfile(Path(__file__).resolve(), runner)
     env["PATH"] = str(work_root / "venv/bin") + os.pathsep + env.get("PATH", "")
+    _bind_fixture_tmux_executable(work_root, real_tmux)
     env["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"] = real_tmux
     env["HOUMAO_GLOBAL_REGISTRY_DIR"] = str(work_root / "registry")
     env["XDG_CONFIG_HOME"] = str(work_root / "config")
@@ -206,6 +207,15 @@ def _qualify(source_root: Path, wheelhouse: Path, work_root: Path) -> dict[str, 
         json.dumps(report, indent=2) + "\n", encoding="utf-8"
     )
     return report
+
+
+def _bind_fixture_tmux_executable(work_root: Path, real_tmux: str) -> None:
+    """Give the installed shim the selected executable under a curated launch environment."""
+
+    selection = work_root / "venv/bin/tmux.real"
+    descriptor = os.open(selection, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        stream.write(str(Path(real_tmux).resolve(strict=True)) + "\n")
 
 
 def _isolated_socket(socket_root: str) -> str:
@@ -298,7 +308,7 @@ def _bind_admin(base_url: str, controller: Any) -> None:
         private=False,
     )
     _require(
-        binding is not None and binding.base_url == base_url and binding.purpose == "admin",
+        binding is not None and binding.base_url == base_url and binding.purpose == "caller",
         "Fixture admin binding unavailable",
     )
     _ADMIN_CLIENTS[base_url] = GatewayClient(
@@ -385,22 +395,22 @@ def _verify_plugin_access(
     admin_path: str,
     admin_payload: dict[str, Any],
 ) -> None:
-    """Verify the installed plugin against both admin states and both signing roles."""
+    """Verify anonymous and enrolled callers on the installed plugin operations."""
 
     from houmao.agents.realm_controller.gateway_client import GatewayClient
     from houmao.gateway.access import GatewayClientBinding
 
     unsigned = GatewayClient(base_url=base_url)
     discovery = unsigned.describe_endpoint()
-    _require(
-        discovery.admin_access == "open", "Fresh fixture did not start with open administration"
-    )
+    _require(discovery.admin_mode == "open", "Fresh fixture did not start with open administration")
     for path in private_paths:
         _require(
-            _request(base_url, path, signed=False)[0] == 401, "An unsigned private probe passed"
+            _request(base_url, path, signed=False)[0] == 200,
+            "Open policy did not admit an anonymous plugin read",
         )
         _require(
-            _request(base_url, path)[0] == 200, "Current self proof did not admit ordinary access"
+            _request(base_url, path)[0] == 200,
+            "Open policy did not admit a valid signed plugin read",
         )
     _require(
         _request(base_url, admin_path, admin_payload, signed=False)[0] == 200,
@@ -421,12 +431,12 @@ def _verify_plugin_access(
         registration_key=key,
     ).add_admin_key(key)
     admin = GatewayClient(
-        binding=registration.model_copy(update={"purpose": "admin"}),
+        binding=registration.model_copy(update={"purpose": "caller"}),
         target_incarnation=discovery.target.incarnation,
     )
     try:
         _require(
-            unsigned.describe_endpoint().admin_access == "key_required",
+            unsigned.describe_endpoint().admin_mode == "keyed",
             "First enrollment failed to close open administration",
         )
         _require(
@@ -443,8 +453,12 @@ def _verify_plugin_access(
         )
         for path in private_paths:
             _require(
-                _request(base_url, path)[0] == 200,
-                "Current self proof did not retain ordinary access after enrollment",
+                _request(base_url, path, signed=False)[0] == 401,
+                "A key-required unsigned plugin read passed",
+            )
+            _require(
+                _request(base_url, path)[0] == 403,
+                "Unscoped managed self proof authorized a key-required plugin read",
             )
             _require(
                 _request(base_url, path, client=admin)[0] == 200,
@@ -453,7 +467,7 @@ def _verify_plugin_access(
     finally:
         admin.remove_admin_key(key.key_id)
     _require(
-        unsigned.describe_endpoint().admin_access == "open",
+        unsigned.describe_endpoint().admin_mode == "open",
         "Final removal did not reopen plugin administration",
     )
 
@@ -624,6 +638,7 @@ def _seed_brain(root: Path, executable: Path) -> Path:
     # This noncredential marker satisfies launch readiness for the selected
     # synthetic executable. It is generated externally and is never a login.
     (home / "auth.json").write_text('{"qualification_stub":true}\n', encoding="utf-8")
+    (home / ".fixture-control-path").write_text(str(root / "control.json") + "\n", encoding="utf-8")
     role = root / "agent-def/roles/qualification/system-prompt.md"
     role.parent.mkdir(parents=True)
     role.write_text("Synthetic qualification role.\n", encoding="utf-8")

@@ -353,11 +353,16 @@ def status_gateway_command(
 
 @click.command(name="web-entry")
 @_gateway_pair_port_option(help_text="Pair selection is unsupported for owner-local Web entry.")
-def web_entry_gateway_command(pair_port: int | None) -> None:
+@click.option(
+    "--signer",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Absolute private key path for a caller with web.enter permission.",
+)
+def web_entry_gateway_command(pair_port: int | None, signer: Path | None) -> None:
     """Print a private, one-time browser URL and expiry.
 
-    Open gateways accept unsigned requests. Keyed gateways require a configured
-    enrolled admin signer. The URL is a bearer secret.
+    Open gateways accept unsigned requests. Keyed gateways require a caller with
+    web.enter permission. The URL is a bearer secret.
     """
 
     scope = get_managed_agent_scope_context()
@@ -365,7 +370,7 @@ def web_entry_gateway_command(pair_port: int | None) -> None:
         raise click.ClickException(
             "Web entry requires an explicit local agent selection in the owner's execution context."
         )
-    emit(gateway_web_entry(agent_id=scope.agent_id, agent_name=scope.agent_name))
+    emit(gateway_web_entry(agent_id=scope.agent_id, agent_name=scope.agent_name, signer=signer))
 
 
 @gateway_group.command(name="prompt")

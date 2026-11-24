@@ -1,21 +1,14 @@
 # Gateway Access and Remote Deployment
 
-The gateway applies the same access rules on loopback and all-interface listeners. A new managed launch without an admin seed initializes a valid empty list. **Anyone who can reach a gateway with a valid empty admin list can use its enabled private and admin operations.** This includes memory, mail, interrupt, and raw input. Enroll or seed an admin key before exposing an upgraded gateway whose callers should need proof.
+Every gateway and passive ingress evaluates the retained policy for the selected agent's observed owner context. Permissions name an exact resource and action. A verified empty administrator roster gives every caller the gateway-admin role for all supported client-facing operations. With a keyed roster, a current admin key confers that role, while other enrolled callers use their own grants and role assignments. Current managed self proof supplies routine status, usage, memory, and mailbox access.
 
-| Access | Admission | Operations |
-| --- | --- | --- |
-| Public | Anyone who can reach the listener, subject to operation enablement | Dashboard, health, endpoint descriptor, challenge issuance, notifications, and public prompts |
-| Private | Anonymous admission with an empty list, current managed self or listed admin proof with a nonempty list | Detailed status, usage, memory, routine mail, plugin inventory, and declared private plugin routes |
-| Admin | Anonymous admission with an empty list, listed admin proof with a nonempty list | Direct and queued controls, reminders, notifier controls, native inspection and refresh, mailbox binding and operator post, AG-UI, and plugin controls |
-| Web entry | Direct anonymous entry with an empty list, enrolled admin approval with a nonempty list, or a current one-time ticket | Browser handoff to the live managed Web agent |
-
-First-key registration always requires proof of the proposed key. An invalid or unavailable retained policy prevents protected access. The gateway returns HTTP 401 with `WWW-Authenticate: Houmao-SSHSIG` and an applicable challenge path for missing or invalid proof, HTTP 403 when valid proof lacks authority, and HTTP 503 when required policy is unavailable. A failed proof ends the attempt. Gateway access diagnostics can report the target, operation, outcome, and verified principal or anonymous origin. Service identities such as the mailbox sender or plugin Actor remain bound to their configured owner.
+First-key registration requires proof of the proposed key. Protected operations return HTTP 401 for missing or invalid proof, HTTP 403 when a verified caller lacks permission, HTTP 409 for a stale target or conflicting change, and HTTP 503 when required policy is unavailable. A 401 response includes the challenge location. Public health and endpoint metadata remain available if retained policy cannot be read. Audit records distinguish caller identity from the mailbox sender, plugin Actor, and native execution owner. [Authorization Policy](authorization-policy.md)
 
 ## Provision and Retain Admin Access
 
-Use `houmao-mgr agents launch --gateway-admin-seed "$seed_file" ...` to record initial enrollment in the owner-written manifest. The seed file is owner-private JSON outside the checkout or in a purpose-specific subdirectory of its Git-ignored `tmp/` tree. It contains an `admin_keys` array of objects with `principal` and `public_key` fields. Use a complete OpenSSH public key line for each entry and a distinct public key for each enrollment. An omitted file or `{"admin_keys":[]}` selects the empty initial list.
+Use `houmao-mgr agents launch --gateway-admin-seed "$seed_file" ...` to record initial enrollment in the owner-written manifest. The seed file is owner-private JSON outside the checkout or in a purpose-specific subdirectory of its Git-ignored `tmp/` tree. Use `"schema_version": 2` and an `admin_keys` array of objects with `principal` and `public_key` fields. Use a complete OpenSSH public key line for each entry and a distinct public key for each enrollment. An omitted file or `{"schema_version":2,"admin_keys":[]}` selects the empty initial list.
 
-Each supported launch or join generation gets a new Ed25519 self key pair. Detaching and reattaching the gateway within that generation preserves the same self identity. An ended or replaced generation loses self access. Managed self commands resolve current runtime authority and sign locally. The gateway retains the live admin list across detach, restart, and relaunch of the same owner binding. The launch seed never restores a removed key.
+Each supported launch or join generation gets a new Ed25519 self key pair. Detaching and reattaching the gateway within that generation preserves the same self identity. An ended or replaced generation loses self access. Managed self commands resolve current runtime authority and sign locally. Detach, restart, and relaunch of the same owner binding use the retained SQLite policy. Keys, grants, and roles retain their current state across these actions. An upgraded agent with only earlier roster state requires explicit owner reprovisioning with `agents single access init --seed` or `--empty` before protected access becomes available.
 
 Owner-private gateway access storage lives outside the project checkout or in a purpose-specific subdirectory of its Git-ignored `tmp/` tree. Keep launch and attach input files and signer files in approved private storage too. Other checkout directories and nested worktrees remain rejected. Processes running under the same UID share that account's filesystem authority. Use separate OS accounts or container isolation when one process must be unable to read or replace another process's access state.
 
@@ -41,7 +34,7 @@ houmao-mgr agents single --agent-name writer gateway attach --access-config "$ac
 - The owner-local connection uses `http://127.0.0.1:<resolved-port>` even if the bind is wildcard. An owner-loopback URL from another execution context belongs to that context.
 - The advertised base URL is the client endpoint. Configure the proxy to strip its prefix once, preserve the original `Host`, set `X-Forwarded-Proto: https` on the trusted backend leg, and preserve the method, raw query, and request bytes. Protect that leg with owner loopback or a verified deployment boundary. Publish the per-agent gateway through the proxy and keep global passive administration isolated.
 
-The endpoint descriptor at `GET /v1/endpoint` gives the advertised URL, target, live presence, current access requirements, and enabled public operations. Its `private_proof` value is `none` in open mode, `self_or_admin` in keyed mode, and `unavailable` when required policy cannot be read. Registry metadata provides a locator and can lag membership changes. Live admission reads retained authority. Detach removes live endpoint publication and preserves the roster. Detach before reattaching with changed deployment settings.
+The endpoint descriptor at `GET /v1/endpoint` gives the advertised URL, target, live presence, current access requirements, and enabled public operations. Its `admin_mode` is `open`, `keyed`, or `unavailable`. The descriptor gives the `sshsig-v2` proof protocol and the challenge path. Registry metadata provides a locator and can lag membership changes. Live admission reads retained authority. Detach removes live endpoint publication and preserves the roster. Detach before reattaching with changed deployment settings.
 
 Remote clients verify HTTPS through platform certificate trust or a deployment CA bundle provisioned independently of the endpoint. Clients can also select an exact numeric loopback HTTP URL for a configured encrypted tunnel. Gateway clients refuse redirects and retain the selected URL prefix. If endpoint or target identity changes, explicitly select a new binding. For owner-local admin commands, an optional `admin_signer_path` in the private access configuration selects an absolute private key path. The signer must belong to a current admin when keys are required.
 
@@ -74,13 +67,13 @@ binding = GatewayClientBinding(
 )
 first = GatewayClient(binding=binding, registration_key=key)
 key_id = first.add_admin_key(key)
-admin = GatewayClient(binding=binding.model_copy(update={"purpose": "admin"}))
+admin = GatewayClient(binding=binding.model_copy(update={"purpose": "caller"}))
 status = admin.status()
 ```
 
-The client requests a challenge from `POST /v1/auth/challenge`, checks the issuer, target, purpose, key, and exact operation, and signs the canonical challenge in the Houmao SSHSIG namespace. The operation carries the challenge ID in `Houmao-Challenge` and the encoded SSHSIG in `Houmao-Signature`. Challenges expire, authorize only the exact method, path, query, and body digest, and can be consumed once. Keep proof in headers and out of URLs and logs. The gateway verifies standard SSHSIG in process.
+The client requests a challenge from `POST /v1/auth/challenge`, checks the issuer, owner, target incarnation, listener presence, purpose, key, and exact operation, and signs the canonical challenge in the Houmao SSHSIG namespace. The operation carries the challenge ID in `Houmao-Challenge` and the encoded SSHSIG in `Houmao-Signature`. Challenges expire, authorize only the exact method, path, query, and body digest, and can be consumed once. Keep proof in headers and out of URLs and logs. The gateway verifies standard SSHSIG in process.
 
-Use an already listed key to add another with `admin.add_admin_key(other_key)`. After verifying the new signer, use `admin.remove_admin_key(key_id)` from a current admin to revoke the old enrollment. If two callers compete to register the first key, only the first successful commit changes the roster. **Removing the final key immediately reopens enabled private and admin operations to anyone who can reach the listener.** Restrict reachability first when anonymous access is unintended.
+Use an already listed key to add another with `admin.add_admin_key(other_key)`. After verifying the new signer, use `admin.remove_admin_key(key_id)` to remove the old key’s admin qualification. The credential keeps its scoped access until the local owner revokes it. If two callers compete to register the first key, only the first successful commit changes the roster. **Removing the final admin qualification immediately gives everyone who can reach the listener the gateway-admin role.** Restrict reachability first when anonymous access is unintended.
 
 ## Open a Live Web Agent
 
@@ -100,7 +93,7 @@ Browser entry works while the native Web agent is busy or waiting for input. The
 
 ### Issue a One-Time Link
 
-On a gateway with enrolled keys, set `admin_signer_path` to a current enrolled signer in the gateway's private access configuration. With an empty roster the command issues the link unsigned. Run it on the execution owner:
+For keyed access, use `--signer` to select an enrolled key with `web.enter`, or configure the owner’s `admin_signer_path`. An empty roster permits unsigned issuance. Run it on the execution owner:
 
 ```bash
 houmao-mgr --print-json agents single --agent-id "$agent_id" gateway web-entry
@@ -108,11 +101,11 @@ houmao-mgr --print-json agents single --agent-id "$agent_id" gateway web-entry
 
 The command prints `url` and `expires_at_utc`. Open the URL in the browser within 60 seconds to go directly to the native app. Keep the link private and out of shared logs. Anyone who can reach the exact gateway address and holds the unused link can redeem it once.
 
-A signed script can also call `issue_web_entry_ticket()` on a `GatewayClient` with an admin binding for the exact owner-local base URL. Use the bound signer and target from the enrollment example, with the owner-local address in place of the advertised address and direct transport selected:
+A signed script can also call `issue_web_entry_ticket()` on a `GatewayClient` with a caller binding and `web.enter` for the exact owner-local base URL. Use the bound signer and target from the enrollment example, with the owner-local address in place of the advertised address and direct transport selected:
 
 ```python
 local_binding = binding.model_copy(
-    update={"base_url": "http://127.0.0.1:43123", "purpose": "admin", "ca_bundle_path": None}
+    update={"base_url": "http://127.0.0.1:43123", "purpose": "caller", "ca_bundle_path": None}
 )
 local_admin = GatewayClient(binding=local_binding, respect_proxy_env=False)
 ticket = local_admin.issue_web_entry_ticket()
@@ -209,4 +202,4 @@ houmao-mgr agents self mail status
 houmao-mgr agents self mail list --channel offline --expected-binding-id "$binding_id"
 ```
 
-The scoped self commands sign live private operations inside the CLI. Select the current channel and binding ID from scoped mailbox output. Admin callers can use their own bound signer. Owner-file attachment paths on private mail forms use the live admin policy. See the mailbox facade for channel-specific behavior and the separately authorized manager path when the gateway is detached. [Gateway Mailbox Facade](mailbox-facade.md)
+The scoped self commands sign live private operations inside the CLI. Select the current channel and binding ID from scoped mailbox output. Admin callers can use their own bound signer. Owner-file paths on send, reply, and post require `mail.attachment.owner_file` on the same mailbox resource. See the mailbox facade for channel-specific behavior and the separately authorized manager path when the gateway is detached. [Gateway Mailbox Facade](mailbox-facade.md)

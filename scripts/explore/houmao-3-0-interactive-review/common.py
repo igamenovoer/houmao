@@ -407,7 +407,7 @@ def generate_admin_keyset(
     seed_path = target_dir / "gateway-admin-seed.json"
     private_write_text(
         seed_path,
-        json.dumps({"admin_keys": seed_entries}, indent=2) + "\n",
+        json.dumps({"schema_version": 2, "admin_keys": seed_entries}, indent=2) + "\n",
         mode=0o600,
     )
     validated_seed = load_gateway_admin_seed(seed_path)
@@ -445,7 +445,7 @@ def admin_gateway_probe(
         binding = GatewayClientBinding(
             base_url=base_url,
             owner=descriptor.target.owner,
-            purpose="admin",
+            purpose="caller",
             private_key_path=str(admin_private_key_path),
         )
         admin_client = GatewayClient(base_url=base_url, binding=binding)

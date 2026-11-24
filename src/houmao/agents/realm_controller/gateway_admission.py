@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Literal, Protocol
+from typing import Protocol
 
 from fastapi import FastAPI, Request
 from starlette.concurrency import run_in_threadpool
@@ -16,12 +15,8 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from houmao.agents.realm_controller.errors import GatewayError
 from houmao.agents.realm_controller.gateway_plugin_host import GatewayPluginHost
-from houmao.agents.realm_controller.gateway_plugin_routes import declared_plugin_access
+from houmao.agents.realm_controller.gateway_plugin_routes import declared_plugin_action
 from houmao.agents.realm_controller.gateway_web_entry import (
-    WEB_CLAIM_PATH,
-    WEB_ENTER_PATH,
-    WEB_LOGIN_PATH,
-    WEB_PROVE_PATH,
     WEB_RESPONSE_HEADERS,
     WEB_TICKET_PATH,
     is_web_entry_path,
@@ -29,11 +24,13 @@ from houmao.agents.realm_controller.gateway_web_entry import (
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
-    AccessClass,
     GatewayAccessError,
+    FirstEnrollment,
     GatewayGrant,
     GatewayRequestBinding,
 )
+from houmao.gateway.authorization_models import Permission
+from houmao.gateway.operations import CORE_OPERATIONS, GatewayOperation
 from houmao.gateway.owner_authority import BACKING_HEADER, RELAY_HEADER
 
 PUBLIC_INPUT_LIMIT = 64 * 1024
@@ -42,114 +39,6 @@ _SIGNED_BODY_LIMIT = 16 * 1024 * 1024
 _PROOF_HEADERS = (CHALLENGE_HEADER, SIGNATURE_HEADER, RELAY_HEADER, BACKING_HEADER)
 _CREDENTIAL_HEADERS = frozenset(header.lower().encode("ascii") for header in _PROOF_HEADERS)
 _PUBLIC_INPUT_PATHS = frozenset({"/v1/messages", "/v1/public/prompt"})
-_PUBLIC_GET = ("/", "/health", "/v1/endpoint", WEB_ENTER_PATH)
-_PUBLIC_POST = (
-    "/v1/auth/challenge",
-    *_PUBLIC_INPUT_PATHS,
-    WEB_LOGIN_PATH,
-    WEB_PROVE_PATH,
-    WEB_CLAIM_PATH,
-)
-_PRIVATE_GET = (
-    "/v1/status",
-    "/v1/usage",
-    "/v1/memory",
-    "/v1/memory/memo",
-    "/v1/mail/status",
-    "/v1/plugins",
-    "/v1/plugins/{instance_id}/_status",
-)
-_PRIVATE_POST = (
-    WEB_TICKET_PATH,
-    "/v1/memory/memo/append",
-    *(f"/v1/memory/pages/{op}" for op in ("tree", "resolve", "read", "write", "append", "delete")),
-    *(
-        f"/v1/mail/{{channel}}/{op}"
-        for op in ("list", "peek", "read", "send", "reply", "mark", "move", "archive")
-    ),
-)
-_ADMIN_GET = (
-    "/v1/native-home",
-    "/v1/control/refresh",
-    "/v1/control/tui/state",
-    "/v1/control/tui/history",
-    "/v1/control/web/state",
-    "/v1/control/web/history",
-    "/v1/control/service/state",
-    "/v1/control/service/requests/{request_id}",
-    "/v1/control/headless/state",
-    "/v1/reminders",
-    "/v1/reminders/{reminder_id}",
-    "/v1/mail/online/binding",
-    "/v1/mail-notifier/{channel}",
-    "/v1/ag-ui/capabilities",
-    "/v1/ag-ui/destination",
-    "/v1/ag-ui/active-thread",
-)
-_ADMIN_POST = (
-    "/v1/admin/keys",
-    "/v1/control/refresh",
-    "/v1/control/tui/note-prompt",
-    "/v1/control/send-keys",
-    "/v1/control/prompt",
-    "/v1/control/headless/next-prompt-session",
-    "/v1/requests",
-    "/v1/reminders",
-    "/v1/mail/online/binding/refresh",
-    "/v1/mail/online/binding/reconnect",
-    "/v1/mail/{channel}/post",
-    "/v1/ag-ui/connect",
-    "/v1/ag-ui/runs",
-    "/v1/ag-ui/events",
-)
-_ADMIN_PUT = (
-    "/v1/reminders/{reminder_id}",
-    "/v1/mail/online/binding",
-    "/v1/mail-notifier/{channel}",
-    "/v1/ag-ui/active-thread",
-)
-_ADMIN_DELETE = (
-    "/v1/admin/keys/{key_id}",
-    "/v1/reminders/{reminder_id}",
-    "/v1/mail/online/binding",
-    "/v1/mail-notifier/{channel}",
-    "/v1/ag-ui/connections/{connection_id}",
-    "/v1/ag-ui/active-thread",
-)
-_CORE_CLASSIFICATIONS: tuple[tuple[AccessClass, str, tuple[str, ...]], ...] = (
-    ("public", "GET", _PUBLIC_GET),
-    ("public", "POST", _PUBLIC_POST),
-    ("private", "GET", _PRIVATE_GET),
-    ("private", "POST", _PRIVATE_POST),
-    ("private", "PUT", ("/v1/memory/memo",)),
-    ("admin", "GET", _ADMIN_GET),
-    ("admin", "POST", _ADMIN_POST),
-    ("admin", "PUT", _ADMIN_PUT),
-    ("admin", "DELETE", _ADMIN_DELETE),
-)
-_CORE_ACCESS: dict[tuple[str, str], AccessClass] = {
-    (method, path): access for access, method, paths in _CORE_CLASSIFICATIONS for path in paths
-}
-
-
-@dataclass(frozen=True)
-class GatewayOperation:
-    """A matched route and the access class applied before handling it."""
-
-    path: str
-    access: AccessClass
-
-    @property
-    def direct_web_entry(self) -> bool:
-        """Whether the operation requires direct owner-local Web entry authority."""
-
-        return self.path == WEB_TICKET_PATH
-
-    @property
-    def registration(self) -> bool:
-        """Whether the operation accepts first-key proof."""
-
-        return self.path == "/v1/admin/keys"
 
 
 class GatewayAdmission(Protocol):
@@ -162,7 +51,8 @@ class GatewayAdmission(Protocol):
         operation: GatewayOperation,
         binding: GatewayRequestBinding,
         proof: dict[str, str],
-    ) -> GatewayGrant:
+        body: bytes,
+    ) -> GatewayGrant | FirstEnrollment | None:
         """Return authoritative caller provenance for the matched operation."""
 
 
@@ -177,14 +67,17 @@ def _classified_routes(
             raise GatewayError("Gateway contains an unsupported or unclassified route.")
         operations: dict[str, GatewayOperation] = {}
         for method in route.methods:
-            access = _CORE_ACCESS.get((method, route.path))
-            if access is None:
+            operation = CORE_OPERATIONS.get((method, route.path))
+            if operation is None and route.path == "/v1/plugins/{instance_id}/_status":
+                operation = GatewayOperation(route.path, None, selector="plugin-status")
+            if operation is None:
                 if not plugin_routes or not route.path.startswith("/v1/plugins/"):
                     raise GatewayError(
                         f"Gateway route has no access classification: {method} {route.path}."
                     )
-                access = declared_plugin_access(route)
-            operations[method] = GatewayOperation(route.path, access)
+                action = declared_plugin_action(route)
+                operation = GatewayOperation(route.path, None, selector=action)
+            operations[method] = operation
         result.append((route, operations))
     return result
 
@@ -193,6 +86,12 @@ def validate_core_gateway_routes(routes: list[object]) -> None:
     """Reject unclassified core routes before importing plugin implementations."""
 
     _classified_routes(routes, plugin_routes=False)
+
+
+def _plugin_operation(path: str, resource: str, action: str) -> GatewayOperation:
+    """Preserve the host's exact instance and action in middleware admission."""
+
+    return GatewayOperation(path, Permission(resource=resource, action=action))
 
 
 class GatewayAdmissionMiddleware:
@@ -221,11 +120,28 @@ class GatewayAdmissionMiddleware:
         """Match actual routes in the same order as the app's router."""
 
         for route, operations in self.m_routes:
-            if route.matches(scope)[0] is Match.FULL:
-                return operations[scope["method"]]
-        unavailable_access = self.m_plugin_host.unavailable_route_access(scope)
-        if unavailable_access is not None:
-            return GatewayOperation("/v1/plugins/{instance_id}/{operation}", unavailable_access)
+            match, child = route.matches(scope)
+            if match is not Match.FULL:
+                continue
+            operation = operations[scope["method"]]
+            params = child.get("path_params", {})
+            if operation.selector == "plugin-status":
+                instance = params["instance_id"]
+                resource = self.m_plugin_host.instance_resource(instance)
+                return _plugin_operation(
+                    operation.path, resource or "plugins", "plugin.status.read"
+                )
+            if operation.selector is not None and operation.selector.startswith("plugin."):
+                selected = self.m_plugin_host.route_permission(scope)
+                if selected is None or selected.action != operation.selector:
+                    raise GatewayError("Published plugin route lost its authorization declaration.")
+                return _plugin_operation(operation.path, selected.resource, selected.action)
+            return operation.bind_channel(params.get("channel"))
+        unavailable = self.m_plugin_host.route_permission(scope)
+        if unavailable is not None:
+            return _plugin_operation(
+                "/v1/plugins/{instance_id}/{operation}", unavailable.resource, unavailable.action
+            )
         return None
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -253,21 +169,22 @@ class GatewayAdmissionMiddleware:
             return
         request = Request(scope, receive)
         request.state.gateway_operation = operation.path
+        request.state.gateway_admitted_operation = operation
         headers = {name: request.headers.getlist(name) for name in _PROOF_HEADERS}
         signed = any(headers.values())
         try:
             if operation.direct_web_entry and (headers[RELAY_HEADER] or headers[BACKING_HEADER]):
                 raise GatewayAccessError(403, "direct_admin_required")
-            if operation.access == "public" and is_web_entry_path(operation.path) and signed:
+            if operation.transport_public and is_web_entry_path(operation.path) and signed:
                 raise GatewayAccessError(403, "interactive_web_proof_required")
             if headers[BACKING_HEADER] or any(len(values) > 1 for values in headers.values()):
                 raise GatewayAccessError(401, "invalid_proof")
             if operation.path in _PUBLIC_INPUT_PATHS:
                 self.m_reserve_public_input()
-            limit = self._body_limit(operation.path, signed=signed)
+            limit = self._body_limit(operation, signed=signed)
             body = await _bounded_body(request, limit) if limit is not None else b""
             proof = {name: values[0] for name, values in headers.items() if values}
-            if operation.access != "public" or signed:
+            if not operation.transport_public or signed:
                 request_binding = GatewayRequestBinding.from_request(
                     method=request.method,
                     path=scope.get("raw_path", scope["path"].encode("utf-8")).decode("ascii"),
@@ -280,6 +197,7 @@ class GatewayAdmissionMiddleware:
                     operation=operation,
                     binding=request_binding,
                     proof=proof,
+                    body=body,
                 )
         except GatewayAccessError as error:
             await self._reject(operation, error, scope, receive, send)
@@ -300,16 +218,17 @@ class GatewayAdmissionMiddleware:
         await self.m_app(scope, receive, send)
 
     @staticmethod
-    def _body_limit(path: str, *, signed: bool) -> int | None:
+    def _body_limit(operation: GatewayOperation, *, signed: bool) -> int | None:
         """Select the request envelope ceiling before reading any bytes."""
 
+        path = operation.path
         if path in _PUBLIC_INPUT_PATHS:
             return PUBLIC_INPUT_LIMIT
         if path == "/v1/auth/challenge":
             return CHALLENGE_INPUT_LIMIT
         if path == WEB_TICKET_PATH:
             return 4096 if signed else None
-        return _SIGNED_BODY_LIMIT if signed else None
+        return _SIGNED_BODY_LIMIT if signed or operation.selector is not None else None
 
     async def _reject(
         self,
@@ -365,13 +284,7 @@ def gateway_access_error_response(
         detail["message"] = "Use the owner-local gateway directly or through a private TCP forward."
     if error.status_code == 401:
         challenge_path = "/v1/auth/challenge"
-        purposes: tuple[Literal["self", "admin", "register"], ...] = (
-            ("admin", "register")
-            if operation.registration
-            else ("admin",)
-            if operation.access == "admin" or operation.direct_web_entry
-            else ("self", "admin")
-        )
+        purposes = ("caller", "register") if operation.registration else ("caller",)
         detail.update(challenge_path=challenge_path, purposes=purposes)
         headers["WWW-Authenticate"] = f'Houmao-SSHSIG challenge="{challenge_path}"'
     return JSONResponse(status_code=error.status_code, content={"detail": detail}, headers=headers)

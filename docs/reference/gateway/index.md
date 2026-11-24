@@ -35,6 +35,7 @@ The gateway is a session-owned FastAPI companion process attached to one runtime
 ### Start here
 
 - Open a live gateway's dashboard and enter the native Web interface. [Open a Live Web Agent](operations/access.md#open-a-live-web-agent)
+- Manage principals, key enrollments, and exact permissions for an agent. [Gateway Authorization Policy](operations/authorization-policy.md)
 - [Lifecycle And Operator Flows](operations/lifecycle.md): Attach, inspect, detach, and understand offline versus live gateway states.
 - [Gateway Troubleshooting](operations/troubleshooting.md): Diagnose pair-managed current-session attach failures, stale gateway metadata, and reserved-window safety checks.
 - [Gateway AG-UI Routes](ag-ui.md): Direct per-agent AG-UI run/connect routes, CopilotKit graphics setup, smoke commands, and lifecycle limits.

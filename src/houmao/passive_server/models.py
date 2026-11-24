@@ -16,7 +16,7 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
 from houmao.agents.realm_controller.models import BackendKind
 from houmao.agents.realm_controller.run_modes import RunMode
-from houmao.gateway.access import GatewayLaunchSeed
+from houmao.gateway.access_models import GatewayLaunchSeed, GatewayTarget
 from houmao.server.models import (
     HoumaoHeadlessLaunchMailboxesOptions,
     HoumaoHeadlessTurnEvent,
@@ -37,6 +37,16 @@ class _PassiveModel(BaseModel):
     """Shared strict base model for passive-server payloads."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class PassiveProofEndpoint(_PassiveModel):
+    """Describe one selected target on the current passive proof listener."""
+
+    target: GatewayTarget
+    presence_id: str = Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$")
+    admin_mode: Literal["open", "keyed"]
+    proof_protocol: Literal["sshsig-v2"] = "sshsig-v2"
+    challenge_path: str
 
 
 class PassiveHealthResponse(_PassiveModel):

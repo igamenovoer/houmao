@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, TypeVar
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
@@ -101,6 +102,7 @@ from houmao.gateway.access import (
 from houmao.gateway.owner_authority import RELAY_HEADER, issue_gateway_relay
 from houmao.passive_server.admission import (
     CURRENT_ADMISSION,
+    PASSIVE_PERMISSIONS,
     PassiveAccessTarget,
 )
 from houmao.agents.realm_controller.registry_models import (
@@ -225,6 +227,7 @@ class PassiveServerService:
         self.m_observation = TuiObservationService(discovery=self.m_discovery, config=config)
         self.m_headless = HeadlessAgentService(config)
         self.m_access_lock: threading.Lock = threading.Lock()
+        self.m_access_listener_id: str = uuid4().hex
         self.m_access_policies: OrderedDict[
             tuple[str, str, str, Path, str | None], GatewayAccessPolicy
         ] = OrderedDict()
@@ -449,7 +452,7 @@ class PassiveServerService:
                     tracked_id, manifest_path=manifest_path
                 ):
                     runtime.require_current()
-                    return runtime.store.load_self(target.incarnation)
+                    return runtime.self_store.load_self(target.incarnation)
                 return runtime.current_self()
 
             cache_key = (
@@ -463,7 +466,11 @@ class PassiveServerService:
                 policy = self.m_access_policies.get(cache_key)
                 if policy is None:
                     policy = GatewayAccessPolicy(
-                        store=runtime.store, target=current_target, current_self=current_self
+                        store=runtime.store,
+                        target=current_target,
+                        current_self=current_self,
+                        listener_id=self.m_access_listener_id,
+                        catalog=lambda: PASSIVE_PERMISSIONS,
                     )
                     self.m_access_policies[cache_key] = policy
                     if len(self.m_access_policies) > 256:
@@ -491,11 +498,11 @@ class PassiveServerService:
         ):
             raise GatewayAccessError(503, "policy_unavailable")
 
-    def _require_direct_anonymous_access(self) -> None:
-        """Recheck an anonymous grant before accessing the locally selected body."""
+    def _require_direct_access(self, *, handoff: bool = False) -> None:
+        """Recheck the caller before disclosure or claim one admitted direct effect."""
 
         admission = CURRENT_ADMISSION.get()
-        if admission is None or admission.grant is None or admission.grant.role != "anonymous":
+        if admission is None or admission.grant is None:
             return
         selected = admission.target
         try:
@@ -508,12 +515,19 @@ class PassiveServerService:
                     or authority.agent_id not in {None, selected.runtime.target.owner.agent_id}
                 ):
                     raise GatewayAccessError(503, "policy_unavailable")
-            if not selected.policy.revalidate(admission.grant):
-                raise GatewayAccessError(401, "proof_required")
+            if handoff:
+                selected.policy.handoff(admission.grant)
+            elif not selected.policy.revalidate(admission.grant):
+                raise GatewayAccessError(401, "invalid_proof")
         except GatewayAccessError:
             raise
         except (OSError, RuntimeError, ValueError):
             raise GatewayAccessError(503, "policy_unavailable") from None
+
+    def _claim_direct_effect(self) -> None:
+        """Claim the admitted decision at the direct mutation boundary."""
+
+        self._require_direct_access(handoff=True)
 
     def get_usage(
         self, agent_ref: str, *, after: str | None = None, limit: int = 100
@@ -522,7 +536,7 @@ class PassiveServerService:
 
         admitted = CURRENT_ADMISSION.get()
         if admitted is not None and admitted.target.tracked_agent_id is not None:
-            self._require_direct_anonymous_access()
+            self._require_direct_access()
             return self.m_headless.get_usage(
                 admitted.target.tracked_agent_id, after=after, limit=limit
             )
@@ -611,35 +625,59 @@ class PassiveServerService:
             return None
         endpoint = GatewayEndpoint(host="127.0.0.1", port=gw.port)
         admitted = CURRENT_ADMISSION.get()
-        if admitted is None or admitted.grant is None or admitted.grant.role == "anonymous":
-            return GatewayClient(endpoint=endpoint)
+        if admitted is None or admitted.grant is None:
+            return GatewayClient(endpoint=endpoint, respect_proxy_env=False)
 
         grant = admitted.grant
+        receiver_id: str | None = None
 
         def request_proof(method: str, path: str, body: bytes) -> dict[str, str]:
-            """Mint exact downstream authority from the admitted caller only."""
+            """Mint exact one-use evidence for the selected live gateway instance."""
 
+            nonlocal receiver_id
             parts = urlsplit(path)
             target = admitted.target.runtime.target
             record = agent.record
+            operation = next(
+                (
+                    operation
+                    for verb, route, operation in admitted.relay_operations
+                    if (verb, route) == (method, parts.path)
+                ),
+                None,
+            )
             if (
-                (method, parts.path) not in admitted.relay_operations
+                operation is None
                 or record.agent_id != target.owner.agent_id
-                or record.execution_binding is None
-                or record.execution_binding.context_id != target.owner.context_id
+                or record.execution_binding != admitted.target.runtime.execution_binding
                 or record.generation_id != target.incarnation
             ):
                 raise GatewayHttpError(
                     method=method, url="", status_code=403, detail="Gateway relay scope denied"
                 )
             try:
+                self.require_access_target_current(admitted.target)
                 if not admitted.target.policy.revalidate(grant):
                     raise GatewayAccessError(401, "invalid_proof")
+                permissions = operation.permissions(body)
+                if not set(permissions).issubset(grant.permissions):
+                    raise GatewayAccessError(403, "insufficient_authority")
+                if receiver_id is None:
+                    descriptor = GatewayClient(
+                        endpoint=endpoint, respect_proxy_env=False
+                    ).describe_endpoint()
+                    if descriptor.target != target or not descriptor.presence_id:
+                        raise GatewayAccessError(503, "policy_unavailable")
+                    receiver_id = descriptor.presence_id
                 request_binding = GatewayRequestBinding.from_request(
                     method, parts.path, parts.query, body
                 )
                 token = issue_gateway_relay(
-                    admitted.target.runtime.private_root, grant=grant, request=request_binding
+                    admitted.target.runtime.private_root,
+                    grant=grant,
+                    request=request_binding,
+                    receiver_id=receiver_id,
+                    permissions=permissions,
                 )
             except GatewayAccessError as exc:
                 raise GatewayHttpError(
@@ -1480,7 +1518,9 @@ class PassiveServerService:
         if error is not None:
             return error
         if managed_tracked_agent_id is not None:
-            return self.m_headless.interrupt_managed(managed_tracked_agent_id)
+            return self.m_headless.interrupt_managed(
+                managed_tracked_agent_id, authorize_effect=self._claim_direct_effect
+            )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
 
@@ -1520,11 +1560,15 @@ class PassiveServerService:
         if error is not None:
             return error
         if managed_tracked_agent_id is not None:
-            return self.m_headless.stop_managed(managed_tracked_agent_id)
+            return self.m_headless.stop_managed(
+                managed_tracked_agent_id, authorize_effect=self._claim_direct_effect
+            )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
 
         agent_id = resolved.record.agent_id
+
+        self._claim_direct_effect()
 
         # Discovered-only agent: kill tmux + clear registry
         tmux_session = resolved.record.terminal.session_name if resolved.record.terminal else None
@@ -1576,6 +1620,7 @@ class PassiveServerService:
             payload.prompt,
             chat_session=payload.chat_session,
             execution=payload.execution.to_model_config() if payload.execution else None,
+            authorize_effect=self._claim_direct_effect,
         )
 
     def inspect_backing(
@@ -1864,7 +1909,7 @@ class PassiveServerService:
         admitted = CURRENT_ADMISSION.get()
         if admitted is not None:
             resolved = self._resolve_agent_or_error(agent_ref)
-            self._require_direct_anonymous_access()
+            self._require_direct_access()
             if admitted.target.tracked_agent_id is not None:
                 return (
                     admitted.target.tracked_agent_id,
@@ -2098,7 +2143,7 @@ class PassiveServerService:
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
-        self._require_direct_anonymous_access()
+        self._require_direct_access()
         if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:

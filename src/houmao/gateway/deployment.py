@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from houmao.gateway.access import (
+from houmao.gateway.access_models import (
     GatewayTarget,
     validate_gateway_base_url as validate_gateway_base_url,
 )
@@ -46,6 +46,7 @@ class GatewayDeployment(BaseModel):
     public_input_enabled: bool = False
     advertised_url: str | None = None
     admin_signer_path: str | None = Field(default=None, repr=False)
+    peer_signer_path: str | None = Field(default=None, repr=False)
 
     @field_validator("advertised_url")
     @classmethod
@@ -54,13 +55,13 @@ class GatewayDeployment(BaseModel):
 
         return None if value is None else validate_gateway_base_url(value)
 
-    @field_validator("admin_signer_path")
+    @field_validator("admin_signer_path", "peer_signer_path")
     @classmethod
     def _validate_admin_signer_path(cls, value: str | None) -> str | None:
-        """Require an explicit owner-local path for the selected signer."""
+        """Require an explicit owner-local path for each selected signer."""
 
         if value is not None and (not Path(value).is_absolute() or any(ord(c) < 32 for c in value)):
-            raise ValueError("Gateway admin signer path must be absolute.")
+            raise ValueError("Gateway signer path must be absolute.")
         return value
 
 
@@ -73,8 +74,9 @@ class GatewayEndpointDescriptor(BaseModel):
     target: GatewayTarget
     presence_id: str
     advertised_url: str | None
-    admin_access: Literal["open", "key_required", "unavailable"]
-    private_proof: Literal["none", "self_or_admin", "unavailable"] = "self_or_admin"
+    admin_mode: Literal["open", "keyed", "unavailable"]
+    proof_protocol: Literal["sshsig-v2"] = "sshsig-v2"
+    challenge_path: Literal["/v1/auth/challenge"] = "/v1/auth/challenge"
     public_operations: tuple[Literal["messages", "public_prompt"], ...] = ()
 
     _validate_advertised_url = field_validator("advertised_url")(

@@ -73,8 +73,11 @@ def test_gateway_controls_preserve_newer_native_conversation(
         "houmao.agents.realm_controller.runtime._start_gateway_process",
         lambda **_kwargs: 43123,
     )
-    store = SimpleNamespace(load=lambda: None, load_self=lambda _generation: None)
-    access = SimpleNamespace(store=store, target=SimpleNamespace(incarnation="fixture"))
+    store = SimpleNamespace(snapshot=lambda: None)
+    self_store = SimpleNamespace(load_self=lambda _generation: None)
+    access = SimpleNamespace(
+        store=store, self_store=self_store, target=SimpleNamespace(incarnation="fixture")
+    )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.gateway_access_for_manifest", lambda _path: access
     )

@@ -10,10 +10,12 @@ from typing import cast
 from fastapi import APIRouter
 from starlette.routing import BaseRoute, Route
 
-from houmao.gateway.plugins.routes import PLUGIN_ROUTE_ACCESS_FIELD, PluginRouteAccess
+from houmao.gateway.plugins.routes import PLUGIN_ROUTE_ACTION_FIELD
 
 
 _PARAMETER = re.compile(r"\{([a-zA-Z_][a-zA-Z0-9_]*)(?::(str|path))?\}")
+_ACTION_PART = r"[A-Za-z0-9][A-Za-z0-9_-]*"
+_ACTION = re.compile(rf"plugin\.{_ACTION_PART}(?:\.{_ACTION_PART})+\Z")
 
 
 class PluginRouteError(ValueError):
@@ -40,31 +42,42 @@ class PluginRouteError(ValueError):
 
 
 @dataclass(frozen=True)
+class PluginRoutePermission:
+    """The host-selected resource and action for one installed route."""
+
+    action: str
+    resource: str
+
+
+@dataclass(frozen=True)
 class PluginRouteDeclaration:
     """An effective HTTP path and method set owned by a plugin or the core."""
 
     owner: str | None
     path: str
     methods: frozenset[str]
-    access: PluginRouteAccess = "admin"
+    permission: PluginRoutePermission | None = None
 
 
-def declared_plugin_access(route: Route) -> PluginRouteAccess:
-    """Resolve explicit access or the admin default from one plugin route."""
+def declared_plugin_action(route: Route) -> str:
+    """Read and validate the explicit namespaced action for one plugin route."""
 
-    metadata = getattr(route, "openapi_extra", None) or {}
+    metadata = getattr(route, "openapi_extra", None)
     if not isinstance(metadata, dict):
-        raise PluginRouteError("invalid_route_access", "Plugin route metadata is invalid")
-    access = metadata.get(PLUGIN_ROUTE_ACCESS_FIELD, "admin")
-    if access == "private":
-        return "private"
-    if access == "admin":
-        return "admin"
-    raise PluginRouteError("invalid_route_access", "Plugin route access must be private or admin")
+        raise PluginRouteError("invalid_route_action", "Plugin route requires a namespaced action")
+    action = metadata.get(PLUGIN_ROUTE_ACTION_FIELD)
+    if (
+        not isinstance(action, str)
+        or len(action) > 128
+        or _ACTION.fullmatch(action) is None
+        or action == "plugin.status.read"
+    ):
+        raise PluginRouteError("invalid_route_action", "Plugin route requires a namespaced action")
+    return action
 
 
 def plugin_route_declarations(
-    instance_id: str, router: APIRouter
+    instance_id: str, router: APIRouter, *, implementation: str, resource: str
 ) -> tuple[PluginRouteDeclaration, ...]:
     """Validate a resource-free plugin router and return its prefixed routes.
 
@@ -74,6 +87,10 @@ def plugin_route_declarations(
         Validated gateway instance identifier.
     router:
         Router prepared by the external plugin factory.
+    implementation:
+        Entry-point name selected by the owner for this instance.
+    resource:
+        Canonical owner-bound resource selected by the host.
 
     Returns
     -------
@@ -113,12 +130,17 @@ def plugin_route_declarations(
             raise PluginRouteError(
                 "invalid_route_methods", "Plugin routes require explicit methods"
             )
+        action = declared_plugin_action(route)
+        if not action.startswith(f"plugin.{implementation}."):
+            raise PluginRouteError(
+                "invalid_route_action", "Plugin route action must use its implementation namespace"
+            )
         declarations.append(
             PluginRouteDeclaration(
                 owner=instance_id,
                 path=prefix + route.path,
                 methods=frozenset(method.upper() for method in route.methods),
-                access=declared_plugin_access(route),
+                permission=PluginRoutePermission(action=action, resource=resource),
             )
         )
     return tuple(declarations)

@@ -15,6 +15,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.managed_control import MANAGED_SERVICE_BACKENDS
 from houmao.agents.realm_controller.run_modes import RunMode
+from houmao.gateway.authorization_models import AuthorizationDecision
 
 AgUiTargetTransportFamily = Literal["headless", "tui", "service", "web", "http_rest", "unknown"]
 
@@ -75,7 +76,12 @@ class AgUiRuntimeObservationProtocol(Protocol):
         """Return the current gateway status."""
 
     def create_request(
-        self, request_payload: GatewayRequestCreateV1, *, ready_only: bool = False
+        self,
+        request_payload: GatewayRequestCreateV1,
+        *,
+        ready_only: bool = False,
+        expected_generation: str | None = None,
+        authority: AuthorizationDecision | None = None,
     ) -> GatewayAcceptedRequestV1:
         """Admit one gateway request through the existing gateway controls."""
 

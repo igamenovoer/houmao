@@ -13,6 +13,7 @@ from typing import Any, cast
 import pytest
 from fastapi.testclient import TestClient
 
+from houmao.ag_ui.authorization import OBSERVE, SUBMIT, thread_resource
 from houmao.ag_ui.graphics import HOUMAO_RENDER_GRAPHIC_TOOL_NAME
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller import gateway_service
@@ -52,6 +53,7 @@ from houmao.agents.realm_controller.registry_models import (
 from houmao.agents.realm_controller.registry_storage import publish_managed_agent_record
 from houmao.execution.context import observed_local_binding
 from houmao.gateway.access import GatewayLaunchSeed
+from houmao.gateway.authorization_models import Credential, Permission, Principal, ScopedGrant
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from tests.fixtures.gateway_access import FixtureProofAuth, fixture_admin_key
 
@@ -146,8 +148,10 @@ class _FakeHeadlessGatewayAdapter(gateway_service._LocalHeadlessGatewayAdapter):
         assert allowed() and claim.active()
         claim.handoff()
         self.submit_prompt(
-            prompt=prompt, turn_id=claim.request_id,
-            session_selection=session_selection, execution_model=execution_model,
+            prompt=prompt,
+            turn_id=claim.request_id,
+            session_selection=session_selection,
+            execution_model=execution_model,
         )
         (claim.turn_dir / "exitcode").write_text("0\n")
 
@@ -249,7 +253,7 @@ def _start_gateway_harness(
     )
     client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
     if signer is not None:
-        client.auth = FixtureProofAuth(signer, purpose="admin")
+        client.auth = FixtureProofAuth(signer, purpose="caller")
     runtime.start()
     return _GatewayHarness(
         client=client,
@@ -335,7 +339,8 @@ def _seed_gateway_manifest(tmp_path: Path, *, seed: GatewayLaunchSeed) -> Path:
             execution_binding=binding,
             identity=RegistryIdentityV1(backend=backend, tool="codex"),
             runtime=RegistryRuntimeV1(
-                manifest_path=str(manifest_path), session_root=str(manifest_path.parent),
+                manifest_path=str(manifest_path),
+                session_root=str(manifest_path.parent),
                 agent_def_dir=str(agent_def_dir),
             ),
             terminal=RegistryTerminalV2(
@@ -345,7 +350,8 @@ def _seed_gateway_manifest(tmp_path: Path, *, seed: GatewayLaunchSeed) -> Path:
                 state="active", relaunchable=True, state_updated_at=now.isoformat()
             ),
             liveness=RegistryLivenessV1(
-                published_at=now.isoformat(), lease_expires_at=(now + timedelta(minutes=3)).isoformat()
+                published_at=now.isoformat(),
+                lease_expires_at=(now + timedelta(minutes=3)).isoformat(),
             ),
             mailboxes=RegistryMailboxesV1(offline=empty_slot, online=empty_slot),
             canonical_mail_identity=None,
@@ -583,6 +589,68 @@ def test_gateway_e2e_run_stream_preserves_run_id_and_lifecycle(
         assert artifact is not None
         assert artifact.canonical_events_path.is_file()
         assert artifact.turn_dir.name == "agui-smoke-run-1"
+    finally:
+        harness.close()
+
+
+def test_gateway_e2e_scoped_nonadmin_run_requires_both_thread_permissions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use enrolled nonadmin caller proof through discovery, admission, and dispatch."""
+
+    harness = _start_gateway_harness(
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+        artifact_factory=lambda _prompt, turn: [_assistant_event(text=f"answer for {turn}")],
+        admin_required=True,
+    )
+    try:
+        key, signer = fixture_admin_key(tmp_path, "scoped-operator")
+        principal = Principal(principal_id=key.principal, kind="operator", label="Scoped Operator")
+        credential = Credential(principal_id=principal.principal_id, public_key=key.public_key)
+        thread = thread_resource("ag-ui-e2e-thread")
+        observe = ScopedGrant(
+            principal_id=principal.principal_id,
+            permission=Permission(resource=thread, action=OBSERVE),
+        )
+        submit = ScopedGrant(
+            principal_id=principal.principal_id,
+            permission=Permission(resource=thread, action=SUBMIT),
+        )
+        policy = harness.runtime._require_access_policy().store
+        policy.update(
+            lambda state: state.model_copy(
+                update={
+                    "principals": (*state.principals, principal),
+                    "credentials": (*state.credentials, credential),
+                    "grants": (*state.grants, observe),
+                }
+            ),
+            actor="owner",
+            action="policy.test.enroll",
+        )
+        harness.client.auth = FixtureProofAuth(signer, purpose="caller")
+        denied = harness.client.post("/v1/ag-ui/runs", json=_run_payload(run_id="observe-only"))
+        assert denied.status_code == 403
+        assert harness.adapter.m_submitted_prompts == []
+
+        policy.update(
+            lambda state: state.model_copy(update={"grants": (*state.grants, submit)}),
+            actor="owner",
+            action="policy.test.grant",
+        )
+        foreign_payload = _run_payload(run_id="foreign-run")
+        foreign_payload["threadId"] = "foreign-thread"
+        denied = harness.client.post("/v1/ag-ui/runs", json=foreign_payload)
+        assert denied.status_code == 403
+        assert harness.adapter.m_submitted_prompts == []
+
+        result = harness.client.post("/v1/ag-ui/runs", json=_run_payload(run_id="scoped-run"))
+        assert result.status_code == 200
+        assert _sse_payloads(result.text)[-1]["type"] == "RUN_FINISHED"
+        assert [prompt.turn_id for prompt in harness.adapter.m_submitted_prompts] == ["scoped-run"]
+        assert harness.adapter.m_interrupt_count == 0
+        assert policy.snapshot().admin_mode == "keyed"
     finally:
         harness.close()
 

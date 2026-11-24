@@ -123,7 +123,7 @@ def test_native_web_fixture_keeps_one_browser_api_session(
         if surface == "manager" and case == "self-hosted":
             gateway = f"http://127.0.0.1:{run['identity']['gateway_port']}"
             with httpx.Client(base_url=gateway, trust_env=False, timeout=10) as http:
-                assert http.get("/v1/endpoint").json()["admin_access"] == "open"
+                assert http.get("/v1/endpoint").json()["admin_mode"] == "open"
                 assert http.get("/v1/web/enter", follow_redirects=False).status_code == 302
             browser_file = _gateway_browser_file(run, state)
         browser = NativeBrowser.from_connection_file(browser_file)
@@ -503,7 +503,7 @@ def test_web_manager_and_authenticated_gateway_share_one_native_turn(
                 return http.post(
                     "/v1/control/prompt",
                     json={"prompt": "gateway race marker", "admission_policy": "ready_only"},
-                    auth=FixtureProofAuth(signer, purpose="admin"),
+                    auth=FixtureProofAuth(signer, purpose="caller"),
                 )
 
         with ThreadPoolExecutor(max_workers=2) as executor:

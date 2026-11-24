@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 import fcntl
 import os
@@ -16,7 +16,6 @@ from urllib.parse import quote, urlsplit
 from pydantic import BaseModel, ConfigDict, Field
 
 from houmao.gateway.access import (
-    AccessClass,
     GatewayAccessError,
     GatewayAccessPolicy,
     GatewayGrant,
@@ -24,6 +23,7 @@ from houmao.gateway.access import (
     GatewayTarget,
     parse_access_document,
 )
+from houmao.gateway.authorization_models import Permission
 
 RELAY_HEADER = "Houmao-Relay"
 BACKING_HEADER = "Houmao-Backing"
@@ -66,6 +66,8 @@ class _RelayRecord(BaseModel):
 
     grant: GatewayGrant
     request: GatewayRequestBinding
+    receiver_id: str = Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$")
+    permissions: tuple[Permission, ...] = Field(min_length=1, max_length=64)
     expires_at: float
 
 
@@ -175,17 +177,28 @@ def _take_token(descriptor: int, token: str) -> bytes:
     return record
 
 
-def issue_gateway_relay(root: Path, *, grant: GatewayGrant, request: GatewayRequestBinding) -> str:
+def issue_gateway_relay(
+    root: Path,
+    *,
+    grant: GatewayGrant,
+    request: GatewayRequestBinding,
+    receiver_id: str,
+    permissions: tuple[Permission, ...],
+) -> str:
     """Relay only an already verified caller to an exact downstream request."""
 
-    if grant.role not in {"admin", "self"}:
+    if not permissions or not frozenset(permissions).issubset(grant.permissions):
         raise GatewayAccessError(403, "insufficient_authority")
     try:
         with _authority_directory(root, _RELAY_DIR, create=True) as descriptor:
             return _issue_token(
                 descriptor,
                 _RelayRecord(
-                    grant=grant, request=request, expires_at=time.time() + _LIFETIME_SECONDS
+                    grant=grant,
+                    request=request,
+                    receiver_id=receiver_id,
+                    permissions=permissions,
+                    expires_at=time.time() + _LIFETIME_SECONDS,
                 ),
             )
     except (OSError, ValueError):
@@ -199,11 +212,10 @@ def consume_gateway_relay(
     request: GatewayRequestBinding,
     token: str,
     policy: GatewayAccessPolicy,
-    access: AccessClass,
+    permissions: Iterable[Permission] | Callable[[], Iterable[Permission]],
 ) -> GatewayGrant:
     """Consume relay proof and check current caller enrollment and scope."""
 
-    policy.m_store.load()
     try:
         with _authority_directory(root, _RELAY_DIR, create=False) as descriptor:
             record = parse_access_document(_RelayRecord, _take_token(descriptor, token))
@@ -213,14 +225,18 @@ def consume_gateway_relay(
     if (
         record.expires_at <= time.time()
         or record.request != request
+        or record.receiver_id != policy.listener_id
         or grant.target != target
-        or grant.role not in {"self", "admin"}
-        or not policy.revalidate(grant)
+        or not frozenset(record.permissions).issubset(grant.permissions)
     ):
         raise GatewayAccessError(401, "invalid_proof")
-    if access == "public" or (
-        access == "admin" and grant.role == "self" and grant.revision is None
-    ):
+    grant = grant.model_copy(
+        update={"listener_id": policy.listener_id, "permissions": record.permissions}
+    )
+    if not policy.revalidate(grant):
+        raise GatewayAccessError(401, "invalid_proof")
+    required = permissions() if callable(permissions) else permissions
+    if frozenset(required) != frozenset(record.permissions):
         raise GatewayAccessError(403, "insufficient_authority")
     return grant
 

@@ -208,7 +208,7 @@ def test_gateway_requires_signed_control_and_projects_exact_native_turn(
     admin, signer = fixture_admin_key(tmp_path, "service-admin")
     with app_client:
         enroll_fixture_admin(app_client, admin, signer)
-        app_client.auth = FixtureProofAuth(signer, purpose="admin")
+        app_client.auth = FixtureProofAuth(signer, purpose="caller")
         assert app_client.get("/v1/control/service/state", auth=None).status_code == 401
         state = app_client.get("/v1/control/service/state")
         assert state.status_code == 200, state.text

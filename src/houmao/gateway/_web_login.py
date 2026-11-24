@@ -49,7 +49,7 @@ def render_web_login_page(nonce: str, *, agent_id: str = "") -> str:
 
 
 def verify_web_login(policy: GatewayAccessPolicy, proofs: bytes, challenge: bytes) -> GatewayGrant:
-    """Verify one enrolled admin's signature from a batch of complete SSHSIG armor blocks."""
+    """Verify a signer with Web entry permission from a bounded batch of SSHSIG blocks."""
 
     if len(proofs) > WEB_LOGIN_PROOF_MAX_BYTES:
         raise GatewayAccessError(413, "proof_too_large")

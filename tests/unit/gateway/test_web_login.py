@@ -32,6 +32,9 @@ from houmao.gateway.access import (
     sign_sshsig,
 )
 from houmao.gateway.access_models import MAX_ADMIN_KEYS
+from houmao.gateway.authorization_models import Credential, Principal, seed_snapshot
+from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.gateway.roster import remove_admin_key
 
 CHALLENGE = rb"""{"issuer":"http://127.0.0.1:12345","value":"' \u001b $(touch signed-text)"}"""
 ISSUER = "http://127.0.0.1:12345"
@@ -62,17 +65,23 @@ def _policy(tmp_path: Path, public_key: str) -> GatewayAccessPolicy:
     """Enroll a single operator and provision a distinct current self identity."""
 
     owner = GatewayOwner(agent_id="agent", context_id="context")
-    store = GatewayAccessStore.from_root(tmp_path / "access", owner)
+    root = tmp_path / "access"
+    store = AuthorizationStore(root, owner)
+    self_store = GatewayAccessStore.from_root(root, owner)
     store.initialize(
-        GatewayLaunchSeed(
-            admin_keys=(GatewayAdminKey(principal="operator", public_key=public_key),)
+        seed_snapshot(
+            owner,
+            GatewayLaunchSeed(
+                admin_keys=(GatewayAdminKey(principal="operator", public_key=public_key),)
+            ),
         )
     )
-    store.provision_self("generation")
+    self_store.provision_self("generation")
     return GatewayAccessPolicy(
         store=store,
         target=lambda: GatewayTarget(owner=owner, incarnation="generation"),
-        current_self=lambda: store.load_self("generation"),
+        current_self=lambda: self_store.load_self("generation"),
+        listener_id="web-login",
     )
 
 
@@ -192,14 +201,35 @@ def test_approval_accepts_stock_signatures_after_invalid_candidates(tmp_path: Pa
     other = tmp_path / "other"
     policy = _policy(tmp_path, _keygen(admin))
     _keygen(other)
+    enrolled = tmp_path / "ungranted"
+    credential = Credential(principal_id="ungranted", public_key=_keygen(enrolled))
+    policy.store.update(
+        lambda state: state.model_copy(
+            update={
+                "principals": (
+                    *state.principals,
+                    Principal(principal_id="ungranted", kind="operator", label="Ungranted"),
+                ),
+                "credentials": (*state.credentials, credential),
+            }
+        ),
+        actor="owner",
+        action="test.web.enroll",
+    )
     bad_armor = b"-----BEGIN SSH SIGNATURE-----\n!\n-----END SSH SIGNATURE-----\n"
     wrong_scope = _stock_sign(admin, scope=SSHSIG_NAMESPACE)
-    proof = bad_armor + _stock_sign(other) + wrong_scope + _stock_sign(admin)
+    proof = (
+        bad_armor + _stock_sign(other) + wrong_scope + _stock_sign(enrolled) + _stock_sign(admin)
+    )
     grant = verify_web_login(policy, proof, CHALLENGE)
-    assert grant.role == "admin" and grant.principal == "operator"
+    assert grant.basis == "admin" and grant.actor.principal_id == "operator"
     assert policy.revalidate(grant)
-    assert grant.key_id is not None
-    policy.remove_key(grant, grant.key_id)
+    assert grant.actor.key_id is not None
+    policy.store.update(
+        lambda state: remove_admin_key(state, grant.actor.key_id),
+        actor="owner",
+        action="admin.key.remove",
+    )
     assert not policy.revalidate(grant)
 
 
@@ -208,7 +238,11 @@ def test_approval_refuses_wrong_scope_target_self_and_oversized_batch(tmp_path: 
 
     admin = tmp_path / "admin"
     policy = _policy(tmp_path, _keygen(admin))
-    self_signer = load_gateway_signer(policy.store.self_signer_path("generation"))
+    self_signer = load_gateway_signer(
+        GatewayAccessStore.from_root(tmp_path / "access", policy.store.owner).self_signer_path(
+            "generation"
+        )
+    )
     signature = _stock_sign(admin)
     for proof, challenge, status in (
         (_stock_sign(admin, scope=SSHSIG_NAMESPACE), CHALLENGE, 401),

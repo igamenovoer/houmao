@@ -37,9 +37,14 @@ from houmao.agents.realm_controller.native_refresh_models import (
     NativeRefreshResultV1,
 )
 from houmao.gateway.plugins import PluginDispatchError
+from houmao.gateway.roster import add_admin_key
 from tests.unit.agents.realm_controller.test_dsh_web_gateway import _event, _runtime
 from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
-from tests.fixtures.gateway_access import configure_fixture_gateway_access, gateway_fixture_client
+from tests.fixtures.gateway_access import (
+    configure_fixture_gateway_access,
+    fixture_admin_key,
+    gateway_fixture_client,
+)
 
 
 def _observation(freshness: str = "pending", **updates: object) -> CommonPluginObservationV1:
@@ -127,6 +132,8 @@ def _http_client(
     runtime.m_access_runtime = None
     runtime.m_access_policy = None
     runtime.m_port = 43123
+    runtime.m_presence_id = "refresh-test-listener"
+    runtime.m_native_refresh_active = False
     runtime.m_plugin_lifecycle_deferred = True
 
     def prepare_host(app: FastAPI) -> None:
@@ -140,6 +147,37 @@ def _http_client(
     monkeypatch.setattr(runtime, "prepare_plugin_host", prepare_host)
     monkeypatch.setattr(runtime, "emit_diagnostic", Mock())
     return gateway_fixture_client(runtime)
+
+
+def test_native_refresh_rechecks_open_authority_after_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A first-key enrollment that wins the observation race prevents native effects."""
+
+    runtime, _, _ = _runtime(tmp_path, monkeypatch)
+    client = _http_client(runtime, tmp_path, monkeypatch)
+    observation = _observation()
+    _bind_native(runtime, monkeypatch, observation)
+    admin, _ = fixture_admin_key(tmp_path, "native-owner")
+    store = runtime._require_access_policy().store
+    native = Mock()
+
+    def observe(_: object) -> CommonPluginObservationV1:
+        """Change the roster while the authorized request prepares its mutation."""
+
+        store.update(
+            lambda state: add_admin_key(state, admin), actor="owner", action="admin.key.add"
+        )
+        return observation
+
+    monkeypatch.setattr(service, "observe_common_plugins", observe)
+    monkeypatch.setattr(service, "plan_native_refresh", lambda _: None)
+    monkeypatch.setattr(service, "perform_native_refresh", native)
+    response = client.post("/v1/control/refresh", json={})
+    assert response.status_code in {403, 409}
+    assert store.snapshot().admin_mode == "keyed"
+    native.assert_not_called()
+    assert not runtime.m_native_refresh_active
 
 
 @pytest.mark.parametrize("uncertain", [False, True])
@@ -449,7 +487,11 @@ def test_refresh_http_preserves_typed_effects_and_outcome(
     response = client.post("/v1/control/refresh", json={"timeout_seconds": 0.1})
     assert response.status_code == status_code
     assert response.json() == result.model_dump(mode="json")
-    refresh.assert_called_once_with(NativeRefreshRequestV1(timeout_seconds=0.1))
+    refresh.assert_called_once()
+    assert refresh.call_args.args == (NativeRefreshRequestV1(timeout_seconds=0.1),)
+    assert refresh.call_args.kwargs["expected_home_etag"] is None
+    authority = refresh.call_args.kwargs["authority"]
+    assert [permission.action for permission in authority.permissions] == ["native.refresh.apply"]
 
 
 @pytest.mark.parametrize(

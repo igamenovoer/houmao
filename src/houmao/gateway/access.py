@@ -1,12 +1,11 @@
-"""Verify generation-bound caller authority and manage live gateway enrollment."""
+"""Apply retained caller authorization to one live gateway or passive ingress."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
-import secrets
-import threading
-import time
+from collections.abc import Callable, Iterable
+import hashlib
+from typing import TypeAlias
+from uuid import uuid4
 
 from houmao.gateway._access_sshsig import (
     MAX_SIGNATURE_HEADER as MAX_SIGNATURE_HEADER,
@@ -25,19 +24,14 @@ from houmao.gateway._access_storage import (
     read_private_access_file as read_private_access_file,
 )
 from houmao.gateway.access_models import (
-    AccessClass as AccessClass,
-    AdminMode as AdminMode,
     CHALLENGE_HEADER as CHALLENGE_HEADER,
     MAX_ACCESS_DOCUMENT as MAX_ACCESS_DOCUMENT,
-    MAX_ADMIN_KEYS,
+    MAX_ADMIN_KEYS as MAX_ADMIN_KEYS,
     SIGNATURE_HEADER as SIGNATURE_HEADER,
-    GatewayAdminEnrollment,
     GatewayAdminKey as GatewayAdminKey,
-    GatewayAdminState as GatewayAdminState,
     GatewayChallenge as GatewayChallenge,
     GatewayChallengeRequest as GatewayChallengeRequest,
     GatewayClientBinding as GatewayClientBinding,
-    GatewayGrant as GatewayGrant,
     GatewayLaunchSeed as GatewayLaunchSeed,
     GatewayOwner as GatewayOwner,
     GatewayRequestBinding as GatewayRequestBinding,
@@ -47,327 +41,263 @@ from houmao.gateway.access_models import (
     parse_access_document as parse_access_document,
     validate_gateway_base_url as validate_gateway_base_url,
 )
+from houmao.gateway.authorization import GatewayAuthorizer
+from houmao.gateway.authorization_models import (
+    AuthorizationActor,
+    AuthorizationDecision,
+    Permission,
+    PolicySnapshot,
+)
+from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.gateway.caller_proof import (
+    CHALLENGE_LIFETIME_SECONDS as CHALLENGE_LIFETIME_SECONDS,
+    CallerProofs,
+    FirstEnrollment as FirstEnrollment,
+)
+from houmao.gateway.operations import (
+    ADMIN_ADD,
+    ADMIN_REMOVE,
+    CORE_PERMISSIONS,
+    PUBLIC_INPUT_PERMISSIONS,
+    SELF_PERMISSIONS,
+    WEB_ENTRY,
+    supports_mail_permission,
+    supports_self_mail_permission,
+)
+from houmao.gateway.roster import add_admin_key, remove_admin_key
 
-CHALLENGE_LIFETIME_SECONDS = 30
-_CHALLENGE_CAPACITY = 1024
-_REGISTRATION_ROUTE = ("POST", "/v1/admin/keys")
-
-
-@dataclass(frozen=True)
-class _PendingChallenge:
-    """Retain its local expiry independently of the issuer's wall clock."""
-
-    challenge: GatewayChallenge
-    deadline: float
+GatewayGrant: TypeAlias = AuthorizationDecision
 
 
 class GatewayAccessPolicy:
-    """Enforce one access policy for a specific ingress and managed owner."""
+    """Coordinate exact proof, semantic policy decisions, and current handoffs."""
 
     def __init__(
         self,
         *,
-        store: GatewayAccessStore,
+        store: AuthorizationStore,
         target: Callable[[], GatewayTarget],
         current_self: Callable[[], GatewaySelfKey | None],
+        listener_id: str,
+        catalog: Callable[[], Iterable[Permission]] | None = None,
+        supports: Callable[[Permission], bool] | None = None,
     ) -> None:
-        """Bind policy to owner-side authority lookups supplied by the ingress."""
+        """Bind one transient listener to retained owner authorization."""
 
-        self.m_store: GatewayAccessStore = store
-        self.m_target: Callable[[], GatewayTarget] = target
+        self.m_store: AuthorizationStore = store
+        self.m_listener_id: str = listener_id
         self.m_self: Callable[[], GatewaySelfKey | None] = current_self
-        self.m_challenges: dict[str, _PendingChallenge] = {}
-        self.m_challenge_lock: threading.Lock = threading.Lock()
+        self.m_proofs: CallerProofs = CallerProofs(
+            store=store, target=target, current_self=current_self, listener_id=listener_id
+        )
+        self.m_authorizer: GatewayAuthorizer = GatewayAuthorizer(
+            store,
+            catalog=(
+                (lambda: CORE_PERMISSIONS.union(catalog()))
+                if catalog is not None
+                else CORE_PERMISSIONS
+            ),
+            public_permissions=PUBLIC_INPUT_PERMISSIONS,
+            self_permissions=SELF_PERMISSIONS,
+            supports=(
+                (lambda permission: supports_mail_permission(permission) or supports(permission))
+                if supports is not None
+                else supports_mail_permission
+            ),
+            supports_self=supports_self_mail_permission,
+        )
 
     @property
-    def store(self) -> GatewayAccessStore:
-        """Return the retained authority for this ingress."""
+    def store(self) -> AuthorizationStore:
+        """Return retained policy selected by this ingress."""
 
         return self.m_store
 
+    @property
+    def listener_id(self) -> str:
+        """Return the issuer identity bound into each proof and decision."""
+
+        return self.m_listener_id
+
     def issue(self, issuer: str, request: GatewayChallengeRequest) -> GatewayChallenge:
-        """Issue one bounded challenge for a validated ingress and request binding."""
+        """Issue one bounded proof challenge for enrolled or managed self credentials."""
 
-        with self.m_store.read_locked() as state:
-            target = self._current_target()
-            key_id = request.key_id
-            generation_id = None
-            revision: int | None = state.revision
-            if request.purpose == "self":
-                binding = self._current_self(state.owner)
-                if binding is None:
-                    raise GatewayAccessError(401, "invalid_proof")
-                generation_id = binding.generation_id
-                key_id = binding.key_id
-                revision = None
-            elif request.purpose == "register":
-                candidate = request.proposed_key
-                if (
-                    candidate is None
-                    or _REGISTRATION_ROUTE != (request.request.method, request.request.path)
-                    or request.request.query
-                ):
-                    raise GatewayAccessError(401, "invalid_proof")
-                if state.mode != "open":
-                    raise GatewayAccessError(409, "enrollment_conflict")
-                key_id = candidate.key_id
-            elif key_id is None or state.find(key_id) is None:
-                raise GatewayAccessError(401, "invalid_proof")
-
-            with self.m_challenge_lock:
-                now = time.monotonic()
-                self.m_challenges = {
-                    key: pending
-                    for key, pending in self.m_challenges.items()
-                    if pending.deadline > now
-                }
-                if len(self.m_challenges) >= _CHALLENGE_CAPACITY:
-                    raise GatewayAccessError(429, "challenge_capacity")
-                challenge = GatewayChallenge(
-                    challenge_id=secrets.token_urlsafe(32),
-                    issuer=issuer,
-                    target=target,
-                    purpose=request.purpose,
-                    request=request.request,
-                    key_id=key_id,
-                    expires_at=int(time.time()) + CHALLENGE_LIFETIME_SECONDS,
-                    generation_id=generation_id,
-                    revision=revision,
-                    proposed_key=request.proposed_key,
-                )
-                self.m_challenges[challenge.challenge_id] = _PendingChallenge(
-                    challenge, now + CHALLENGE_LIFETIME_SECONDS
-                )
-                return challenge
+        return self.m_proofs.issue(issuer, request)
 
     def admit(
         self,
-        access: AccessClass,
+        permissions: Iterable[Permission] | Callable[[], Iterable[Permission]],
         *,
         issuer: str,
         request: GatewayRequestBinding,
         challenge_id: str | None = None,
         signature: str | None = None,
         registration: bool = False,
-    ) -> GatewayGrant:
-        """Consume one proof or apply the current unsigned admission rule."""
+    ) -> GatewayGrant | FirstEnrollment:
+        """Verify any supplied proof before selecting its exact allowed effects."""
 
-        if access == "public" and challenge_id is None and signature is None:
-            return GatewayGrant(role="public", target=self._current_target())
-        with self.m_store.read_locked() as state:
-            target = self._current_target()
-            if challenge_id is None and signature is None:
-                if state.mode == "open" and not registration:
-                    return GatewayGrant(role="anonymous", target=target, revision=state.revision)
+        actor = (
+            self.m_proofs.verify(
+                issuer, request, challenge_id, signature, registration=registration
+            )
+            if challenge_id is not None or signature is not None
+            else AuthorizationActor(kind="anonymous")
+        )
+        if isinstance(actor, FirstEnrollment):
+            return actor
+        if (
+            callable(permissions)
+            and actor.kind == "anonymous"
+            and self.m_store.snapshot().admin_mode == "keyed"
+        ):
+            raise GatewayAccessError(401, "proof_required")
+        operation = permissions() if callable(permissions) else permissions
+        return self.authorize(actor, operation)
+
+    def verify_public_request(
+        self,
+        *,
+        issuer: str,
+        request: GatewayRequestBinding,
+        challenge_id: str | None,
+        signature: str | None,
+    ) -> None:
+        """Reject invalid explicit proof even on an otherwise public transport route."""
+
+        self.m_proofs.verify(issuer, request, challenge_id, signature)
+
+    def authenticate(
+        self,
+        *,
+        issuer: str,
+        request: GatewayRequestBinding,
+        challenge_id: str | None,
+        signature: str | None,
+    ) -> AuthorizationActor:
+        """Authenticate a caller before a handler selects its resolved resource."""
+
+        if challenge_id is None and signature is None:
+            if self.m_store.snapshot().admin_mode == "keyed":
                 raise GatewayAccessError(401, "proof_required")
-            if challenge_id is None or signature is None:
-                raise GatewayAccessError(401, "invalid_proof")
-            challenge = self._consume(challenge_id, signature)
-            if (challenge.issuer, challenge.target, challenge.request) != (issuer, target, request):
-                raise GatewayAccessError(401, "invalid_proof")
-            grant = self._verify(challenge, signature, state, registration=registration)
-            if grant.role == "self" and access == "admin":
-                if state.mode != "open" or registration:
-                    raise GatewayAccessError(403, "insufficient_authority")
-                # Self proof identifies the caller. The empty revision grants admin access.
-                return grant.model_copy(update={"revision": state.revision})
-            return grant
+            return AuthorizationActor(kind="anonymous")
+        actor = self.m_proofs.verify(issuer, request, challenge_id, signature)
+        if not isinstance(actor, AuthorizationActor):
+            raise GatewayAccessError(401, "invalid_proof")
+        return actor
+
+    def authorize(
+        self, actor: AuthorizationActor, permissions: Iterable[Permission]
+    ) -> GatewayGrant:
+        """Evaluate a verified actor on the current retained policy."""
+
+        return self.m_authorizer.authorize(
+            actor,
+            permissions,
+            target=self.m_proofs.target(),
+            listener_id=self.m_listener_id,
+            current_self=self._self_for(actor),
+        )
 
     def revalidate(self, grant: GatewayGrant) -> bool:
-        """Check the current incarnation and the exact grant or open revision."""
+        """Check exact currently bound authority before protected disclosure."""
 
-        with self.m_store.read_locked() as state:
-            if grant.target != self._current_target():
-                return False
-            if grant.role == "anonymous":
-                return state.mode == "open" and grant.revision == state.revision
-            if grant.role == "admin":
-                return self._same_enrollment(grant, state)
-            if grant.role == "self":
-                binding = self._current_self(state.owner)
-                return (
-                    binding is not None
-                    and (binding.key_id, binding.generation_id, binding.owner.agent_id)
-                    == (grant.key_id, grant.generation_id, grant.principal)
-                    and (
-                        grant.revision is None
-                        or (state.mode == "open" and grant.revision == state.revision)
-                    )
-                )
-            return False
+        return self.m_authorizer.revalidate(
+            grant,
+            target=self.m_proofs.target(),
+            listener_id=self.m_listener_id,
+            current_self=self._self_for(grant.actor),
+        )
+
+    def handoff(self, grant: GatewayGrant, *, operation_id: str | None = None) -> GatewayGrant:
+        """Claim this exact effect in order with retained policy mutation."""
+
+        return self.m_authorizer.handoff(
+            grant,
+            operation_id=(
+                uuid4().hex
+                if operation_id is None
+                else "request:" + hashlib.sha256(operation_id.encode()).hexdigest()
+            ),
+            target=self.m_proofs.target(),
+            listener_id=self.m_listener_id,
+            current_self=self._self_for(grant.actor),
+        )
 
     def verify_web_login(self, challenge: bytes, proofs: tuple[str, ...]) -> GatewayGrant:
-        """Verify candidate signatures for one pending Web entry challenge."""
+        """Select a current enrolled signer that has Web entry permission."""
 
-        with self.m_store.read_locked() as state:
-            target = self._current_target()
-            enrolled_keys = {entry.key_id: entry for entry in state.keys}
-            for proof in proofs:
-                try:
-                    key_id = sshsig_key_id(proof)
-                except ValueError:
-                    continue
-                entry = enrolled_keys.get(key_id)
-                if entry is not None and verify_sshsig(
-                    entry.key.public_key, challenge, proof, namespace=WEB_LOGIN_NAMESPACE
-                ):
-                    return GatewayGrant(
-                        role="admin",
-                        target=target,
-                        key_id=key_id,
-                        principal=entry.key.principal,
-                        revision=state.revision,
-                        enrollment=entry.enrollment,
-                    )
+        state = self.m_store.snapshot()
+        verified = False
+        for proof in proofs:
+            try:
+                key_id = sshsig_key_id(proof)
+            except ValueError:
+                continue
+            key = state.find_credential(key_id)
+            if key is None or not verify_sshsig(
+                key.public_key, challenge, proof, namespace=WEB_LOGIN_NAMESPACE
+            ):
+                continue
+            verified = True
+            try:
+                return self.authorize(AuthorizationActor.from_credential(key), (WEB_ENTRY,))
+            except GatewayAccessError as error:
+                if error.status_code not in {401, 403}:
+                    raise
+        if verified:
+            raise GatewayAccessError(403, "insufficient_authority")
         raise GatewayAccessError(401, "invalid_proof")
 
-    def add_key(self, grant: GatewayGrant, key: GatewayAdminKey) -> GatewayAdminKey:
-        """Commit the first-key or listed-admin addition against current owner state."""
+    def add_key(
+        self, grant: GatewayGrant | FirstEnrollment, key: GatewayAdminKey
+    ) -> GatewayAdminKey:
+        """Commit first enrollment or a qualified administrator's roster update."""
 
-        def update(state: GatewayAdminState) -> GatewayAdminState:
-            """Recheck the admitted mutation against live revision and enrollment."""
-
-            if grant.role == "register":
-                if grant.proposed_key != key:
+        with self.m_store.transaction() as transaction:
+            current = transaction.snapshot
+            if isinstance(grant, FirstEnrollment):
+                if grant.key != key:
                     raise GatewayAccessError(401, "invalid_proof")
                 if (
-                    grant.target != self._current_target()
-                    or state.mode != "open"
-                    or grant.revision != state.revision
+                    grant.target != self.m_proofs.target()
+                    or grant.listener_id != self.m_listener_id
+                    or grant.policy_id != current.policy_id
+                    or grant.roster_revision != current.roster_revision
+                    or current.admin_mode != "open"
                 ):
                     raise GatewayAccessError(409, "enrollment_conflict")
+                actor = "bootstrap"
             else:
-                self._require_current_admin(grant, state)
-            if len(state.keys) >= MAX_ADMIN_KEYS or state.find(key.key_id) is not None:
-                raise GatewayAccessError(409, "enrollment_conflict")
-            revision = state.revision + 1
-            return GatewayAdminState(
-                owner=state.owner,
-                revision=revision,
-                keys=(*state.keys, GatewayAdminEnrollment(key=key, enrollment=revision)),
-            )
-
-        self.m_store.update(update)
+                actor = self._require_admin(current, grant, ADMIN_ADD)
+            transaction.replace(add_admin_key(current, key), actor=actor, action=ADMIN_ADD.action)
         return key
 
     def remove_key(self, grant: GatewayGrant, key_id: str) -> None:
-        """Commit revocation by a currently granted admin, including of its own key."""
+        """Revoke one live key's administrator qualification."""
 
-        def update(state: GatewayAdminState) -> GatewayAdminState:
-            """Recheck the current grant and revoke the selected membership."""
+        with self.m_store.transaction() as transaction:
+            current = transaction.snapshot
+            actor = self._require_admin(current, grant, ADMIN_REMOVE)
+            transaction.replace(
+                remove_admin_key(current, key_id), actor=actor, action=ADMIN_REMOVE.action
+            )
 
-            self._require_current_admin(grant, state)
-            keys = tuple(entry for entry in state.keys if entry.key_id != key_id)
-            if len(keys) == len(state.keys):
-                raise GatewayAccessError(404, "unknown_key")
-            return GatewayAdminState(owner=state.owner, revision=state.revision + 1, keys=keys)
+    def _require_admin(
+        self, state: PolicySnapshot, grant: GatewayGrant, permission: Permission
+    ) -> str:
+        """Require current per-key administration for live roster mutation."""
 
-        self.m_store.update(update)
-
-    def _consume(self, challenge_id: str, proof: str) -> GatewayChallenge:
-        """Remove a bounded challenge so concurrent attempts cannot both use it."""
-
-        if len(challenge_id) != 43 or not 1 <= len(proof) <= MAX_SIGNATURE_HEADER:
-            raise GatewayAccessError(401, "invalid_proof")
-        with self.m_challenge_lock:
-            pending = self.m_challenges.pop(challenge_id, None)
-            if pending is None or pending.deadline <= time.monotonic():
-                raise GatewayAccessError(401, "invalid_proof")
-        return pending.challenge
-
-    def _current_target(self) -> GatewayTarget:
-        """Check that the ingress's current target still has the configured owner."""
-
-        try:
-            target = self.m_target()
-        except GatewayAccessError:
-            raise
-        except (OSError, ValueError, RuntimeError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-        if target.owner != self.m_store.owner:
-            raise GatewayAccessError(503, "policy_unavailable")
-        return target
-
-    def _current_self(self, owner: GatewayOwner) -> GatewaySelfKey | None:
-        """Read current-generation authority from the ingress's managed-state lookup."""
-
-        try:
-            binding = self.m_self()
-        except GatewayAccessError:
-            raise
-        except (OSError, ValueError, RuntimeError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-        if binding is not None and binding.owner != owner:
-            raise GatewayAccessError(503, "policy_unavailable")
-        return binding
-
-    def _verify(
-        self,
-        challenge: GatewayChallenge,
-        signature: str,
-        state: GatewayAdminState,
-        *,
-        registration: bool,
-    ) -> GatewayGrant:
-        """Select the current verification key and establish caller provenance."""
-
-        generation_id = None
-        enrollment = None
-        candidate = challenge.proposed_key
-        if challenge.purpose == "register":
-            if not registration or candidate is None:
-                raise GatewayAccessError(401, "invalid_proof")
-            principal, public_key = candidate.principal, candidate.public_key
-        elif challenge.purpose == "self":
-            binding = self._current_self(state.owner)
-            if binding is None or (challenge.key_id, challenge.generation_id) != (
-                binding.key_id,
-                binding.generation_id,
-            ):
-                raise GatewayAccessError(401, "invalid_proof")
-            generation_id = binding.generation_id
-            principal, public_key = binding.owner.agent_id, binding.public_key
-        else:
-            entry = state.find(challenge.key_id)
-            if entry is None or state.revision != challenge.revision:
-                raise GatewayAccessError(401, "invalid_proof")
-            enrollment = entry.enrollment
-            principal, public_key = entry.key.principal, entry.key.public_key
-        if not verify_sshsig(public_key, challenge.signing_bytes(), signature):
-            raise GatewayAccessError(401, "invalid_proof")
-        if challenge.purpose == "register" and (
-            state.mode != "open" or challenge.revision != state.revision
-        ):
-            raise GatewayAccessError(409, "enrollment_conflict")
-        return GatewayGrant(
-            role=challenge.purpose,
-            target=challenge.target,
-            principal=principal,
-            key_id=challenge.key_id,
-            generation_id=generation_id,
-            revision=challenge.revision,
-            enrollment=enrollment,
-            proposed_key=candidate,
-        )
-
-    def _require_current_admin(self, grant: GatewayGrant, state: GatewayAdminState) -> None:
-        """Recheck authority against the same state used by a membership commit."""
-
-        if grant.role != "admin":
+        if grant.basis == "open" and permission == ADMIN_ADD:
+            raise GatewayAccessError(401, "first_enrollment_proof_required")
+        if grant.basis != "admin" or permission not in grant.permissions:
             raise GatewayAccessError(403, "insufficient_authority")
-        if (
-            grant.target != self._current_target()
-            or grant.revision != state.revision
-            or not self._same_enrollment(grant, state)
-        ):
-            raise GatewayAccessError(409, "enrollment_conflict")
-
-    @staticmethod
-    def _same_enrollment(grant: GatewayGrant, state: GatewayAdminState) -> bool:
-        """Compare the key's current enrollment and principal with a verified grant."""
-
-        entry = state.find(grant.key_id) if grant.key_id is not None else None
-        return entry is not None and (entry.enrollment, entry.key.principal) == (
-            grant.enrollment,
-            grant.principal,
+        self.m_authorizer.require_current(
+            state, grant, target=self.m_proofs.target(), listener_id=self.m_listener_id
         )
+        assert grant.actor.principal_id is not None
+        return grant.actor.principal_id
+
+    def _self_for(self, actor: AuthorizationActor) -> GatewaySelfKey | None:
+        """Look up generation authority only for proof between the same agent and target."""
+
+        return self.m_self() if actor.kind == "self" else None

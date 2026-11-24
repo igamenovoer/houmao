@@ -38,7 +38,7 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
     binding = GatewayClientBinding(
         base_url=_OWNER_URL,
         owner=owner,
-        purpose="admin",
+        purpose="caller",
         private_key_path=str(tmp_path / "selected-private-key"),
     )
     record = SimpleNamespace(
@@ -53,7 +53,7 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         target=GatewayTarget(owner=owner, incarnation=_GENERATION),
         presence_id="test-gateway-presence",
         advertised_url=None,
-        admin_access="key_required",
+        admin_mode="keyed",
     )
     target = SimpleNamespace(
         record=record,
@@ -154,9 +154,7 @@ def test_web_entry_outputs_ticket_only(
     """Choose authority from the live descriptor and show only the ticket result."""
 
     if open_gateway:
-        web_target.descriptor = web_target.descriptor.model_copy(
-            update={"admin_access": "open", "private_proof": "none"}
-        )
+        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
         web_target.binding = None
 
     result = CliRunner().invoke(cli, [f"--print-{style}", *_COMMAND])
@@ -171,7 +169,14 @@ def test_web_entry_outputs_ticket_only(
     assert web_target.signer_calls == ([] if open_gateway else [(43123, False)])
     expected = [probe]
     if not open_gateway:
-        expected.append({**probe, "binding": web_target.binding, "target_incarnation": _GENERATION})
+        expected.append(
+            {
+                **probe,
+                "binding": web_target.binding,
+                "target_incarnation": _GENERATION,
+                "target_presence_id": web_target.descriptor.presence_id,
+            }
+        )
     assert web_target.client_settings == expected
     assert web_target.describe_calls == 1
     assert web_target.issue_calls == 1
@@ -182,13 +187,13 @@ def test_web_entry_outputs_ticket_only(
     [
         ("detached", "attach it explicitly"),
         ("wrong-mode", "requires a live managed agent in Web mode"),
-        ("missing-signer", "Set `admin_signer_path`"),
+        ("missing-signer", "Pass `--signer` or set `admin_signer_path`"),
         ("pair-selection", "owner's execution context"),
         ("executor-selection", "owner's execution context"),
         ("nonlocal-record", "requires a local managed agent"),
         ("descriptor-unavailable", "could not verify the live owner-local gateway"),
-        ("policy-unavailable", "access policy is unavailable or unsupported"),
-        ("legacy-open", "access policy is unavailable or unsupported"),
+        ("policy-unavailable", "access policy is unavailable"),
+        ("legacy-proof", "managed Web execution changed"),
         ("missing-retained", "managed Web execution changed"),
     ],
 )
@@ -214,10 +219,12 @@ def test_web_entry_refuses_unsupported_selection_without_fallback(
         web_target.descriptor_unavailable = True
     elif state == "policy-unavailable":
         web_target.descriptor = web_target.descriptor.model_copy(
-            update={"admin_access": "unavailable", "private_proof": "unavailable"}
+            update={"admin_mode": "unavailable"}
         )
-    elif state == "legacy-open":
-        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_access": "open"})
+    elif state == "legacy-proof":
+        web_target.descriptor = web_target.descriptor.model_copy(
+            update={"proof_protocol": "sshsig-v1"}
+        )
     elif state == "missing-retained":
         web_target.retained_descriptor = None
 
@@ -228,7 +235,7 @@ def test_web_entry_refuses_unsupported_selection_without_fallback(
         "missing-signer",
         "descriptor-unavailable",
         "policy-unavailable",
-        "legacy-open",
+        "legacy-proof",
     }
     assert web_target.describe_calls == int(needs_probe)
     assert web_target.issue_calls == 0
@@ -267,9 +274,7 @@ def test_web_entry_reports_proof_refusal_without_retry(
     """Report an admission refusal and finish the attempt after one POST."""
 
     if open_gateway:
-        web_target.descriptor = web_target.descriptor.model_copy(
-            update={"admin_access": "open", "private_proof": "none"}
-        )
+        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
         web_target.proof_error = (
             "Gateway refused unsigned Web entry. Check its current access policy."
         )
@@ -284,6 +289,20 @@ def test_web_entry_reports_proof_refusal_without_retry(
     assert web_target.describe_calls == 1
     assert web_target.signer_calls == ([] if open_gateway else [(43123, False)])
     assert web_target.binding.private_key_path not in result.output
+
+
+def test_web_entry_selects_explicit_scoped_signer(
+    web_target: SimpleNamespace, tmp_path: Path
+) -> None:
+    """Use the explicit web.enter signer independently of a configured admin key."""
+
+    signer_path = tmp_path / "scoped-key"
+    result = CliRunner().invoke(cli, [*_COMMAND, "--signer", str(signer_path)])
+    assert result.exit_code == 0, result.output
+    assert web_target.signer_calls == []
+    assert web_target.issue_calls == 1
+    assert web_target.client_settings[-1]["binding"].private_key_path == str(signer_path)
+    assert web_target.client_settings[-1]["binding"].purpose == "caller"
 
 
 def test_web_entry_help_is_scoped_and_calls_out_bearer_handling() -> None:

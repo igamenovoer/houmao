@@ -1,7 +1,7 @@
 """Qualify public gateway refresh projection through an actual managed DSH host."""
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager, ExitStack
 from pathlib import Path
 import shutil
@@ -32,13 +32,15 @@ from tests.integration.agents.dsh.web.test_refresh import MCP_SERVER, _skill
 
 
 @contextmanager
-def _serve(app: FastAPI) -> Iterator[tuple[str, int]]:
+def _serve(app: FastAPI, *, bind: Callable[[int], None] | None = None) -> Iterator[tuple[str, int]]:
     """Serve one test-owned ASGI app on an already-reserved loopback socket."""
 
     listener = socket.socket()
     listener.bind(("127.0.0.1", 0))
     listener.listen()
     port = listener.getsockname()[1]
+    if bind is not None:
+        bind(port)
     server = uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="off"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
@@ -201,7 +203,12 @@ def test_two_native_agents_share_cli_gateway_and_passive_refresh_contract(
     try:
         with ExitStack() as stack:
             for (runtime, _backend, _root), record in zip(executions, records, strict=True):
-                _base, port = stack.enter_context(_serve(create_app(runtime=runtime)))
+                _base, port = stack.enter_context(
+                    _serve(
+                        create_app(runtime=runtime),
+                        bind=lambda port: runtime.set_listener(host="127.0.0.1", port=port),
+                    )
+                )
                 record.gateway = RegistryGatewayV1(
                     host="127.0.0.1",
                     port=port,

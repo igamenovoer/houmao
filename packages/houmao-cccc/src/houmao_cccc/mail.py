@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Literal, cast
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 
-from houmao.gateway.plugins import plugin_route_access
+from houmao.gateway.plugins import plugin_route_action
 from houmao_cccc.client import ProviderError
 from houmao_cccc.references import ReferenceError
 
@@ -188,24 +188,27 @@ class MailService:
 
         service = cls()
         service.m_plugin = plugin
-        for path, endpoint, methods in (
-            ("/mail/status", service.status, ["GET"]),
-            ("/mail/peek", service.peek, ["GET"]),
-            ("/mail/cursor", service.cursor, ["GET"]),
-            ("/mail/send", service.send, ["POST"]),
-            ("/mail/reply", service.reply, ["POST"]),
-            ("/mail/read", service.read, ["POST"]),
-            ("/mail/reads/{operation_id}", service.receipt, ["GET"]),
+        for path, endpoint, methods, action in (
+            ("/mail/status", service.status, ["GET"], "status.read"),
+            ("/mail/peek", service.peek, ["GET"], "peek"),
+            ("/mail/cursor", service.cursor, ["GET"], "cursor.read"),
+            ("/mail/send", service.send, ["POST"], "send"),
+            ("/mail/reply", service.reply, ["POST"], "reply"),
+            ("/mail/read", service.read, ["POST"], "read"),
+            ("/mail/reads/{operation_id}", service.receipt, ["GET"], "receipt.read"),
         ):
             service.m_router.add_api_route(
-                path, endpoint, methods=methods, openapi_extra=plugin_route_access("private")
+                path,
+                endpoint,
+                methods=methods,
+                openapi_extra=plugin_route_action(f"plugin.cccc.mail.{action}"),
             )
         for operation in ("archive", "move", "mark", "attachments", "submission", "mark-unread"):
             service.m_router.add_api_route(
                 "/mail/" + operation,
                 service._unsupported_handler(operation),
                 methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-                openapi_extra=plugin_route_access("private"),
+                openapi_extra=plugin_route_action(f"plugin.cccc.mail.unsupported.{operation}"),
             )
         return service
 

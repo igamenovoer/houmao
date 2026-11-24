@@ -37,6 +37,7 @@ dependencies = [
   "websockets>=16,<17",
   "networkx>=3.6.1,<4",
   "ag-ui-protocol>=0.1.19,<0.2", "pytest-xdist>=3.8.0,<4", "altair>=6.2.1,<7",
+  "pycasbin>=2.8.0,<3",
 ]
 
 [project.scripts]

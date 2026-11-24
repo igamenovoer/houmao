@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+import sqlite3
+import threading
 from unittest.mock import Mock
 
 from fastapi import FastAPI
@@ -29,6 +31,8 @@ from houmao.gateway.access import (
     sshsig_header,
 )
 from houmao.gateway.deployment import GatewayDeployment
+from houmao.gateway.authorization_models import Credential, Permission, Principal, ScopedGrant
+from houmao.gateway.operations import PROMPT, mailbox_resource
 from houmao.mailbox.models import GatewayMailboxMessageV1, GatewayMailboxParticipantV1
 from tests.fixtures.gateway_access import (
     FixtureGatewayAccess,
@@ -101,8 +105,8 @@ def test_route_admission_and_live_enrollment(
 
     assert set(client.get("/health").json()) == {"protocol_version", "status"}
     assert client.get("/openapi.json").status_code == 404
-    assert client.get("/v1/endpoint").json()["admin_access"] == "open"
-    assert client.get("/v1/endpoint").json()["private_proof"] == "none"
+    assert client.get("/v1/endpoint").json()["admin_mode"] == "open"
+    assert client.get("/v1/endpoint").json()["proof_protocol"] == "sshsig-v2"
     assert client.post("/v1/mail/offline/send", content=b"{malformed").status_code == 422
     for path in ("/v1/status", "/v1/memory", "/v1/usage"):
         assert client.get(path).status_code == 200
@@ -115,19 +119,19 @@ def test_route_admission_and_live_enrollment(
     first, signer = fixture_admin_key(tmp_path, "one")
     second, second_signer = fixture_admin_key(tmp_path, "two")
     enroll_fixture_admin(client, first, signer)
-    assert client.get("/v1/endpoint").json()["admin_access"] == "key_required"
-    assert client.get("/v1/endpoint").json()["private_proof"] == "self_or_admin"
+    assert client.get("/v1/endpoint").json()["admin_mode"] == "keyed"
+    assert client.get("/v1/endpoint").json()["challenge_path"] == "/v1/auth/challenge"
     assert first.public_key not in client.get("/v1/endpoint").text
     unauthenticated = client.post("/v1/mail/offline/send", content=b"{malformed")
     assert unauthenticated.status_code == 401
-    assert unauthenticated.json()["detail"]["purposes"] == ["self", "admin"]
+    assert unauthenticated.json()["detail"]["purposes"] == ["caller"]
     assert "/v1/auth/challenge" in unauthenticated.headers["WWW-Authenticate"]
     assert client.post("/v1/requests", content=b"{malformed").status_code == 401
-    assert client.post("/v1/requests", content=b"{malformed", auth=self_auth).status_code == 403
+    assert client.post("/v1/requests", content=b"{malformed", auth=self_auth).status_code == 422
     assert client.get("/v1/ag-ui/capabilities").status_code == 401
-    assert client.post("/v1/ag-ui/events", content=b"{bad", auth=self_auth).status_code == 403
+    assert client.post("/v1/ag-ui/events", content=b"{bad", auth=self_auth).status_code == 422
     call.assert_not_called()
-    admin_auth = FixtureProofAuth(signer, purpose="admin")
+    admin_auth = FixtureProofAuth(signer, purpose="caller")
     for path in ("/v1/status", "/v1/memory", "/v1/usage"):
         assert client.get(path).status_code == 401
         assert client.get(path, auth=self_auth).status_code == 200
@@ -139,11 +143,11 @@ def test_route_admission_and_live_enrollment(
         ).status_code
         == 201
     )
-    second_auth = FixtureProofAuth(second_signer, purpose="admin")
+    second_auth = FixtureProofAuth(second_signer, purpose="caller")
     assert client.delete(f"/v1/admin/keys/{first.key_id}", auth=second_auth).status_code == 204
     assert client.delete(f"/v1/admin/keys/{second.key_id}", auth=second_auth).status_code == 204
-    assert client.get("/v1/endpoint").json()["admin_access"] == "open"
-    assert client.get("/v1/endpoint").json()["private_proof"] == "none"
+    assert client.get("/v1/endpoint").json()["admin_mode"] == "open"
+    assert client.get("/v1/endpoint").json()["proof_protocol"] == "sshsig-v2"
     assert client.post("/v1/requests", content=b"{malformed").status_code == 422
     assert client.get("/v1/status").status_code == 200
 
@@ -199,10 +203,126 @@ def test_owner_file_mail_forms_follow_current_access_policy(
     assert "/private/fixture-path" not in refused.text
     bind.assert_not_called()
     adapter.send.assert_not_called()
-    response = client.post(path, json=body, auth=FixtureProofAuth(signer, purpose="admin"))
+    response = client.post(path, json=body, auth=FixtureProofAuth(signer, purpose="caller"))
     assert response.status_code == 200, response.text
-    assert diagnostic.call_args.kwargs["fields"]["principal"] == admin.principal
+    assert (
+        diagnostic.call_args.kwargs["fields"]["principal"]
+        == runtime._require_access_policy()
+        .store.snapshot()
+        .find_credential(admin.key_id)
+        .principal_id
+    )
     adapter.send.assert_called_once()
+    bind.reset_mock()
+    adapter.send.reset_mock()
+
+    peer, peer_signer = fixture_admin_key(tmp_path, "mail-only")
+    principal = Principal(principal_id="mail-only", kind="operator", label="Mail only")
+    credential = Credential(principal_id=principal.principal_id, public_key=peer.public_key)
+    permission = Permission(
+        resource=mailbox_resource(channel, "fixture-mailbox"), action="mail.send"
+    )
+    store = runtime._require_access_policy().store
+    store.update(
+        lambda state: state.model_copy(
+            update={
+                "principals": (*state.principals, principal),
+                "credentials": (*state.credentials, credential),
+                "grants": (
+                    *state.grants,
+                    ScopedGrant(principal_id=principal.principal_id, permission=permission),
+                ),
+            }
+        ),
+        actor="owner",
+        action="test.mail.enroll",
+    )
+    proof = FixtureProofAuth(peer_signer)
+    assert client.post(path, json=body, auth=proof).status_code == 403
+    bind.assert_not_called()
+    adapter.send.assert_not_called()
+    assert client.post(path, json={**body, "attachments": []}, auth=proof).status_code == 200
+
+
+def test_queued_prompt_requires_current_scoped_permission_at_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Retiring a grant stops queued native work while leaving its key enrolled."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    worker_waiting = threading.Event()
+    take_next = runtime._take_next_request
+
+    def wait_for_owner() -> None:
+        """Make the worker leave queued records for the test's explicit dispatch pass."""
+
+        worker_waiting.set()
+
+    monkeypatch.setattr(runtime, "_take_next_request", wait_for_owner)
+    try:
+        assert worker_waiting.wait(2)
+        client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+        admin, admin_signer = fixture_admin_key(tmp_path, "queue-admin")
+        enroll_fixture_admin(client, admin, admin_signer)
+        peer, peer_signer = fixture_admin_key(tmp_path, "queue-peer")
+        principal = Principal(
+            principal_id="queue-peer",
+            kind="agent",
+            label="Queue peer",
+            logical_agent_id="peer-agent",
+        )
+        credential = Credential(principal_id=principal.principal_id, public_key=peer.public_key)
+        store = runtime._require_access_policy().store
+        store.update(
+            lambda state: state.model_copy(
+                update={
+                    "principals": (*state.principals, principal),
+                    "credentials": (*state.credentials, credential),
+                    "grants": (
+                        ScopedGrant(principal_id=principal.principal_id, permission=PROMPT),
+                    ),
+                }
+            ),
+            actor="owner",
+            action="test.prompt.enroll",
+        )
+        auth = FixtureProofAuth(peer_signer)
+        prompt = {"kind": "submit_prompt", "payload": {"prompt": "Exercise an authorized queue."}}
+        assert (
+            client.post(
+                "/v1/requests", json={"kind": "interrupt", "payload": {}}, auth=auth
+            ).status_code
+            == 403
+        )
+        assert (
+            client.post(
+                "/v1/control/prompt",
+                json={"prompt": "Bypass the queue.", "admission_policy": "always"},
+                auth=auth,
+            ).status_code
+            == 403
+        )
+        response = client.post("/v1/requests", json=prompt, auth=auth)
+        assert response.status_code == 200, response.text
+        request_id = response.json()["request_id"]
+        store.update(
+            lambda state: state.model_copy(update={"grants": ()}),
+            actor="owner",
+            action="test.revoke",
+        )
+        assert take_next() is None
+        assert store.snapshot().find_credential(credential.key_id) is not None
+        with sqlite3.connect(runtime.m_paths.queue_path) as connection:
+            state, detail = connection.execute(
+                "SELECT state, error_detail FROM gateway_requests WHERE request_id = ?",
+                (request_id,),
+            ).fetchone()
+        assert state == "failed"
+        assert detail == "Caller authority changed before dispatch."
+        assert adapter.delivered == []
+    finally:
+        adapter.finish.set()
+        runtime.shutdown()
 
 
 def test_wildcard_attached_policy_and_policy_failure(
@@ -227,10 +347,10 @@ def test_wildcard_attached_policy_and_policy_failure(
     client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
     descriptor = client.get("/v1/endpoint").json()
     assert descriptor["advertised_url"] == "https://hub.test/agent"
-    next(gateway_fixture_access.private_root.glob("*/admin.json")).unlink()
+    (gateway_fixture_access.private_root / "authorization.sqlite3").unlink()
     assert client.get("/health").status_code == 200
-    assert client.get("/v1/endpoint").json()["admin_access"] == "unavailable"
-    assert client.get("/v1/endpoint").json()["private_proof"] == "unavailable"
+    assert client.get("/v1/endpoint").json()["admin_mode"] == "unavailable"
+    assert client.get("/v1/endpoint").json()["proof_protocol"] == "sshsig-v2"
     assert client.get("/v1/status").status_code == 503
     assert client.post("/v1/requests", content=b"{bad").status_code == 503
 
@@ -244,17 +364,21 @@ def test_gateway_rebind_uses_new_generation_and_rejects_old_proof(
     monkeypatch.setattr(runtime, "get_usage", Mock(side_effect=ValueError("invalid cursor")))
     client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
     challenge_request = GatewayChallengeRequest(
-        purpose="self", request=GatewayRequestBinding.from_request("GET", "/v1/usage", "", b"")
+        purpose="caller",
+        key_id=gateway_fixture_access.current_self().key_id,
+        request=GatewayRequestBinding.from_request("GET", "/v1/usage", "", b""),
     )
     challenge = GatewayChallenge.model_validate_json(
         client.post("/v1/auth/challenge", json=challenge_request.model_dump(mode="json")).content
     )
-    old = gateway_fixture_access.store.self_signer_path(gateway_fixture_access.target.incarnation)
+    old = gateway_fixture_access.self_store.self_signer_path(
+        gateway_fixture_access.target.incarnation
+    )
     current = replace(
         gateway_fixture_access,
         target=gateway_fixture_access.target.model_copy(update={"incarnation": "replacement"}),
     )
-    current.store.provision_self(current.target.incarnation)
+    current.self_store.provision_self(current.target.incarnation)
     monkeypatch.setattr(gateway_service, "gateway_access_for_manifest", lambda _path: current)
     expired = client.get(
         "/v1/usage",
@@ -269,7 +393,7 @@ def test_gateway_rebind_uses_new_generation_and_rejects_old_proof(
     assert client.get("/v1/endpoint").json()["target"]["incarnation"] == "replacement"
     assert (
         client.get(
-            "/v1/usage", auth=FixtureProofAuth(current.store.self_signer_path("replacement"))
+            "/v1/usage", auth=FixtureProofAuth(current.self_store.self_signer_path("replacement"))
         ).status_code
         == 422
     )
@@ -344,7 +468,8 @@ def test_public_input_is_literal_bounded_and_handoff_only(
         }
         raw = json.dumps(notification).encode()
         challenge_request = GatewayChallengeRequest(
-            purpose="self",
+            purpose="caller",
+            key_id=runtime._access_self().key_id,
             request=GatewayRequestBinding.from_request("POST", "/v1/messages", "", raw),
         )
         challenge = GatewayChallenge.model_validate_json(
@@ -354,7 +479,7 @@ def test_public_input_is_literal_bounded_and_handoff_only(
         )
         access = runtime.m_access_runtime
         assert access is not None
-        signer = load_gateway_signer(access.store.self_signer_path(access.target.incarnation))
+        signer = load_gateway_signer(access.self_store.self_signer_path(access.target.incarnation))
         response = client.post(
             "/v1/messages",
             content=raw,

@@ -8,7 +8,7 @@ definition = PluginDefinition(
     config_model=CcccConfiguration,
     binding_identity=binding_identity,
     create=CcccPlugin.from_config,
-    sdk_version=1,
+    sdk_version=2,
 )
 
 __all__ = ["CcccConfiguration", "CcccPlugin", "definition"]

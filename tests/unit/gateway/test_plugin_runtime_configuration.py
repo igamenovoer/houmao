@@ -108,8 +108,11 @@ def paths(
         lambda _: SimpleNamespace(desired_host=None, desired_port=None),
     )
     monkeypatch.setattr(runtime, "_live_gateway_for_plugin_attach", lambda **_: None)
-    store = SimpleNamespace(load=lambda: None, load_self=lambda _generation: None)
-    access = SimpleNamespace(store=store, target=SimpleNamespace(incarnation="fixture"))
+    store = SimpleNamespace(snapshot=lambda: SimpleNamespace(admin_mode="open"))
+    self_store = SimpleNamespace(load_self=lambda _generation: None)
+    access = SimpleNamespace(
+        store=store, self_store=self_store, target=SimpleNamespace(incarnation="fixture")
+    )
     monkeypatch.setattr(runtime, "gateway_access_for_manifest", lambda _path: access)
     monkeypatch.setattr(runtime, "load_gateway_deployment", lambda _path: None)
 

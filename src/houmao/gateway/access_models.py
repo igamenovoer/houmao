@@ -19,10 +19,7 @@ MAX_ADMIN_KEYS = 256
 CHALLENGE_HEADER = "Houmao-Challenge"
 SIGNATURE_HEADER = "Houmao-Signature"
 
-AccessClass: TypeAlias = Literal["public", "private", "admin"]
-AdminMode: TypeAlias = Literal["open", "key_required"]
-ProofPurpose: TypeAlias = Literal["self", "admin", "register"]
-GrantRole: TypeAlias = Literal["public", "anonymous", "self", "admin", "register"]
+ProofPurpose: TypeAlias = Literal["caller", "register"]
 _Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$")]
 _KeyId = Annotated[str, Field(pattern=r"^SHA256:[A-Za-z0-9_-]{43}$")]
 _Document = TypeVar("_Document", bound=BaseModel)
@@ -73,6 +70,7 @@ class GatewayAdminKey(_AccessModel):
 class GatewayLaunchSeed(_AccessModel):
     """Carry owner-authorized initial enrollment in a launch manifest."""
 
+    schema_version: Literal[2] = 2
     admin_keys: tuple[GatewayAdminKey, ...] = Field(default=(), max_length=MAX_ADMIN_KEYS)
 
     @field_validator("admin_keys")
@@ -83,49 +81,6 @@ class GatewayLaunchSeed(_AccessModel):
         if len({entry.key_id for entry in keys}) != len(keys):
             raise ValueError("duplicate admin key")
         return keys
-
-
-class GatewayAdminEnrollment(_AccessModel):
-    """Give a key a stable grant identifier for the lifetime of its enrollment."""
-
-    key: GatewayAdminKey
-    enrollment: int = Field(ge=0)
-
-    @property
-    def key_id(self) -> str:
-        """Return the canonical identifier of the enrolled key."""
-
-        return self.key.key_id
-
-
-class GatewayAdminState(_AccessModel):
-    """Persist live key membership independently of gateway attach or launch generation."""
-
-    schema_version: Literal[1] = 1
-    owner: GatewayOwner
-    revision: int = Field(ge=0)
-    keys: tuple[GatewayAdminEnrollment, ...] = Field(max_length=MAX_ADMIN_KEYS, repr=False)
-
-    @model_validator(mode="after")
-    def _valid_enrollments(self) -> GatewayAdminState:
-        """Refuse duplicate keys and impossible enrollment revisions."""
-
-        if len({entry.key_id for entry in self.keys}) != len(self.keys):
-            raise ValueError("duplicate admin key")
-        if any(entry.enrollment > self.revision for entry in self.keys):
-            raise ValueError("invalid admin enrollment")
-        return self
-
-    @property
-    def mode(self) -> AdminMode:
-        """Expose the current admission mode without returning membership."""
-
-        return "key_required" if self.keys else "open"
-
-    def find(self, key_id: str) -> GatewayAdminEnrollment | None:
-        """Resolve a key ID only within this bound live membership list."""
-
-        return next((entry for entry in self.keys if entry.key_id == key_id), None)
 
 
 class GatewaySelfKey(_AccessModel):
@@ -237,46 +192,52 @@ class GatewayChallengeRequest(_AccessModel):
     def _key_selection(self) -> GatewayChallengeRequest:
         """Limit listed and proposed key selectors to their own proof purposes."""
 
-        if self.purpose == "admin" and self.key_id is None:
-            raise ValueError("admin proof requires a key ID")
-        if self.purpose == "register" and self.proposed_key is None:
-            raise ValueError("registration requires a proposed key")
-        if self.purpose != "admin" and self.key_id is not None:
-            raise ValueError("unexpected admin key ID")
-        if self.purpose != "register" and self.proposed_key is not None:
-            raise ValueError("unexpected proposed key")
+        if self.purpose == "caller":
+            if self.key_id is None or self.proposed_key is not None:
+                raise ValueError("invalid caller key selector")
+        elif self.proposed_key is None or self.key_id is not None:
+            raise ValueError("invalid registration key selector")
         return self
 
 
 class GatewayChallenge(_AccessModel):
     """Describe the complete scope of one expiring gateway proof."""
 
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2
     challenge_id: str = Field(pattern=r"^[A-Za-z0-9_-]{43}$", repr=False)
     issuer: str = Field(min_length=1, max_length=2048)
     target: GatewayTarget
+    listener_id: _Identifier
     purpose: ProofPurpose
     request: GatewayRequestBinding = Field(repr=False)
     expires_at: int = Field(ge=0)
     key_id: _KeyId
     generation_id: _Identifier | None = None
+    enrollment_id: _Identifier | None = None
+    policy_id: _Identifier
     revision: int | None = Field(default=None, ge=0)
     proposed_key: GatewayAdminKey | None = Field(default=None, repr=False)
 
     @model_validator(mode="after")
     def _proof_scope(self) -> GatewayChallenge:
-        """Require generation or roster revision according to the proof purpose."""
+        """Require one exact enrollment, same-target self generation, or roster revision."""
 
-        if self.purpose == "self":
-            if self.generation_id is None or self.revision is not None:
-                raise ValueError("invalid self challenge scope")
-        elif self.generation_id is not None or self.revision is None:
-            raise ValueError("invalid admin challenge scope")
         if self.purpose == "register":
-            if self.proposed_key is None or self.key_id != self.proposed_key.key_id:
+            if (
+                self.proposed_key is None
+                or self.key_id != self.proposed_key.key_id
+                or self.revision is None
+                or self.generation_id is not None
+                or self.enrollment_id is not None
+            ):
                 raise ValueError("invalid first-registration challenge")
-        elif self.proposed_key is not None:
-            raise ValueError("unexpected registration scope")
+        elif (
+            self.proposed_key is not None
+            or self.revision is not None
+            or (self.generation_id is None) == (self.enrollment_id is None)
+            or (self.generation_id is not None and self.generation_id != self.target.incarnation)
+        ):
+            raise ValueError("invalid caller challenge scope")
         return self
 
     def signing_bytes(self) -> bytes:
@@ -285,19 +246,6 @@ class GatewayChallenge(_AccessModel):
         return json.dumps(
             self.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
         ).encode("ascii")
-
-
-class GatewayGrant(_AccessModel):
-    """Record authorized provenance and the grant needed for revalidation."""
-
-    role: GrantRole
-    target: GatewayTarget
-    principal: _Identifier | None = None
-    key_id: _KeyId | None = None
-    generation_id: _Identifier | None = None
-    revision: int | None = Field(default=None, ge=0)
-    enrollment: int | None = Field(default=None, ge=0)
-    proposed_key: GatewayAdminKey | None = Field(default=None, repr=False)
 
 
 def parse_access_document(model: type[_Document], payload: bytes) -> _Document:

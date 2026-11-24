@@ -29,6 +29,7 @@ from starlette.types import Scope
 
 from houmao.agents.realm_controller.gateway_plugin_routes import (
     PluginRouteError,
+    PluginRoutePermission,
     core_route_declarations,
     plugin_route_declarations,
     route_conflicts,
@@ -43,7 +44,6 @@ from houmao.gateway.plugins import (
     PluginInstanceConfiguration,
     PluginListener,
     PluginOwner,
-    PluginRouteAccess,
     PluginStatus,
 )
 from houmao.gateway.plugins.discovery import PluginLoadError, load_plugin_definition
@@ -102,7 +102,7 @@ class GatewayPluginHost:
         self.m_started: bool = False
         self.m_staged: bool = False
         self.m_lock: threading.RLock = threading.RLock()
-        self.m_admission_routes: list[tuple[Route, PluginRouteAccess]] = []
+        self.m_admission_routes: list[tuple[Route, PluginRoutePermission]] = []
 
     @classmethod
     def from_config(
@@ -170,16 +170,39 @@ class GatewayPluginHost:
             entry = self.m_instances.get(instance_id)
             return entry.status.model_copy(deep=True) if entry is not None else None
 
-    def unavailable_route_access(self, scope: Scope) -> PluginRouteAccess | None:
-        """Protect lifecycle errors even when the matching plugin route was not published."""
+    def instance_resource(self, instance_id: str) -> str | None:
+        """Return a selected instance's policy resource without resolving service credentials."""
 
-        entry = self._custom_instance(scope["path"])
-        if entry is None:
+        with self.m_lock:
+            entry = self.m_instances.get(instance_id)
+            if entry is None:
+                return None
+            binding = entry.status.binding_id
+        if binding is None:
+            return f"plugin:{instance_id}"
+        return f"plugin:{instance_id}:{binding}"
+
+    def route_permission(self, scope: Scope) -> PluginRoutePermission | None:
+        """Resolve the action even when a selected route could not be published."""
+
+        instance_id = self._custom_instance(scope["path"])
+        if instance_id is None:
             return None
-        for route, access in self.m_admission_routes:
-            if access == "private" and route.matches(scope)[0] is Match.FULL:
-                return access
-        return "admin"
+        matches = {
+            permission
+            for route, permission in self.m_admission_routes
+            if route.matches(scope)[0] is Match.FULL
+        }
+        if len(matches) == 1:
+            return matches.pop()
+        resource = self.instance_resource(instance_id)
+        assert resource is not None
+        return PluginRoutePermission(action="plugin.status.read", resource=resource)
+
+    def route_permissions(self) -> frozenset[PluginRoutePermission]:
+        """Return exact declared actions for the supported selected plugin instances."""
+
+        return frozenset(permission for _, permission in self.m_admission_routes)
 
     def _custom_instance(self, path: str) -> str | None:
         """Identify a selected custom namespace independently of its lifecycle."""
@@ -316,12 +339,21 @@ class GatewayPluginHost:
                     raise PluginRouteError(
                         "invalid_plugin", "Plugin must supply a supervised lifespan"
                     )
-                staged = plugin_route_declarations(instance_id, plugin.router)
-                declarations.extend(staged)
-                self.m_admission_routes.extend(
-                    (Route(route.path, _unpublished_route, methods=route.methods), route.access)
-                    for route in staged
+                resource = self.instance_resource(instance_id)
+                assert resource is not None
+                staged = plugin_route_declarations(
+                    instance_id,
+                    plugin.router,
+                    implementation=entry.selection.implementation,
+                    resource=resource,
                 )
+                declarations.extend(staged)
+                for declaration in staged:
+                    permission = declaration.permission
+                    assert permission is not None
+                    route = Route(declaration.path, _unpublished_route, methods=declaration.methods)
+                    route.methods = set(declaration.methods)
+                    self.m_admission_routes.append((route, permission))
                 entry.plugin = plugin
             except PluginLoadError as error:
                 detail = error.message

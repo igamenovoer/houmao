@@ -8,7 +8,7 @@ pixi run python -m build --wheel packages/houmao-cccc
 python -m pip install packages/houmao-cccc/dist/houmao_cccc-0.2.0-py3-none-any.whl
 ```
 
-The distribution supports Houmao `>=2.4,<3` and public gateway SDK version `1`. Its `cccc` entry point imports only `houmao.gateway.plugins` from Houmao. The `houmao-cccc` command talks to an explicitly selected loopback gateway and never reads provider credentials.
+The distribution requires a Houmao release with gateway SDK version `2`. Its `cccc` entry point uses Houmao's public plugin SDK. The `houmao-cccc` command talks to an explicitly selected loopback gateway and uses the selected caller's credentials. The plugin uses the configured CCCC Actor and provider credential.
 
 A compatible CCCC receiver extension is required. Stock CCCC 0.4.56 does not implement the protocol. The [integration reference](../../docs/reference/gateway/cccc.md) covers the pinned source, private Actor grants, gateway attachment, commands, and delivery outcomes. Start with the [native example](../../examples/cccc-gateway/README.md).
 

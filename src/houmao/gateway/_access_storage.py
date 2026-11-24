@@ -1,8 +1,8 @@
-"""Persist owner-bound gateway authority in bounded private files."""
+"""Keep generation credentials and selected signing sources private."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -18,9 +18,6 @@ from pydantic import BaseModel
 from houmao.gateway._access_sshsig import PrivateKey, load_private_key, public_key_text
 from houmao.gateway.access_models import (
     MAX_ACCESS_DOCUMENT,
-    GatewayAdminEnrollment,
-    GatewayAdminState,
-    GatewayLaunchSeed,
     GatewayOwner,
     GatewaySelfKey,
     parse_access_document,
@@ -28,11 +25,9 @@ from houmao.gateway.access_models import (
 
 _FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-_STATE_FILE = "admin.json"
 _SELF_FILE = "self.json"
 _SIGNER_FILE = "self.key"
 _LOCK_FILE = ".lock"
-_INITIALIZED = b"houmao-gateway-access-v1\n"
 _ERRORS = {
     401: "Valid gateway proof is required.",
     403: "The verified caller lacks authority for this operation.",
@@ -76,7 +71,7 @@ class GatewayAccessError(RuntimeError):
 
 
 class GatewayAccessStore:
-    """Keep live enrollment state and generation signers under owner authority."""
+    """Keep generation-specific signers under owner authority."""
 
     def __init__(self, root: Path, owner: GatewayOwner) -> None:
         """Bind a lexical private namespace to one agent and execution context."""
@@ -97,89 +92,13 @@ class GatewayAccessStore:
 
         return self.m_owner
 
-    def initialize(self, seed: GatewayLaunchSeed) -> GatewayAdminState:
-        """Initialize a new binding, or load the existing state without reseeding it."""
-
-        try:
-            with _private_directory(self.m_root, create=True) as root:
-                with _file_lock(root, self.m_binding + ".lock", create=True):
-                    try:
-                        self._require_marker(root)
-                    except FileNotFoundError:
-                        # An existing state namespace without its marker is corrupt.
-                        os.mkdir(self.m_binding, mode=0o700, dir_fd=root)
-                    else:
-                        return self.load()
-
-                    # Publish the marker separately so deletion of the roster
-                    # directory never enables initialization from the seed.
-                    _write_file(root, self.m_binding + ".initialized", _INITIALIZED)
-                    with self._open_owner() as directory:
-                        descriptor = os.open(
-                            _LOCK_FILE,
-                            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                            0o600,
-                            dir_fd=directory,
-                        )
-                        os.close(descriptor)
-                        state = GatewayAdminState(
-                            owner=self.m_owner,
-                            revision=0,
-                            keys=tuple(
-                                GatewayAdminEnrollment(key=key, enrollment=0)
-                                for key in seed.admin_keys
-                            ),
-                        )
-                        _write_document(directory, _STATE_FILE, state)
-                        return state
-        except (OSError, ValueError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-
-    def load(self) -> GatewayAdminState:
-        """Read the retained roster independently of live gateway discovery."""
-
-        try:
-            with self._open_owner() as directory:
-                return self._load_state(directory)
-        except (OSError, ValueError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-
-    @contextmanager
-    def read_locked(self) -> Iterator[GatewayAdminState]:
-        """Keep membership stable through a proof admission decision."""
-
-        try:
-            with self._open_owner() as directory:
-                with _file_lock(directory, _LOCK_FILE, exclusive=False):
-                    yield self._load_state(directory)
-        except (OSError, ValueError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-
-    def update(self, update: Callable[[GatewayAdminState], GatewayAdminState]) -> None:
-        """Recheck membership and commit its replacement under the same file lock."""
-
-        try:
-            with self._open_owner() as directory:
-                with _file_lock(directory, _LOCK_FILE):
-                    current = self._load_state(directory)
-                    candidate = update(current)
-                    if (
-                        candidate.owner != self.m_owner
-                        or candidate.revision != current.revision + 1
-                    ):
-                        raise ValueError("invalid policy update")
-                    _write_document(directory, _STATE_FILE, candidate)
-        except (OSError, ValueError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-
     def provision_self(self, generation_id: str) -> GatewaySelfKey:
         """Allocate a distinct Ed25519 credential for this managed generation."""
 
         generation_root = self._generation_root(generation_id)
         try:
-            with self._open_owner() as directory:
-                with _file_lock(directory, _LOCK_FILE):
-                    self._load_state(directory)
+            with _private_directory(generation_root.parent, create=True) as directory:
+                with _file_lock(directory, _LOCK_FILE, create=True):
                     try:
                         os.mkdir(generation_root.name, mode=0o700, dir_fd=directory)
                     except FileExistsError:
@@ -230,37 +149,7 @@ class GatewayAccessStore:
         """Select a generation without treating caller labels as path components."""
 
         generation = hashlib.sha256(generation_id.encode()).hexdigest()
-        return self.m_root / self.m_binding / ("self-" + generation)
-
-    @contextmanager
-    def _open_owner(self) -> Iterator[int]:
-        """Open the owner namespace as a checked directory descriptor."""
-
-        with _private_directory(self.m_root) as root:
-            self._require_marker(root)
-            directory = os.open(self.m_binding, _DIR_FLAGS, dir_fd=root)
-            try:
-                _require_private_directory(directory)
-                yield directory
-            finally:
-                os.close(directory)
-
-    def _require_marker(self, directory: int) -> None:
-        """Validate the marker distinguishing retained policy from first launch."""
-
-        marker = _read_file(directory, self.m_binding + ".initialized", len(_INITIALIZED))
-        if marker != _INITIALIZED:
-            raise ValueError("invalid access initialization marker")
-
-    def _load_state(self, directory: int) -> GatewayAdminState:
-        """Validate the document and its precise owner binding."""
-
-        state = parse_access_document(
-            GatewayAdminState, _read_file(directory, _STATE_FILE, MAX_ACCESS_DOCUMENT)
-        )
-        if state.owner != self.m_owner:
-            raise ValueError("invalid access owner binding")
-        return state
+        return self.m_root / "generation-keys" / self.m_binding / generation
 
 
 def read_private_access_file(path: Path, *, limit: int = MAX_ACCESS_DOCUMENT) -> bytes:

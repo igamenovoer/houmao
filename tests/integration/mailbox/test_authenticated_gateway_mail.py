@@ -180,17 +180,17 @@ def _deployed_gateway(
                 )
                 assert first.add_admin_key(key) == key.key_id
                 admin = GatewayClient(
-                    binding=enrollment.model_copy(update={"purpose": "admin"}),
+                    binding=enrollment.model_copy(update={"purpose": "caller"}),
                     target_incarnation=generation,
                 )
                 self_path = gateway_access_runtime.gateway_access_for_manifest(
                     manifest
-                ).store.self_signer_path(generation)
+                ).self_store.self_signer_path(generation)
                 own = GatewayClient(
                     binding=GatewayClientBinding(
                         base_url=owner_url,
                         owner=target.owner,
-                        purpose="self",
+                        purpose="caller",
                         private_key_path=str(self_path),
                     ),
                     target_incarnation=generation,

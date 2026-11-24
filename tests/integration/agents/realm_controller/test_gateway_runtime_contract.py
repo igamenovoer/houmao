@@ -1344,7 +1344,7 @@ def test_gateway_http_mail_read_route_marks_message_read_through_live_gateway(
             private_key_path=str(signer_path),
         )
         GatewayClient(binding=binding, registration_key=key).add_admin_key(key)
-        client = GatewayClient(binding=binding.model_copy(update={"purpose": "admin"}))
+        client = GatewayClient(binding=binding.model_copy(update={"purpose": "caller"}))
 
         state_response = client.read_mail(
             GatewayMailMessageRequestV1(

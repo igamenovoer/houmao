@@ -205,7 +205,7 @@ def _exercise_authenticated_gateway(
             )
             assert enrolled.status_code == 201, enrolled.text
             assert http.get("/v1/control/web/state").status_code == 401
-            http.auth = FixtureProofAuth(signer, purpose="admin")
+            http.auth = FixtureProofAuth(signer, purpose="caller")
 
             def state():
                 response = http.get("/v1/control/web/state")

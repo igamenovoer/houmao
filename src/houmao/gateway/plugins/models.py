@@ -10,7 +10,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
-PLUGIN_SDK_VERSION = 1
+PLUGIN_SDK_VERSION = 2
 PLUGIN_ENTRY_POINT_GROUP = "houmao.gateway_plugins"
 _INSTANCE_ID = re.compile(r"[a-z][a-z0-9-]{0,62}\Z")
 

@@ -43,6 +43,7 @@ from houmao.execution.context import current_execution_binding, execution_read_o
 from houmao.execution.models import ExecutionBindingV1
 from houmao.execution.tmux import current_tmux_socket_path, tmux_server_scope
 from houmao.gateway.access import GatewayAdminKey, GatewayLaunchSeed, public_key_text
+from houmao.gateway.roster import remove_admin_key
 from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.mailbox.registry_config import associate_registry_store
 from houmao.project.catalog import LaunchProfileCatalogEntry, ProjectCatalog
@@ -358,14 +359,19 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         launch_env_overrides={"CURRENT_GEN_FEATURE": "private-live-value"},
     )
     first_access = gateway_access_for_manifest(controller.manifest_path)
-    first_self = first_access.store.load_self(first_access.target.incarnation)
+    first_self = first_access.self_store.load_self(first_access.target.incarnation)
     assert (
-        first_access.store.self_signer_path(first_access.target.incarnation).stat().st_mode & 0o777
+        first_access.self_store.self_signer_path(first_access.target.incarnation).stat().st_mode
+        & 0o777
         == 0o600
     )
-    assert tuple(entry.key for entry in first_access.store.load().keys) == admin_keys
+    assert tuple(entry.key_id for entry in first_access.store.snapshot().credentials) == tuple(
+        key.key_id for key in admin_keys
+    )
     first_access.store.update(
-        lambda state: state.model_copy(update={"keys": state.keys[1:], "revision": 1})
+        lambda state: remove_admin_key(state, admin_keys[0].key_id),
+        actor="owner",
+        action="admin.key.remove",
     )
 
     started_record = resolve_live_agent_record("gpu")
@@ -481,9 +487,17 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert "CURRENT_GEN_FEATURE" not in controller.launch_plan.env
     assert controller.launch_plan.runtime_launch_environment_file != environment_file.name
     relaunched_access = gateway_access_for_manifest(controller.manifest_path)
-    assert relaunched_access.store.load_self(relaunched_access.target.incarnation) != first_self
-    assert relaunched_access.store.load().find(admin_keys[0].key_id) is None
-    assert relaunched_access.store.load().find(admin_keys[1].key_id) is not None
+    assert (
+        relaunched_access.self_store.load_self(relaunched_access.target.incarnation) != first_self
+    )
+    assert (
+        relaunched_access.store.snapshot().find_credential(admin_keys[0].key_id).admin_revision
+        is None
+    )
+    assert (
+        relaunched_access.store.snapshot().find_credential(admin_keys[1].key_id).admin_revision
+        is not None
+    )
     with pytest.raises(SessionManifestError, match="authority has changed"):
         first_access.require_current()
     assert controller.execution_binding == binding
@@ -525,7 +539,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert stopped_record.liveness is None
     assert stopped_record.gateway is None
     assert stopped_record.terminal.current_session_name is None
-    assert relaunched_access.store.load().revision == 1
+    assert relaunched_access.store.snapshot().revision == 1
     assert relaunched_access.current_self() is None
     assert stopped_record.terminal.last_session_name == started_record.terminal.current_session_name
     assert stopped_record.execution_binding == binding
@@ -1202,14 +1216,13 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     paths = gateway_paths_from_manifest_path(controller.manifest_path)
     assert paths is not None
     access = gateway_access_for_manifest(controller.manifest_path)
-    assert access.store.load().mode == "open"
+    assert access.store.snapshot().admin_mode == "open"
     descriptor = GatewayEndpointDescriptor(
         protocol="v1",
         target=access.target,
         presence_id="fixture-instance",
         advertised_url="https://gateway.example.org/agents/gpu",
-        admin_access="open",
-        private_proof="none",
+        admin_mode="open",
         public_operations=("messages", "public_prompt"),
     )
 
@@ -1267,10 +1280,10 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
     assert attached_record.gateway.owner_connect_url == "http://127.0.0.1:43123"
     assert attached_record.gateway.endpoint_descriptor == descriptor
     older_record = attached_record.model_dump(mode="python")
-    older_record["gateway"]["endpoint_descriptor"].pop("private_proof")
-    legacy_gateway = type(attached_record).model_validate(older_record).gateway
-    assert legacy_gateway is not None and legacy_gateway.endpoint_descriptor is not None
-    assert legacy_gateway.endpoint_descriptor.private_proof == "self_or_admin"
+    older_record["gateway"]["endpoint_descriptor"]["admin_access"] = "open"
+    del older_record["gateway"]["endpoint_descriptor"]["admin_mode"]
+    with pytest.raises(ValueError):
+        type(attached_record).model_validate(older_record)
 
     def _fake_detach_gateway_for_controller(controller: Any) -> GatewayControlResult:
         del controller

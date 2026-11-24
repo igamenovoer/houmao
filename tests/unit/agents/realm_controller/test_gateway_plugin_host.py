@@ -31,6 +31,7 @@ from houmao.gateway.plugins import (
     PluginEvent,
     PluginInstanceConfiguration,
     PluginOwner,
+    plugin_route_action,
 )
 from houmao.gateway.plugins.discovery import LoadedPluginDefinition
 
@@ -59,13 +60,17 @@ class _FixturePlugin:
         self.m_closed: bool = False
         self.m_worker_closed: bool = False
 
-        @self.m_router.get("/connection")
+        @self.m_router.get(
+            "/connection", openapi_extra=plugin_route_action("plugin.fixture.connection.read")
+        )
         async def connection() -> dict[str, str]:
             """Serve an ordinary resource-free custom route."""
 
             return {"instance": context.instance_id}
 
-        @self.m_router.post("/events")
+        @self.m_router.post(
+            "/events", openapi_extra=plugin_route_action("plugin.fixture.events.dispatch")
+        )
         async def event(payload: PluginEvent) -> PluginDispatchResult:
             """Forward the sender-owned request to the immediate dispatch port."""
 
@@ -311,13 +316,17 @@ def test_http_handler_exception_is_sanitized_without_failing_core(
     def prepare(plugin: _FixturePlugin) -> None:
         """Add an intentionally unhandled provider-style operation failure."""
 
-        @plugin.router.post("/failing-operation")
+        @plugin.router.post(
+            "/failing-operation", openapi_extra=plugin_route_action("plugin.fixture.fail")
+        )
         async def failure() -> None:
             """Model a provider exception that includes private material."""
 
             raise RuntimeError("private-handler-secret")
 
-        @plugin.router.post("/expected-conflict")
+        @plugin.router.post(
+            "/expected-conflict", openapi_extra=plugin_route_action("plugin.fixture.conflict")
+        )
         async def expected_conflict() -> None:
             """Keep an ordinary documented plugin HTTP refusal authoritative."""
 
@@ -362,8 +371,13 @@ def test_route_conflicts_are_staged_before_any_instance_resources(
         """Create an equivalent-parameter conflict inside one selected router."""
 
         if plugin.m_context.instance_id == "broken":
-            plugin.router.add_api_route("/messages/{id}", lambda: None, methods=["GET"])
-            plugin.router.add_api_route("/messages/{name}", lambda: None, methods=["GET"])
+            action = plugin_route_action("plugin.fixture.messages.read")
+            plugin.router.add_api_route(
+                "/messages/{id}", lambda: None, methods=["GET"], openapi_extra=action
+            )
+            plugin.router.add_api_route(
+                "/messages/{name}", lambda: None, methods=["GET"], openapi_extra=action
+            )
 
     host, app, plugins = _make_host(
         tmp_path,
@@ -404,7 +418,12 @@ def test_core_collision_disables_every_participant_in_any_configuration_order(
     def prepare(plugin: _FixturePlugin) -> None:
         """Declare the same relative endpoint in independently prefixed routers."""
 
-        plugin.router.add_api_route("/cross/value", lambda: None, methods=["GET"])
+        plugin.router.add_api_route(
+            "/cross/value",
+            lambda: None,
+            methods=["GET"],
+            openapi_extra=plugin_route_action("plugin.fixture.cross.read"),
+        )
 
     for index, names in enumerate((["one", "two"], ["two", "one"])):
         host, app, plugins = _make_host(

@@ -23,7 +23,6 @@ from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.cao.rest_client import CaoApiError
 from houmao.execution.context import observed_local_binding
 from houmao.gateway.access import (
-    AccessClass,
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
     GatewayAccessError,
@@ -33,7 +32,6 @@ from houmao.gateway.access import (
     GatewayChallenge,
     GatewayChallengeRequest,
     GatewayClientBinding,
-    GatewayLaunchSeed,
     GatewayOwner,
     GatewayRequestBinding,
     GatewayTarget,
@@ -42,6 +40,10 @@ from houmao.gateway.access import (
     sign_sshsig,
     sshsig_header,
 )
+from houmao.gateway.authorization_models import AuthorizationDecision, Permission
+from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.gateway.deployment import GatewayEndpointDescriptor
+from houmao.gateway.operations import ADMIN_ADD, CORE_OPERATIONS, INTERRUPT, PROMPT, STATUS
 from houmao.gateway.owner_authority import (
     BACKING_HEADER,
     RELAY_HEADER,
@@ -51,6 +53,7 @@ from houmao.gateway.owner_authority import (
     issue_passive_backing,
     provision_passive_backing,
 )
+from houmao.gateway.roster import remove_admin_key
 from houmao.passive_server.admission import CURRENT_ADMISSION, PassiveAccessTarget
 from houmao.passive_server.app import create_app
 from houmao.passive_server.client import PassiveServerClient
@@ -60,6 +63,7 @@ from houmao.passive_server.models import PassiveAgentActionResponse
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.managed_agents import ManagedHeadlessAuthorityRecord
 from houmao.server.models import HoumaoManagedAgentGatewayInternalHeadlessPromptRequest
+from tests.fixtures.gateway_access import enroll_fixture_caller
 from tests.unit.passive_server.test_discovery import _make_record
 from tests.unit.passive_server.test_headless_service import _FakeHeadlessBackendSession
 
@@ -71,7 +75,8 @@ class _Target:
     client: TestClient
     service: PassiveServerService
     policy: GatewayAccessPolicy
-    store: GatewayAccessStore
+    receiver: GatewayAccessPolicy
+    store: AuthorizationStore
     runtime: SimpleNamespace
     record: DiscoveredAgent
     tracked_ref: str
@@ -100,10 +105,11 @@ class _Target:
 
         parsed = urlsplit(path)
         request = GatewayRequestBinding.from_request(method, parsed.path, parsed.query, body)
+        signer = admin or load_gateway_signer(
+            self.runtime.self_store.self_signer_path(self.runtime.target.incarnation)
+        )
         source = GatewayChallengeRequest(
-            purpose="admin" if admin is not None else "self",
-            key_id=_admin_entry(admin).key_id if admin is not None else None,
-            request=request,
+            purpose="caller", key_id=_admin_entry(signer).key_id, request=request
         )
         prefix = parsed.path.split("/")[0:4]
         response = self.client.post(
@@ -111,9 +117,6 @@ class _Target:
         )
         assert response.status_code == 200, response.json()
         challenge = GatewayChallenge.model_validate_json(response.content)
-        signer = admin or load_gateway_signer(
-            self.store.self_signer_path(self.runtime.target.incarnation)
-        )
         return {
             CHALLENGE_HEADER: challenge.challenge_id,
             SIGNATURE_HEADER: sshsig_header(sign_sshsig(signer, challenge.signing_bytes())),
@@ -137,7 +140,7 @@ def _enroll(target: _Target, signer: Ed25519PrivateKey) -> GatewayAdminKey:
         issuer, GatewayChallengeRequest(purpose="register", request=bound, proposed_key=candidate)
     )
     grant = target.policy.admit(
-        "admin",
+        (ADMIN_ADD,),
         issuer=issuer,
         request=bound,
         challenge_id=challenge.challenge_id,
@@ -192,23 +195,47 @@ def target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Target:
     owner = GatewayOwner(agent_id=record.agent_id, context_id=execution.context_id)
     binding = GatewayTarget(owner=owner, incarnation=record.generation_id)
     root = tmp_path / "access"
-    store = GatewayAccessStore.from_root(root, owner=owner)
-    store.initialize(GatewayLaunchSeed())
-    own_key = store.provision_self(binding.incarnation)
+    store = AuthorizationStore(root, owner)
+    store.initialize()
+    self_store = GatewayAccessStore.from_root(root, owner=owner)
+    own_key = self_store.provision_self(binding.incarnation)
     runtime = SimpleNamespace(
         target=binding,
         private_root=root,
         store=store,
+        self_store=self_store,
         execution_binding=execution,
         require_current=lambda: None,
         current_self=lambda: own_key,
     )
-    policy = GatewayAccessPolicy(store=store, target=lambda: binding, current_self=lambda: own_key)
+    policy = GatewayAccessPolicy(
+        store=store,
+        target=lambda: binding,
+        current_self=lambda: own_key,
+        listener_id=service.m_access_listener_id,
+    )
+    receiver = GatewayAccessPolicy(
+        store=store,
+        target=lambda: binding,
+        current_self=lambda: own_key,
+        listener_id="gateway-listener",
+    )
+    monkeypatch.setattr(
+        GatewayClient,
+        "describe_endpoint",
+        lambda _: GatewayEndpointDescriptor(
+            protocol="v1",
+            target=binding,
+            presence_id=receiver.listener_id,
+            admin_mode=store.snapshot().admin_mode,
+            advertised_url=None,
+        ),
+    )
     monkeypatch.setattr(
         "houmao.passive_server.service.gateway_access_for_manifest", lambda _: runtime
     )
     client = TestClient(create_app(service=service), base_url=config.api_base_url)
-    return _Target(client, service, policy, store, runtime, discovered, tracked_ref)
+    return _Target(client, service, policy, receiver, store, runtime, discovered, tracked_ref)
 
 
 def test_retained_policy_survives_missing_discovery_and_checks_before_validation(
@@ -254,7 +281,7 @@ def test_missing_initialized_policy_remains_closed(target: _Target) -> None:
     """A known target with unavailable policy refuses unsigned protected calls."""
 
     target.service.m_discovery.index.replace({})
-    documents = tuple(target.runtime.private_root.rglob("admin*.json"))
+    documents = tuple(target.runtime.private_root.rglob("authorization.sqlite3"))
     assert len(documents) == 1
     documents[0].unlink()
     assert target.client.post(f"{target.base}/gateway/detach").status_code == 503
@@ -284,8 +311,8 @@ def test_signed_proxy_relays_translated_operation_once(
             target=target.runtime.target,
             request=binding,
             token=token,
-            policy=target.policy,
-            access="admin",
+            policy=target.receiver,
+            permissions=(PROMPT,),
         )
         received.append((binding, grant, token))
         return (
@@ -303,17 +330,19 @@ def test_signed_proxy_relays_translated_operation_once(
     assert response.status_code == 200, response.text
     assert len(received) == 1
     request, grant, token = received[0]
-    assert (
-        request.path == "/v1/requests" and grant.principal == "operator" and grant.role == "admin"
-    )
-    with pytest.raises(GatewayAccessError, match="Valid gateway proof"):
+    assert request.path == "/v1/requests"
+    assert grant.actor.key_id == _admin_entry(signer).key_id
+    assert grant.basis == "admin"
+    assert grant.listener_id == target.receiver.listener_id
+    assert grant.permissions == (PROMPT,)
+    with pytest.raises(GatewayAccessError, match="proof"):
         consume_gateway_relay(
             target.runtime.private_root,
             target=target.runtime.target,
             request=request,
             token=token,
-            policy=target.policy,
-            access="admin",
+            policy=target.receiver,
+            permissions=(PROMPT,),
         )
     assert target.client.post(path, content=body, headers=proof).status_code == 401
     assert len(received) == 1
@@ -328,19 +357,25 @@ def test_private_proxy_preserves_anonymous_caller(
         parts = urlsplit(url)
         assert parts.path == "/v1/memory/memo"
         assert method == "GET"
-        headers = {name.lower() for name, _value in request_obj.header_items()}
-        assert not headers.intersection(
-            name.lower()
-            for name in (CHALLENGE_HEADER, SIGNATURE_HEADER, RELAY_HEADER, BACKING_HEADER)
-        )
-        grant = target.policy.admit(
-            "private",
-            issuer=f"{parts.scheme}://{parts.netloc}",
-            request=GatewayRequestBinding.from_request(method, parts.path, parts.query, b""),
+        headers = {name.lower(): value for name, value in request_obj.header_items()}
+        assert not headers.keys() & {
+            CHALLENGE_HEADER.lower(),
+            SIGNATURE_HEADER.lower(),
+            BACKING_HEADER.lower(),
+        }
+        binding = GatewayRequestBinding.from_request(method, parts.path, parts.query, b"")
+        grant = consume_gateway_relay(
+            target.runtime.private_root,
+            target=target.runtime.target,
+            request=binding,
+            token=headers[RELAY_HEADER.lower()],
+            policy=target.receiver,
+            permissions=CORE_OPERATIONS[method, parts.path].permissions(b""),
         )
         admission = CURRENT_ADMISSION.get()
-        assert admission is not None and admission.grant == grant
-        assert grant.role == "anonymous"
+        assert admission is not None and admission.grant is not None
+        assert grant.actor.kind == "anonymous" and grant.basis == "open"
+        assert grant.open_epoch == admission.grant.open_epoch
         return b'{"memo_file":"memo.md","content":"fixture memo"}'
 
     monkeypatch.setattr(GatewayClient, "_open_request", receive)
@@ -349,28 +384,37 @@ def test_private_proxy_preserves_anonymous_caller(
     assert response.json()["content"] == "fixture memo"
 
 
-@pytest.mark.parametrize(
-    ("access", "method", "route"),
-    [("admin", "POST", "/requests"), ("private", "GET", "/gateway/memory/memo")],
-)
-def test_anonymous_proxy_rechecks_first_enrollment_at_gateway(
-    target: _Target, monkeypatch: pytest.MonkeyPatch, access: AccessClass, method: str, route: str
+@pytest.mark.parametrize("reopen", [False, True])
+def test_anonymous_proxy_rechecks_open_epoch_at_gateway(
+    target: _Target, monkeypatch: pytest.MonkeyPatch, reopen: bool
 ) -> None:
-    """An enrollment after passive admission still requires proof downstream."""
+    """Closing open access retires prior anonymous relay evidence even if it reopens."""
 
     calls = []
 
     def receive(_client: GatewayClient, *, request_obj: Request, method: str, url: str) -> bytes:
         headers = {name.lower(): value for name, value in request_obj.header_items()}
-        assert RELAY_HEADER.lower() not in headers
         calls.append(method)
-        _enroll(target, Ed25519PrivateKey.generate())
+        enrolled = _enroll(target, Ed25519PrivateKey.generate())
+        if reopen:
+            target.store.update(
+                lambda state: remove_admin_key(state, enrolled.key_id),
+                actor="fixture-owner",
+                action="admin.key.remove",
+            )
         parts = urlsplit(url)
         binding = GatewayRequestBinding.from_request(
             method, parts.path, parts.query, request_obj.data or b""
         )
         try:
-            target.policy.admit(access, issuer=f"{parts.scheme}://{parts.netloc}", request=binding)
+            consume_gateway_relay(
+                target.runtime.private_root,
+                target=target.runtime.target,
+                request=binding,
+                token=headers[RELAY_HEADER.lower()],
+                policy=target.receiver,
+                permissions=(PROMPT,),
+            )
         except GatewayAccessError as exc:
             raise GatewayHttpError(
                 method=method,
@@ -378,18 +422,70 @@ def test_anonymous_proxy_rechecks_first_enrollment_at_gateway(
                 status_code=exc.status_code,
                 detail="untrusted upstream diagnostic",
             ) from None
-        pytest.fail("Downstream admission accepted an anonymous request after enrollment")
+        pytest.fail("Downstream admission accepted stale anonymous relay")
 
     monkeypatch.setattr(GatewayClient, "_open_request", receive)
-    response = target.client.request(
-        method,
-        f"{target.admin_base}{route}",
-        json={"prompt": "fixture"} if method == "POST" else None,
-    )
+    response = target.client.post(f"{target.admin_base}/requests", json={"prompt": "fixture"})
     assert response.status_code == 401
     assert response.headers["WWW-Authenticate"].endswith(f'{target.admin_base}/auth/challenge"')
     assert "untrusted" not in response.text
-    assert calls == [method]
+    assert calls == ["POST"]
+
+
+@pytest.mark.parametrize(("action", "denied"), [(PROMPT, INTERRUPT), (INTERRUPT, PROMPT)])
+def test_queue_proxy_distinguishes_prompt_and_interrupt_for_scoped_callers(
+    target: _Target, monkeypatch: pytest.MonkeyPatch, action: Permission, denied: Permission
+) -> None:
+    """Both variants share one gateway route and apply their distinct effects."""
+
+    _enroll(target, Ed25519PrivateKey.generate())
+    signer = Ed25519PrivateKey.generate()
+    key = _admin_entry(signer).model_copy(update={"principal": "scoped-peer"})
+    enroll_fixture_caller(
+        SimpleNamespace(m_access_runtime=target.runtime), key, permissions=(action,)
+    )
+    path = f"{target.admin_base}/gateway/requests"
+    reached = []
+
+    def receive(_client: GatewayClient, *, request_obj: Request, method: str, url: str) -> bytes:
+        """Admit the downstream queue operation based on the received body."""
+
+        parts = urlsplit(url)
+        assert parts.path == "/v1/requests"
+        headers = {name.lower(): value for name, value in request_obj.header_items()}
+        body = request_obj.data or b""
+        grant = consume_gateway_relay(
+            target.runtime.private_root,
+            target=target.runtime.target,
+            request=GatewayRequestBinding.from_request(method, parts.path, parts.query, body),
+            token=headers[RELAY_HEADER.lower()],
+            policy=target.receiver,
+            permissions=CORE_OPERATIONS[method, parts.path].permissions(body),
+        )
+        reached.append(grant.permissions)
+        kind = "interrupt" if action == INTERRUPT else "submit_prompt"
+        return (
+            f'{{"request_id":"fixture-request","request_kind":"{kind}",'
+            '"state":"accepted","accepted_at_utc":"now","queue_depth":1,"managed_agent_instance_epoch":1}'
+        ).encode()
+
+    def send(permission: Permission):
+        """Prove the exact queue request for one prompt or interrupt."""
+
+        body = (
+            b'{"kind":"interrupt","payload":{}}'
+            if permission == INTERRUPT
+            else b'{"kind":"submit_prompt","payload":{"prompt":"fixture"}}'
+        )
+        proof = target.sign(path, method="POST", body=body, admin=signer)
+        return target.client.post(
+            path, content=body, headers={**proof, "Content-Type": "application/json"}
+        )
+
+    monkeypatch.setattr(GatewayClient, "_open_request", receive)
+    assert send(denied).status_code == 403
+    assert send(action).status_code == 200
+    assert reached == [(action,)]
 
 
 @pytest.mark.parametrize(
@@ -426,40 +522,130 @@ def test_relay_rejects_ended_generation_or_reenrolled_key(target: _Target, role:
 
     private = Ed25519PrivateKey.generate()
     key = _enroll(target, private) if role == "admin" else None
+    if role == "self":
+        _enroll(target, Ed25519PrivateKey.generate())
     request = GatewayRequestBinding.from_request("GET", "/v1/status", "", b"")
     issuer = target.service.m_config.api_base_url
-    challenge = target.policy.issue(
-        issuer,
-        GatewayChallengeRequest(purpose=role, request=request, key_id=key.key_id if key else None),
-    )
     signer = (
         private
         if key
-        else load_gateway_signer(target.store.self_signer_path(target.runtime.target.incarnation))
+        else load_gateway_signer(
+            target.runtime.self_store.self_signer_path(target.runtime.target.incarnation)
+        )
+    )
+    challenge = target.policy.issue(
+        issuer,
+        GatewayChallengeRequest(
+            purpose="caller", request=request, key_id=_admin_entry(signer).key_id
+        ),
     )
     grant = target.policy.admit(
-        "private",
+        (STATUS,),
         issuer=issuer,
         request=request,
         challenge_id=challenge.challenge_id,
         signature=sshsig_header(sign_sshsig(signer, challenge.signing_bytes())),
     )
-    token = issue_gateway_relay(target.runtime.private_root, grant=grant, request=request)
+    assert isinstance(grant, AuthorizationDecision)
+    token = issue_gateway_relay(
+        target.runtime.private_root,
+        grant=grant,
+        request=request,
+        receiver_id=target.receiver.listener_id,
+        permissions=(STATUS,),
+    )
     if key is not None:
-        target.policy.remove_key(grant, key.key_id)
+        target.store.update(
+            lambda state: remove_admin_key(state, key.key_id),
+            actor="fixture-owner",
+            action="admin.key.remove",
+        )
         _enroll(target, private)
     else:
-        target.policy.m_self = lambda: None
+        target.receiver.m_self = lambda: None
     with pytest.raises(GatewayAccessError) as refused:
         consume_gateway_relay(
             target.runtime.private_root,
             target=target.runtime.target,
             token=token,
             request=request,
-            policy=target.policy,
-            access="private",
+            policy=target.receiver,
+            permissions=(STATUS,),
         )
     assert refused.value.status_code == 401
+
+
+@pytest.mark.parametrize("changed", ["listener", "path", "query", "body", "action"])
+def test_relay_is_consumed_only_for_exact_gateway_receiver_and_request(
+    target: _Target, changed: str
+) -> None:
+    """A replacement or altered request cannot consume one-use caller authority."""
+
+    request = GatewayRequestBinding.from_request("POST", "/v1/requests", "", b"{}")
+    grant = target.policy.admit(
+        (PROMPT, INTERRUPT), issuer=target.service.m_config.api_base_url, request=request
+    )
+    assert isinstance(grant, AuthorizationDecision)
+    token = issue_gateway_relay(
+        target.runtime.private_root,
+        grant=grant,
+        request=request,
+        receiver_id=target.receiver.listener_id,
+        permissions=(PROMPT,),
+    )
+    receiver = target.receiver
+    if changed == "listener":
+        receiver = GatewayAccessPolicy(
+            store=target.store,
+            target=lambda: target.runtime.target,
+            current_self=target.runtime.current_self,
+            listener_id="replacement",
+        )
+    transformed = GatewayRequestBinding.from_request(
+        "POST",
+        "/v1/control/prompt" if changed == "path" else request.path,
+        "changed=1" if changed == "query" else request.query,
+        b"altered" if changed == "body" else b"{}",
+    )
+    with pytest.raises(GatewayAccessError) as refused:
+        consume_gateway_relay(
+            target.runtime.private_root,
+            target=target.runtime.target,
+            request=transformed,
+            token=token,
+            policy=receiver,
+            permissions=(INTERRUPT if changed == "action" else PROMPT,),
+        )
+    assert refused.value.status_code == (403 if changed == "action" else 401)
+    with pytest.raises(GatewayAccessError) as replay:
+        consume_gateway_relay(
+            target.runtime.private_root,
+            target=target.runtime.target,
+            request=request,
+            token=token,
+            policy=target.receiver,
+            permissions=(PROMPT,),
+        )
+    assert replay.value.status_code == 401
+
+
+def test_invalid_supplied_proof_denies_open_access_before_gateway(
+    target: _Target, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Explicit malformed caller proof has no unsigned retry."""
+
+    def unexpected(*_args: object, **_kwargs: object) -> None:
+        """A proof refusal must precede a gateway connection."""
+
+        pytest.fail("Malformed proof reached the gateway")
+
+    monkeypatch.setattr(GatewayClient, "describe_endpoint", unexpected)
+    response = target.client.post(
+        f"{target.admin_base}/requests",
+        json={"prompt": "fixture"},
+        headers={CHALLENGE_HEADER: "stale", SIGNATURE_HEADER: "invalid"},
+    )
+    assert response.status_code == 401
 
 
 def test_backing_grant_is_independent_of_roster_and_scoped_to_backing_routes(
@@ -524,7 +710,7 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
     binding = GatewayClientBinding(
         base_url=target.service.m_config.api_base_url,
         owner=target.runtime.target.owner,
-        purpose="admin",
+        purpose="caller",
         private_key_path=str(key_path),
     )
     monkeypatch.setattr(
@@ -573,7 +759,7 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
     foreign_owner = GatewayOwner(agent_id="another-agent", context_id=binding.owner.context_id)
     retargeted = make_client(binding.model_copy(update={"owner": foreign_owner}))
     length = len(requests)
-    with pytest.raises(CaoApiError, match="challenge failed binding validation"):
+    with pytest.raises(CaoApiError, match="endpoint differs from the binding"):
         retargeted.get_headless_turn_artifact_text(
             target.tracked_ref, "turn", artifact_name="stdout"
         )

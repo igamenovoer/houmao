@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from houmao.agents.realm_controller.gateway_access_runtime import (
+    GatewayRuntimeAccess,
+    gateway_access_for_manifest,
     load_gateway_access_config,
     owner_gateway_client_binding,
 )
-from houmao.gateway.access import GatewayAccessError
+from houmao.gateway.access import GatewayAccessError, GatewayClientBinding
 from houmao.gateway.deployment import owner_gateway_base_url, validate_gateway_access_config_path
 
 from houmao.mailbox.online_models import (
@@ -23,6 +25,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 import json
+import os
 from pathlib import Path
 import shlex
 from time import monotonic, sleep
@@ -56,6 +59,7 @@ from houmao.agents.mailbox_runtime_support import (
     mailboxes_resolved_config_from_payload,
 )
 from houmao.agents.model_selection import ModelConfig, normalize_model_config
+from houmao.agents.realm_controller.agent_identity import normalize_agent_identity_name
 from houmao.agents.realm_controller.backends.cao_rest import CaoRestSession
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
@@ -223,6 +227,7 @@ from houmao.agents.realm_controller.managed_control import (
 )
 from houmao.agents.realm_controller.run_modes import RunMode
 from houmao.agents.realm_controller.manifest import (
+    default_manifest_path,
     load_registry_mode_authority,
     require_registry_mode_authority,
     load_session_manifest,
@@ -1651,6 +1656,73 @@ def _resolve_local_managed_agent_record(
         agent_name=agent_name,
     )
     return record
+
+
+def resolve_owner_gateway_access(
+    *, agent_id: str | None, agent_name: str | None, recovery_manifest: Path | None = None
+) -> GatewayRuntimeAccess:
+    """Verify detached or stopped owner authority without delegating over HTTP."""
+
+    agent_id, agent_name = resolve_managed_agent_selector(agent_id=agent_id, agent_name=agent_name)
+    try:
+        if recovery_manifest is not None:
+            return _gateway_access_from_recovery_manifest(
+                recovery_manifest, agent_id=agent_id, agent_name=agent_name
+            )
+        record, _ = _resolve_local_managed_agent_record_with_miss_context(
+            agent_id=agent_id, agent_name=agent_name, include_inactive=True
+        )
+        if record is not None:
+            require_registry_mode_authority(record)
+            access = gateway_access_for_manifest(Path(record.runtime.manifest_path))
+            if (
+                access.owner.agent_id == record.agent_id
+                and access.execution_binding == record.execution_binding
+                and access.target.incarnation == record.generation_id
+            ):
+                return access
+    except (OSError, SessionManifestError, ValueError):
+        pass
+    raise click.ClickException("Gateway access requires verified local execution owner authority.")
+
+
+def _gateway_access_from_recovery_manifest(
+    path: Path, *, agent_id: str | None, agent_name: str | None
+) -> GatewayRuntimeAccess:
+    """Use a confined owner manifest explicitly for new policy reprovisioning."""
+
+    if (
+        not path.is_absolute()
+        or path.name != "manifest.json"
+        or path.resolve(strict=True) != path
+        or not path.is_file()
+        or path.stat().st_uid != os.geteuid()
+    ):
+        raise ValueError("The recovery manifest must be a confined owner file.")
+    handle = load_session_manifest(path)
+    payload = parse_session_manifest_payload(handle.payload, source="recovery manifest")
+    binding = payload.runtime.execution_binding
+    if binding is None or path != default_manifest_path(
+        Path(binding.runtime_root), payload.backend, path.parent.name
+    ):
+        raise ValueError("The recovery manifest is outside its bound runtime directory.")
+    manifest_name = (
+        normalize_agent_identity_name(payload.agent_name).name_portion
+        if payload.agent_name
+        else None
+    )
+    if (agent_id is not None and payload.agent_id != agent_id) or (
+        agent_name is not None and manifest_name != agent_name
+    ):
+        raise ValueError("The recovery manifest differs from the selected agent.")
+    access = gateway_access_for_manifest(path)
+    if (
+        access.owner.agent_id != payload.agent_id
+        or access.execution_binding != binding
+        or access.target.incarnation != payload.registry_generation_id
+    ):
+        raise ValueError("The recovery manifest changed during owner verification.")
+    return access
 
 
 def _resolve_local_managed_agent_record_with_miss_context(
@@ -3264,7 +3336,9 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     return _gateway_status_for_controller(authority)
 
 
-def gateway_web_entry(*, agent_id: str | None, agent_name: str | None) -> GatewayWebEntryTicketV1:
+def gateway_web_entry(
+    *, agent_id: str | None, agent_name: str | None, signer: Path | None = None
+) -> GatewayWebEntryTicketV1:
     """Request a ticket using the live owner-local gateway's access policy."""
 
     agent_id, agent_name = resolve_managed_agent_selector(agent_id=agent_id, agent_name=agent_name)
@@ -3324,22 +3398,35 @@ def gateway_web_entry(*, agent_id: str | None, agent_name: str | None) -> Gatewa
         or descriptor.target.incarnation != record.generation_id
         or descriptor.presence_id != retained.presence_id
         or descriptor.protocol != current.protocol_version
+        or descriptor.proof_protocol != retained.proof_protocol
     ):
         raise click.ClickException(changed)
 
-    policy = (descriptor.admin_access, descriptor.private_proof)
-    if policy == ("key_required", "self_or_admin"):
+    if descriptor.admin_mode == "unavailable":
+        raise click.ClickException(
+            "Web entry access policy is unavailable. Check the live owner-local gateway."
+        )
+    if signer is not None or descriptor.admin_mode == "keyed":
         try:
-            binding, generation = owner_gateway_client_binding(
-                manifest_path, port=current.port, private=False
-            )
+            if signer is None:
+                binding, generation = owner_gateway_client_binding(
+                    manifest_path, port=current.port, private=False
+                )
+            else:
+                binding = GatewayClientBinding(
+                    base_url=base_url,
+                    owner=descriptor.target.owner,
+                    purpose="caller",
+                    private_key_path=str(signer),
+                )
+                generation = descriptor.target.incarnation
         except (GatewayAccessError, SessionManifestError, ValueError):
             raise click.ClickException(
-                "Web entry requires a usable admin signer. Check `admin_signer_path` in the gateway access configuration."
+                "Web entry requires a usable signer with `web.enter` permission."
             ) from None
-        if binding is None or binding.purpose != "admin":
+        if binding is None or binding.purpose != "caller":
             raise click.ClickException(
-                "Web entry requires an enrolled admin signer. Set `admin_signer_path` in the gateway access configuration."
+                "Web entry requires a signer with `web.enter` permission. Pass `--signer` or set `admin_signer_path`."
             )
         if (
             generation != descriptor.target.incarnation
@@ -3351,11 +3438,8 @@ def gateway_web_entry(*, agent_id: str | None, agent_name: str | None) -> Gatewa
             base_url=base_url,
             binding=binding,
             target_incarnation=generation,
+            target_presence_id=descriptor.presence_id,
             respect_proxy_env=False,
-        )
-    elif policy != ("open", "none"):
-        raise click.ClickException(
-            "Web entry access policy is unavailable or unsupported. Check the live owner-local gateway."
         )
 
     try:
@@ -6185,6 +6269,7 @@ def _live_gateway_client_for_controller(
     status = _gateway_status_for_controller(authority)
     if status.gateway_health != "healthy":
         return None
+    presence_id = None
     if isinstance(authority, (VerifiedRegistryManifest, VerifiedSelfManifest)):
         paths = gateway_paths_from_manifest_path(authority.manifest_path)
         try:
@@ -6192,6 +6277,8 @@ def _live_gateway_client_for_controller(
             instance, endpoint = _verified_current_gateway(authority, paths)
             if not _gateway_status_matches_instance(status, instance):
                 raise SessionManifestError("Gateway status belongs to a superseded instance.")
+            if instance.endpoint_descriptor is not None:
+                presence_id = instance.endpoint_descriptor.presence_id
         except (GatewayHttpError, OSError, SessionManifestError) as exc:
             if require_available:
                 raise _gateway_inspection_unavailable(authority, exc) from None
@@ -6222,7 +6309,12 @@ def _live_gateway_client_for_controller(
         and incarnation != authority.record.generation_id
     ):
         raise click.ClickException("The gateway belongs to a different runtime generation.")
-    return GatewayClient(endpoint=endpoint, binding=binding, target_incarnation=incarnation)
+    return GatewayClient(
+        endpoint=endpoint,
+        binding=binding,
+        target_incarnation=incarnation,
+        target_presence_id=presence_id,
+    )
 
 
 def _verified_current_gateway(
@@ -6247,6 +6339,7 @@ def _verified_current_gateway(
         descriptor.target != saved.target
         or descriptor.presence_id != saved.presence_id
         or descriptor.protocol != saved.protocol
+        or descriptor.proof_protocol != saved.proof_protocol
     ):
         raise SessionManifestError("Gateway listener belongs to a different instance.")
     if load_gateway_current_instance(paths.current_instance_path).endpoint_descriptor != saved:

@@ -95,6 +95,7 @@ from houmao.gateway.access import (
     GatewayChallengeRequest,
     GatewayClientBinding,
     GatewayRequestBinding,
+    GatewayTarget,
     load_gateway_signer,
     parse_access_document,
     public_key_text,
@@ -153,6 +154,7 @@ class GatewayClient:
         timeout_seconds: float = 5.0,
         binding: GatewayClientBinding | None = None,
         target_incarnation: str | None = None,
+        target_presence_id: str | None = None,
         ca_bundle_path: Path | None = None,
         registration_key: GatewayAdminKey | None = None,
         request_proof: Callable[[str, str, bytes], Mapping[str, str]] | None = None,
@@ -198,6 +200,7 @@ class GatewayClient:
             ca_bundle_path = selected_trust
         self.m_binding = binding
         self.m_target_incarnation = target_incarnation
+        self.m_target_presence_id = target_presence_id
         self.m_registration_key = registration_key
         self.m_request_proof = request_proof
         self.m_timeout_seconds = timeout_seconds
@@ -232,11 +235,9 @@ class GatewayClient:
         """Request a one-time browser link using the selected direct gateway authority."""
 
         if self.m_request_proof is not None or (
-            self.m_binding is not None and self.m_binding.purpose != "admin"
+            self.m_binding is not None and self.m_binding.purpose != "caller"
         ):
-            raise ValueError(
-                "Web entry accepts a direct enrolled gateway admin signer or an unsigned request."
-            )
+            raise ValueError("Web entry requires a direct gateway caller or unsigned open access.")
         origin = parse.urlsplit(self.m_base_url)
         if (
             origin.port is None
@@ -310,6 +311,22 @@ class GatewayClient:
 
         if not path.startswith("/v1/plugins/"):
             raise ValueError("Plugin operations must use the gateway plugin namespace.")
+        return self._request_json(method, path, body=body)
+
+    def request_json(
+        self, method: str, path: str, *, body: GatewayJsonObject | None = None
+    ) -> GatewayJsonValue:
+        """Call a protected JSON operation with an explicitly selected caller key."""
+
+        route = parse.unquote(path.partition("?")[0], errors="strict")
+        if (
+            self.m_binding is None
+            or self.m_binding.purpose != "caller"
+            or not route.startswith("/v1/")
+            or route in _UNSIGNED_ROUTES
+            or route.startswith(("/v1/auth/", "/v1/admin/", "/v1/web/"))
+        ):
+            raise ValueError("Select a protected gateway JSON operation and a caller key.")
         return self._request_json(method, path, body=body)
 
     def status(self) -> GatewayStatusV1:
@@ -1021,15 +1038,24 @@ class GatewayClient:
     ) -> request.Request:
         """Attach proof to the exact bytes and request path that will be sent."""
 
-        route, _, query = path.partition("?")
+        route = path.partition("?")[0]
         if route not in _UNSIGNED_ROUTES:
             if self.m_binding is not None:
-                headers.update(self._signed_headers(method, route, query, payload or b""))
+                headers.update(self.caller_proof_headers(method, path, payload or b""))
             elif self.m_request_proof is not None:
                 headers.update(self.m_request_proof(method, path, payload or b""))
         return request.Request(
             url=self._build_url(path), data=payload, method=method, headers=headers
         )
+
+    def caller_proof_headers(self, method: str, path: str, body: bytes) -> dict[str, str]:
+        """Prepare proof for exact request bytes without dispatching the operation."""
+
+        self._build_url(path)
+        route, _, query = path.partition("?")
+        if self.m_binding is None or route in _UNSIGNED_ROUTES:
+            raise ValueError("A signed gateway operation and explicit binding are required.")
+        return self._signed_headers(method, route, query, body)
 
     def _signed_headers(
         self,
@@ -1039,12 +1065,30 @@ class GatewayClient:
         payload: bytes,
         *,
         challenge_path: str = "/v1/auth/challenge",
+        endpoint_binding: tuple[GatewayTarget, str] | None = None,
     ) -> dict[str, str]:
         """Check server-authored challenge fields before signing once."""
 
         binding = self.m_binding
         assert binding is not None
         url = self._build_url(path)
+        incarnation = self.m_target_incarnation
+        presence = self.m_target_presence_id
+        if endpoint_binding is None and (incarnation is None or presence is None):
+            descriptor = self.describe_endpoint()
+            endpoint_binding = descriptor.target, descriptor.presence_id
+        if endpoint_binding is not None:
+            target, listener_id = endpoint_binding
+            if (
+                target.owner != binding.owner
+                or (incarnation is not None and target.incarnation != incarnation)
+                or (presence is not None and listener_id != presence)
+            ):
+                raise GatewayHttpError(
+                    method=method, url=url, detail="Gateway endpoint differs from the binding."
+                )
+            incarnation = target.incarnation
+            presence = listener_id
         try:
             signer = load_gateway_signer(Path(binding.private_key_path))
             key = GatewayAdminKey(
@@ -1059,7 +1103,7 @@ class GatewayClient:
             challenge_request = GatewayChallengeRequest(
                 purpose=binding.purpose,
                 request=intended,
-                key_id=key.key_id if binding.purpose == "admin" else None,
+                key_id=key.key_id if binding.purpose == "caller" else None,
                 proposed_key=proposed,
             )
         except (OSError, ValueError):
@@ -1080,19 +1124,13 @@ class GatewayClient:
             if (
                 challenge.issuer != self.m_base_url
                 or challenge.target.owner != binding.owner
-                or (
-                    self.m_target_incarnation is not None
-                    and challenge.target.incarnation != self.m_target_incarnation
-                )
+                or challenge.target.incarnation != incarnation
+                or challenge.listener_id != presence
                 or challenge.purpose != binding.purpose
                 or challenge.request != intended
                 or challenge.key_id != key.key_id
                 or challenge.proposed_key != proposed
                 or not now < challenge.expires_at <= now + 120
-                or (
-                    binding.purpose == "self"
-                    and challenge.generation_id != challenge.target.incarnation
-                )
             ):
                 raise ValueError("Challenge differs from the selected binding.")
             signature = sshsig_header(sign_sshsig(signer, challenge.signing_bytes()))

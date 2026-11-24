@@ -23,7 +23,6 @@ from houmao.gateway.access import (
     GatewayChallenge,
     GatewayChallengeRequest,
     GatewayRequestBinding,
-    GatewayLaunchSeed,
     GatewayOwner,
     GatewaySelfKey,
     GatewayTarget,
@@ -33,6 +32,14 @@ from houmao.gateway.access import (
     sshsig_header,
 )
 from houmao.gateway._access_sshsig import key_fingerprint
+from houmao.gateway.authorization_models import (
+    Credential,
+    Permission,
+    PolicySnapshot,
+    Principal,
+    ScopedGrant,
+)
+from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.gateway.deployment import GatewayDeployment
 
 
@@ -40,7 +47,8 @@ from houmao.gateway.deployment import GatewayDeployment
 class FixtureGatewayAccess:
     """Supply an isolated owner and generation for a synthetic manifest."""
 
-    store: GatewayAccessStore
+    store: AuthorizationStore
+    self_store: GatewayAccessStore
     target: GatewayTarget
     private_root: Path
     execution_binding: None = None
@@ -54,7 +62,7 @@ class FixtureGatewayAccess:
     def current_self(self) -> GatewaySelfKey:
         """Read the current self key from private fixture storage."""
 
-        return self.store.load_self(self.target.incarnation)
+        return self.self_store.load_self(self.target.incarnation)
 
 
 def configure_fixture_gateway_access(
@@ -65,11 +73,14 @@ def configure_fixture_gateway_access(
 
     owner = GatewayOwner(agent_id="fixture-agent", context_id="fixture-owner")
     private_root = tmp_path / "gateway-access"
-    store = GatewayAccessStore.from_root(private_root, owner)
+    store = AuthorizationStore(private_root, owner)
+    self_store = GatewayAccessStore.from_root(private_root, owner)
     target = GatewayTarget(owner=owner, incarnation="fixture-generation")
-    store.initialize(GatewayLaunchSeed())
-    store.provision_self(target.incarnation)
-    access = FixtureGatewayAccess(store=store, target=target, private_root=private_root)
+    store.initialize()
+    self_store.provision_self(target.incarnation)
+    access = FixtureGatewayAccess(
+        store=store, self_store=self_store, target=target, private_root=private_root
+    )
     monkeypatch.setattr(gateway_service, "gateway_access_for_manifest", lambda _path: access)
 
     def verify_fixture_owner(
@@ -122,6 +133,36 @@ def enroll_fixture_admin(client: TestClient, key: GatewayAdminKey, path: Path) -
     assert response.json() == {"key_id": key.key_id}
 
 
+def enroll_fixture_caller(
+    runtime: GatewayServiceRuntime, key: GatewayAdminKey, *, permissions: tuple[Permission, ...]
+) -> None:
+    """Install a stable non-admin credential and exact grants through owner policy."""
+
+    access = runtime.m_access_runtime
+    assert access is not None
+    principal = Principal(principal_id=key.principal, kind="operator", label=key.principal)
+    credential = Credential(principal_id=principal.principal_id, public_key=key.public_key)
+
+    def update(snapshot: PolicySnapshot) -> PolicySnapshot:
+        """Extend this fixture owner's policy without granting roster membership."""
+
+        return snapshot.model_copy(
+            update={
+                "principals": (*snapshot.principals, principal),
+                "credentials": (*snapshot.credentials, credential),
+                "grants": (
+                    *snapshot.grants,
+                    *(
+                        ScopedGrant(principal_id=principal.principal_id, permission=permission)
+                        for permission in permissions
+                    ),
+                ),
+            }
+        )
+
+    access.store.update(update, actor="fixture-owner", action="policy.credential.enroll")
+
+
 class FixtureProofAuth(httpx.Auth):
     """Exercise real challenge acquisition and signing from a fixture key."""
 
@@ -132,25 +173,24 @@ class FixtureProofAuth(httpx.Auth):
         self,
         signer_path: Path,
         *,
-        purpose: Literal["self", "admin", "register"] = "self",
+        purpose: Literal["caller", "self", "admin", "register"] = "caller",
         proposed_key: GatewayAdminKey | None = None,
     ) -> None:
         """Select an isolated fixture signer and challenge purpose."""
 
         self.m_signer = load_gateway_signer(signer_path)
-        self.m_purpose = purpose
+        self.m_purpose: Literal["caller", "register"] = (
+            "register" if purpose == "register" else "caller"
+        )
         self.m_proposed_key = proposed_key
 
     def auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response, None]:
         """Request a signed challenge for the exact outgoing test request."""
 
-        response = yield request
-        if response.status_code != 401 or not response.headers.get("WWW-Authenticate"):
-            return
         raw_path, _, query = request.url.raw_path.partition(b"?")
         key_id = (
             key_fingerprint(public_key_text(self.m_signer.public_key()))
-            if self.m_purpose == "admin"
+            if self.m_purpose == "caller"
             else None
         )
         challenge_request = GatewayChallengeRequest(
@@ -166,7 +206,8 @@ class FixtureProofAuth(httpx.Auth):
             request.url.copy_with(path="/v1/auth/challenge", query=None),
             json=challenge_request.model_dump(mode="json"),
         )
-        challenge_response.raise_for_status()
+        if not challenge_response.is_success:
+            return
         challenge = GatewayChallenge.model_validate_json(challenge_response.content)
         request.headers[CHALLENGE_HEADER] = challenge.challenge_id
         request.headers[SIGNATURE_HEADER] = sshsig_header(
@@ -180,7 +221,7 @@ def self_fixture_auth(runtime: GatewayServiceRuntime) -> FixtureProofAuth:
 
     access = runtime.m_access_runtime
     assert access is not None
-    return FixtureProofAuth(access.store.self_signer_path(access.target.incarnation))
+    return FixtureProofAuth(access.self_store.self_signer_path(access.target.incarnation))
 
 
 def gateway_fixture_client(

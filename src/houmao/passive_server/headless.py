@@ -7,6 +7,7 @@ startup rebuild.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 import json
 import logging
@@ -450,12 +451,17 @@ class HeadlessAgentService:
         *,
         chat_session: GatewayChatSessionSelectorV1 | None = None,
         execution: ModelConfig | None = None,
+        authorize_effect: Callable[[], None] | None = None,
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Submit a turn to a managed headless agent."""
 
         with self.m_lock:
             return self._submit_turn_locked(
-                tracked_agent_id, prompt, chat_session=chat_session, execution=execution
+                tracked_agent_id,
+                prompt,
+                chat_session=chat_session,
+                execution=execution,
+                authorize_effect=authorize_effect,
             )
 
     def _submit_turn_locked(
@@ -466,6 +472,7 @@ class HeadlessAgentService:
         backing: _BackingDispatch | None = None,
         chat_session: GatewayChatSessionSelectorV1 | None = None,
         execution: ModelConfig | None = None,
+        authorize_effect: Callable[[], None] | None = None,
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Reserve durable admission before another caller can start a worker."""
 
@@ -510,6 +517,12 @@ class HeadlessAgentService:
             and chat_session.mode == "tool_last_or_new"
         ):
             return (422, {"detail": "DSH requires an explicit new or exact native session."})
+        try:
+            selection = _headless_chat_selection(manifest_path, chat_session)
+        except (OSError, SessionManifestError, ValueError) as exc:
+            return (422, {"detail": str(exc)})
+        if authorize_effect is not None:
+            authorize_effect()
         if backing is None and handle.authority.backend == "dsh_headless":
             generation = handle.controller.registry_generation_id
             if generation is None:
@@ -532,12 +545,6 @@ class HeadlessAgentService:
             backing = _BackingDispatch(
                 turn_id, control, threading.Event(), deadline, None, execution, owner_claim=claim
             )
-        try:
-            selection = _headless_chat_selection(manifest_path, chat_session)
-        except (OSError, SessionManifestError, ValueError) as exc:
-            if backing is not None and backing.owner_claim is not None:
-                backing.owner_claim.finish("failed", evidence="invalid_session_selection")
-            return (422, {"detail": str(exc)})
         if backing is not None and backing.owner_claim is not None:
             backing = replace(backing, selection=selection)
         turn_artifact_dir = str(
@@ -782,7 +789,7 @@ class HeadlessAgentService:
     # -- interrupt / stop -----------------------------------------------------
 
     def interrupt_managed(
-        self, tracked_agent_id: str
+        self, tracked_agent_id: str, *, authorize_effect: Callable[[], None] | None = None
     ) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
         """Send interrupt to a managed headless agent."""
 
@@ -801,6 +808,8 @@ class HeadlessAgentService:
             return (500, {"detail": "Agent backend does not support interrupt"})
 
         with self.m_lock:
+            if authorize_effect is not None:
+                authorize_effect()
             active = self.m_store.read_active_turn(tracked_agent_id=tracked_agent_id)
             if active is not None:
                 requested_at = active.interrupt_requested_at_utc or datetime.now(UTC).isoformat()
@@ -830,7 +839,7 @@ class HeadlessAgentService:
         )
 
     def stop_managed(
-        self, tracked_agent_id: str
+        self, tracked_agent_id: str, *, authorize_effect: Callable[[], None] | None = None
     ) -> PassiveAgentActionResponse | tuple[int, dict[str, Any]]:
         """Stop managed execution while preserving any owned finalized usage."""
 
@@ -843,6 +852,9 @@ class HeadlessAgentService:
         # Join any active turn worker
         if handle.turn_worker is not None and handle.turn_worker.is_alive():
             handle.turn_worker.join(timeout=5.0)
+
+        if authorize_effect is not None:
+            authorize_effect()
 
         # Stop the runtime controller
         if handle.controller is not None:

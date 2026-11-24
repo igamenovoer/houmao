@@ -10,7 +10,7 @@ from typing import AsyncContextManager
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict
 
-from houmao.gateway.plugins import PluginContext, PluginDefinition
+from houmao.gateway.plugins import PluginContext, PluginDefinition, plugin_route_action
 
 
 class Configuration(BaseModel):
@@ -30,7 +30,7 @@ class FixturePlugin:
         self.m_mode: str = "healthy"
 
     @classmethod
-    def from_mode(cls, context: PluginContext, mode: str) -> FixturePlugin:
+    def from_mode(cls, context: PluginContext, mode: str, implementation: str) -> FixturePlugin:
         """Stage fixture routes without activating capabilities."""
 
         plugin = cls()
@@ -42,12 +42,19 @@ class FixturePlugin:
 
             return {"ok": True}
 
-        plugin.m_router.add_api_route("/ping", ping, methods=["GET"])
+        declaration = plugin_route_action(f"plugin.{implementation}.ping")
+        plugin.m_router.add_api_route("/ping", ping, methods=["GET"], openapi_extra=declaration)
         if mode == "conflicting":
-            plugin.m_router.add_api_route("/items/{item}", ping, methods=["GET"])
-            plugin.m_router.add_api_route("/items/fixed", ping, methods=["GET"])
+            plugin.m_router.add_api_route(
+                "/items/{item}", ping, methods=["GET"], openapi_extra=declaration
+            )
+            plugin.m_router.add_api_route(
+                "/items/fixed", ping, methods=["GET"], openapi_extra=declaration
+            )
         elif mode == "reserved":
-            plugin.m_router.add_api_route("/_status", ping, methods=["GET"])
+            plugin.m_router.add_api_route(
+                "/_status", ping, methods=["GET"], openapi_extra=declaration
+            )
         return plugin
 
     @property
@@ -86,19 +93,21 @@ def _binding(_configuration: Configuration) -> str:
     return "fixture-account"
 
 
-def _definition(mode: str, *, sdk_version: int = 1) -> PluginDefinition[Configuration]:
+def _definition(
+    mode: str, implementation: str, *, sdk_version: int = 2
+) -> PluginDefinition[Configuration]:
     """Create the advertised resource-free fixture definition."""
 
     return PluginDefinition(
         config_model=Configuration,
         binding_identity=_binding,
-        create=lambda context, _config: FixturePlugin.from_mode(context, mode),
+        create=lambda context, _config: FixturePlugin.from_mode(context, mode, implementation),
         sdk_version=sdk_version,
     )
 
 
-conflicting = _definition("conflicting")
-startup_failure = _definition("startup")
-worker_failure = _definition("worker")
-unsupported_sdk = _definition("healthy", sdk_version=99)
-reserved_route = _definition("reserved")
+conflicting = _definition("conflicting", "fixture-conflicting")
+startup_failure = _definition("startup", "fixture-startup-failure")
+worker_failure = _definition("worker", "fixture-worker-failure")
+unsupported_sdk = _definition("healthy", "fixture-unsupported-sdk", sdk_version=99)
+reserved_route = _definition("reserved", "fixture-reserved-route")

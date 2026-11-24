@@ -197,11 +197,15 @@ The dedicated `POST /houmao/agents/{agent_ref}/interrupt` route still exists for
 
 ## Gateway Lifecycle, Gateway-Mediated Requests, And Notifier Control
 
-Selected-agent HTTP operations resolve retained owner policy independently of gateway discovery. Private reads such as detailed gateway status, usage, routine mail, and memory require current self or listed admin proof. Direct control, native artifacts, interrupt, stop, and gateway lifecycle use the live admin rule. Detach leaves that rule in force. Admitted gateway attach and detach requests continue to return HTTP 501 and direct the operator to owner-side `houmao-mgr`.
+Selected-agent HTTP operations resolve canonical owner policy even when the gateway is detached. A valid empty administrator roster grants every supported client action. With a keyed roster, the server checks each action against the enrolled caller's authority. Prompt and interrupt use distinct `agent.prompt` and `agent.interrupt` permissions even when both reach the same gateway queue. Passive stop requires `agent.stop`. A detailed state response requires `agent.status.read` and `agent.state.detail.read`.
 
-For a signed call, request proof at `POST /houmao/agents/{agent_ref}/auth/challenge`. Bind it to the exact passive-server method, path, query, and body. A gateway proxy translates the admitted caller into a one-use owner-local grant scoped to the downstream operation and rechecks current authority there. HTTP 401 includes passive ingress challenge information, HTTP 403 indicates insufficient authority, and HTTP 503 indicates unavailable policy. A refused call ends before fallback.
+Use `GET /houmao/agents/{agent_ref}/auth/endpoint` to retrieve the target generation, current passive listener, and challenge path. For a signed call, request proof at that path and sign the exact passive method, path, query, and body. The typed `PassiveServerClient` checks the endpoint and challenge against its configured target before signing.
 
-Server-managed backing calls use a separate owner-service binding scoped to the current target and required operations. Client requests and forwarding headers cannot claim that role. Keep the global passive-server administration surface isolated from remote publication and expose the per-agent gateway through verified transport. [Gateway Access and Remote Deployment](gateway/operations/access.md)
+The passive server rechecks the admitted decision before direct disclosure or handoff. When it forwards an operation, it creates a short-lived, one-use relay for the exact downstream request and live gateway instance. The receiving gateway rechecks the caller's current authority. An unsigned open-mode request keeps anonymous attribution, and enrolling the first admin ends earlier open-mode grants even if the roster later becomes empty.
+
+HTTP 401 indicates that proof is required or invalid and supplies the passive challenge path. HTTP 403 indicates insufficient authority. HTTP 503 indicates unavailable policy. A refused call ends before fallback. Admitted gateway attach and detach calls return HTTP 501 and direct the caller to the owner-side `houmao-mgr` command.
+
+Server-managed backing calls use their own owner-service credential for the exact internal request. The credential remains valid across changes to the client roster and can be used only with its configured target and operation. Keep the global passive-server administration surface isolated from remote publication. [Gateway Access and Remote Deployment](gateway/operations/access.md)
 
 Managed-agent gateway routes project the same gateway status, raw TUI tracking state, prompt-note provenance hook, and notifier state used by the live sidecar.
 

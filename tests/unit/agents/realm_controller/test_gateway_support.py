@@ -818,8 +818,11 @@ def _mock_bound_controller_policy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: False
     )
-    store = SimpleNamespace(load=lambda: None, load_self=lambda _generation: None)
-    access = SimpleNamespace(store=store, target=SimpleNamespace(incarnation="fixture"))
+    store = SimpleNamespace(snapshot=lambda: None)
+    self_store = SimpleNamespace(load_self=lambda _generation: None)
+    access = SimpleNamespace(
+        store=store, self_store=self_store, target=SimpleNamespace(incarnation="fixture")
+    )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.gateway_access_for_manifest", lambda _path: access
     )
@@ -5319,8 +5322,9 @@ def test_gateway_service_rest_backed_recovery_relaunches_from_manifest_authority
     assert relaunch_calls == ["relaunch"]
 
 
-def test_gateway_service_restart_recovers_accepted_requests(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("has_current_authority", [True, False])
+def test_gateway_service_restart_recovers_only_current_internal_requests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, has_current_authority: bool
 ) -> None:
     gateway_root = _seed_cao_gateway_root(tmp_path)
     fake_client = _FakeCaoRestClient(base_url="http://localhost:9889")
@@ -5361,9 +5365,10 @@ def test_gateway_service_restart_recovers_accepted_requests(
                 payload_json,
                 state,
                 accepted_at_utc,
-                managed_agent_instance_epoch
+                managed_agent_instance_epoch,
+                result_json
             )
-            VALUES (?, ?, ?, 'accepted', ?, ?)
+            VALUES (?, ?, ?, 'accepted', ?, ?, ?)
             """,
             (
                 "gwreq-1",
@@ -5371,17 +5376,20 @@ def test_gateway_service_restart_recovers_accepted_requests(
                 json.dumps({"prompt": "queued"}),
                 "2026-03-13T00:00:00+00:00",
                 1,
+                json.dumps({"authority": None}) if has_current_authority else None,
             ),
         )
         connection.commit()
 
     runtime.start()
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and fake_client.submitted_prompts != [("term-123", "queued")]:
-        time.sleep(0.05)
-    runtime.shutdown()
-
-    assert fake_client.submitted_prompts == [("term-123", "queued")]
+    try:
+        if has_current_authority:
+            _wait_until(lambda: fake_client.submitted_prompts == [("term-123", "queued")])
+        else:
+            assert _gateway_queue_rows(paths)["gwreq-1"][0] == "failed"
+            assert fake_client.submitted_prompts == []
+    finally:
+        runtime.shutdown()
 
 
 def _insert_gateway_queue_row(
@@ -5402,9 +5410,10 @@ def _insert_gateway_queue_row(
                 payload_json,
                 state,
                 accepted_at_utc,
-                managed_agent_instance_epoch
+                managed_agent_instance_epoch,
+                result_json
             )
-            VALUES (?, ?, ?, 'accepted', ?, ?)
+            VALUES (?, ?, ?, 'accepted', ?, ?, ?)
             """,
             (
                 request_id,
@@ -5412,6 +5421,7 @@ def _insert_gateway_queue_row(
                 json.dumps(payload, sort_keys=True),
                 accepted_at_utc,
                 epoch,
+                json.dumps({"authority": None}),
             ),
         )
         connection.commit()
@@ -5734,9 +5744,10 @@ def test_gateway_service_blocks_replay_when_instance_changes(
                 payload_json,
                 state,
                 accepted_at_utc,
-                managed_agent_instance_epoch
+                managed_agent_instance_epoch,
+                result_json
             )
-            VALUES (?, ?, ?, 'accepted', ?, ?)
+            VALUES (?, ?, ?, 'accepted', ?, ?, ?)
             """,
             (
                 "gwreq-1",
@@ -5744,6 +5755,7 @@ def test_gateway_service_blocks_replay_when_instance_changes(
                 json.dumps({"prompt": "queued"}),
                 "2026-03-13T00:00:00+00:00",
                 1,
+                json.dumps({"authority": None}),
             ),
         )
         connection.commit()
@@ -6095,6 +6107,7 @@ def test_gateway_diagnostics_capture_http_validation_without_raw_body(
         "/v1/mail/offline/send",
         json={
             "schema_version": 1,
+            "expected_binding_id": "fixture-binding",
             "to": "not-a-list",
             "subject": "Diagnostic validation",
             "body_content": "validation secret body",
@@ -6139,7 +6152,7 @@ def test_gateway_diagnostics_capture_mailbox_success_failure_and_repair_hint(
     client = gateway_fixture_client(runtime)
     admin, signer = fixture_admin_key(tmp_path, "diagnostic-admin")
     enroll_fixture_admin(client, admin, signer)
-    client.auth = FixtureProofAuth(signer, purpose="admin")
+    client.auth = FixtureProofAuth(signer, purpose="caller")
 
     success_response = client.post(
         "/v1/mail/offline/send",
@@ -6602,6 +6615,7 @@ def test_gateway_mail_mark_route_rejects_unsupported_mailbox_state_fields(
         "/v1/mail/offline/mark",
         json={
             "schema_version": 1,
+            "expected_binding_id": "fixture-binding",
             "message_refs": [f"filesystem:{unread_message_id}"],
             "read": True,
             "starred": True,

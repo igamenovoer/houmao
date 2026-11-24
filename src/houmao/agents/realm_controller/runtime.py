@@ -5273,8 +5273,8 @@ def _attach_gateway_for_controller(
     attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
         access = gateway_access_for_manifest(controller.manifest_path)
-        access.store.load()
-        access.store.load_self(access.target.incarnation)
+        access.store.snapshot()
+        access.self_store.load_self(access.target.incarnation)
         retained_deployment = load_gateway_deployment(controller.manifest_path)
     except (GatewayAccessError, OSError, ValueError, SessionManifestError):
         return GatewayControlResult(

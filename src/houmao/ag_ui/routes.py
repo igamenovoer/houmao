@@ -21,6 +21,17 @@ from houmao.ag_ui.authoring import (
     validate_ag_ui_event_sequence,
     validation_error_payload,
 )
+from houmao.ag_ui.authorization import (
+    AG_UI,
+    CLOSE,
+    OBSERVE,
+    PUBLISH,
+    SUBMIT,
+    UPDATE_DESTINATION,
+    connection_resource,
+    publish_resource,
+    thread_resource,
+)
 from houmao.ag_ui.capabilities import AgUiCapabilityRuntime, build_ag_ui_capabilities
 from houmao.ag_ui.connection import AgUiConnectionRegistry
 from houmao.ag_ui.diagnostics import AgUiDiagnostics
@@ -45,6 +56,9 @@ from houmao.ag_ui.models import (
 from houmao.ag_ui.runtime import AgUiRuntimeObservationProtocol
 from houmao.ag_ui.service import AgUiAdmittedRun, AgUiRunService
 from houmao.ag_ui.state import build_houmao_state_snapshot
+from houmao.agents.realm_controller.gateway_models import GatewayRequestPayloadSubmitPromptV1
+from houmao.gateway.authorization_models import AuthorizationDecision, Permission
+from houmao.gateway.operations import OVERRIDE_MODEL, SELECT_SESSION
 
 _DEFAULT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 _DEFAULT_RUN_POLL_INTERVAL_SECONDS = 0.2
@@ -82,15 +96,14 @@ async def connect_event_stream(
 ) -> AsyncIterator[str]:
     """Yield the AG-UI connect stream for one GUI attachment."""
 
+    if not await _stream_access_current(access_current):
+        return
     record = registry.create_from_input(connect_input)
     subscription = event_hub.subscribe_connection(record) if event_hub is not None else None
     if diagnostics is not None:
         diagnostics.connection_started(record)
     detach_reason = "stream_closed"
     try:
-        if not await _stream_access_current(access_current):
-            detach_reason = "access_revoked"
-            return
         snapshot = build_houmao_state_snapshot(
             status=runtime.status(),
             connection=record,
@@ -262,6 +275,9 @@ def register_ag_ui_routes(
     heartbeat_interval_seconds: float = _DEFAULT_HEARTBEAT_INTERVAL_SECONDS,
     run_poll_interval_seconds: float = _DEFAULT_RUN_POLL_INTERVAL_SECONDS,
     access_current: Callable[[Request], bool] | None = None,
+    authorize_effects: Callable[[Request, tuple[Permission, ...]], AuthorizationDecision]
+    | None = None,
+    claim_effects: Callable[[AuthorizationDecision], None] | None = None,
 ) -> AgUiConnectionRegistry:
     """Register AG-UI attachment routes on one FastAPI app.
 
@@ -275,6 +291,12 @@ def register_ag_ui_routes(
         Optional registry override used by tests.
     heartbeat_interval_seconds:
         Delay between SSE comment heartbeats after the initial snapshot.
+    access_current:
+        Verify the current authority held by the request's admitted stream.
+    authorize_effects:
+        Authorize exact effects after the handler resolves their destination.
+    claim_effects:
+        Fence immediate effects against concurrent changes to policy.
 
     Returns
     -------
@@ -312,6 +334,15 @@ def register_ag_ui_routes(
 
     router = APIRouter(prefix="/v1/ag-ui")
 
+    def _admit_immediate(request: Request, permission: Permission) -> None:
+        """Authorize and fence an effect that the handler applies immediately."""
+
+        if authorize_effects is not None:
+            grant = authorize_effects(request, (permission,))
+            if claim_effects is not None:
+                claim_effects(grant)
+            request.state.gateway_grant = grant
+
     @router.get("/capabilities", response_model=HoumaoAgUiCapabilitiesResponse)
     def _capabilities() -> HoumaoAgUiCapabilitiesResponse:
         """Serve conservative AG-UI capability discovery."""
@@ -322,6 +353,12 @@ def register_ag_ui_routes(
     async def _connect(request: Request, request_payload: AgUiConnectInput) -> StreamingResponse:
         """Attach one GUI client and stream the initial state snapshot."""
 
+        if authorize_effects is not None:
+            await asyncio.to_thread(
+                _admit_immediate,
+                request,
+                Permission(resource=thread_resource(request_payload.thread_id), action=OBSERVE),
+            )
         stream = connect_event_stream(
             runtime=runtime,
             registry=resolved_registry,
@@ -346,9 +383,12 @@ def register_ag_ui_routes(
         response_model=AgUiDetachResponse,
         responses={404: {"model": AgUiDetachResponse}},
     )
-    def _disconnect(connection_id: str) -> AgUiDetachResponse | JSONResponse:
+    def _disconnect(request: Request, connection_id: str) -> AgUiDetachResponse | JSONResponse:
         """Detach one GUI connection without touching the Houmao agent lifecycle."""
 
+        _admit_immediate(
+            request, Permission(resource=connection_resource(connection_id), action=CLOSE)
+        )
         detached = resolved_registry.detach(connection_id)
         diagnostics.explicit_disconnect(
             connection_id=connection_id,
@@ -382,7 +422,31 @@ def register_ag_ui_routes(
             runtime=runtime,  # type: ignore[arg-type]
             poll_interval_seconds=run_poll_interval_seconds,
         )
-        admitted_run = service.admit_run(request_payload)
+        if authorize_effects is None:
+            admitted_run = service.admit_run(request_payload)
+        else:
+            authorize = authorize_effects
+            thread = thread_resource(request_payload.thread_id)
+            observe = Permission(resource=thread, action=OBSERVE)
+            submit = Permission(resource=thread, action=SUBMIT)
+
+            def _authorize_run(
+                payload: GatewayRequestPayloadSubmitPromptV1,
+            ) -> AuthorizationDecision:
+                """Check both run effects and any explicit native selection."""
+
+                permissions = [submit, observe]
+                if payload.chat_session is not None:
+                    permissions.append(SELECT_SESSION)
+                if payload.execution is not None:
+                    permissions.append(OVERRIDE_MODEL)
+                grant = authorize(request, tuple(permissions))
+                request.state.gateway_grant = grant.model_copy(update={"permissions": (observe,)})
+                return grant
+
+            admitted_run = await asyncio.to_thread(
+                service.admit_run, request_payload, authorize=_authorize_run
+            )
         diagnostics.run_admitted(admitted_run)
         stream = run_event_stream(
             service=service,
@@ -407,6 +471,7 @@ def register_ag_ui_routes(
         response_model_exclude_none=True,
     )
     async def _events(
+        request: Request,
         request_payload: AgUiEventPublishRequest,
     ) -> AgUiEventPublishResponse | JSONResponse:
         """Accept already-standard AG-UI events and fan them out to matching streams."""
@@ -443,6 +508,19 @@ def register_ag_ui_routes(
             registry=resolved_registry,
             destination_state=destination_state,
         )
+        if authorize_effects is not None:
+            await asyncio.to_thread(
+                _admit_immediate,
+                request,
+                Permission(
+                    resource=publish_resource(
+                        thread_id=destination.thread_id,
+                        run_id=destination.run_id,
+                        connection_id=destination.connection_id,
+                    ),
+                    action=PUBLISH,
+                ),
+            )
         if destination.kind == "default_sink":
             diagnostics.events_publish_default_sink(
                 accepted_count=len(parsed_events),
@@ -513,13 +591,21 @@ def register_ag_ui_routes(
         response_model_exclude_none=True,
     )
     def _set_active_thread(
+        request: Request,
         request_payload: AgUiSetActiveThreadRequest,
     ) -> AgUiThreadDestinationResponse | JSONResponse:
         """Set the current GUI-selected active AG-UI thread."""
 
         try:
+            thread_id = request_payload.thread_id.strip()
+            if not thread_id:
+                raise ValueError("active AG-UI thread id must be non-empty.")
+            _admit_immediate(
+                request,
+                Permission(resource=thread_resource(thread_id), action=UPDATE_DESTINATION),
+            )
             state = destination_state.set_active_thread(
-                request_payload.thread_id,
+                thread_id,
                 source=request_payload.source,
             )
         except ValueError as exc:
@@ -539,12 +625,22 @@ def register_ag_ui_routes(
         response_model_exclude_none=True,
     )
     def _clear_active_thread(
+        request: Request,
         thread_id: str | None = Query(default=None, alias="threadId"),
     ) -> AgUiThreadDestinationResponse:
         """Clear the active AG-UI thread if the optional expected thread still matches."""
 
+        def _admit_clear(current: str | None) -> None:
+            """Authorize against the active thread held by the clear operation."""
+
+            resource = thread_resource(current) if current is not None else AG_UI
+            _admit_immediate(request, Permission(resource=resource, action=UPDATE_DESTINATION))
+
         return _thread_destination_response(
-            destination_state.clear_active_thread(expected_thread_id=thread_id)
+            destination_state.clear_active_thread(
+                expected_thread_id=thread_id,
+                authorize=_admit_clear if authorize_effects is not None else None,
+            )
         )
 
     app.include_router(router)

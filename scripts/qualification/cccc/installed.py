@@ -169,6 +169,7 @@ def qualify(
     shutil.copyfile(Path(__file__).resolve(), runner)
     shutil.copyfile(support_path, work / "gateway_support.py")
     environment["PATH"] = str(work / "venv/bin") + os.pathsep + environment.get("PATH", "")
+    support._bind_fixture_tmux_executable(work, str(real_tmux))
     environment["HOUMAO_PLUGIN_FIXTURE_REAL_TMUX"] = str(real_tmux)
     environment["HOUMAO_GLOBAL_REGISTRY_DIR"] = str(work / "registry")
     environment["XDG_CONFIG_HOME"] = str(work / "config")

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
@@ -15,6 +15,17 @@ import pytest
 
 import houmao.ag_ui.routes as ag_ui_routes
 from houmao.ag_ui.authoring import parse_ag_ui_event_payloads, render_component_events
+from houmao.ag_ui.authorization import (
+    CLOSE,
+    OBSERVE,
+    PUBLISH,
+    SUBMIT,
+    UPDATE_DESTINATION,
+    connection_resource,
+    publish_resource,
+    supports_ag_ui_permission,
+    thread_resource,
+)
 from houmao.ag_ui.connection import AgUiConnectionRegistry
 from houmao.ag_ui.diagnostics import AgUiDiagnostics
 from houmao.ag_ui.event_hub import AgUiEventHub
@@ -33,6 +44,13 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.agents.realm_controller.gateway_service import create_app
 from houmao.agents.realm_controller.backends.headless_output import CanonicalHeadlessEvent
+from houmao.gateway.access_models import GatewayOwner, GatewayTarget
+from houmao.gateway.authorization_models import (
+    AuthorizationActor,
+    AuthorizationDecision,
+    Permission,
+)
+from houmao.gateway.operations import SELECT_SESSION
 
 
 def _status(**overrides: object) -> GatewayStatusV1:
@@ -109,6 +127,7 @@ class _SpyRuntime:
     status_payload: GatewayStatusV1 = field(default_factory=_status)
     diagnostics: list[dict[str, object]] = field(default_factory=list)
     created_requests: list[GatewayRequestCreateV1] = field(default_factory=list)
+    request_authorities: list[AuthorizationDecision | None] = field(default_factory=list)
     request_states: list[AgUiObservedRequestState | None] = field(default_factory=list)
     headless_events_path: Path | None = None
     prompt_submissions: int = 0
@@ -135,13 +154,22 @@ class _SpyRuntime:
         self.prompt_submissions += 1
 
     def create_request(
-        self, payload: GatewayRequestCreateV1, *, ready_only: bool = False
+        self,
+        payload: GatewayRequestCreateV1,
+        *,
+        ready_only: bool = False,
+        authority: AuthorizationDecision | None = None,
+        expected_generation: str | None = None,
     ) -> GatewayAcceptedRequestV1:
         """Detect queued gateway request creation."""
 
         assert ready_only
+        assert expected_generation == (
+            authority.target.incarnation if authority is not None else None
+        )
         self.queued_requests += 1
         self.created_requests.append(payload)
+        self.request_authorities.append(authority)
         return GatewayAcceptedRequestV1(
             request_id="request-1",
             request_kind=payload.kind,
@@ -1071,6 +1099,151 @@ def test_run_stream_revocation_releases_observer_without_canceling_work(
         runtime.assert_no_lifecycle_calls()
 
     asyncio.run(_run())
+
+
+def _scoped_ag_ui_grant(
+    request: Request, permissions: tuple[Permission, ...], allowed: set[Permission]
+) -> AuthorizationDecision:
+    """Simulate decision handoff from an ingress that already verified proof."""
+
+    if not allowed.issuperset(permissions):
+        raise HTTPException(403, "permission_denied")
+    grant = AuthorizationDecision(
+        actor=AuthorizationActor(
+            kind="credential",
+            principal_id="operator",
+            key_id="SHA256:" + "a" * 43,
+            enrollment_id="operator-key",
+        ),
+        target=GatewayTarget(
+            owner=GatewayOwner(agent_id="writer", context_id="context"),
+            incarnation="generation",
+        ),
+        listener_id="listener",
+        permissions=permissions,
+        basis="scoped",
+        policy_id="policy",
+        policy_revision=1,
+    )
+    request.state.gateway_grant = grant
+    return grant
+
+
+def test_run_requires_submission_and_output_and_revalidates_only_observation() -> None:
+    """Revocation of output detaches the observer and leaves accepted work in force."""
+
+    runtime = _SpyRuntime(
+        status_payload=_status(backend="codex_headless"),
+        request_states=[_completed_request_state()],
+    )
+    thread = thread_resource("thread-1")
+    observe = Permission(resource=thread, action=OBSERVE)
+    submit = Permission(resource=thread, action=SUBMIT)
+    allowed = {observe}
+    rechecks: list[AuthorizationDecision] = []
+
+    def _current(request: Request) -> bool:
+        """Revoke observation after the first event, keeping the actor enrolled."""
+
+        grant: AuthorizationDecision = request.state.gateway_grant
+        rechecks.append(grant)
+        if len(rechecks) == 3:
+            allowed.remove(observe)
+        return allowed.issuperset(grant.permissions)
+
+    app = FastAPI()
+    register_ag_ui_routes(
+        app,
+        runtime=runtime,
+        run_poll_interval_seconds=0,
+        access_current=_current,
+        authorize_effects=lambda request, items: _scoped_ag_ui_grant(request, items, allowed),
+    )
+    client = TestClient(app)
+    assert client.post("/v1/ag-ui/runs", json=_connect_payload()).status_code == 403
+    assert runtime.queued_requests == 0
+
+    allowed.add(submit)
+    foreign = _connect_payload(threadId="other-thread")
+    assert client.post("/v1/ag-ui/runs", json=foreign).status_code == 403
+    override = _connect_payload(
+        forwardedProps={"houmao": {"chatSession": {"mode": "exact", "id": "other-session"}}}
+    )
+    assert client.post("/v1/ag-ui/runs", json=override).status_code == 403
+    assert runtime.queued_requests == 0
+
+    allowed.add(SELECT_SESSION)
+    response = client.post("/v1/ag-ui/runs", json=override)
+    assert response.status_code == 200
+    assert [payload["type"] for payload in _sse_payloads(response.text)] == ["RUN_STARTED"]
+    authority = runtime.request_authorities[0]
+    assert authority is not None
+    assert authority.permissions == (submit, observe, SELECT_SESSION)
+    assert all(
+        check.permissions == (observe,) and check.actor == authority.actor for check in rechecks
+    )
+    assert runtime.queued_requests == 1
+    assert "operator-key" not in json.dumps(runtime.diagnostics)
+    runtime.assert_no_lifecycle_calls()
+
+
+def test_publication_and_connection_effects_use_exact_resolved_resources() -> None:
+    """Deny foreign fallback, run, and connection effects before changing state."""
+
+    runtime = _SpyRuntime()
+    registry = AgUiConnectionRegistry(id_factory=lambda: "connection-1")
+    record = registry.create(thread_id="thread-foreign", run_id="run-foreign")
+    thread = thread_resource("thread-selected")
+    publish = Permission(resource=thread, action=PUBLISH)
+    update = Permission(resource=thread, action=UPDATE_DESTINATION)
+    close = Permission(resource=connection_resource(record.connection_id), action=CLOSE)
+    allowed = {publish, update}
+    claimed: list[AuthorizationDecision] = []
+    app = FastAPI()
+    register_ag_ui_routes(
+        app,
+        runtime=runtime,
+        registry=registry,
+        authorize_effects=lambda request, items: _scoped_ag_ui_grant(request, items, allowed),
+        claim_effects=claimed.append,
+    )
+    destination = app.state.ag_ui_destination_state
+    destination.set_active_thread("thread-foreign")
+    client = TestClient(app)
+    events = _template_chart_events()
+    assert client.post("/v1/ag-ui/events", json={"events": events}).status_code == 403
+    assert client.delete("/v1/ag-ui/active-thread?threadId=thread-selected").status_code == 403
+    assert destination.last_sent_thread.thread_id is None
+    assert destination.active_thread.thread_id == "thread-foreign"
+
+    connection_url = f"/v1/ag-ui/connections/{record.connection_id}"
+    assert client.delete(connection_url).status_code == 403
+    assert registry.get(record.connection_id) is record
+    assert claimed == []
+    assert client.put("/v1/ag-ui/active-thread", json={"threadId": " thread-selected "}).is_success
+    assert client.post("/v1/ag-ui/events", json={"events": events}).is_success
+    assert destination.last_sent_thread.thread_id == "thread-selected"
+
+    pair = {"threadId": "thread-selected", "runId": "run-paired", "events": events}
+    assert client.post("/v1/ag-ui/events", json=pair).status_code == 403
+    pair_publish = Permission(
+        resource=publish_resource(
+            thread_id="thread-selected", run_id="run-paired", connection_id=None
+        ),
+        action=PUBLISH,
+    )
+    assert supports_ag_ui_permission(pair_publish)
+    assert not supports_ag_ui_permission(Permission(resource=pair_publish.resource, action=SUBMIT))
+    allowed.update({close, pair_publish})
+    assert client.post("/v1/ag-ui/events", json=pair).is_success
+    assert client.delete(connection_url).is_success
+    assert [grant.permissions for grant in claimed] == [
+        (update,),
+        (publish,),
+        (pair_publish,),
+        (close,),
+    ]
+    runtime.assert_no_lifecycle_calls()
 
 
 def test_runs_route_streams_headless_lifecycle_text_and_finished_event(tmp_path: Path) -> None:

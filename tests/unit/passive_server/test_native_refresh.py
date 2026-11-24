@@ -23,6 +23,9 @@ from houmao.agents.realm_controller.native_refresh_models import (
 )
 from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
 from houmao.cao.rest_client import CaoApiError
+from houmao.gateway.deployment import GatewayEndpointDescriptor
+from houmao.gateway.owner_authority import RELAY_HEADER
+from houmao.passive_server.admission import PassiveAccessTarget
 from houmao.passive_server.app import create_app
 from houmao.passive_server.client import PassiveServerClient
 from houmao.passive_server.config import PassiveServerConfig
@@ -63,6 +66,25 @@ def _service(tmp_path: Path, agents: list[DiscoveredAgent]) -> PassiveServerServ
     )
     service.m_discovery.m_index.replace({agent.record.agent_id: agent for agent in agents})
     return service
+
+
+def _send_gateway_endpoint(handler: BaseHTTPRequestHandler, service: PassiveServerService) -> None:
+    """Describe the gateway listener serving the HTTP fixture's selected owner."""
+
+    selected = service.resolve_access_target("owner")
+    assert isinstance(selected, PassiveAccessTarget)
+    assert not handler.headers.get(RELAY_HEADER)
+    descriptor = GatewayEndpointDescriptor(
+        protocol="v1",
+        target=selected.runtime.target,
+        presence_id="fixture-gateway-listener",
+        admin_mode="open",
+        advertised_url=None,
+    )
+    handler.send_response(200)
+    handler.send_header("Content-Type", "application/json")
+    handler.end_headers()
+    handler.wfile.write(descriptor.model_dump_json().encode())
 
 
 def _observation(
@@ -372,7 +394,11 @@ def test_passive_http_projects_actual_typed_gateway_refusal_without_retry(tmp_pa
         def do_GET(self) -> None:
             """Bind the reached native authority before the single refresh mutation."""
 
+            if self.path == "/v1/endpoint":
+                _send_gateway_endpoint(self, service)
+                return
             assert self.path == "/v1/native-home"
+            assert self.headers.get(RELAY_HEADER)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -381,6 +407,7 @@ def test_passive_http_projects_actual_typed_gateway_refusal_without_retry(tmp_pa
         def do_POST(self) -> None:
             """Record one request and return a valid typed non-success body."""
 
+            assert self.headers.get(RELAY_HEADER)
             assert self.headers.get("If-Match"), "Native refresh must bind its captured home"
             received.append(
                 (self.path, json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
@@ -430,7 +457,7 @@ def test_passive_native_home_selection_keeps_distinct_gateway_authority(
                 },
             }
         )
-    factory = Mock(side_effect=lambda *, endpoint: clients[endpoint.port])
+    factory = Mock(side_effect=lambda *, endpoint, **_: clients[endpoint.port])
     monkeypatch.setattr("houmao.passive_server.service.GatewayClient", factory)
     client = AdmittedPassiveClient(create_app(service=service))
     for identity in ("owner", "other"):
@@ -610,6 +637,10 @@ def test_passive_conditional_refresh_refuses_replacement_after_prefetch(tmp_path
             """Return the selected native home before replacement."""
 
             received.append(self.path)
+            if self.path == "/v1/endpoint":
+                _send_gateway_endpoint(self, service)
+                return
+            assert self.headers.get(RELAY_HEADER)
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -639,7 +670,7 @@ def test_passive_conditional_refresh_refuses_replacement_after_prefetch(tmp_path
             "/houmao/agents/owner/gateway/control/refresh", json={"timeout_seconds": 0.1}
         )
         assert response.status_code == 412
-        assert received == ["/v1/native-home", "/v1/control/refresh"]
+        assert received == ["/v1/endpoint", "/v1/native-home", "/v1/control/refresh"]
         assert not mutated
         assert "private-replacement-identity" not in response.text
     finally:

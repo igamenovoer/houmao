@@ -16,11 +16,25 @@ For skill-driven work, a human operator uses `$houmao-admin-entrypoint interop-a
 
 `POST /v1/ag-ui/runs` is the task-run endpoint. It accepts AG-UI `RunAgentInput` JSON and returns `text/event-stream` AG-UI frames. `POST /v1/ag-ui/connect` attaches a GUI stream to the existing agent state without submitting work. `POST /v1/ag-ui/events` accepts already-standard AG-UI event batches and fans them out to matching active connect or run streams without creating a Houmao prompt request. `DELETE /v1/ag-ui/connections/{connection_id}` removes only AG-UI connection bookkeeping.
 
-All AG-UI operations use the admin rule. The curl examples below use anonymous admission while the admin list is empty. A key-required client carries a fresh admin proof in the `Houmao-Challenge` and `Houmao-Signature` headers, bound to its exact request. [Gateway Access and Remote Deployment](operations/access.md)
+The gateway checks the caller's permission for the operation and its resolved resource. A current administrator key on a keyed target can use every supported AG-UI operation. Other enrolled keys use their principal's scoped grants. The curl examples below use unsigned admission under a valid empty administrator roster.
+
+| Operation | Action | Resource |
+| --- | --- | --- |
+| Read capabilities | `ag-ui.capabilities.read` | `ag-ui` |
+| Connect or observe admitted run output | `ag-ui.output.read` | Selected AG-UI thread |
+| Submit a run | `ag-ui.input.submit` | Selected AG-UI thread |
+| Publish events | `ag-ui.event.publish` | Resolved thread, run, thread-run pair, connection, or default sink |
+| Detach | `ag-ui.connection.close` | Exact connection |
+| Read active thread or destination state | `ag-ui.destination.read` | `ag-ui` |
+| Set or clear active thread | `ag-ui.destination.update` | Set uses the requested thread. Clear uses the current thread, or `ag-ui` when empty. |
+
+Grant the exact resource under the selected target's policy. A thread, run, or connection uses `ag-ui:<kind>:<digest>`, where the digest is the lowercase SHA-256 of the identifier's UTF-8 bytes. A thread-run pair uses the `thread-run` kind and hashes the compact ASCII JSON array containing the thread ID and run ID in that order. The default sink uses `ag-ui:sink`. A run requires both the submission and output permissions for its thread. Explicit native session or model selection through forwarded props also requires the corresponding native permission. [Gateway Access and Remote Deployment](operations/access.md)
+
+On a keyed target, carry fresh SSHSIG caller proof in the `Houmao-Challenge` and `Houmao-Signature` headers. An enrolled operator can use the standalone workbench's per-target signing configuration.
 
 ```ts
 const body = JSON.stringify(runAgentInput);
-const headers = await adminSigner.headersFor({
+const headers = await callerSigner.headersFor({
   method: "POST",
   path: "/v1/ag-ui/runs",
   body,
@@ -33,7 +47,7 @@ const stream = await fetch(`${gatewayUrl}/v1/ag-ui/runs`, {
 });
 ```
 
-Here `adminSigner` represents the caller's endpoint-bound signing integration. It obtains a challenge and signs the exact bytes passed to `fetch`. Keep proof and challenge material in request handling and out of URLs, events, and diagnostics. Streams revalidate authority before events and at most every five seconds while idle. First enrollment closes open streams. Revocation, re-enrollment of the same key, target replacement, or unavailable policy closes affected signed streams. Reconnect with fresh admission. Work already handed off continues under its existing execution contract.
+Here `callerSigner` represents the caller's endpoint-bound signing integration. It obtains a challenge and signs the exact bytes passed to `fetch`. Keep proof and challenge material in request handling and out of URLs, events, and diagnostics. Streams revalidate observation permission before events and at most every five seconds while idle. First enrollment closes streams admitted under open access. Loss of the exact observation grant or admitted admin qualification, credential revocation or re-enrollment, target replacement, and unavailable policy close affected streams. Reconnect with fresh admission. Work already handed off continues under its existing execution contract.
 
 ## Minimal Run Request
 
@@ -54,7 +68,7 @@ curl -N \
   }'
 ```
 
-Every admitted run emits `RUN_STARTED` first and then exactly one terminal event, either `RUN_FINISHED` or `RUN_ERROR`. Pre-admission validation, busy-target, and unavailable-target failures remain HTTP errors and do not emit `RUN_STARTED`.
+An admitted run emits `RUN_STARTED` first. If the client remains connected with current output authority, the stream ends with exactly one `RUN_FINISHED` or `RUN_ERROR` event. Pre-admission validation, authorization, busy-target, and unavailable-target failures remain HTTP errors and do not emit `RUN_STARTED`.
 
 For headless targets, the AG-UI `runId` becomes the gateway prompt `turn_id`. The AG-UI stream loads canonical headless events from `<manifest-stem>.turn-artifacts/<runId>/canonical-events.jsonl`, so deterministic demos can seed that file to test text and graphics mapping without depending on live model tool choice.
 
@@ -94,7 +108,7 @@ curl \
   }'
 ```
 
-Route metadata must include at least one of `threadId`, `runId`, or `connectionId`. Publishing with `connectionId` targets one GUI connection. Publishing with `threadId`, `runId`, or both fans out to active streams whose route metadata matches. Published GUI events are live-only: the gateway does not store accepted batches for later replay.
+Publishing with `connectionId` targets one GUI connection. Publishing with `threadId`, `runId`, or both fans out to active streams whose route metadata matches. When the request omits a destination, the gateway selects a single event-level thread, the active thread, or the default sink. Authorization follows the destination the gateway resolved. Published GUI events are live-only. The gateway does not store accepted batches for later replay.
 
 The publish response reports:
 

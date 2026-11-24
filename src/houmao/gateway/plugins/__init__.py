@@ -16,7 +16,6 @@ from houmao.gateway.plugins.discovery import (
     load_plugin_definition,
 )
 from houmao.gateway.plugins.errors import PluginConfigurationError, PluginDispatchError
-from houmao.gateway.plugins.routes import PluginRouteAccess, plugin_route_access
 from houmao.gateway.plugins.models import (
     PLUGIN_ENTRY_POINT_GROUP,
     PLUGIN_SDK_VERSION,
@@ -32,6 +31,7 @@ from houmao.gateway.plugins.models import (
     PluginOwner,
     PluginStatus,
 )
+from houmao.gateway.plugins.routes import plugin_route_action
 
 __all__ = [
     "PLUGIN_ENTRY_POINT_GROUP",
@@ -55,11 +55,10 @@ __all__ = [
     "PluginListener",
     "PluginLoadError",
     "PluginOwner",
-    "PluginRouteAccess",
     "PluginState",
     "PluginStatus",
     "PluginWorkerSupervisor",
     "load_plugin_configuration",
     "load_plugin_definition",
-    "plugin_route_access",
+    "plugin_route_action",
 ]

@@ -72,8 +72,9 @@ from houmao.version import get_version
 from houmao.cao.models import CaoSuccessResponse
 from houmao.passive_server.admission import (
     PassiveTargetRoute,
+    describe_passive_endpoint,
     issue_passive_challenge,
-    passive_route_access,
+    passive_route_operation,
 )
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.models import (
@@ -151,7 +152,7 @@ def create_app(
         route = request.scope.get("route")
         if (
             isinstance(route, PassiveTargetRoute)
-            and passive_route_access(request.method, route.path) != "public"
+            and passive_route_operation(request.method, route.path) != "public"
         ):
             return JSONResponse(status_code=422, content={"detail": "Invalid protected request"})
         return await request_validation_exception_handler(request, exc)
@@ -191,6 +192,12 @@ def create_app(
     @app.get("/houmao/agents/{agent_ref}/resolve")
     def resolve_agent_address(agent_ref: str) -> PassiveAgentAddressResolveResponse:
         return resolved_service.resolve_agent_address(agent_ref)
+
+    @app.get("/houmao/agents/{agent_ref}/auth/endpoint")
+    def auth_endpoint(agent_ref: str) -> Response:
+        """Describe the current listener and canonical target of passive proof."""
+
+        return describe_passive_endpoint(resolved_service, agent_ref)
 
     @app.post("/houmao/agents/{agent_ref}/auth/challenge")
     async def auth_challenge(agent_ref: str, request: Request) -> Response:

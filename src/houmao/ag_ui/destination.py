@@ -76,7 +76,10 @@ class AgUiDestinationState:
         return state
 
     def clear_active_thread(
-        self, *, expected_thread_id: str | None = None
+        self,
+        *,
+        expected_thread_id: str | None = None,
+        authorize: Callable[[str | None], None] | None = None,
     ) -> AgUiThreadDestination:
         """Clear the active thread without mutating last-sent-thread.
 
@@ -87,6 +90,8 @@ class AgUiDestinationState:
 
         state = AgUiThreadDestination(status="empty", thread_id=None)
         with self.m_lock:
+            if authorize is not None:
+                authorize(self.m_active_thread.thread_id)
             expected = _normalize_optional_thread_id(expected_thread_id)
             if expected is not None and self.m_active_thread.thread_id != expected:
                 return self.m_active_thread

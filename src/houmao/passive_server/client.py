@@ -41,7 +41,12 @@ from houmao.cao.rest_client import (
     DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
     DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS,
 )
-from houmao.gateway.access import GatewayAccessError, GatewayClientBinding, GatewayRequestBinding
+from houmao.gateway.access import (
+    GatewayAccessError,
+    GatewayClientBinding,
+    GatewayRequestBinding,
+    parse_access_document,
+)
 from houmao.gateway.owner_authority import (
     BACKING_HEADER,
     PassiveBackingBinding,
@@ -53,6 +58,7 @@ from houmao.passive_server.models import (
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
     PassiveAgentActionResponse,
+    PassiveProofEndpoint,
     PassiveHeadlessLaunchRequest,
     PassiveHeadlessLaunchResponse,
     PassiveHeadlessTurnAcceptedResponse,
@@ -216,6 +222,21 @@ class PassiveServerClient(HoumaoServerClient):
             data = b""
         try:
             if challenge_path is not None:
+                endpoint_url = transport._build_url(
+                    f"{challenge_path.removesuffix('/challenge')}/endpoint"
+                )
+                descriptor = parse_access_document(
+                    PassiveProofEndpoint,
+                    transport._open_request(
+                        request_obj=request.Request(endpoint_url, method="GET"),
+                        method="GET",
+                        url=endpoint_url,
+                    ),
+                )
+                if descriptor.challenge_path != challenge_path:
+                    raise ValueError(
+                        "Passive proof endpoint differs from the selected target route."
+                    )
                 headers.update(
                     transport._signed_headers(
                         method,
@@ -223,6 +244,7 @@ class PassiveServerClient(HoumaoServerClient):
                         query,
                         data or b"",
                         challenge_path=challenge_path,
+                        endpoint_binding=(descriptor.target, descriptor.presence_id),
                     )
                 )
             outgoing = request.Request(url, data=data, method=method, headers=headers)
