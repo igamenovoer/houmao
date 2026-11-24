@@ -225,7 +225,7 @@ The shared installer SHALL project complete standalone public skill directories 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-Shared routines and both loop skills SHALL remain top-level siblings of the selected actor entrypoint. The sixteen shared children SHALL remain parent-scoped below `houmao-shared-routines/subskills/`. Copy SHALL remain the default mode, managed homes SHALL use copy, and explicit symlink mode SHALL link each complete standalone source directory.
+Shared routines and both loop skills SHALL remain top-level siblings of the selected actor entrypoint. The complete manifest-declared child inventory SHALL remain parent-scoped below `houmao-shared-routines/subskills/`. Copy SHALL remain the default mode, managed homes SHALL use copy, and explicit symlink mode SHALL link each complete standalone source directory.
 
 #### Scenario: Codex admin pack uses static top-level paths
 - **WHEN** the admin pack is installed into a Codex home
@@ -235,7 +235,7 @@ Shared routines and both loop skills SHALL remain top-level siblings of the sele
 #### Scenario: Kimi managed home receives the static agent pack
 - **WHEN** Houmao installs the managed default into a Kimi Code CLI home
 - **THEN** all four agent-pack members appear as top-level siblings under `skills/`
-- **AND THEN** shared children remain below the shared-routines sibling
+- **AND THEN** the full shared child inventory remains below the shared-routines sibling
 
 ### Requirement: Managed system-skill policy selects packs
 Stored source and launch-profile system-skill policy SHALL retain the supported policy modes `default`, `inherit`, `extend`, `replace`, and `none` where each lane permits them, but SHALL store and resolve `packs` rather than `sets` and `skills`.

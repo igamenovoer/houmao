@@ -5,9 +5,7 @@
 Define the getting-started narrative-guide requirements for the packaged Houmao-owned system skills: a single page that bridges the README catalog row view and the CLI reference page by walking readers through each shipped skill, the CLI families it routes to, and the managed-home auto-install versus external-home CLI-default install distinction.
 ## Requirements
 ### Requirement: System-skills overview explains the actor-pack model
-`docs/getting-started/system-skills-overview.md` SHALL explain that Houmao exposes an admin pack for human-operator work and an agent pack for managed-agent work.
-
-The guide SHALL list the three public skills and roles: `houmao-admin-welcome`, `houmao-admin-entrypoint`, and `houmao-agent-entrypoint`. It SHALL state that protected routines are nested implementation and are not independent install or public trigger surfaces.
+The getting-started guide SHALL explain the admin pack for human operators and the agent pack for managed agents. It SHALL distinguish the welcome and actor entrypoint roles, the standalone shared and loop siblings, and the children owned by shared routines.
 
 #### Scenario: Reader wants to choose a public skill
 - **WHEN** a reader opens the system-skills overview
@@ -17,7 +15,10 @@ The guide SHALL list the three public skills and roles: `houmao-admin-welcome`, 
 ### Requirement: System-skills overview documents pack installation defaults and lifecycle
 The guide SHALL explain that external-home CLI installation defaults to the admin pack and managed launch, rebuild, relaunch, and join default to the agent pack.
 
-It SHALL document explicit pack selection, atomic admin welcome and entrypoint management, copy and symlink posture, pack receipts, status classifications, upgrade, uninstall, legacy conflict handling, effective-home resolution, and supported tool targets without claiming Gemini support.
+#### Scenario: Acceptance criteria
+- **GIVEN** a reader who needs to select a supported tool and manage a skill installation
+- **THEN** the guide describes explicit pack selection, atomic pack installation, and copy and symlink modes
+- **AND THEN** it explains the ownership config, status classifications, upgrade, uninstall, legacy conflicts, and effective-home resolution
 
 #### Scenario: Reader compares external and managed defaults
 - **WHEN** a reader needs to know which public skills appear in a home
@@ -25,14 +26,17 @@ It SHALL document explicit pack selection, atomic admin welcome and entrypoint m
 - **AND THEN** it states that no default lane installs both actor packs
 
 ### Requirement: System-skills overview provides a protected routine route map
-The guide SHALL provide a compact route map from each maintained protected logical id to its eligible admin, agent, or shared entrypoint route and canonical `houmao-mgr` command families.
-
-The map SHALL include every manifest-declared protected routine, distinguish admin-only and agent-only routines, identify actor-specific branches for shared routines, and label protected designators as internal route traces.
+The guide SHALL map every manifest-declared shared child to its public route names and supported `houmao-mgr` command families. Each row SHALL identify eligible actors and distinguish internal designators from public invocations.
 
 #### Scenario: Reader looks up mailbox behavior
 - **WHEN** a reader searches the route map for mailbox work
 - **THEN** the guide distinguishes notifier-round processing from ordinary mailbox operations
 - **AND THEN** it shows that managed mailbox work begins through `houmao-agent-entrypoint`
+
+#### Scenario: Reader looks up access and peer edits
+- **WHEN** a reader searches the route map for gateway authorization or versioned peer file edits
+- **THEN** the guide shows the `agent-access` and `agent-files` routes and their associated CLI command families
+- **AND THEN** it distinguishes owner-local policy administration from signed peer requests and authorized gateway file operations
 
 ### Requirement: System-skills overview presents the admin welcome tour
 The guide SHALL describe `houmao-admin-welcome` as the read-only first-use and reorientation surface.
@@ -55,12 +59,10 @@ It SHALL state that protected placement is a discovery convention rather than an
 - **AND THEN** it provides the corresponding public entrypoint invocation
 
 ### Requirement: Overview guide explains the static six-skill collection
-The getting-started system-skills overview SHALL list exactly the six standalone current system skills and SHALL distinguish them from the sixteen parent-scoped routines owned by `houmao-shared-routines`.
-
-The guide SHALL explain that public means host-discoverable, while implicit invocation remains disabled for entrypoints, shared routines, and loops. It SHALL present admin welcome as the narrow first-user surface.
+The overview SHALL list the six standalone roots and distinguish them from the manifest-declared children of `houmao-shared-routines`. It SHALL explain that actor entrypoints support actor-scoped implicit selection, while welcome, shared routines, and the loops require explicit initial selection.
 
 #### Scenario: Reader opens the current inventory section
-- **WHEN** a reader opens the system-skills overview
+- **WHEN** a reader opens the current system-skill inventory
 - **THEN** the standalone inventory matches the six `public/*/SKILL.md` roots
 - **AND THEN** shared children are presented as parent-scoped routes rather than independent install units
 

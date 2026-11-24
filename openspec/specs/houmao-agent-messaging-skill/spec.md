@@ -4,61 +4,45 @@
 Define the packaged Houmao-owned system skill that routes communication and control for already-running managed agents.
 ## Requirements
 ### Requirement: Houmao provides a packaged `houmao-agent-messaging` system skill
-The system SHALL package a Houmao-owned system skill named `houmao-agent-messaging` under the maintained system-skill asset root.
+The system SHALL package a Houmao-owned system skill named `houmao-agent-messaging` as a parent-scoped child of `houmao-shared-routines`.
 
 #### Scenario: Acceptance criteria
 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-That skill SHALL instruct agents to communicate with already-existing Houmao-managed agents through these supported surfaces:
+That skill SHALL instruct agents to communicate with already-existing Houmao-managed agents through these scoped manager and HTTP surfaces:
 
-- `houmao-mgr agents state`
-- `houmao-mgr agents gateway status`
-- `houmao-mgr agents mail resolve-live`
-- `houmao-mgr agents prompt`
-- `houmao-mgr agents interrupt`
-- `houmao-mgr agents gateway prompt`
-- `houmao-mgr agents gateway interrupt`
-- `houmao-mgr agents gateway send-keys`
-- `houmao-mgr agents gateway tui state|history|note-prompt`
+- `agents single ... state` or verified `agents self state`
+- scoped `gateway status`, `mail resolve-live`, `prompt`, and `interrupt`
+- scoped `gateway prompt|interrupt|send-keys`
+- scoped `gateway tui state|history|note-prompt`
 - managed-agent HTTP routes under `/houmao/agents/*`
 
-The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
+The child `SKILL-MAIN.md` SHALL route to one local action-specific document for `discover`, `prompt`, `interrupt`, `gateway-queue`, `send-keys`, `mail`, or `reset-context`. The catalog and skill SHALL expose `mail` as the canonical handoff command and `mail-handoff` as its alias.
 
-- `discover`
-- `prompt`
-- `interrupt`
-- `gateway-queue`
-- `send-keys`
-- `mail-handoff`
-- `reset-context`
+That packaged skill SHALL remain the canonical Houmao-owned skill for communication with already-running managed agents whether the caller is another managed agent or an external operator.
 
-That packaged skill SHALL remain the canonical Houmao-owned skill for communication with already-running managed agents whether the caller is another agent using an installed Houmao skill home or an external operator standing outside the managed session.
+That packaged skill SHALL delegate the following operations to their owning routines:
 
-That packaged skill SHALL treat these surfaces as explicitly out of scope:
-
-- `agents launch|join|stop|relaunch|cleanup`
-- `project specialist create|list|get|remove`
-- `project agents launch|list|get|stop`
-- ordinary mailbox `status|list|peek|read|send|post|reply|mark|move|archive` operations
-- mailbox transport-specific filesystem or Stalwart internals
-- gateway attach and detach lifecycle work
+- managed-agent launch, join, stop, relaunch, and cleanup
+- project specialist and project agent authoring and lifecycle commands
+- ordinary mailbox status, reads, writes, and archive
+- filesystem or Stalwart mailbox transport internals
+- gateway attach and detach
 
 #### Scenario: Installed skill points the agent at supported communication surfaces
-- **WHEN** an agent opens the installed `houmao-agent-messaging` skill
+- **WHEN** an agent opens the installed `houmao-agent-messaging` skill through its parent
 - **THEN** the skill directs the agent to the supported prompt, interrupt, gateway, mailbox-discovery, and managed-agent HTTP surfaces
-- **AND THEN** it does not redirect the agent to unrelated lifecycle or filesystem editing work
 
 #### Scenario: Installed skill routes to action-specific local guidance
 - **WHEN** an agent reads the installed `houmao-agent-messaging` skill
-- **THEN** the top-level `SKILL.md` acts as an index/router for discovery, prompt, interrupt, gateway queue control, raw input, mailbox handoff, and reset-context guidance
-- **AND THEN** the detailed workflow lives in local action-specific documents rather than in one flattened entry page
+- **THEN** `SKILL-MAIN.md` directs the agent to the local document for the requested action
+- **AND THEN** `mail` and `mail-handoff` select the same mailbox handoff document
 
 #### Scenario: Installed skill keeps lifecycle and mailbox-operation internals out of scope
 - **WHEN** an agent reads the installed `houmao-agent-messaging` skill
-- **THEN** the skill marks managed-agent lifecycle actions, ordinary mailbox operations, and mailbox transport internals as outside the packaged skill scope
-- **AND THEN** it does not present launch, cleanup, or transport-local mailbox repair as part of messaging guidance
+- **THEN** it delegates managed-agent lifecycle, ordinary mailbox work, and mailbox transport internals
 
 ### Requirement: `houmao-agent-messaging` resolves the `houmao-mgr` launcher in the required precedence order
 The packaged `houmao-agent-messaging` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
@@ -321,3 +305,11 @@ The skill SHALL use `--admission-policy` in current `houmao-mgr agents single|se
 - **WHEN** an agent considers multiple closely spaced if-no-pending submissions
 - **THEN** the skill explains that each call uses the latest observed TUI state independently
 - **AND THEN** it does not promise that only one call can reach the CLI before repaint
+
+### Requirement: Messaging separates agent selectors from transport overrides
+The messaging skill SHALL select a peer with `agents single --agent-id ID` or `--agent-name NAME` and use `agents self` only for verified current-session scope. It SHALL describe `--port` and `--pair-port` as transport options on the commands that accept them.
+
+#### Scenario: The caller supplies a port but no selected agent
+- **WHEN** a caller asks to prompt a peer and gives only a passive server port
+- **THEN** the skill asks for the peer identity
+- **AND THEN** it retains the supplied port as a transport option for the selected command

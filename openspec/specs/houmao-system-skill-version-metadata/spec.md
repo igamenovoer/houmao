@@ -5,33 +5,29 @@ Tie the six released system-skill trees to the Houmao release through root front
 ## Requirements
 
 ### Requirement: Standalone system skills declare their Houmao release
-Each of the six standalone public system-skill `SKILL.md` files SHALL declare exactly one quoted, non-empty `houmao_version` YAML frontmatter value equal to the Houmao project release version.
-
-The version SHALL apply to the complete owned standalone tree. The sixteen parent-scoped `SKILL-MAIN.md` children SHALL NOT declare independent `houmao_version` values.
+Each of the six standalone `SKILL.md` files SHALL declare exactly one quoted, nonempty `metadata.houmao_version` YAML value equal to the project release. That value SHALL apply to its complete owned tree. Parent-scoped `SKILL-MAIN.md` children SHALL inherit the containing release and SHALL NOT declare independent `houmao_version` values.
 
 #### Scenario: Release source contains the six static roots
 - **WHEN** source validation inspects the public system-skill collection
-- **THEN** every standalone `SKILL.md` reports the project release version
+- **THEN** every standalone `SKILL.md` reports the project release version from `metadata.houmao_version`
 - **AND THEN** no shared child `SKILL-MAIN.md` reports an independent Houmao version
 
 #### Scenario: Shared routines owns versioned children
 - **WHEN** an operator inspects the installed `houmao-shared-routines` root
-- **THEN** its top-level `SKILL.md` declares the release version
-- **AND THEN** that version covers all sixteen owned child trees
+- **THEN** its `SKILL.md` declares `metadata.houmao_version`
+- **AND THEN** that version covers all child trees declared for the shared root
 
 ### Requirement: Release validation keeps static assets synchronized
-Source and distribution validation SHALL compare each of the exact six standalone `houmao_version` strings with `[project].version` from `pyproject.toml`.
-
-The tagged release build SHALL fail before distribution publication when a root is missing the field, declares a non-string or malformed value, contains duplicate version keys, or differs from the project version. Wheel and sdist validation SHALL confirm the same values in packaged assets.
+Source and distribution validation SHALL compare `metadata.houmao_version` in all six standalone roots with `[project].version` from `pyproject.toml`. The tagged release build SHALL fail before distribution publication if a root has missing, duplicate, unquoted, non-string, malformed, or mismatching release metadata. Wheel and sdist validation SHALL confirm those values in packaged assets.
 
 #### Scenario: Project version is bumped without skill metadata
-- **WHEN** a release build sees a standalone root whose `houmao_version` differs from the project version
-- **THEN** the release validation fails before building or publishing distributions
+- **WHEN** a release build sees a standalone root whose `metadata.houmao_version` differs from the project version
+- **THEN** release validation fails before building or publishing distributions
 - **AND THEN** it identifies the mismatched skill and both version strings
 
 #### Scenario: Distribution contains current metadata
 - **WHEN** wheel and sdist contents are inspected
-- **THEN** both artifacts contain all six standalone roots with the project release version
+- **THEN** both artifacts contain all six standalone roots with the project release version under `metadata.houmao_version`
 - **AND THEN** neither artifact adds version fields to shared child entrypoints
 
 ### Requirement: Released system skills publish under matching Git tags
@@ -42,7 +38,7 @@ Publishing a Houmao GitHub release SHALL copy the complete public system-skill d
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-The mirror's `main` branch SHALL track the latest stable Houmao release. Publishing a prerelease SHALL create its matching tag without advancing `main`. The release workflow SHALL validate the release tag against `[project].version`, validate standalone `houmao_version` frontmatter, and validate Skills CLI discovery before publishing.
+The mirror's `main` branch SHALL track the latest stable Houmao release. Publishing a prerelease SHALL create its matching tag without advancing `main`. The release workflow SHALL validate the release tag against `[project].version`, validate standalone `metadata.houmao_version`, and validate Skills CLI discovery before publishing.
 
 #### Scenario: Stable release publishes the default collection
 - **WHEN** a stable Houmao release named `vX.Y.Z` is published
@@ -59,19 +55,27 @@ The mirror's `main` branch SHALL track the latest stable Houmao release. Publish
 - **THEN** publication fails instead of moving or replacing the existing tag
 
 ### Requirement: Installed version parsing is portable and read only
-The diagnostic parser SHALL read the installed top-level `SKILL.md` YAML frontmatter directly and SHALL preserve the observed `houmao_version` string for reporting.
-
-Parsing SHALL NOT require a Houmao lifecycle receipt and SHALL NOT rewrite the skill. A missing file, malformed frontmatter, duplicate key, missing field, non-string field, or malformed release value SHALL produce explicit diagnostic evidence.
+Doctor SHALL read `metadata.houmao_version` directly from each installed root's `SKILL.md` and report the observed version string. It SHALL report missing files, malformed frontmatter, duplicate keys, missing fields, non-string values, and malformed release values as diagnostic evidence. Parsing SHALL require no lifecycle config and SHALL leave installed files untouched.
 
 #### Scenario: Skills CLI installation has no receipt
-- **WHEN** doctor inspects a complete externally copied agent pack without a Houmao receipt
+- **WHEN** doctor inspects a complete externally copied agent pack without Houmao ownership configuration
 - **THEN** it reads each installed root's frontmatter directly
 - **AND THEN** it can report version matches without creating lifecycle state
 
 #### Scenario: Version field is malformed
-- **WHEN** an installed root contains a non-string or invalid `houmao_version`
+- **WHEN** an installed root contains a non-string or invalid `metadata.houmao_version`
 - **THEN** parsing reports the field as invalid for that root
-- **AND THEN** no install, upgrade, or repair action is attempted
+- **AND THEN** the installed tree remains untouched
+
+#### Scenario: Older skill declares version only at the top level
+- **WHEN** doctor inspects a root with a top-level `houmao_version` and no `metadata.houmao_version`
+- **THEN** doctor reports the canonical release field as missing
+- **AND THEN** refreshing the tree through its supported installation or upgrade path installs current metadata
+
+#### Scenario: Doctor reports observed release and configuration separately
+- **WHEN** ownership configuration and installed frontmatter both declare versions
+- **THEN** doctor reports those values separately using the existing machine-readable version fields
+- **AND THEN** it compares the running release with the installed frontmatter value
 
 ### Requirement: Non-collection assets remain outside the system-skill version contract
 The top-level version contract SHALL exclude legacy system skills, generated execplan skills, and project-authored skills.

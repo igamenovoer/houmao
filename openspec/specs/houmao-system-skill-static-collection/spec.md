@@ -18,22 +18,6 @@ Each root SHALL contain `SKILL.md` and all locally owned runtime resources. The 
 - **THEN** exactly six `SKILL.md` roots are found
 - **AND THEN** each root can be validated without running a composer
 
-### Requirement: Shared routines own sixteen parent-scoped children
-`houmao-shared-routines` SHALL own exactly sixteen parent-scoped routine directories beneath `subskills/`, for advanced usage, agent definition, agent email communication, agent gateway, agent inspection, agent instances, agent messaging, credentials, graphing, AG-UI interop, mailbox administration, memory, operator messaging, gateway email rounds, project management, and workspace management.
-
-#### Scenario: Acceptance criteria
-
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-Each direct child SHALL contain `SKILL-MAIN.md` and SHALL NOT contain a sibling `SKILL.md`. Pro and lite loop skills SHALL NOT appear as shared children.
-
-#### Scenario: Exact entrypoint scanner traverses shared routines
-- **WHEN** a recursive scanner registers only exact `SKILL.md` filenames
-- **THEN** it registers `houmao-shared-routines` as one standalone skill
-- **AND THEN** it does not register any of the sixteen `SKILL-MAIN.md` children independently
-- **AND THEN** it does not find nested copies of either loop skill
-
 ### Requirement: Runtime installation does not compose skill content
 The system SHALL NOT generate Markdown, render source placeholders, select an audience-specific route file, filter child routines, mount one skill below another, or otherwise synthesize a skill directory during installation.
 
@@ -74,3 +58,22 @@ The documentation SHALL NOT claim that Skills CLI resolves Houmao pack dependenc
 - **THEN** the selection names admin welcome, admin entrypoint, shared routines, pro loop, and lite loop
 - **AND THEN** the installed entrypoint has every required sibling available
 
+### Requirement: Shared routines own the declared parent-scoped children
+The packaged manifest SHALL declare the current shared child inventory. The directories directly under `houmao-shared-routines/subskills/` SHALL match that inventory exactly. The current inventory SHALL contain eighteen children, including `houmao-agent-access` and `houmao-agent-files`. Each child SHALL own a `SKILL-MAIN.md` entrypoint.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Each direct child SHALL contain only its role-canonical entrypoint filename. The Pro and Lite loop skills SHALL be public siblings outside the shared tree.
+
+#### Scenario: Current shared tree matches its declaration
+- **WHEN** Houmao validates the current shared source tree
+- **THEN** the exact child directories match the manifest
+- **AND THEN** the retained shared routines and both new children are present
+
+#### Scenario: Exact entrypoint scanner traverses shared routines
+- **WHEN** a recursive scanner registers only exact `SKILL.md` filenames
+- **THEN** it registers `houmao-shared-routines` as one standalone skill
+- **AND THEN** the scan returns only that root for the complete shared tree

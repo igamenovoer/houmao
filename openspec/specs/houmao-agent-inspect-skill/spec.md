@@ -110,66 +110,53 @@ The skill SHALL NOT guess a missing required target, transport kind, or inspecti
 
 The skill SHALL route generic managed-agent inspection in this order:
 
-1. identify the target managed agent through `agents list` or an explicit selector
-2. read summary state through `agents state` or the matching managed-agent `/state` route
-3. use transport-specific detail through `/state/detail`, live gateway status, or live gateway TUI state when those surfaces are needed
-4. inspect mailbox posture, logs, or runtime artifacts according to the requested inspection domain
-5. use direct local tmux peeking only when the caller explicitly needs the visible pane or the supported surfaces are insufficient
+1. identify the target through scoped manager discovery or an explicit selector
+2. read summary state through the scoped manager state command or the matching managed-agent `/state` route
+3. consult managed transport detail and gateway observations when available and needed
+4. inspect mailbox posture, logs, or runtime artifacts according to the requested domain
+5. use a direct local tmux capture only when the actual pane is needed or the managed observations are insufficient
 
-When the caller is already operating through the pair-managed HTTP seam, the skill SHALL allow the matching managed-agent `/houmao/agents/*` inspection routes instead of forcing a CLI-only path.
+When the caller is already operating through the pair-managed HTTP seam, the skill SHALL allow the matching managed-agent `/houmao/agents/*` inspection routes. Generic discovery and supported record-backed inspection SHALL remain available without a live gateway.
 
 #### Scenario: Missing target requires a user question
 - **WHEN** the selected inspection action still lacks a required managed-agent selector after checking the current prompt and recent chat context
 - **THEN** the skill tells the caller to ask the user for the missing selector before proceeding
-- **AND THEN** it does not guess the target managed agent
 
 #### Scenario: Generic inspection starts from summary state rather than raw tmux
 - **WHEN** a caller asks what one managed agent is doing right now
-- **THEN** the skill directs the caller to inspect `houmao-mgr agents state` or the matching managed-agent `/state` route first
-- **AND THEN** it does not skip directly to tmux attach or filesystem spelunking as the default first step
+- **THEN** the skill directs the caller to inspect scoped manager state or the matching managed-agent `/state` route first
 
 #### Scenario: Pair-managed callers may use the detailed managed-agent route
 - **WHEN** a caller is already operating through pair-managed HTTP control for one managed agent
-- **THEN** the skill may direct that caller to `GET /houmao/agents/{agent_ref}/state/detail`
-- **AND THEN** it does not require a second local-only tmux or filesystem path merely to reach transport-specific detail
+- **THEN** the skill allows `GET /houmao/agents/{agent_ref}/state/detail` for transport-specific detail directly
+
+#### Scenario: A detached gateway leaves supported observations available
+- **WHEN** a caller asks for a peer's status and the peer has no attached gateway
+- **THEN** the skill uses the available managed state and saved records and reports any observation limits
 
 ### Requirement: `houmao-agent-inspect` treats TUI and headless inspection differently
-For TUI-backed managed agents, the packaged `houmao-agent-inspect` skill SHALL treat these surfaces as the primary inspection ladder:
-
-- `houmao-mgr agents state`
-- `GET /houmao/agents/{agent_ref}/state/detail`
-- `houmao-mgr agents gateway status`
-- `houmao-mgr agents gateway tui state|history|watch` when a live gateway is attached
+The inspect skill SHALL use managed state and detailed state to identify the agent's transport. For TUI tracking it SHALL prefer gateway TUI observations when available. For headless work it SHALL use managed turn state and logs. Direct local tmux capture SHALL require an authoritative recorded socket and exact target in an accessible execution-owner context.
 
 #### Scenario: Acceptance criteria
 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-For TUI-backed managed agents, the skill SHALL position raw tmux attach or pane capture as a local last-resort lane rather than as the canonical first inspection surface.
-
-For headless managed agents, the packaged skill SHALL treat these surfaces as the primary inspection ladder:
-
-- `houmao-mgr agents state`
-- `GET /houmao/agents/{agent_ref}/state/detail`
-- `houmao-mgr agents turn status|events|stdout|stderr`
-
-For headless managed agents, the skill SHALL NOT present auxiliary tmux topology as the primary inspection contract when managed headless detail and turn artifacts already expose the needed runtime posture.
+A direct local tmux capture SHALL specify the verified socket and pane. An explicitly requested attach SHALL use a verified socket-qualified handoff command or specify the socket and selected session. The fallback SHALL use the selected owner's exact server even when the caller is inside another server. The fallback SHALL report an unavailable exact target when that socket or target cannot be verified.
 
 #### Scenario: TUI inspection prefers live gateway tracker state when available
 - **WHEN** a caller asks to inspect the live tracked TUI state for one managed TUI agent and that agent currently has a healthy live gateway
-- **THEN** the skill directs the caller to `houmao-mgr agents gateway tui state|history|watch` or the matching managed-agent gateway TUI routes
-- **AND THEN** it does not describe raw tmux capture as the canonical tracked-state contract for that request
+- **THEN** the skill directs the caller to scoped `gateway tui state|history|watch` or the matching managed-agent gateway TUI routes for the requested evidence
 
 #### Scenario: TUI raw pane peeking stays a local last-resort lane
 - **WHEN** a caller explicitly asks to peek the actual local tmux pane for one TUI-backed managed agent
-- **THEN** the skill allows direct local tmux attach or pane capture guidance
-- **AND THEN** it still keeps that lane positioned after the supported managed-agent and gateway inspection surfaces
+- **THEN** the skill uses managed records to verify the exact socket and pane in the execution owner's context
+- **AND THEN** it shows direct capture with `tmux -S SOCKET capture-pane ... -t PANE` after managed observations
+- **AND THEN** it reserves attach for an explicit request to attach
 
 #### Scenario: Headless inspection uses managed detail and turn evidence
 - **WHEN** a caller asks whether one managed headless agent is idle, active, or failed
 - **THEN** the skill directs the caller to managed-agent detailed state and headless turn status or artifact surfaces
-- **AND THEN** it does not require the caller to infer that posture primarily from tmux window topology
 
 ### Requirement: `houmao-agent-inspect` preserves mailbox and artifact boundaries
 When the inspection task is about mailbox identity, unread state, or current live mailbox posture for one managed agent, the packaged `houmao-agent-inspect` skill SHALL direct the caller to:
@@ -205,3 +192,11 @@ The skill SHALL distinguish durable gateway state from disposable log artifacts 
 - **WHEN** a caller asks to inspect the runtime artifacts behind one managed session with gateway capability
 - **THEN** the skill allows inspection of `gateway/state.json`, `gateway/logs/gateway.log`, and other runtime-owned gateway files under the session root
 - **AND THEN** it distinguishes durable gateway state files from disposable log-only artifacts
+
+### Requirement: Inspection separates agent selectors from transport overrides
+The inspect skill SHALL use `agents single --agent-id ID` or `--agent-name NAME` for explicit selected-agent commands and verified `agents self` for current-session commands. When showing `--port` or `--pair-port`, it SHALL present the supported option as a transport override that still requires an explicit selected-agent identity.
+
+#### Scenario: A named target uses an explicit passive server
+- **WHEN** a caller supplies the name of a peer and an explicit transport port
+- **THEN** the skill includes the target name in selected-agent scope
+- **AND THEN** it uses the port only with the subordinate command that supports that option

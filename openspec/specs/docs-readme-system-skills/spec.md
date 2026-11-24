@@ -145,14 +145,12 @@ The README SHALL point the external Skills CLI at the `houmao-skills` repository
 - **AND THEN** the README does not imply that the external Skills CLI owns Houmao-specific projection or cleanup behavior
 
 ### Requirement: README introduces the three-skill public surface
-The README System Skills subsection SHALL present `houmao-admin-welcome`, `houmao-admin-entrypoint`, and `houmao-agent-entrypoint` as the complete public Houmao system-skill surface.
-
-It SHALL describe protected routines as nested implementation, SHALL avoid a long flat routine table, and SHALL link to the System Skills Overview for the audience matrix and command-family detail.
+The README System Skills subsection SHALL introduce `houmao-admin-welcome`, `houmao-admin-entrypoint`, and `houmao-agent-entrypoint` by their orientation and actor roles. It SHALL also identify the standalone shared and loop siblings, describe shared routines as parent-owned children, and link to the System Skills Overview for the full route map.
 
 #### Scenario: Reader scans the README system-skills section
 - **WHEN** a reader wants the shortest public-surface explanation
 - **THEN** the README identifies the welcome, admin execution, and managed-agent execution roles
-- **AND THEN** it does not present protected logical ids as peer installable skills
+- **AND THEN** it distinguishes standalone shared and loop siblings from parent-owned child routines
 
 ### Requirement: README quick start begins with the admin welcome
 The skill-driven quick start SHALL install the admin pack into the user's CLI-agent home and SHALL make `$houmao-admin-welcome start-guided-tour` the recommended first-use prompt.
@@ -175,29 +173,23 @@ It SHALL state that the admin welcome and entrypoint install atomically and that
 - **AND THEN** it does not describe provider-native prompt files as skills or pack members
 
 ### Requirement: README examples use public entrypoint invocations
-System-skill examples SHALL begin with one of the three public skill names.
-
-The README MAY name important protected routines when explaining ownership, but SHALL label them as nested routes and SHALL not use a protected id as a top-level `$skill` prompt. Help examples SHALL remain read-only and role-appropriate.
+System-skill examples SHALL start with a standalone public skill name. The README SHALL label shared children as parent-scoped routes and use read-only, role-appropriate help examples.
 
 #### Scenario: README mentions agent-definition behavior
 - **WHEN** the README explains specialist or profile authoring
 - **THEN** it starts the executable example from `$houmao-admin-entrypoint`
-- **AND THEN** it may identify protected `houmao-agent-definition` as the nested owner
+- **AND THEN** it may identify `houmao-agent-definition` as the parent-scoped owner
 
 ### Requirement: README system-skill inventory matches the static public root
-The README system-skills section SHALL list `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` exactly once as current standalone skills.
-
-It SHALL explain that the sixteen ordinary routines are selected below shared routines through actor entrypoints or direct advanced invocation. It SHALL NOT list those children as top-level installed peers.
+The README SHALL list `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` exactly once as current standalone skills. It SHALL explain that actor entrypoints and advanced direct shared invocation can select the manifest-declared children of shared routines.
 
 #### Scenario: README inventory is checked against packaged assets
-- **WHEN** documentation validation compares README names with `system_skills/public/*/SKILL.md`
+- **WHEN** a maintainer reviews the README inventory against `system_skills/public/*/SKILL.md`
 - **THEN** both inventories contain the same six names
-- **AND THEN** no old protected-mount or flat low-level skill is advertised as a current root
+- **AND THEN** the README describes new shared children as routes under `houmao-shared-routines`
 
 ### Requirement: README provides complete static installation examples
-The README SHALL show the recommended Houmao admin-pack install, the managed agent-pack default, copy-paste directory lists, Skills CLI all-skills discovery, and explicit actor-specific Skills CLI selections.
-
-Every example SHALL include shared routines and both loops when an actor entrypoint depends on them. The README SHALL state that Houmao's manager owns pack receipts while Skills CLI performs ordinary independent skill installation.
+The README SHALL show the recommended Houmao admin-pack install, managed agent-pack default, copy-paste directory lists, Skills CLI all-skills discovery, and explicit actor-specific Skills CLI selections. Actor pack examples SHALL include shared routines and both loops. The README SHALL distinguish Houmao's pack ownership config from independent Skills CLI installation.
 
 #### Scenario: User copies the admin skills manually
 - **WHEN** a reader follows the README copy-paste admin example

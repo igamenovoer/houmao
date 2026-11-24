@@ -29,9 +29,7 @@ No default lane SHALL install both actor packs. Explicit repeated pack selection
 - **AND THEN** the admin pack remains absent unless explicitly selected
 
 ### Requirement: Houmao system skills keep flat visible projection across supported tools
-The system SHALL project every selected standalone Houmao system skill into one top-level directory under the established skill root for each supported tool.
-
-The six public roots SHALL remain siblings at the tool root. The sixteen parent-scoped routines SHALL remain inside the projected `houmao-shared-routines` directory. No installed actor entrypoint SHALL contain a generated copy of shared routines or a loop skill.
+Each selected standalone system skill SHALL occupy one top-level directory under the tool-native skill root. The six public roots SHALL be siblings. All manifest-declared parent-scoped routines SHALL live under the shared root. Actor entrypoints SHALL contain no generated shared or loop root copies.
 
 #### Scenario: Codex installs both actor packs into one flat skill root
 - **WHEN** Houmao installs admin and agent packs into a Codex home
@@ -44,19 +42,16 @@ The six public roots SHALL remain siblings at the tool root. The sixteen parent-
 - **AND THEN** no visible workflow-family directory is required
 
 #### Scenario: Codex installs mailbox and user-control skills into the same flat skill root
-- **WHEN** Houmao installs one mailbox-oriented skill and one user-control skill into a Codex home
-- **THEN** both skills project under top-level Houmao-owned skill directories in `skills/`
-- **AND THEN** Codex does not require a visible family subdirectory for those installed skills
+- **WHEN** an actor pack is installed into a Codex home
+- **THEN** both kinds of routine live below the shared root under `skills/`
 
 #### Scenario: Claude keeps top-level Houmao-owned skill directories across logical groups
-- **WHEN** Houmao installs mailbox-oriented and user-control skills into a Claude home
-- **THEN** both skills project into top-level Houmao-owned skill directories under `skills/`
-- **AND THEN** Claude does not require a visible family subdirectory for those installed skills
+- **WHEN** an actor pack is installed into a Claude home
+- **THEN** both kinds of routine live below the shared root under `skills/`
 
 #### Scenario: Gemini keeps top-level Houmao-owned skill directories across logical groups
-- **WHEN** Houmao installs mailbox-oriented and user-control skills into a Gemini home
-- **THEN** both skills project into top-level Houmao-owned skill directories under `.gemini/skills/`
-- **AND THEN** Gemini does not require a visible family subdirectory for those installed skills
+- **WHEN** an operator requests projection into a Gemini skill home
+- **THEN** Houmao rejects the unsupported tool target
 
 ### Requirement: Default Houmao-owned system-skill selection can include multiple logical groups
 The maintained installable grouping SHALL consist of the `admin` and `agent` actor packs rather than workflow sets.

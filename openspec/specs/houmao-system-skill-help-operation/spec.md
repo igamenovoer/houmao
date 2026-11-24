@@ -11,12 +11,12 @@ Each current public Houmao system skill SHALL expose read-only help from its top
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-`houmao-admin-welcome` SHALL own first-use and route-comparison help. `houmao-admin-entrypoint` SHALL delegate empty and welcome-oriented help to that public sibling. `houmao-agent-entrypoint` SHALL provide concise help for its eligible managed-agent routes without claiming an agent welcome.
+`houmao-admin-welcome` SHALL own the full first-use tour and route comparison. `houmao-admin-entrypoint` SHALL handle help, empty invocation, and welcome-oriented requests locally. It can recommend the explicit manual welcome invocation. `houmao-agent-entrypoint` SHALL provide concise help for its eligible managed-agent routes.
 
 #### Scenario: Admin entrypoint receives explicit help
 - **WHEN** a user invokes `houmao-admin-entrypoint help`
-- **THEN** the entrypoint delegates to `houmao-admin-welcome`
-- **AND THEN** neither public skill executes a protected operation or asks for an operational target
+- **THEN** the entrypoint explains available admin routes and the target rule locally
+- **AND THEN** it leaves skill loading, target lookup, and protected operations for substantive requests
 
 #### Scenario: Agent entrypoint receives explicit help
 - **WHEN** a user invokes `houmao-agent-entrypoint help`
@@ -34,27 +34,15 @@ It MAY show entrypoint-qualified protected designators to explain routing, but S
 - **AND THEN** any protected designator is labeled as a nested route rather than an install or public trigger
 
 ### Requirement: Protected routers expose read-only route summaries
-Each protected `SKILL.md` SHALL provide enough read-only help for its parent to summarize purpose, available commands, eligible actors, out-of-scope work, and direct child routes.
-
-Protected help SHALL run only within a valid actor frame or fail closed to the eligible public entrypoints. It SHALL be checked before a protected command's default operational behavior.
+Each parent-scoped `SKILL-MAIN.md` SHALL provide enough read-only help for its parent to summarize purpose, commands, eligible actors, boundaries, and direct child routes. The parent SHALL preserve the selected route's audience and handle help before it selects a default operation.
 
 #### Scenario: Protected loop help lacks required loop directory
-- **WHEN** a valid entrypoint route requests help for a protected loop routine without a loop directory
-- **THEN** the routine returns its command summary
-- **AND THEN** it does not treat the request as initialization or ask for the loop directory
-
-### Requirement: Content validation enforces public help and protected route summaries
-Manifest-aware tests SHALL require help coverage for every public skill and route-summary coverage for every protected router and direct subskill.
-
-The validator SHALL check public command-map completeness, eligible-actor wording, parent “When to Route Here” summaries, and the absence of direct protected invocation examples.
-
-#### Scenario: New protected subskill lacks a parent summary
-- **WHEN** a maintainer adds a protected subskill without a matching parent route summary
-- **THEN** system-skill content validation fails
-- **AND THEN** the pack cannot pass recursive staging validation
+- **WHEN** a valid entrypoint route requests help for a top-level loop skill without a loop directory
+- **THEN** the skill returns its command summary
+- **AND THEN** it leaves initialization and target collection for substantive requests
 
 ### Requirement: Current system skills expose a read-only help operation
-Every current standalone Houmao system skill declared in the v4 manifest SHALL expose a `help` meta operation from its `SKILL.md`. Every parent-scoped child owned by `houmao-shared-routines` SHALL expose equivalent help from its `SKILL-MAIN.md` or from an explicitly declared parent help route that preserves the child's scope.
+Every current standalone Houmao system skill declared in the manifest SHALL expose a `help` meta operation from its `SKILL.md`. Every parent-scoped child owned by `houmao-shared-routines` SHALL expose equivalent help from its `SKILL-MAIN.md` or from an explicitly declared parent help route that preserves the child's scope.
 
 #### Scenario: Acceptance criteria
 
@@ -87,29 +75,30 @@ Retired assets under `legacy/` SHALL NOT be required to expose this help operati
 - **THEN** the agent responds with usage guidance for that skill
 - **AND THEN** the agent does not run Houmao commands, mutate files, send mail, change gateway state, change agent lifecycle state, or collect missing operational inputs for the underlying workflow
 
-### Requirement: Future current skills include the help operation
-Any new standalone skill or parent-scoped shared child added to the current v4 manifest SHALL include the standard read-only help contract before it becomes current.
-
-Content validation SHALL fail when a standalone `SKILL.md` or child `SKILL-MAIN.md` lacks the declared help route, when help can trigger a mutating default, or when loop help asks for `<loop-dir>`.
-
-#### Scenario: Manifest validation catches missing child help
-- **WHEN** a maintainer adds a shared child record whose `SKILL-MAIN.md` lacks the standard help contract
-- **THEN** system-skill content validation fails
-- **AND THEN** the child cannot be installed as part of a healthy shared-routines source
-
-#### Scenario: Catalog test catches missing help
-- **WHEN** a maintainer adds a new current skill to `catalog.toml`
-- **AND WHEN** that skill's top-level `SKILL.md` does not expose the standard help operation
-- **THEN** the system-skill content tests fail
-- **AND THEN** the maintainer must add help guidance before the skill can pass verification
-
 ### Requirement: Mega-router help describes sibling dependencies
-Admin and agent entrypoint help SHALL list their eligible route subcommands and identify `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` as sibling delegation targets where applicable.
-
-Shared-routines help SHALL describe direct advanced invocation, default admin posture, explicit managed-self posture, and its sixteen children. It SHALL NOT describe itself as a protected mount.
+Admin and agent entrypoint help SHALL list eligible route subcommands and identify the shared routines and two loop skills as sibling delegation targets. Shared-routines help SHALL describe direct invocation, default admin posture, explicit managed-self posture, and all declared shared child routes.
 
 #### Scenario: Operator asks admin entrypoint for help
 - **WHEN** an operator invokes `$houmao-admin-entrypoint help`
 - **THEN** the response identifies the admin actor and target rule
 - **AND THEN** it lists static sibling routes without loading or executing them
 
+### Requirement: Editorial review verifies the declared help surface
+Maintainers SHALL review public help and parent route summaries against the declared command and actor inventory. Review SHALL cover eligible actors, the “When to Route Here” guidance, and copyable invocation forms. Unit tests of skill assets SHALL check declared paths and entrypoint layout only.
+
+#### Scenario: New protected subskill lacks a parent summary
+- **WHEN** a maintainer adds a protected subskill without a matching parent route summary
+- **THEN** editorial review identifies the missing summary for correction
+- **AND THEN** automated asset tests verify the declared child and its entrypoint exist at the expected path
+
+### Requirement: New catalog members include read-only help
+Any new standalone skill or parent-scoped shared child added to the current manifest SHALL provide standard read-only help. Editorial review SHALL verify that help describes the declared operations and stops before defaults, target collection, or mutations.
+
+#### Scenario: Maintainer reviews a new shared child's help
+- **WHEN** a maintainer adds a shared child record whose `SKILL-MAIN.md` lacks the standard help contract
+- **THEN** editorial review identifies the missing help for correction
+
+#### Scenario: New catalog member is verified
+- **WHEN** a maintainer adds a newly declared current skill
+- **THEN** the structural check verifies the corresponding role-canonical entrypoint exists
+- **AND THEN** editorial review verifies read-only help, including that loop help requires no `<loop-dir>`

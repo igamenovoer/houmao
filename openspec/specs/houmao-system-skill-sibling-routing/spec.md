@@ -40,7 +40,7 @@ After successful verification, eligible ordinary work SHALL delegate to `houmao-
 - **AND THEN** it does not invoke shared routines or a loop sibling
 
 ### Requirement: Entrypoints expose complete static route indexes
-Each actor entrypoint SHALL use a collection-of-routines subcommand table that lists every eligible route argument, one distinguishing `When to Route Here` sentence, and its sibling delegation target.
+Each actor entrypoint SHALL use a collection-of-routines subcommand table that lists every eligible route argument, one distinguishing “When to Route Here” sentence, and its sibling delegation target.
 
 #### Scenario: Acceptance criteria
 
@@ -51,7 +51,7 @@ The admin entrypoint SHALL list admin-only and shared routes, the specialist com
 
 #### Scenario: User asks entrypoint help
 - **WHEN** a user requests help from either actor entrypoint
-- **THEN** the response lists that entrypoint's complete eligible route surface and sibling destinations
+- **THEN** the response lists that entrypoint's complete eligible route surface, including `agent-access` and `agent-files`, and names its sibling destinations
 - **AND THEN** it does not present shared children as local entrypoint subskills
 
 ### Requirement: Shared routines support direct advanced invocation
@@ -70,14 +70,19 @@ Direct invocation SHALL bypass only actor-entrypoint route selection. It SHALL r
 - **AND THEN** it stops before child loading when verification fails
 
 ### Requirement: Shared routines selectively load owned children
-The shared root SHALL list all sixteen direct children with one substantive `When to Route Here` sentence per child. After selecting one child, it SHALL explicitly load only that child's `SKILL-MAIN.md` and required owned resources.
+The shared root SHALL list every manifest-declared direct child with one substantive “When to Route Here” sentence. After selection it SHALL explicitly load only the chosen child's `SKILL-MAIN.md` and necessary owned resources.
 
-Shared routines SHALL route loop-shaped work to the top-level pro or lite sibling. It SHALL NOT claim either loop as a child.
+Shared routines SHALL route loop-shaped work to the top-level Pro or Lite sibling.
 
 #### Scenario: Shared route selects workspace management
 - **WHEN** the selected route is workspace management
 - **THEN** the parent loads `subskills/houmao-utils-workspace-mgr/SKILL-MAIN.md`
 - **AND THEN** it does not scan or preload sibling child entrypoints
+
+#### Scenario: Shared route selects versioned file edits
+- **WHEN** an actor entrypoint hands off a request to edit a peer's versioned files
+- **THEN** shared routines passes the existing actor frame to its `houmao-agent-files` child
+- **AND THEN** the child uses the selected target and existing gateway authorization
 
 ### Requirement: Top-level loop skills accept direct and inherited actor posture
 `houmao-agent-loop-pro` and `houmao-agent-loop-lite` SHALL remain manually invokable with their original skill names and operations. Direct invocation SHALL default to admin posture, explicit `as-agent` invocation SHALL verify managed self, and actor-entrypoint invocation SHALL preserve its inherited frame.
@@ -90,14 +95,16 @@ No-operation invocation SHALL retain the original `init` default and missing-`<l
 - **AND THEN** it asks for `<loop-dir>` before creating files
 
 ### Requirement: Admin welcome remains an independent read-only sibling
-`houmao-admin-welcome` SHALL own first-use orientation, route comparison, state-aware path selection, and guided touring. It SHALL NOT own shared routines or execute mutating system work.
-
-An actionable request SHALL hand the complete selected context to `houmao-admin-entrypoint`. Empty or welcome-style admin-entrypoint requests SHALL delegate to the welcome sibling.
+`houmao-admin-welcome` SHALL own first-use orientation, route comparison, state-aware path selection, and guided touring. It SHALL remain manual and read-only. Once invoked, it SHALL hand actionable requests and their selected context to `houmao-admin-entrypoint`.
 
 #### Scenario: First-time user starts a guided tour
-- **WHEN** welcome finds no Houmao project overlay
+- **WHEN** welcome finds no Houmao project overlay after manual invocation
 - **THEN** it presents Create Houmao Project, Subsystem Exploration, and Inspect as the only no-prompt choices
 - **AND THEN** it does not execute project creation
+
+#### Scenario: Empty or welcome-style admin invocation
+- **WHEN** a user invokes the admin entrypoint without an action or asks for orientation
+- **THEN** the admin entrypoint returns local read-only guidance and may recommend the exact manual welcome invocation
 
 ### Requirement: Actor routing is not an authorization boundary
 All sibling and child routes SHALL describe actor posture as routing context. Runtime CLI and service validation SHALL remain authoritative for permissions, target validity, and side effects.

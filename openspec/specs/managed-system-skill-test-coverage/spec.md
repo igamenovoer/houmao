@@ -4,14 +4,19 @@
 Assign distinct system-skill contracts to content, policy, filesystem, CLI, and managed-runtime tests. Exercise pack lifecycle and deployment through representative CLI and runtime integration cases.
 ## Requirements
 ### Requirement: Layered managed system-skill coverage
-Managed system-skill tests SHALL assign distinct contracts to v4 manifest and schema parsing, pure pack and policy resolution, static source content validation, filesystem staging, receipt ownership transactions, CLI rendering, and runtime integration.
+Unit tests of shipped skill assets SHALL verify the existence and layout of declared roots, child entrypoints, and resource files. Executable product tests SHALL cover manifest and schema parsing, pack and policy resolution, filesystem staging, ownership transactions, release validation, CLI output, and managed-runtime integration.
 
 #### Scenario: Acceptance criteria
 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-Pure tests SHALL own exact public inventory, pack membership, shared-owner deduplication, child actor eligibility, dependency closure, policy modes, and selector rejection. Filesystem tests SHALL own byte-identical copy, direct symlink targets, atomic commit and rollback, receipt persistence, mode changes, v3 drift classification, conflict preservation, and last-owner removal.
+Pure product tests SHALL cover the declared inventory, pack membership, shared-owner deduplication, child actor eligibility, dependency closure, policy modes, and selector rejection. Filesystem tests SHALL cover byte-identical copy, direct symlink targets, atomic commit and rollback, config persistence, mode changes, old-installation drift, conflict preservation, and last-owner removal.
+
+#### Scenario: Maintainer revises instruction prose
+- **WHEN** the wording, examples, guardrails, or workflow steps change without changing declared paths
+- **THEN** asset unit tests still verify path existence and layout
+- **AND THEN** unit tests do not assert instruction text, simulate authored workflow behavior, or run a semantic inventory against the Markdown
 
 #### Scenario: Shared pack membership changes
 - **WHEN** a standalone skill's owning pack set changes
@@ -19,7 +24,7 @@ Pure tests SHALL own exact public inventory, pack membership, shared-owner dedup
 - **AND THEN** integration tests keep only representative installed-path assertions
 
 #### Scenario: Last-owner removal changes
-- **WHEN** receipt owner-set cleanup behavior changes
+- **WHEN** config owner-set cleanup behavior changes
 - **THEN** detailed ordering and restoration assertions live in filesystem transaction tests
 - **AND THEN** CLI tests assert one representative user-visible outcome
 
@@ -103,38 +108,43 @@ Shared validation such as unknown packs, obsolete composition selectors, untrack
 - **AND THEN** selector rejection semantics remain owned by pure option or policy tests
 
 ### Requirement: Refactor preserves verification confidence
-The refactor SHALL add content and behavior tests for all six standalone skills, sixteen shared children, both actor route indexes, direct shared and loop posture, welcome mutation boundaries, Imsight format rules, source-derived semantic preservation, exact Skills CLI discovery, static pack lifecycle, supported tool roots, generated prompt sibling checks, documentation examples, and safe v3 migration.
+Structural tests SHALL cover the six standalone entrypoints and declared shared children. Product checks SHALL retain coverage for discovery, static pack lifecycle, supported tool roots, manifests, doctor, generated prompts, release validation, and safe handling of older installations. Maintainers SHALL review instruction conformance and examples editorially.
 
 #### Scenario: Acceptance criteria
 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-Focused tests for changed modules and content SHALL pass, followed by `pixi run lint`, `pixi run typecheck`, `pixi run test`, relevant runtime-focused suites, package build, and strict OpenSpec validation. Any removed composer test SHALL map to retained static staging, identity, or receipt coverage.
+Focused product and structure tests SHALL pass, followed by `pixi run lint`, `pixi run typecheck`, `pixi run test`, relevant runtime-focused suites, package build, and strict OpenSpec validation. Instruction prose and semantic fixtures SHALL stay outside unit-test acceptance.
 
 #### Scenario: Static refactor verification is complete
 - **WHEN** implementation tasks are ready to close
-- **THEN** focused manifest, static asset, actor, lifecycle, CLI, managed-home, prompt, and semantic-parity tests pass
+- **THEN** focused manifest, static asset structure, lifecycle, CLI, managed-home, and generated-prompt tests pass
 - **AND THEN** repository verification and distribution checks pass or report only independently confirmed baseline failures
 
 #### Scenario: Composer test is removed
 - **WHEN** a test for dynamic protected mounting is deleted
-- **THEN** implementation evidence identifies the static source, byte-identity, route, or receipt test that replaces its confidence
+- **THEN** implementation evidence identifies the retained test of static layout, staging, or ownership that covers the corresponding product behavior
 
 #### Scenario: Focused and full verification pass
 - **WHEN** the test deduplication refactor is complete
 - **THEN** focused unit tests for the touched managed system-skill modules SHALL pass
-- **AND** `pixi run test` SHALL pass
+- **AND THEN** `pixi run test` SHALL pass
 
 #### Scenario: Removed tests map to retained coverage
-- **WHEN** a duplicate managed system-skill assertion is removed from a higher-level test
-- **THEN** the implementation notes or task completion evidence SHALL identify the retained lower-level or representative test that still covers the behavior
+- **WHEN** a duplicate product assertion is removed from a higher-level managed system-skill test
+- **THEN** the implementation evidence identifies the retained lower-level or representative test that covers the executable behavior
 
 #### Scenario: Refactor verification is complete
 - **WHEN** implementation tasks are ready to close
-- **THEN** focused pack, actor, composer, CLI, managed-home, and content tests pass
+- **THEN** focused pack, actor inventory, CLI, managed-home, and asset structure tests pass
 - **AND THEN** lint, strict type checking, and the full unit suite pass
 
 #### Scenario: Higher-level duplicate is removed
 - **WHEN** a redundant old flat-skill assertion is deleted
-- **THEN** implementation evidence identifies the retained pack-aware test that covers the behavior
+- **THEN** implementation evidence identifies the retained pack-aware test that covers the corresponding product behavior
+
+#### Scenario: A prose-only assertion or fixture is removed
+- **WHEN** a test locks instruction wording, body format, procedural semantics, command examples, or guardrail text
+- **THEN** the test or assertion is removed together with any fixture used solely for it
+- **AND THEN** no new automated prose assertion or semantic fixture replaces it

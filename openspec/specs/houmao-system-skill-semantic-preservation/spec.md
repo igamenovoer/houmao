@@ -29,7 +29,7 @@ Any additional intentional semantic change SHALL be recorded explicitly with its
 - **AND THEN** every link and route is updated to the new owned path
 
 ### Requirement: Original sources map to the fixed target owners
-The sixteen ordinary source skills SHALL map to the sixteen children of `houmao-shared-routines`. `houmao-agent-loop-pro` and `houmao-agent-loop-lite` SHALL map to top-level standalone skills. `houmao-touring` SHALL map to `houmao-admin-welcome`. `houmao-specialist-mgr` SHALL map to an admin/shared compatibility alias that delegates to agent-definition.
+The sixteen ordinary source skills SHALL retain their mapped ownership under `houmao-shared-routines` when the manifest adds current routines. `houmao-agent-loop-pro` and `houmao-agent-loop-lite` SHALL map to top-level standalone skills. `houmao-touring` SHALL map to `houmao-admin-welcome`. `houmao-specialist-mgr` SHALL map to an admin/shared alias that delegates to agent-definition.
 
 #### Scenario: Acceptance criteria
 
@@ -51,50 +51,52 @@ Every standalone `SKILL.md`, parent-scoped `SKILL-MAIN.md`, and executable subco
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-Each skill SHALL use the collection-of-routines or complex-procedure subcommand flavor that matches its behavior. Pro and lite loops SHALL use the complex-procedure flavor; peer routine routers SHALL use the collection flavor.
+Each skill SHALL use the collection-of-routines or complex-procedure subcommand flavor that matches its behavior. Pro and lite loops SHALL use the complex-procedure flavor. Peer routine routers SHALL use the collection flavor.
 
 #### Scenario: Validator inspects a migrated command page
 - **WHEN** a Markdown page can be selected as an executable operation
-- **THEN** it has a numbered workflow and freeform fallback
-- **AND THEN** its detailed domain procedure remains outside long workflow lines
+- **THEN** review checks its numbered workflow and freeform fallback
+- **AND THEN** review checks that the detailed procedure lives outside long workflow lines
 
 ### Requirement: Imsight role and notation rules are enforced
-Standalone roots SHALL use `SKILL.md`; shared children SHALL use `SKILL-MAIN.md`; and no runtime directory SHALL contain both. Pages using object-style designators SHALL declare the standard `skill_invocation_notation` frontmatter value.
-
-Skill and subskill entrypoints SHALL use bare object components, every subcommand component SHALL use parentheses, and command chains SHALL NOT return to a bare component after a subcommand begins.
+Standalone roots SHALL use `SKILL.md` and shared children SHALL use `SKILL-MAIN.md`. A runtime directory SHALL contain only its role-canonical entrypoint. Each entrypoint and each instruction page with object-style designators SHALL declare `metadata.skill_invocation_notation`. Skill path components SHALL be bare. All components in a command chain SHALL use parentheses and resolve to declared operations.
 
 #### Scenario: Route notation is validated
 - **WHEN** an entrypoint documents delegation from its route subcommand to a shared child command
 - **THEN** the entrypoint route is parenthesized as a subcommand
 - **AND THEN** the shared child is a bare subskill component followed by a parenthesized child command
+- **AND THEN** the page declares the standard notation under YAML `metadata`
 
 ### Requirement: Imsight routing descriptions and guardrails remain semantic
-Every direct shared child row SHALL contain one `When to Route Here` sentence that distinguishes it from siblings and is not copied verbatim from child metadata. Every skill entrypoint SHALL have a concise `## Guardrails` section whose bullets begin `DO NOT` and contain only negative-action prevention.
-
-Positive requirements SHALL remain in workflows, contracts, or procedures. Rewriting a source prohibition into Imsight guardrail form SHALL preserve its force and scope.
+Each direct shared child SHALL have a distinct `When to Route Here` sentence that preserves the precise trigger boundary. Each entrypoint SHALL have a concise `## Guardrails` section. Guardrail bullets SHALL begin with `DO NOT` and express prohibitions. Positive actions SHALL appear in the owning workflow, contract, or procedure.
 
 #### Scenario: Original guardrail is normalized
 - **WHEN** a source entrypoint contains a domain-specific `Do not` rule
 - **THEN** the target retains the prohibition as a `DO NOT` guardrail or an equally strong owning-page constraint
-- **AND THEN** it does not silently turn the prohibition into optional advice
+- **AND THEN** it preserves the force and scope of that prohibition
+
+#### Scenario: Positive action appears among guardrails
+- **WHEN** an entrypoint or command page requires the operator to perform a positive action
+- **THEN** the owning workflow, contract, or procedure describes that action
 
 ### Requirement: Discovery metadata preserves activation meaning
-Frontmatter descriptions SHALL start with `Use when...`, describe trigger conditions, and retain the original manual, explicit, or narrow implicit activation boundary. `agents/openai.yaml` SHALL agree with that boundary.
-
-Welcome MAY allow narrow implicit orientation. Actor entrypoints, shared routines, and both loops SHALL disable implicit invocation. Manual-only source behavior SHALL NOT become generic automatic routing because the skill is now public.
+Frontmatter descriptions SHALL start with `Use when` and describe trigger conditions. `agents/openai.yaml` SHALL agree with the manifest. Admin and agent entrypoints SHALL permit implicit selection in their respective actor contexts. Welcome, shared routines, and both loop roots SHALL retain manual initial selection.
 
 #### Scenario: Host discovers the pro loop skill
 - **WHEN** a host loads pro-loop metadata
 - **THEN** the metadata allows explicit manual invocation
 - **AND THEN** it does not implicitly route a generic loop request to pro
 
-### Requirement: Semantic preservation has executable verification
-Tests SHALL use a checked-in preservation inventory derived from the Git baseline and SHALL assert operations, aliases, default behavior, read-only help, critical gates, actor boundaries, outputs, and stop conditions for every migrated source.
+#### Scenario: Host selects an actor entrypoint
+- **WHEN** the host handles a Houmao-related request in a genuine managed-agent context
+- **THEN** the managed-agent entrypoint is eligible for implicit initial selection
+- **AND THEN** it applies the configured posture and route eligibility
 
-The test suite SHALL NOT require Git history at runtime. Byte equality SHALL be used for static installation, while behavior-preservation assertions SHALL be used for reformatted skill content.
+### Requirement: Editorial review verifies skill instruction semantics
+Maintainers SHALL review changed instructions against the supported operations, triggers, guardrails, and output contracts. Unit tests of skill assets SHALL verify file existence and expected layout. Installer tests SHALL continue to verify that a static copy is byte-identical to its packaged source.
 
 #### Scenario: Skill prose changes without operation loss
 - **WHEN** an Imsight formatting edit changes wording or file layout
-- **THEN** semantic-preservation tests continue to validate the source-derived operation and gate inventory
-- **AND THEN** byte-identity tests apply only between the final static source and installed copy
-
+- **THEN** editorial review verifies preservation of operations, aliases, default behavior, read-only help, critical gates, actor boundaries, outputs, and stop conditions
+- **AND THEN** asset unit tests verify file structure without a prose fixture or Git history
+- **AND THEN** copy verification compares the final source and installed bytes as opaque data
