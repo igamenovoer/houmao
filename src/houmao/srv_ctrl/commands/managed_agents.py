@@ -20,7 +20,7 @@ from houmao.mailbox.online_models import OnlineAuthorityContext
 from houmao.mailbox.errors import GatewayMailboxMutationError
 
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -65,7 +65,7 @@ from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDis
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
 from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
-from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
+from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWebSessionState
 from houmao.agents.realm_controller.backends.service_runtime import ManagedServiceSession
 from houmao.agents.realm_controller.web_observation import WebObservation
 from houmao.agents.realm_controller.gateway_storage import web_attach_metadata_from_state
@@ -116,7 +116,9 @@ from houmao.mailbox.services import (
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.owner_admission import (
     OwnerAdmissionError,
+    guard_owner_operation,
     observe_owner_prompt,
+    owner_operation_guard_exists,
     reserve_owner_prompt,
 )
 from houmao.agents.realm_controller.native_refresh import (
@@ -214,6 +216,7 @@ from houmao.agents.realm_controller.registry_storage import (
 )
 from houmao.agents.realm_controller.runtime import (
     RuntimeSessionController,
+    dsh_web_processes_have_exited,
     resume_runtime_session,
     resume_stopped_runtime_session,
 )
@@ -2906,14 +2909,23 @@ def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
             generation = controller.registry_generation_id
             if generation is None:
                 raise SessionManifestError("The selected owner has no current generation.")
-            attempt = observe_owner_prompt(controller.manifest_path, generation)
-            result = (
-                interrupt_owned_headless_attempt(attempt.turn_dir)
-                if attempt is not None
-                else SessionControlResult(
-                    status="ok", action="interrupt", detail="No in-flight managed headless request."
-                )
+            manifest_path = controller.manifest_path
+            guard = (
+                guard_owner_operation(manifest_path, generation)
+                if owner_operation_guard_exists(manifest_path)
+                else nullcontext()
             )
+            with guard:
+                attempt = observe_owner_prompt(manifest_path, generation)
+                result = (
+                    interrupt_owned_headless_attempt(attempt.turn_dir)
+                    if attempt is not None
+                    else SessionControlResult(
+                        status="ok",
+                        action="interrupt",
+                        detail="No in-flight managed headless request.",
+                    )
+                )
         else:
             result = controller.interrupt()
     except (BrainLaunchRuntimeError, OSError) as exc:
@@ -3044,6 +3056,47 @@ def _recover_broken_active_local_record(
 
     require_same_recovery_record(original, current)
     manifest = _read_recovery_manifest(current)
+    manifest_path = Path(current.runtime.manifest_path)
+    guard = (
+        guard_owner_operation(manifest_path, current.generation_id, recover_lost_maintenance=True)
+        if owner_operation_guard_exists(manifest_path)
+        else nullcontext()
+    )
+    with guard as maintenance:
+        if maintenance is not None:
+            _require_stopped_dsh_maintenance_owner(current, manifest)
+        result = _recover_verified_broken_active_record(current, manifest)
+        if maintenance is not None:
+            maintenance.fence_after_recovery()
+        return result
+
+
+def _require_stopped_dsh_maintenance_owner(
+    record: ManagedAgentRegistryRecordV3, manifest: SessionManifestPayloadV4 | None
+) -> None:
+    """Verify native process exit before broken tmux can retire lost file maintenance."""
+
+    error = "The former native execution has no verified shutdown evidence."
+    if manifest is None or manifest.backend != "dsh_web":
+        raise OwnerAdmissionError("uncertain", error)
+    try:
+        state = DshWebSessionState.from_payload(manifest.backend_state)
+    except (BrainLaunchRuntimeError, TypeError, ValueError):
+        raise OwnerAdmissionError("uncertain", error) from None
+    if (
+        state.web_identity["agent_id"] != record.agent_id
+        or state.web_identity["runtime_session_id"] != manifest.runtime.session_id
+        or state.web_identity["generation"] != record.generation_id
+        or not dsh_web_processes_have_exited(state)
+    ):
+        raise OwnerAdmissionError("uncertain", error)
+
+
+def _recover_verified_broken_active_record(
+    current: ManagedAgentRegistryRecordV3, manifest: SessionManifestPayloadV4 | None
+) -> _BrokenActiveRecoveryResult:
+    """Settle broken terminal authority while owner maintenance cannot start."""
+
     health = _probe_recorded_terminal(current, manifest)
     if health.state not in {"degraded_missing_primary", "stale_missing_session"}:
         raise SessionManifestError(
@@ -3162,7 +3215,7 @@ def _stop_degraded_or_stale_local_managed_agent(
             manifest_path=_non_empty_record_manifest_path(record),
             session_root=_non_empty_record_session_root(record),
         )
-    except (OSError, SessionManifestError) as exc:
+    except (OSError, OwnerAdmissionError, SessionManifestError) as exc:
         manifest_path = _non_empty_record_manifest_path(record)
         session_root = _non_empty_record_session_root(record)
         return HoumaoManagedAgentActionResponse(
@@ -3245,18 +3298,26 @@ def relaunch_managed_agent(
             )
         tracked_agent_id = target.identity.tracked_agent_id
 
-    result = (
-        controller.revive_stopped_session(chat_session=relaunch_chat_session)
-        if (
-            target.mode == "local_stopped"
-            or (target.record is not None and _record_lifecycle_state(target.record) == "stopped")
+    try:
+        result = (
+            controller.revive_stopped_session(chat_session=relaunch_chat_session)
+            if (
+                target.mode == "local_stopped"
+                or (
+                    target.record is not None
+                    and _record_lifecycle_state(target.record) == "stopped"
+                )
+            )
+            else (
+                controller.relaunch(chat_session=relaunch_chat_session)
+                if relaunch_chat_session is not None
+                else controller.relaunch()
+            )
         )
-        else (
-            controller.relaunch(chat_session=relaunch_chat_session)
-            if relaunch_chat_session is not None
-            else controller.relaunch()
+    except OwnerAdmissionError as exc:
+        return HoumaoManagedAgentActionResponse(
+            success=False, tracked_agent_id=tracked_agent_id, detail=str(exc)
         )
-    )
     return HoumaoManagedAgentActionResponse(
         success=result.status == "ok",
         tracked_agent_id=tracked_agent_id,
@@ -3277,7 +3338,7 @@ def _relaunch_degraded_or_stale_local_managed_agent(
         recovery = _recover_broken_active_local_record(target)
     except OwnerTerminalInspectionUnavailable as exc:
         raise click.ClickException(str(exc)) from exc
-    except (OSError, SessionManifestError) as exc:
+    except (OSError, OwnerAdmissionError, SessionManifestError) as exc:
         raise click.ClickException(
             f"Managed agent `{record.agent_name or record.agent_id}` cannot be relaunched: "
             f"failed to reconcile broken active local authority first ({exc}). "

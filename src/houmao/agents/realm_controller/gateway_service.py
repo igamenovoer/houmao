@@ -102,8 +102,10 @@ from houmao.agents.realm_controller.owner_admission import (
     OwnerAdmissionError,
     OwnerPromptAttempt,
     OwnerPromptClaim,
+    ensure_owner_input_allowed,
     exact_web_prompt_admission,
     exact_web_prompt_result,
+    guard_owner_operation,
     observe_owner_prompt,
     reserve_owner_prompt,
 )
@@ -150,6 +152,8 @@ from houmao.gateway.access import (
     parse_access_document,
 )
 from houmao.gateway.authorization_models import AuthorizationActor, Permission
+from houmao.gateway.file_edits.publication import NativeFileMount
+from houmao.gateway.file_edits.routes import GatewayFileEdits, register_file_edit_routes
 from houmao.gateway.operations import ATTACHMENT_ACTION, GatewayOperation
 from houmao.gateway.deployment import GatewayDeployment, GatewayEndpointDescriptor
 from houmao.gateway.owner_authority import RELAY_HEADER, consume_gateway_relay
@@ -2326,6 +2330,7 @@ class GatewayServiceRuntime:
         self.m_port: int = port
         self.m_access_runtime: GatewayRuntimeAccess | None = None
         self.m_access_policy: GatewayAccessPolicy | None = None
+        self.m_file_edits: GatewayFileEdits | None = None
         self.m_deployment: GatewayDeployment | None = None
         self.m_presence_id: str = uuid.uuid4().hex
         self.m_public_attempts: list[float] = []
@@ -2437,10 +2442,11 @@ class GatewayServiceRuntime:
         """Load authoritative deployment and owner policy before plugin staging."""
 
         try:
-            if self.m_manifest_path is None:
+            manifest_path = self.m_manifest_path
+            if manifest_path is None:
                 raise GatewayAccessError(503, "policy_unavailable")
-            access = gateway_access_for_manifest(self.m_manifest_path)
-            deployment = load_gateway_deployment(self.m_manifest_path)
+            access = gateway_access_for_manifest(manifest_path)
+            deployment = load_gateway_deployment(manifest_path)
             selected = deployment or GatewayDeployment()
             if self.m_host != selected.bind_host or (
                 selected.bind_port is not None and selected.bind_port != self.m_port
@@ -2462,8 +2468,36 @@ class GatewayServiceRuntime:
             supports=lambda permission: (
                 self._supports_plugin_permission(permission)
                 or supports_ag_ui_permission(permission)
+                or (self.m_file_edits is not None and self.m_file_edits.supports(permission))
             ),
         )
+        self.m_file_edits = GatewayFileEdits(
+            policy=self._require_access_policy,
+            target=self._access_target,
+            presence_id=self.m_presence_id,
+            manifest_path=manifest_path,
+            resolve_mount=self._resolve_qualified_file_mount,
+        )
+
+    def _resolve_qualified_file_mount(self) -> NativeFileMount | None:
+        """Load only a qualified DSH Web mount in the current execution binding."""
+
+        adapter = self.m_adapter
+        if self.m_attach_contract.backend != "dsh_web" or not isinstance(
+            adapter, _NativeWebGatewayAdapter
+        ):
+            return None
+        try:
+            manifest = self._verified_owner_manifest(
+                expected_generation=self._access_target().incarnation
+            )
+            if manifest is None:
+                return None
+            controller = adapter._resume_controller()
+            backend = controller.backend_session
+            return backend.skill_file_mount() if isinstance(backend, DshWebSession) else None
+        except (OwnerAdmissionError, GatewayError, SessionManifestError, OSError, ValueError):
+            raise GatewayAccessError(503, "file_mount_unavailable") from None
 
     def _plugin_permissions(self) -> tuple[Permission, ...]:
         """Project only the actions established by the validated plugin host."""
@@ -2635,6 +2669,39 @@ class GatewayServiceRuntime:
             reconcile_tui=self._reconcile_tui_prompt,
         )
 
+    @contextmanager
+    def _owner_effect(self, manifest: SessionManifestPayloadV4 | None) -> Iterator[None]:
+        """Keep an immediate native effect outside publication's owner reservation."""
+
+        if manifest is None:
+            yield
+            return
+        manifest_path = self.m_manifest_path
+        generation = manifest.registry_generation_id
+        if manifest_path is None or generation is None:
+            raise OwnerAdmissionError("unavailable", "Gateway owner authority is unavailable.")
+        with guard_owner_operation(manifest_path, generation):
+            self._verified_owner_manifest(expected_generation=generation)
+            yield
+
+    @contextmanager
+    def _queue_input_transaction(
+        self, manifest: SessionManifestPayloadV4 | None
+    ) -> Iterator[sqlite3.Connection]:
+        """Check owner maintenance and append input in the same queue transaction."""
+
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            if manifest is not None:
+                manifest_path = self.m_manifest_path
+                generation = manifest.registry_generation_id
+                if manifest_path is None or generation is None:
+                    raise OwnerAdmissionError(
+                        "unavailable", "Gateway owner authority is unavailable."
+                    )
+                connection.execute("BEGIN IMMEDIATE")
+                ensure_owner_input_allowed(connection, manifest_path, generation)
+            yield connection
+
     @staticmethod
     def _owner_http_error(error: OwnerAdmissionError) -> HTTPException:
         """Return a safe typed refusal before executing a provider operation."""
@@ -2755,6 +2822,7 @@ class GatewayServiceRuntime:
                 or operation.registration
                 or operation.transport_public
                 or operation.direct_web_entry
+                or operation.selector == "files-resolved"
                 or self.m_access_runtime is None
             ):
                 raise GatewayAccessError(401, "invalid_proof")
@@ -2774,7 +2842,7 @@ class GatewayServiceRuntime:
                 signature=proof.get(SIGNATURE_HEADER),
             )
             return None
-        if operation.selector == "ag-ui-resolved":
+        if operation.selector in {"ag-ui-resolved", "files-resolved"}:
             request.state.gateway_actor = policy.authenticate(
                 issuer=issuer,
                 request=binding,
@@ -3301,36 +3369,54 @@ class GatewayServiceRuntime:
         completed = threading.Event()
         results: list[NativeRefreshResultV1] = []
 
-        def run() -> None:
-            """Keep reservation ownership after caller timeout until actual settlement."""
+        def settle(result: NativeRefreshResultV1, *, uncertain: bool) -> None:
+            """Publish the worker result and keep local admission closed if needed."""
 
-            try:
-                with controller.execution_scope():
-                    result = perform_native_refresh(
-                        controller,
-                        payload,
-                        deadline_monotonic=deadline,
-                        observation=before,
-                    )
-            except Exception:
-                result = self._unconfirmed_native_refresh_result(before)
             with self.m_lock:
                 results.append(result)
                 if self.m_native_refresh_operation_id == operation_id:
                     self.m_native_refresh_active = False
-                    self.m_native_refresh_uncertain = not (
+                    self.m_native_refresh_uncertain = uncertain
+                    self.m_reminder_condition.notify_all()
+                completed.set()
+
+        def run() -> None:
+            """Keep reservation ownership after caller timeout until actual settlement."""
+
+            try:
+                manifest = self._verified_owner_manifest(
+                    expected_generation=authority.target.incarnation if authority else None
+                )
+                with self._owner_effect(manifest):
+                    try:
+                        with controller.execution_scope():
+                            result = perform_native_refresh(
+                                controller,
+                                payload,
+                                deadline_monotonic=deadline,
+                                observation=before,
+                            )
+                    except Exception:
+                        result = self._unconfirmed_native_refresh_result(before)
+                    uncertain = not (
                         result.native_settled
                         and result.native_ready
                         and refresh_guard_can_release(result.observation)
                     )
-                    self.m_reminder_condition.notify_all()
-                completed.set()
-            if (
-                not result.native_settled
-                or not result.native_ready
-                or not refresh_guard_can_release(result.observation)
-            ):
-                self._await_native_refresh_settlement(operation_id)
+                    settle(result, uncertain=uncertain)
+                    if uncertain:
+                        self._await_native_refresh_settlement(operation_id)
+            except OwnerAdmissionError as exc:
+                busy = exc.code in {"not_ready", "uncertain"}
+                settle(
+                    NativeRefreshResultV1(
+                        method="none",
+                        outcome="busy" if busy else "unavailable",
+                        observation=before,
+                        diagnostics=["managed_input_pending"] if busy else ["owner_unavailable"],
+                    ),
+                    uncertain=False,
+                )
 
         thread = threading.Thread(target=run, name="gateway-native-refresh", daemon=True)
         self.m_native_refresh_thread = thread
@@ -3964,7 +4050,10 @@ class GatewayServiceRuntime:
             return self._create_owned_interrupt(manifest, authority=authority)
         if self.m_attach_contract.backend in MANAGED_WEB_BACKENDS:
             return self._create_web_request(
-                request_payload, expected_generation=expected_generation, authority=authority
+                request_payload,
+                manifest=manifest,
+                expected_generation=expected_generation,
+                authority=authority,
             )
         with self.m_lock:
             claim: OwnerPromptClaim | None = None
@@ -4047,7 +4136,7 @@ class GatewayServiceRuntime:
                 "authority": authority.model_dump(mode="json") if authority is not None else None,
             }
             try:
-                with sqlite3.connect(self.m_paths.queue_path) as connection:
+                with self._queue_input_transaction(manifest) as connection:
                     connection.execute(
                         """
                     INSERT INTO gateway_requests (
@@ -4070,9 +4159,11 @@ class GatewayServiceRuntime:
                             json.dumps(admission_metadata),
                         ),
                     )
-            except sqlite3.Error:
+            except (sqlite3.Error, OwnerAdmissionError) as exc:
                 if claim is not None:
                     claim.finish("failed", evidence="request_publication_failed")
+                if isinstance(exc, OwnerAdmissionError):
+                    raise self._owner_http_error(exc) from None
                 raise
             if claim is not None:
                 self.m_reserved_queue_prompts[request_id] = claim
@@ -4117,30 +4208,34 @@ class GatewayServiceRuntime:
         request_id = generate_gateway_request_id()
         self.fence_access(authority, operation_id=request_id)
         accepted_at = now_utc_iso()
-        with self.m_lock, sqlite3.connect(self.m_paths.queue_path) as connection:
-            epoch = self.m_current_epoch
-            connection.execute(
-                """
-                INSERT INTO gateway_requests (request_id,request_kind,payload_json,state,
-                    accepted_at_utc,started_at_utc,managed_agent_instance_epoch)
-                VALUES (?,'interrupt',?,'observing',?,?,?)
-                """,
-                (
-                    request_id,
-                    json.dumps({"target_request_id": attempt.request_id if attempt else None}),
-                    accepted_at,
-                    accepted_at,
-                    epoch,
-                ),
-            )
+        try:
+            with self.m_lock, self._queue_input_transaction(manifest) as connection:
+                epoch = self.m_current_epoch
+                connection.execute(
+                    """
+                    INSERT INTO gateway_requests (request_id,request_kind,payload_json,state,
+                        accepted_at_utc,started_at_utc,managed_agent_instance_epoch)
+                    VALUES (?,'interrupt',?,'observing',?,?,?)
+                    """,
+                    (
+                        request_id,
+                        json.dumps({"target_request_id": attempt.request_id if attempt else None}),
+                        accepted_at,
+                        accepted_at,
+                        epoch,
+                    ),
+                )
+        except OwnerAdmissionError as exc:
+            raise self._owner_http_error(exc) from None
         if attempt is not None:
             try:
-                if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
-                    self.m_adapter.interrupt(operation_id=attempt.request_id)
-                else:
-                    result = interrupt_owned_headless_attempt(attempt.turn_dir)
-                    if result.status != "ok":
-                        raise GatewayError(result.detail)
+                with self._owner_effect(manifest):
+                    if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
+                        self.m_adapter.interrupt(operation_id=attempt.request_id)
+                    else:
+                        result = interrupt_owned_headless_attempt(attempt.turn_dir)
+                        if result.status != "ok":
+                            raise GatewayError(result.detail)
             except (GatewayError, BackendExecutionError) as exc:
                 self._finish_request(
                     request_id=request_id,
@@ -4148,6 +4243,8 @@ class GatewayServiceRuntime:
                     error_detail=str(exc),
                     result_json=None,
                 )
+                if isinstance(exc, OwnerAdmissionError):
+                    raise self._owner_http_error(exc) from None
                 raise HTTPException(status_code=409, detail=str(exc)) from None
         self._finish_request(
             request_id=request_id,
@@ -4171,6 +4268,7 @@ class GatewayServiceRuntime:
         self,
         request_payload: GatewayRequestCreateV1,
         *,
+        manifest: SessionManifestPayloadV4 | None,
         expected_generation: str | None = None,
         authority: GatewayGrant | None = None,
     ) -> GatewayAcceptedRequestV1:
@@ -4223,7 +4321,7 @@ class GatewayServiceRuntime:
                 "identity": status.web.identity.model_dump(mode="json"),
             }
             try:
-                with sqlite3.connect(self.m_paths.queue_path) as connection:
+                with self._queue_input_transaction(manifest) as connection:
                     connection.execute(
                         "INSERT INTO gateway_requests (request_id,request_kind,payload_json,state,accepted_at_utc,started_at_utc,managed_agent_instance_epoch) VALUES (?,?,?,'observing',?,?,?)",
                         (
@@ -4235,7 +4333,8 @@ class GatewayServiceRuntime:
                             self.m_current_epoch,
                         ),
                     )
-                    connection.commit()
+            except OwnerAdmissionError as exc:
+                raise self._owner_http_error(exc) from None
             except sqlite3.IntegrityError as exc:
                 raise HTTPException(
                     status_code=409, detail="Web request identity is already in use"
@@ -4253,7 +4352,11 @@ class GatewayServiceRuntime:
             if request_payload.kind == "interrupt":
                 # Capture/recheck the native active turn now. A gateway worker
                 # must never turn this into a cancellation of later human work.
-                adapter.interrupt_captured(captured_state, operation_id=operation_id)
+                try:
+                    with self._owner_effect(manifest):
+                        adapter.interrupt_captured(captured_state, operation_id=operation_id)
+                except OwnerAdmissionError as exc:
+                    raise self._owner_http_error(exc) from None
                 self._finish_web_operation(request_id, succeeded=True)
             else:
                 submit = cast(GatewayRequestPayloadSubmitPromptV1, request_payload.payload)
@@ -5671,7 +5774,9 @@ class GatewayServiceRuntime:
                 },
             )
         try:
-            self._require_owner_control("send_keys", expected_generation=expected_generation)
+            manifest = self._require_owner_control(
+                "send_keys", expected_generation=expected_generation
+            )
         except OwnerAdmissionError as exc:
             raise self._owner_http_error(exc) from None
         with self.m_lock:
@@ -5688,12 +5793,15 @@ class GatewayServiceRuntime:
                     detail="Gateway admission is blocked because the managed agent is unavailable.",
                 )
 
-        self.fence_access(authority)
         try:
-            detail = self.m_adapter.send_control_input(
-                sequence=request_payload.sequence,
-                escape_special_keys=request_payload.escape_special_keys,
-            )
+            with self._owner_effect(manifest):
+                self.fence_access(authority)
+                detail = self.m_adapter.send_control_input(
+                    sequence=request_payload.sequence,
+                    escape_special_keys=request_payload.escape_special_keys,
+                )
+        except OwnerAdmissionError as exc:
+            raise self._owner_http_error(exc) from None
         except (GatewayError, BackendExecutionError, CaoApiError, ValidationError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -7635,7 +7743,7 @@ class GatewayServiceRuntime:
                         if observation is not None
                         else nullcontext()
                     )
-                    with effect:
+                    with effect, self._owner_effect(self._require_owner_control("prompt")):
                         self._dispatch_tui_compaction_only(lock_held=True)
                         record = write_gateway_mail_notifier_record(
                             self.m_paths.queue_path,
@@ -7648,7 +7756,7 @@ class GatewayServiceRuntime:
                             ),
                         )
                         context_action_outcomes.append("pre_notification_compact_completed")
-                except (GatewayError, OnlineBindingError) as exc:
+                except (GatewayError, OnlineBindingError, OwnerAdmissionError) as exc:
                     write_gateway_mail_notifier_record(
                         self.m_paths.queue_path,
                         scope_key=record.scope_key,
@@ -7686,10 +7794,10 @@ class GatewayServiceRuntime:
                         if observation is not None
                         else nullcontext()
                     )
-                    with effect:
+                    with effect, self._owner_effect(self._require_owner_control("prompt")):
                         self._dispatch_tui_context_reset_only(lock_held=True)
                         context_action_outcomes.append("clear_context_completed")
-                except (GatewayError, OnlineBindingError) as exc:
+                except (GatewayError, OnlineBindingError, OwnerAdmissionError) as exc:
                     write_gateway_mail_notifier_record(
                         self.m_paths.queue_path,
                         scope_key=record.scope_key,
@@ -8121,18 +8229,19 @@ class GatewayServiceRuntime:
                     )
                 else:
                     assert reminder.send_keys_sequence is not None
-                    self.m_adapter.send_control_input(
-                        sequence=self._normalize_reminder_send_keys_sequence(
-                            sequence=reminder.send_keys_sequence,
-                            ensure_enter=reminder.send_keys_ensure_enter,
-                        ),
-                        escape_special_keys=False,
-                    )
+                    with self._owner_effect(self._require_owner_control("send_keys")):
+                        self.m_adapter.send_control_input(
+                            sequence=self._normalize_reminder_send_keys_sequence(
+                                sequence=reminder.send_keys_sequence,
+                                ensure_enter=reminder.send_keys_ensure_enter,
+                            ),
+                            escape_special_keys=False,
+                        )
             except GatewayAccessError as exc:
                 with self.m_reminder_condition:
                     reminder.paused = True
                 error_detail = exc.detail
-            except (GatewayError, CaoApiError, ValidationError) as exc:
+            except (GatewayError, BackendExecutionError, CaoApiError, ValidationError) as exc:
                 error_detail = str(exc)
             self._finish_reminder_execution(
                 reminder_id=reminder.reminder_id,
@@ -8926,19 +9035,20 @@ class GatewayServiceRuntime:
                     "interrupt", expected_generation=request_record.owner_generation
                 )
                 self.fence_access(request_record.authority, operation_id=request_id)
-                dispatch_started = True
-                if (
-                    manifest is not None
-                    and manifest.mode == "headless"
-                    and isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter)
-                ):
-                    active_attempt = self._owner_prompt_attempt(manifest)
-                    if active_attempt is not None:
-                        interrupted = interrupt_owned_headless_attempt(active_attempt.turn_dir)
-                        if interrupted.status != "ok":
-                            raise GatewayError(interrupted.detail)
-                else:
-                    self.m_adapter.interrupt()
+                with self._owner_effect(manifest):
+                    dispatch_started = True
+                    if (
+                        manifest is not None
+                        and manifest.mode == "headless"
+                        and isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter)
+                    ):
+                        active_attempt = self._owner_prompt_attempt(manifest)
+                        if active_attempt is not None:
+                            interrupted = interrupt_owned_headless_attempt(active_attempt.turn_dir)
+                            if interrupted.status != "ok":
+                                raise GatewayError(interrupted.detail)
+                    else:
+                        self.m_adapter.interrupt()
             else:
                 raise GatewayError(f"Unsupported gateway request kind: {request_kind!r}.")
         except (
@@ -9872,6 +9982,8 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         operation = getattr(request.state, "gateway_admitted_operation", None)
         if not isinstance(grant, GatewayGrant) or not isinstance(operation, GatewayOperation):
             return
+        if operation.selector == "files-resolved":
+            return
         if operation.path in {
             "/v1/requests",
             "/v1/control/prompt",
@@ -10673,6 +10785,9 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
     if isinstance(runtime, GatewayServiceRuntime):
         assert runtime.m_access_runtime is not None
+        file_edits = getattr(runtime, "m_file_edits", None)
+        if file_edits is not None:
+            register_file_edit_routes(app, file_edits)
         register_web_entry_routes(
             app,
             issuer=lambda: runtime.owner_connect_url,

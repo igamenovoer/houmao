@@ -69,6 +69,12 @@ from houmao.gateway.roster import add_admin_key, remove_admin_key
 GatewayGrant: TypeAlias = AuthorizationDecision
 
 
+def owner_handoff_id(operation_id: str) -> str:
+    """Encode an internal operation identity for the retained owner journal."""
+
+    return "request:" + hashlib.sha256(operation_id.encode()).hexdigest()
+
+
 class GatewayAccessPolicy:
     """Coordinate exact proof, semantic policy decisions, and current handoffs."""
 
@@ -213,15 +219,16 @@ class GatewayAccessPolicy:
 
         return self.m_authorizer.handoff(
             grant,
-            operation_id=(
-                uuid4().hex
-                if operation_id is None
-                else "request:" + hashlib.sha256(operation_id.encode()).hexdigest()
-            ),
+            operation_id=(uuid4().hex if operation_id is None else owner_handoff_id(operation_id)),
             target=self.m_proofs.target(),
             listener_id=self.m_listener_id,
             current_self=self._self_for(grant.actor),
         )
+
+    def handoff_evidence(self, operation_id: str) -> GatewayGrant | None:
+        """Recover the admitted basis recorded at an earlier operation boundary."""
+
+        return self.m_store.handoff_evidence(owner_handoff_id(operation_id))
 
     def verify_web_login(self, challenge: bytes, proofs: tuple[str, ...]) -> GatewayGrant:
         """Select a current enrolled signer that has Web entry permission."""

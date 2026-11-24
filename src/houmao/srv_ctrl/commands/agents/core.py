@@ -168,6 +168,7 @@ from houmao.project.launch_profiles import (
 from houmao.server.tui.process import PaneProcessInspector
 
 from .access import self_access_group, single_access_group
+from .files import single_files_group
 from .cleanup import cleanup_group
 from .external import external_group
 from .gateway import (
@@ -2498,6 +2499,7 @@ agents_group.add_command(turn_group)
 agents_group.add_command(memory_group)
 _install_scoped_agents_commands()
 agents_single_group.add_command(single_access_group)
+agents_single_group.add_command(single_files_group)
 agents_self_group.add_command(self_access_group)
 agents_single_group.add_command(admin_instance_state_group)
 agents_self_group.add_command(self_instance_state_group)

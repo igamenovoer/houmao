@@ -547,6 +547,7 @@ class DshPartialToolParams(StrictToolParams):
     provider: DshPartialProvider | None = None
     models: Sequence[DshPartialModel] | None = None
     skill_roots: list[str] | None = None
+    managed_web_skills: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     mcp_servers: Sequence[DshPartialMcpServer] | None = None
     permissions: DshPermissionParams = Field(default_factory=DshPermissionParams)
 
@@ -749,6 +750,8 @@ class DshToolParamsAdapter(ToolParamsAdapter[DshPartialToolParams, DshEffectiveT
 
         if backend not in {"raw_launch", "dsh_headless", "dsh_acp", "dsh_web"}:
             raise DshConfigurationError("DSH tool_params require a DSH launch backend")
+        if effective.managed_web_skills and backend not in {"raw_launch", "dsh_web"}:
+            raise DshConfigurationError("managed_web_skills requires the DSH Web backend.")
         if backend == "dsh_headless" and effective.mcp_servers:
             declarations = ", ".join(
                 f"{server.name!r} ({server.type or 'stdio'})" for server in effective.mcp_servers

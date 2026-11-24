@@ -59,11 +59,15 @@ def _runtime(
     *,
     agent_id: str = "owner1",
     session_name: str = "HOUMAO-web-integration",
+    managed_web_skills: bool = False,
 ) -> tuple[GatewayServiceRuntime, DshWebSession]:
     """Create owned native execution and reconstruct exact controllers without ambient accounts."""
 
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(root / "registry"))
     plan, provisional = _launch_plan(root, executable, endpoint)
+    if managed_web_skills:
+        setup = Path(plan.metadata["dsh"]["setup_path"])
+        setup.write_text(json.dumps({**json.loads(setup.read_text()), "managed_web_skills": True}))
     provisional.unlink()
     plan = bind_fixture_gateway_owner(
         plan,

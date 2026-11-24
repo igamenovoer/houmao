@@ -113,7 +113,7 @@ export function createCommonRefresh(ctx, callbacks) {
     const current = await registry.snapshot({cwd: callbacks.cwd, scope: agent, signal: deadline});
     const names = new Set();
     const expected = new Map();
-    let complete = current.complete && desired.complete;
+    let complete = current.complete && (desired?.complete ?? true);
     // Unknown consumers can also register an empty cached provider. Include
     // their declared skill dependency in coverage even with no winning names.
     const known = [filesystem.apply, office.apply, skillTool.apply];
@@ -121,19 +121,24 @@ export function createCommonRefresh(ctx, callbacks) {
       if (fiber.uid === null || !Object.hasOwn(fiber.inject ?? {}, 'skills')) continue;
       const scope = scopes.scopeOf(fiber.ctx);
       if (scope !== undefined && !chain.includes(scope)) continue;
+      if (callbacks.skillMount?.managesFiber(agent, fiber)) continue;
       const callback = fiber.runtime?.callback?.[cordis.symbols.original] ?? fiber.runtime?.callback;
       if (!known.includes(callback)) complete = false;
     }
     let configPending = false;
-    const missing = desired.rows.filter(row => !row.disabled && String(row.name).includes('dsh-skill-filesystem') && !visible.some(entry => entry.options.id === row.id));
-    const providers = [...visible.map(entry => ({entry, replacement: entry.options.id && scopes.scopeOf(entry.fiber.ctx) === undefined ? desired.rows.find(row => row.id === entry.options.id) : undefined, removed: entry.options.id && scopes.scopeOf(entry.fiber.ctx) === undefined && !desired.rows.some(row => row.id === entry.options.id)})), ...missing.map(replacement => ({entry: undefined, replacement, removed: false}))];
+    const missing = desired?.rows.filter(row => !row.disabled && String(row.name).includes('dsh-skill-filesystem') && !visible.some(entry => entry.options.id === row.id)) ?? [];
+    const providers = [...visible.map(entry => {
+      const global = scopes.scopeOf(entry.fiber.ctx) === undefined;
+      const replacement = entry.options.id && global ? desired?.rows.find(row => row.id === entry.options.id) : undefined;
+      return {entry, replacement, removed: desired !== undefined && entry.options.id && global && !replacement};
+    }), ...missing.map(replacement => ({entry: undefined, replacement, removed: false}))];
     for (const [order, {entry, replacement, removed}] of providers.entries()) {
       const scope = entry ? scopes.scopeOf(entry.fiber.ctx) : undefined;
       const level = scope === undefined ? 0 : chain.indexOf(scope) + 1;
       let raw = replacement?.config ?? entry?.options.config ?? {};
       // A standing preset keeps its mounted configuration. Read the public
       // resolved value without evaluating author expressions in an observer.
-      if (entry && scope !== undefined && expression(raw)) raw = entry.fiber.effectiveConfig;
+      if (entry && (!desired || scope !== undefined) && expression(raw)) raw = entry.fiber.effectiveConfig;
       if (expression(raw)) { complete = false; continue; }
       const config = filesystem.Config(raw);
       const abort = new AbortController();
@@ -157,12 +162,12 @@ export function createCommonRefresh(ctx, callbacks) {
     // Capture its pure provider registration outside the live registry so reads
     // compare current assets without invalidating the runtime's cached catalog.
     const officeEntries = [...ctx.loader.entries()].filter(entry => callback(entry) === office.apply && (scopes.scopeOf(entry.fiber.ctx) === undefined || chain.includes(scopes.scopeOf(entry.fiber.ctx))));
-    if (desired.rows.some(row => !row.disabled && String(row.name).includes('dsh-skill-office') && !officeEntries.some(entry => entry.options.id === row.id))) complete = false;
+    if (desired?.rows.some(row => !row.disabled && String(row.name).includes('dsh-skill-office') && !officeEntries.some(entry => entry.options.id === row.id))) complete = false;
     for (const entry of officeEntries) {
       const global = scopes.scopeOf(entry.fiber.ctx) === undefined;
-      const replacement = global ? desired.rows.find(row => row.id === entry.options.id) : undefined;
+      const replacement = global ? desired?.rows.find(row => row.id === entry.options.id) : undefined;
       let raw = replacement?.config ?? entry.options.config ?? {};
-      if (!global && expression(raw)) raw = entry.fiber.effectiveConfig;
+      if ((!desired || !global) && expression(raw)) raw = entry.fiber.effectiveConfig;
       // The selected rc.3 profile expression depends only on fixed profile
       // identity and process environment. Other expressions remain unknown.
       if (raw.pythonEnvironment?.__jsExpr === "ctx.get('profileContext')?.name === 'desktop' && process.env.DSH_PRIMARY_RUNTIME ? 'workspace-dependencies' : 'user'") raw = {...raw, pythonEnvironment: entry.fiber.effectiveConfig.pythonEnvironment};
@@ -172,13 +177,22 @@ export function createCommonRefresh(ctx, callbacks) {
       if (!factory) { complete = false; continue; }
       const provider = factory({signal: deadline, invalidate() {}});
       names.add(provider.name);
-      if ((global && !replacement) || replacement?.disabled) { configPending = true; continue; }
+      if ((desired && global && !replacement) || replacement?.disabled) { configPending = true; continue; }
       if (replacement && (replacement.name !== entry.options.name || !equal(replacement.config ?? {}, entry.options.config ?? {}))) configPending = true;
       const observation = await provider.list({cwd: callbacks.cwd, signal: deadline});
       if (!observation.complete) complete = false;
       for (const candidate of observation.candidates) {
         if (expected.has(candidate.name)) complete = false;
         else expected.set(candidate.name, summary(candidate));
+      }
+    }
+    const managed = await callbacks.skillMount?.observeCandidates(agent, deadline);
+    if (managed) {
+      names.add(callbacks.skillMount.providerName);
+      complete &&= managed.complete;
+      for (const candidate of managed.entries) {
+        if (expected.has(candidate.name)) complete = false;
+        expected.set(candidate.name, summary(candidate));
       }
     }
     // An opaque provider's cached contributions do not prove current inputs.
@@ -434,5 +448,11 @@ export function createCommonRefresh(ctx, callbacks) {
     } finally { clearTimeout(timer); }
   };
 
-  return {observe, refresh};
+  /** Confirm that invalidation will not apply unrelated changes from live providers. */
+  const checkSkillScope = async (agent, signal) => {
+    const [catalog] = await skills(agent, undefined, signal);
+    return catalog.complete && catalog.freshness === 'current';
+  };
+
+  return {observe, refresh, checkSkillScope};
 }

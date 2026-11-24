@@ -98,6 +98,11 @@ from houmao.agents.realm_controller.runtime_launch_environment import (
     read_runtime_launch_environment,
     write_runtime_launch_environment,
 )
+from houmao.agents.realm_controller.owner_admission import (
+    guard_owner_operation,
+    owner_operation_guard_exists,
+    owner_process_has_exited,
+)
 from .agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_NAMESPACE_PREFIX,
@@ -379,6 +384,19 @@ _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _BRAIN_ONLY_ROLE_NAME = "brain-only"
 _JOINED_SESSION_ORIGIN = "joined_tmux"
 _LOGGER = logging.getLogger(__name__)
+_OWNER_MAINTENANCE_GUARDED_OPERATIONS = frozenset(
+    {
+        "close",
+        "interrupt",
+        "relaunch",
+        "revive_stopped_session",
+        "send_input_ex",
+        "send_mail_prompt",
+        "send_prompt",
+        "send_web_prompt",
+        "stop",
+    }
+)
 _RETIRED_MEMORY_ENV_VARS = frozenset(
     {
         "HOUMAO_JOB_DIR",
@@ -602,9 +620,40 @@ def _execution_bound_controller(
             raise SessionManifestError("Read-only execution scope cannot mutate runtime state")
         with _runtime_execution_scope(controller.launch_plan, controller.m_tmux_binding):
             _validate_controller_generation(controller)
-            return operation(controller, *args, **kwargs)
+            generation = controller.registry_generation_id
+            if (
+                operation.__name__ not in _OWNER_MAINTENANCE_GUARDED_OPERATIONS
+                or generation is None
+                or controller.execution_binding is None
+                or not owner_operation_guard_exists(controller.manifest_path)
+            ):
+                return operation(controller, *args, **kwargs)
+            recovery = operation.__name__ == "stop" and kwargs.get("force_cleanup") is True
+            with guard_owner_operation(
+                controller.manifest_path, generation, recover_lost_maintenance=recovery
+            ) as maintenance:
+                _validate_controller_generation(controller)
+                result = operation(controller, *args, **kwargs)
+                if (
+                    maintenance is not None
+                    and isinstance(result, SessionControlResult)
+                    and result.status == "ok"
+                ):
+                    maintenance.fence_after_recovery()
+                return result
 
     return bound
+
+
+def dsh_web_processes_have_exited(state: DshWebSessionState) -> bool:
+    """Verify the saved native and supervisor process births have both stopped."""
+
+    return (
+        state.native_pid is not None
+        and state.native_birth_token is not None
+        and owner_process_has_exited(state.native_pid, state.native_birth_token)
+        and owner_process_has_exited(state.supervisor_pid, state.supervisor_birth_token)
+    )
 
 
 def _execution_scoped_start(
@@ -1167,6 +1216,17 @@ class RuntimeSessionController:
             result = self.backend_session.terminate()
         finally:
             _stop_hook_observation_for_controller(self)
+        if (
+            result.status == "ok"
+            and force_cleanup
+            and isinstance(self.backend_session, DshWebSession)
+            and not dsh_web_processes_have_exited(self.backend_session.state)
+        ):
+            result = SessionControlResult(
+                status="error",
+                action="terminate",
+                detail="DSH Web native execution shutdown is unconfirmed.",
+            )
         if result.status == "ok":
             self.tmux_session_name = last_tmux_session_name
             self.persist_manifest(refresh_registry=False)

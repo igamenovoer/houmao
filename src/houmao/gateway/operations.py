@@ -16,6 +16,7 @@ from houmao.agents.realm_controller.gateway_models import (
 from houmao.gateway._access_storage import GatewayAccessError
 from houmao.gateway.access_models import parse_access_document
 from houmao.gateway.authorization_models import Permission
+from houmao.gateway.file_edits.contracts import FILE_EDIT_PATH, FILE_REQUESTS
 
 WEB_ENTRY = Permission(resource="native:web", action="web.enter")
 PROMPT = Permission(resource="agent", action="agent.prompt")
@@ -274,6 +275,12 @@ _operations = (
 
 CORE_OPERATIONS = {
     **{(method, path): GatewayOperation(path, None) for method, path in _public},
+    **{
+        ("POST", f"{FILE_EDIT_PATH}/{name}"): GatewayOperation(
+            f"{FILE_EDIT_PATH}/{name}", None, selector="files-resolved"
+        )
+        for name in FILE_REQUESTS
+    },
     **{
         (method, path): (
             GatewayOperation(path, None, selector="ag-ui-resolved")

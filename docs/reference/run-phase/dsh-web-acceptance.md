@@ -57,6 +57,12 @@ The independent contract/authority suite passed 53 cases: 27 regressions for str
 
 The native-result probe supplies controlled pending/failure diagnostics around actual native profile reconciliation. These checks establish result preservation, not arbitrary HMR code replacement. Full HMR replacement, arbitrary user extension lifecycle behavior, and external MCP package revisions remain outside the executed claims. The [control contract](dsh-web-control.md#common-plugin-observation-and-refresh) records these limits.
 
+## Versioned Skill Mount Evidence
+
+The versioned mount qualifies DSH `0.2.2-rc.3` under the `standard` native preset. The four cases in `tests/integration/agents/dsh/web/test_skill_file_edits.py` exercise the native user-facing skill catalog, the model-facing `skill` and `read` tools, and owner opt-in through the managed backend. They verify revision-specific bodies and assets, collision and unsafe-path refusal, settlement of exclusive native maintenance, same-home relaunch, and add, update, and removal without changing the native process or conversation. An active synthetic MCP server stays connected while its replacement declaration remains pending. The controlled model receives requests only from the explicitly prompted turns.
+
+The cross-account case in `tests/integration/agents/dsh/web/test_gateway_file_edits.py` ran with a provisioned second Linux account and separate isolated tmux sockets. The source had a configured SSH signer and no attached gateway or read access to the target's files. Its signed manager commands created two candidates. The owner separately authorized publication after the target's busy turn, and the target loaded the peer's skill and asset through its native tools. The test also checks the stale candidate, replaced generation, revoked credential, and absent target listener.
+
 ## Scenario Map
 
 ### agent-gateway

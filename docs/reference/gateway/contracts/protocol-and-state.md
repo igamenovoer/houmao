@@ -155,6 +155,7 @@ Current HTTP routes
 - `GET /v1/native-home`
 - `GET /v1/control/refresh`
 - `POST /v1/control/refresh`
+- `POST /v1/control/file-edits/<operation>` for direct, scoped file editing and receipts.
 - `GET /v1/plugins`
 - `GET /v1/plugins/{instance_id}/_status`
 - Plugin-owned routes below `/v1/plugins/{instance_id}` for explicitly selected, valid implementations.
@@ -390,6 +391,10 @@ Invalid, wrong-stream, or future-position cursors and invalid page limits return
 Refresh never invokes agent restart, host exit, cold activation, or relaunch. Typed POST outcomes use HTTP 200 for already-current/confirmed common refresh/qualified automatic discovery, 409 for busy or common restart-required, 422 for invalid input, 501 for unsupported control, and 503 for unavailable/failed/partial-unverified/uncertain execution. A restart requirement after partial application retains those applied effects.
 
 Managed ordinary work observes refresh admission, while health, status, interruption, and explicit recovery remain independently available. A caller timeout does not release a guard for native work still executing. Missing freshness evidence alone does not indefinitely block an otherwise settled valid runtime. See [Native Home and Common-Plugin Refresh](../operations/native-refresh.md) for state interpretation, broader native effects, and passive-server projection.
+
+### Versioned File Edits
+
+The direct `/v1/control/file-edits/` routes expose qualified logical mounts, private editable drafts, immutable candidates, and push receipts. Each operation checks the selected owner generation, listener, and exact mount permission. Push requires an expected base and a retained operation ID. The receipt reports publication and native activation separately. [Versioned File Edit HTTP Contract](file-edits.md)
 
 ### `POST /v1/requests`
 

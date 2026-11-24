@@ -1,5 +1,6 @@
 """Verify semantic Web output and exact supervisor cleanup authority."""
 
+from contextlib import nullcontext
 from pathlib import Path
 import json
 import shlex
@@ -13,10 +14,14 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 import houmao.agents.realm_controller.backends.dsh_web as backend_module
+import houmao.agents.realm_controller.backends.dsh_web_skill_mount as skill_mount_module
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWebSessionState
+from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
+from houmao.agents.realm_controller.backends.dsh_web_skill_mount import DshWebSkillMount
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.gateway._access_storage import GatewayAccessError
 
 
 @pytest.fixture
@@ -111,6 +116,71 @@ def test_read_only_web_state_uses_an_unpersisted_peer(
     assert session.m_client is existing
     assert session.state.cookie_path == cookie_path
     assert not Path(cookie_path).exists()
+
+
+@pytest.mark.parametrize(
+    ("native_error", "reply", "expected"),
+    [
+        ("outcome_uncertain", None, "file_native_admission_unconfirmed"),
+        ("protocol_mismatch", None, "file_native_admission_unconfirmed"),
+        ("transport_failure", None, "file_native_admission_unconfirmed"),
+        (None, {"maintenance_token": "unexpected"}, "file_native_admission_unconfirmed"),
+        ("busy", None, "file_native_busy"),
+        ("conflict", None, "file_native_conflict"),
+        ("unavailable", None, "file_native_unavailable"),
+    ],
+)
+def test_skill_mount_preserves_uncertainty_after_open_dispatch(
+    native_error: str | None, reply: object, expected: str
+) -> None:
+    """Distinguish a lost or malformed open response from a definite native refusal."""
+
+    peer = Mock()
+    peer.call.return_value = reply
+    if native_error is not None:
+        peer.call.side_effect = DshWebError(native_error, "Synthetic failure")
+    mount = DshWebSkillMount(Mock(), Mock(), {}, lambda _timeout: nullcontext(peer))
+    with pytest.raises(GatewayAccessError) as raised:
+        with mount.native_transaction(
+            "operation", "2" * 40, "1" * 40, deadline_monotonic=time.monotonic() + 5
+        ):
+            pytest.fail("Unconfirmed native admission must not yield a transaction")
+    assert raised.value.code == expected
+    assert peer.call.call_count == 1 and peer.call.call_args.args[0] == "skill_mount_open"
+
+
+def test_skill_mount_no_peer_or_receipt_cannot_imply_native_admission() -> None:
+    """Treat a failed connection as unavailability and empty status as no evidence."""
+
+    open_peer = Mock(side_effect=DshWebError("outcome_uncertain", "Connection setup failed"))
+    mount = DshWebSkillMount(Mock(), Mock(), {}, open_peer)
+    with pytest.raises(GatewayAccessError) as raised:
+        with mount.native_transaction(
+            "operation", "2" * 40, "1" * 40, deadline_monotonic=time.monotonic() + 5
+        ):
+            pytest.fail("A native connection is required")
+    assert raised.value.code == "file_native_unavailable"
+    peer = Mock()
+    peer.call.return_value = None
+    open_peer.side_effect = None
+    open_peer.return_value = nullcontext(peer)
+    assert mount.native_status("operation") == {}
+
+
+def test_skill_mount_checks_deadline_again_after_peer_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Leave native admission untouched when peer authentication spends the deadline."""
+
+    peer = Mock()
+    mount = DshWebSkillMount(Mock(), Mock(), {}, lambda _timeout: nullcontext(peer))
+    clock = SimpleNamespace(monotonic=Mock(side_effect=[1.0, 3.0]))
+    monkeypatch.setattr(skill_mount_module, "time", clock)
+    with pytest.raises(GatewayAccessError) as raised:
+        with mount.native_transaction("operation", "2" * 40, "1" * 40, deadline_monotonic=2.0):
+            pytest.fail("Expired native admission must not dispatch")
+    assert raised.value.code == "file_native_unavailable"
+    peer.call.assert_not_called()
 
 
 def test_browser_entry_requires_current_workspace_membership(

@@ -229,6 +229,7 @@ def native_web_factory(
         permissions: dict[str, str] | None = None,
         models: list[dict[str, Any]] | None = None,
         generation: str = "web-generation",
+        skill_projection: Path | None = None,
     ) -> NativeWebHost:
         """Create isolated private state or explicitly reuse a captured fixture home."""
 
@@ -289,6 +290,19 @@ def native_web_factory(
                     "provider": "deepseek-official",
                     "model": "controlled",
                     "permission_preset": prepared.metadata["permission_preset"],
+                    "native_version": subprocess.check_output(
+                        [str(dsh_executable), "--version"], text=True
+                    ).strip(),
+                    **(
+                        {
+                            "skill_mount": {
+                                "mount_id": (skill_projection / "mount-id").read_text().strip(),
+                                "projection_root": str(skill_projection),
+                            }
+                        }
+                        if skill_projection is not None
+                        else {}
+                    ),
                 }
             )
         )

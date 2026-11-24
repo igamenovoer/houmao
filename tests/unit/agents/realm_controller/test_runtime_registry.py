@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +32,10 @@ from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RelaunchChatSessionSelection,
     SessionControlResult,
+)
+from houmao.agents.realm_controller.owner_admission import (
+    OwnerAdmissionError,
+    reserve_owner_maintenance,
 )
 from houmao.agents.realm_controller.registry_storage import (
     TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL,
@@ -455,6 +460,17 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         if path.is_file()
     }
 
+    claim = reserve_owner_maintenance(
+        controller.manifest_path, started_record.generation_id, operation_id="first-publication"
+    )
+    with pytest.raises(OwnerAdmissionError, match="unresolved maintenance"):
+        controller.send_prompt("cannot enter during publication")
+    with pytest.raises(OwnerAdmissionError, match="unresolved maintenance"):
+        controller.relaunch()
+    with pytest.raises(OwnerAdmissionError, match="unresolved maintenance"):
+        controller.stop(force_cleanup=True)
+    claim.release_before_handoff(evidence="native_busy")
+
     with monkeypatch.context() as turn_patch:
         turn_patch.setenv("CURRENT_GEN_FEATURE", "later-controller-value")
         controller = resume_runtime_session(
@@ -526,8 +542,21 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert resumed.execution_binding == binding
     assert resumed_record.execution_binding == binding
 
+    lost = reserve_owner_maintenance(
+        resumed.manifest_path, resumed_record.generation_id, operation_id="lost-publication"
+    )
+    lost.handoff()
+    paths = gateway_paths_from_manifest_path(resumed.manifest_path)
+    assert paths is not None
+    with sqlite3.connect(paths.queue_path) as database:
+        database.execute(
+            "UPDATE managed_owner_maintenance SET caller_birth_token='proc:0' WHERE claim_id=?",
+            (lost.claim_id,),
+        )
     stop_result = resumed.stop(force_cleanup=True)
     assert stop_result.status == "ok"
+    assert lost.state() == "fenced"
+    assert not lost.finish(evidence="late_native_receipt", settled=True, ready=True)
     assert resolve_live_agent_record("gpu") is None
     assert resumed.agent_id is not None
     stopped_record = load_managed_agent_record_by_agent_id(resumed.agent_id)

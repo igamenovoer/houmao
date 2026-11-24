@@ -30,6 +30,7 @@ from houmao.gateway.access import (
     GatewayRequestBinding,
 )
 from houmao.gateway.authorization_models import Permission
+from houmao.gateway.file_edits.contracts import MAX_FILE_REQUEST_BYTES
 from houmao.gateway.operations import CORE_OPERATIONS, GatewayOperation
 from houmao.gateway.owner_authority import BACKING_HEADER, RELAY_HEADER
 
@@ -228,6 +229,8 @@ class GatewayAdmissionMiddleware:
             return CHALLENGE_INPUT_LIMIT
         if path == WEB_TICKET_PATH:
             return 4096 if signed else None
+        if operation.selector == "files-resolved":
+            return MAX_FILE_REQUEST_BYTES
         return _SIGNED_BODY_LIMIT if signed or operation.selector is not None else None
 
     async def _reject(

@@ -1,15 +1,20 @@
-"""Serialize one managed prompt across callers and preserve its native evidence."""
+"""Coordinate managed prompts and owner maintenance across processes."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import fcntl
 import json
 import os
 from pathlib import Path
+import re
+import secrets
 import sqlite3
+import stat
 from typing import Literal, cast
 
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
@@ -30,6 +35,7 @@ OwnerPromptTerminal = Literal["completed", "interrupted", "failed", "settled", "
 OwnerPromptState = Literal[
     "reserved", "handed_off", "completed", "interrupted", "failed", "settled", "uncertain"
 ]
+OwnerMaintenanceState = Literal["reserved", "handed_off", "uncertain", "settled", "fenced"]
 
 _TABLE_SQL = """
     CREATE TABLE IF NOT EXISTS managed_prompt_attempts (
@@ -52,10 +58,37 @@ _INDEX_SQL = """
     ON managed_prompt_attempts (manifest_path, generation_id)
     WHERE state IN ('reserved', 'handed_off', 'uncertain') AND origin != 'gateway_deferred'
 """
+_MAINTENANCE_TABLE = """
+    CREATE TABLE IF NOT EXISTS managed_owner_maintenance (
+        operation_id TEXT NOT NULL,
+        manifest_path TEXT NOT NULL,
+        generation_id TEXT NOT NULL,
+        claim_id TEXT NOT NULL UNIQUE,
+        state TEXT NOT NULL CHECK (state IN ('reserved', 'handed_off', 'uncertain',
+                                             'settled', 'fenced')),
+        reserved_at_utc TEXT NOT NULL,
+        handoff_at_utc TEXT,
+        settled_at_utc TEXT,
+        caller_pid INTEGER NOT NULL,
+        caller_birth_token TEXT NOT NULL,
+        evidence TEXT,
+        PRIMARY KEY (manifest_path, generation_id, operation_id)
+    )
+"""
+_MAINTENANCE_INDEX = """
+    CREATE UNIQUE INDEX IF NOT EXISTS managed_owner_maintenance_slot
+    ON managed_owner_maintenance (manifest_path, generation_id)
+    WHERE state IN ('reserved', 'handed_off', 'uncertain')
+"""
+_OWNER_OPERATION_GUARDS: ContextVar[frozenset[tuple[int, Path]]] = ContextVar(
+    "owner_operation_guards", default=frozenset()
+)
+_MAINTENANCE_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}")
+_ACTIVE_MAINTENANCE = frozenset({"reserved", "handed_off", "uncertain"})
 
 
 class OwnerAdmissionError(BackendExecutionError):
-    """Describe a refused or unverified owner prompt admission."""
+    """Describe a refused or unverified managed owner admission."""
 
     def __init__(self, code: str, detail: str) -> None:
         super().__init__(detail)
@@ -142,6 +175,250 @@ class OwnerPromptClaim:
             _finish_attempt(connection, self.request_id, self.generation_id, outcome, evidence)
 
 
+@dataclass(frozen=True)
+class OwnerMaintenanceClaim:
+    """Persist one owner maintenance attempt independently of its gateway process."""
+
+    manifest_path: Path
+    generation_id: str
+    operation_id: str
+    claim_id: str
+
+    def state(self) -> OwnerMaintenanceState | None:
+        """Read the state of this exact claim, including after an owner fence."""
+
+        with _connection(self.manifest_path) as connection:
+            row = self._read(connection)
+            return cast(OwnerMaintenanceState, row["state"]) if row is not None else None
+
+    def active(self) -> bool:
+        """Allow effects only for a current generation and unfenced origin."""
+
+        try:
+            _owner_manifest(self.manifest_path, self.generation_id)
+            with _connection(self.manifest_path) as connection:
+                row = self._read(connection)
+                return (
+                    row is not None
+                    and row["state"] in {"reserved", "handed_off"}
+                    and _maintenance_caller_is_current(row)
+                )
+        except OwnerAdmissionError:
+            return False
+
+    def handoff(self) -> None:
+        """Record the original process's one exact effect handoff."""
+
+        with _connection(self.manifest_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._read(connection)
+            if row is None or row["state"] != "reserved" or not _maintenance_caller_is_current(row):
+                raise OwnerAdmissionError(
+                    "duplicate_request", "Owner maintenance cannot dispatch this handoff."
+                )
+            _owner_manifest(self.manifest_path, self.generation_id)
+            connection.execute(
+                "UPDATE managed_owner_maintenance SET state='handed_off', handoff_at_utc=? "
+                "WHERE claim_id=?",
+                (_now(), self.claim_id),
+            )
+
+    def release_before_handoff(self, *, evidence: str) -> None:
+        """Release a reservation after a definite refusal before any native effect."""
+
+        self._finish_before_handoff("settled", evidence)
+
+    def retain_before_handoff(self, *, evidence: str) -> None:
+        """Yield an unresolved pre-handoff claim to reconciliation without reopening admission."""
+
+        self._finish_before_handoff("uncertain", evidence)
+
+    def finish(self, *, evidence: str, settled: bool, ready: bool) -> bool:
+        """Release admission only when attributed settlement and readiness are both known."""
+
+        with _connection(self.manifest_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._read(connection)
+            if row is None or row["state"] not in _ACTIVE_MAINTENANCE:
+                return False
+            if row["state"] == "reserved" and _maintenance_caller_is_alive(row):
+                return False
+            _owner_manifest(self.manifest_path, self.generation_id)
+            released = settled and ready
+            self._record_outcome(connection, "settled" if released else "uncertain", evidence)
+            return released
+
+    def fence_after_recovery(self) -> None:
+        """Retire this lost owner's claim after a guarded lifecycle stop succeeded."""
+
+        if (os.getpid(), self.manifest_path) not in _OWNER_OPERATION_GUARDS.get():
+            raise OwnerAdmissionError("unavailable", "Owner maintenance recovery is unguarded.")
+        with _connection(self.manifest_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._read(connection)
+            if row is not None and row["state"] in _ACTIVE_MAINTENANCE:
+                if _maintenance_caller_is_alive(row):
+                    raise OwnerAdmissionError("not_ready", "The maintenance caller is still live.")
+                self._record_outcome(connection, "fenced", "owner_lifecycle_stop")
+
+    def _finish_before_handoff(self, state: Literal["settled", "uncertain"], evidence: str) -> None:
+        """Let only this reservation's original process end the pre-handoff attempt."""
+
+        with _connection(self.manifest_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._read(connection)
+            if (
+                row is not None
+                and row["state"] == "reserved"
+                and _maintenance_caller_is_current(row)
+            ):
+                self._record_outcome(connection, state, evidence)
+
+    def _read(self, connection: sqlite3.Connection) -> sqlite3.Row | None:
+        """Load evidence for the retained operation identity and unguessable claim ID."""
+
+        row = connection.execute(
+            """
+            SELECT * FROM managed_owner_maintenance
+            WHERE manifest_path=? AND generation_id=? AND operation_id=? AND claim_id=?
+            """,
+            (str(self.manifest_path), self.generation_id, self.operation_id, self.claim_id),
+        ).fetchone()
+        return cast(sqlite3.Row | None, row)
+
+    def _record_outcome(
+        self,
+        connection: sqlite3.Connection,
+        state: Literal["settled", "uncertain", "fenced"],
+        evidence: str,
+    ) -> None:
+        """Update the claim and keep its admission closed while the result is uncertain."""
+
+        connection.execute(
+            """
+            UPDATE managed_owner_maintenance SET state=?, settled_at_utc=?, evidence=?
+            WHERE claim_id=?
+            """,
+            (state, None if state == "uncertain" else _now(), evidence, self.claim_id),
+        )
+
+
+def reserve_owner_maintenance(
+    manifest_path: Path,
+    generation_id: str,
+    *,
+    operation_id: str,
+    readiness: Callable[[], None] | None = None,
+    reconcile_tui: Callable[[OwnerPromptAttempt], bool] | None = None,
+) -> OwnerMaintenanceClaim:
+    """Reserve the exact owner before attempting immediate native maintenance."""
+
+    manifest_path = manifest_path.resolve()
+    if _MAINTENANCE_ID.fullmatch(operation_id) is None:
+        raise OwnerAdmissionError("invalid_request", "Invalid owner maintenance identity.")
+    pid = os.getpid()
+    birth = _dispatch_origin_birth_token(pid)
+    if not birth:
+        raise OwnerAdmissionError("unavailable", "Cannot verify the maintenance caller process.")
+
+    with _owner_operation_gate(manifest_path), _connection(manifest_path) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        manifest = _owner_manifest(manifest_path, generation_id)
+        ensure_owner_input_allowed(connection, manifest_path, generation_id)
+        active = _reconcile_active(
+            connection, manifest, manifest_path, generation_id, reconcile_tui
+        )
+        if active is not None:
+            connection.commit()
+            code = "uncertain" if active.state == "uncertain" else "not_ready"
+            raise OwnerAdmissionError(code, "The owner has an unresolved prompt attempt.")
+        if _gateway_work_is_pending(connection):
+            raise OwnerAdmissionError("not_ready", "The owner has pending gateway requests.")
+        if readiness is not None:
+            readiness()
+        claim_id = secrets.token_hex(24)
+        created = connection.execute(
+            """
+            INSERT OR IGNORE INTO managed_owner_maintenance
+                (operation_id, manifest_path, generation_id, claim_id, state,
+                 reserved_at_utc, caller_pid, caller_birth_token)
+            VALUES (?, ?, ?, ?, 'reserved', ?, ?, ?)
+            """,
+            (operation_id, str(manifest_path), generation_id, claim_id, _now(), pid, birth),
+        )
+        if created.rowcount != 1:
+            raise OwnerAdmissionError("duplicate_request", "The owner has seen this maintenance.")
+    return OwnerMaintenanceClaim(manifest_path, generation_id, operation_id, claim_id)
+
+
+def observe_owner_maintenance(
+    manifest_path: Path, generation_id: str
+) -> OwnerMaintenanceClaim | None:
+    """Find the unresolved maintenance claim for the selected owner generation."""
+
+    manifest_path = manifest_path.resolve()
+    with _connection(manifest_path) as connection:
+        row = _active_maintenance(connection, manifest_path, generation_id)
+    return _maintenance_claim(row) if row is not None else None
+
+
+def load_owner_maintenance(
+    manifest_path: Path, generation_id: str, operation_id: str
+) -> OwnerMaintenanceClaim | None:
+    """Locate owner-private evidence for an already-recorded exact attempt."""
+
+    manifest_path = manifest_path.resolve()
+    with _connection(manifest_path) as connection:
+        row = connection.execute(
+            "SELECT * FROM managed_owner_maintenance "
+            "WHERE manifest_path=? AND generation_id=? AND operation_id=?",
+            (str(manifest_path), generation_id, operation_id),
+        ).fetchone()
+    return _maintenance_claim(row) if row is not None else None
+
+
+def ensure_owner_input_allowed(
+    connection: sqlite3.Connection, manifest_path: Path, generation_id: str
+) -> None:
+    """Refuse ordinary admission inside the caller's immediate queue transaction."""
+
+    if not connection.in_transaction:
+        raise OwnerAdmissionError("unavailable", "Owner admission requires a queue transaction.")
+    connection.execute(_MAINTENANCE_TABLE)
+    row = _active_maintenance(connection, manifest_path.resolve(), generation_id)
+    if row is not None:
+        _raise_owner_maintenance(row)
+
+
+def owner_operation_guard_exists(manifest_path: Path) -> bool:
+    """Test whether this session owns the durable gateway admission layout."""
+
+    manifest_path = manifest_path.resolve()
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    return bool(
+        paths is not None
+        and (paths.queue_path.exists() or _owner_operation_lock_path(manifest_path).exists())
+    )
+
+
+@contextmanager
+def guard_owner_operation(
+    manifest_path: Path, generation_id: str, *, recover_lost_maintenance: bool = False
+) -> Iterator[OwnerMaintenanceClaim | None]:
+    """Serialize immediate input or lifecycle effects against maintenance reservation."""
+
+    manifest_path = manifest_path.resolve()
+    with _owner_operation_gate(manifest_path, shared=True):
+        with _connection(manifest_path) as connection:
+            row = _active_maintenance(connection, manifest_path, generation_id)
+        recovery = None
+        if row is not None:
+            if not recover_lost_maintenance or _maintenance_caller_is_alive(row):
+                _raise_owner_maintenance(row)
+            recovery = _maintenance_claim(row)
+        yield recovery
+
+
 def reserve_owner_prompt(
     manifest_path: Path,
     generation_id: str,
@@ -164,6 +441,7 @@ def reserve_owner_prompt(
     with _connection(manifest_path) as connection:
         connection.execute("BEGIN IMMEDIATE")
         manifest = _owner_manifest(manifest_path, generation_id)
+        ensure_owner_input_allowed(connection, manifest_path, generation_id)
         deferred = origin == "gateway_deferred"
         if deferred and manifest.mode != "web":
             raise OwnerAdmissionError("invalid_request", "Native deferred input requires Web mode.")
@@ -217,7 +495,7 @@ def observe_owner_prompt(
 
 
 def _now() -> str:
-    """Return an unambiguous timestamp for prompt evidence."""
+    """Return an unambiguous timestamp for owner operation evidence."""
 
     return datetime.now(UTC).isoformat(timespec="microseconds")
 
@@ -231,7 +509,7 @@ def _owner_manifest(manifest_path: Path, generation_id: str) -> SessionManifestP
         return require_active_managed_control_manifest(manifest_path, generation_id=generation_id)
     except (OSError, SessionManifestError):
         raise OwnerAdmissionError(
-            "unavailable", "Managed prompt owner authority is unavailable."
+            "unavailable", "Managed owner authority is unavailable."
         ) from None
 
 
@@ -241,21 +519,170 @@ def _connection(manifest_path: Path) -> Iterator[sqlite3.Connection]:
 
     paths = gateway_paths_from_manifest_path(manifest_path)
     if paths is None or not paths.queue_path.is_file():
-        raise OwnerAdmissionError("unavailable", "Managed prompt request storage is unavailable.")
+        raise OwnerAdmissionError("unavailable", "Managed owner admission storage is unavailable.")
     try:
         connection = sqlite3.connect(paths.queue_path, timeout=2.0)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute(_TABLE_SQL)
             connection.execute(_INDEX_SQL)
+            connection.execute(_MAINTENANCE_TABLE)
+            connection.execute(_MAINTENANCE_INDEX)
             with connection:
                 yield connection
         finally:
             connection.close()
     except (OSError, sqlite3.Error) as exc:
         raise OwnerAdmissionError(
-            "unavailable", "Managed prompt request storage is unavailable."
+            "unavailable", "Managed owner admission storage is unavailable."
         ) from exc
+
+
+def _owner_operation_lock_path(manifest_path: Path) -> Path:
+    """Keep the stable owner guard beside its canonical runtime manifest."""
+
+    return manifest_path.with_name(f".{manifest_path.name}.owner-operation.lock")
+
+
+@contextmanager
+def _owner_operation_gate(manifest_path: Path, *, shared: bool = False) -> Iterator[None]:
+    """Hold a per-runtime process lock without spanning the effect with SQLite."""
+
+    key = (os.getpid(), manifest_path)
+    held = _OWNER_OPERATION_GUARDS.get()
+    if key in held:
+        if not shared:
+            raise OwnerAdmissionError("not_ready", "A managed owner operation is running.")
+        yield
+        return
+    try:
+        descriptor = os.open(
+            _owner_operation_lock_path(manifest_path),
+            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+        )
+    except OSError:
+        raise OwnerAdmissionError(
+            "unavailable", "Managed owner operation guard is unavailable."
+        ) from None
+    try:
+        try:
+            info = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or info.st_nlink != 1
+                or stat.S_IMODE(info.st_mode) & 0o077
+            ):
+                raise OwnerAdmissionError("unavailable", "Managed owner operation guard is unsafe.")
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise OwnerAdmissionError(
+                "not_ready", "A managed owner operation is running."
+            ) from None
+        except OSError:
+            raise OwnerAdmissionError(
+                "unavailable", "Managed owner operation guard is unavailable."
+            ) from None
+        token = _OWNER_OPERATION_GUARDS.set(held | {key})
+        try:
+            yield
+        finally:
+            _OWNER_OPERATION_GUARDS.reset(token)
+    finally:
+        os.close(descriptor)
+
+
+def _active_maintenance(
+    connection: sqlite3.Connection, manifest_path: Path, generation_id: str
+) -> sqlite3.Row | None:
+    """Read the one maintenance claim that still blocks native owner admission."""
+
+    cursor = connection.cursor()
+    cursor.row_factory = sqlite3.Row
+    row = cursor.execute(
+        """
+        SELECT * FROM managed_owner_maintenance
+        WHERE manifest_path=? AND generation_id=? AND state IN ('reserved', 'handed_off', 'uncertain')
+        """,
+        (str(manifest_path), generation_id),
+    ).fetchone()
+    return cast(sqlite3.Row | None, row)
+
+
+def _maintenance_claim(row: sqlite3.Row) -> OwnerMaintenanceClaim:
+    """Recover a durable claim without acquiring a new owner reservation."""
+
+    return OwnerMaintenanceClaim(
+        Path(row["manifest_path"]), row["generation_id"], row["operation_id"], row["claim_id"]
+    )
+
+
+def _maintenance_caller_is_alive(row: sqlite3.Row) -> bool:
+    """Match the caller process birth token so PID reuse cannot resume its effects."""
+
+    return not owner_process_has_exited(row["caller_pid"], row["caller_birth_token"])
+
+
+def _maintenance_caller_is_current(row: sqlite3.Row) -> bool:
+    """Confirm that this process reserved the effect, as opposed to reconciling it."""
+
+    pid = os.getpid()
+    return bool(
+        row["caller_pid"] == pid and _dispatch_origin_birth_token(pid) == row["caller_birth_token"]
+    )
+
+
+def owner_process_has_exited(pid: int, birth: str) -> bool:
+    """Prove exact process loss without treating inaccessible process data as death."""
+
+    observed = _dispatch_origin_birth_token(pid)
+    if observed is not None:
+        return observed.partition(":")[0] == birth.partition(":")[0] and observed != birth
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False
+    # Procfs may still report the PID while its dead process awaits reaping.
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rpartition(")")[2].split()
+    except (OSError, UnicodeError):
+        return False
+    return bool(state and state[0] in {"Z", "X", "x"})
+
+
+def _raise_owner_maintenance(row: sqlite3.Row) -> None:
+    """Report a bounded busy or uncertainty status without leaking maintenance evidence."""
+
+    code = (
+        "uncertain"
+        if row["state"] == "uncertain" or not _maintenance_caller_is_alive(row)
+        else "not_ready"
+    )
+    raise OwnerAdmissionError(code, "The owner has unresolved maintenance.")
+
+
+def _gateway_work_is_pending(connection: sqlite3.Connection) -> bool:
+    """Check durable gateway work before reserving the owner for a new mutation."""
+
+    try:
+        return (
+            connection.execute(
+                "SELECT 1 FROM gateway_requests WHERE state IN ('accepted', 'running', 'observing') LIMIT 1"
+            ).fetchone()
+            is not None
+        )
+    except sqlite3.OperationalError:
+        # A prompt-only fixture or older owner can have the prompt journal alone.
+        row = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_requests'"
+        ).fetchone()
+        if row is not None:
+            raise
+        return False
 
 
 def _row_attempt(row: sqlite3.Row | None) -> OwnerPromptAttempt | None:

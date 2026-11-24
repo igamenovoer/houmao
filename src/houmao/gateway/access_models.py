@@ -248,10 +248,12 @@ class GatewayChallenge(_AccessModel):
         ).encode("ascii")
 
 
-def parse_access_document(model: type[_Document], payload: bytes) -> _Document:
+def parse_access_document(
+    model: type[_Document], payload: bytes, *, max_bytes: int = MAX_ACCESS_DOCUMENT
+) -> _Document:
     """Read a strict JSON model after rejecting repeated fields at every depth."""
 
-    if len(payload) > MAX_ACCESS_DOCUMENT:
+    if len(payload) > max_bytes:
         raise ValueError("access document exceeds its size limit")
     try:
         json.loads(payload.decode("utf-8"), object_pairs_hook=_unique_fields)

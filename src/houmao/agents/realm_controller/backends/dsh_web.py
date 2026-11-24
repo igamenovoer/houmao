@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import asdict, dataclass, fields
 from importlib.resources import files
 import json
@@ -38,6 +38,12 @@ from houmao.agents.realm_controller.backends.dsh_diagnostics import (
     sanitize_dsh_diagnostic,
 )
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient, DshWebError
+from houmao.agents.realm_controller.backends.dsh_web_skill_mount import (
+    QUALIFIED_BUILD,
+    DshWebSkillMount,
+    skill_home_lineage,
+    validate_skill_tree,
+)
 from houmao.agents.realm_controller.backends.dsh_web_supervisor import _signal_owned
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     create_tmux_session,
@@ -51,7 +57,8 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
 )
 from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry, owns_ipv4_web_listener
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
+from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
     LaunchPlan,
@@ -62,6 +69,12 @@ from houmao.agents.realm_controller.models import (
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.usage_support import UsageService, write_usage_json
 from houmao.agents.tool_params.dsh import DshPermissionParams
+from houmao.gateway._access_storage import GatewayAccessError, _private_directory, _read_file
+from houmao.gateway.access import owner_handoff_id
+from houmao.gateway.access_models import GatewayOwner
+from houmao.gateway.file_edits.projection import FileProjection, ProjectionConflict
+from houmao.gateway.file_edits.publication import reconcile_projection_index
+from houmao.gateway.file_edits.storage import MountStorage
 
 _STARTUP_TIMEOUT_SECONDS = 45.0
 _SUPERVISOR_STOP_TIMEOUT_SECONDS = 25.0
@@ -118,6 +131,7 @@ class DshWebSessionState:
     tmux_pane_id: str | None = None
     native_pid: int | None = None
     native_birth_token: str | None = None
+    managed_skill_lineage: str | None = None
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> DshWebSessionState:
@@ -400,6 +414,10 @@ class DshWebSession:
             raise BackendExecutionError(
                 sanitize_dsh_diagnostic(str(exc), secret_values=secret_values)
             ) from None
+        skill_lineage: str | None = None
+        skill_control: dict[str, str] | None = None
+        if setup.managed_web_skills and version == QUALIFIED_BUILD:
+            skill_lineage, skill_control = self._provision_skill_mount(identity["agent_id"])
         root = self.plan.home_path / "houmao-web" / uuid4().hex
         root.mkdir(parents=True, mode=0o700)
         bootstrap = root / "bootstrap.json"
@@ -424,6 +442,7 @@ class DshWebSession:
                 "model": prepared.model,
                 "native_version": version,
                 "permission_preset": prepared.metadata["permission_preset"],
+                **({"skill_mount": skill_control} if skill_control is not None else {}),
             },
         )
         patch = [
@@ -576,6 +595,7 @@ class DshWebSession:
                 tmux_pane_id=surface.pane_id,
                 native_pid=process["native_pid"],
                 native_birth_token=process["native_birth_token"],
+                managed_skill_lineage=skill_lineage,
             )
             self.state.native_surface
             self._bind_managed_accounting(new_session=existing is None or new_session)
@@ -733,8 +753,98 @@ class DshWebSession:
         with self._temporary_web_peer(state, token) as client:
             return client.state(identity)
 
+    def _skill_mount_home(self) -> Path:
+        """Locate managed file state under the retained launch home."""
+
+        return self.plan.home_path / "houmao-versioned-skills"
+
+    def _skill_mount_storage(self, agent_id: str, lineage: str) -> MountStorage:
+        """Bind the owner, context, and retained home before opening file state."""
+
+        binding = self.plan.execution_binding
+        if binding is None:
+            raise GatewayAccessError(503, "file_native_unavailable")
+        owner = GatewayOwner(agent_id=agent_id, context_id=binding.context_id)
+        return MountStorage(self._skill_mount_home(), owner, lineage=lineage)
+
+    def _provision_skill_mount(self, agent_id: str) -> tuple[str, dict[str, str]]:
+        """Prepare the owner-selected native projection before the host is started."""
+
+        try:
+            lineage = skill_home_lineage(self._skill_mount_home(), create=True)
+            storage = self._skill_mount_storage(agent_id, lineage)
+            mount = storage.initialize()
+            projection = FileProjection(storage.root / "projection")
+            tree = storage.published_files(mount.published_commit)
+            validate_skill_tree(tree)
+            try:
+                projection.initialize(mount.mount_id, mount.published_commit, tree)
+            except ProjectionConflict:
+                with _private_directory(projection.root) as private:
+                    if _read_file(private, "mount-id", 33) != (mount.mount_id + "\n").encode(
+                        "ascii"
+                    ):
+                        raise
+                if self.m_manifest_path is None:
+                    raise
+                access = gateway_access_for_manifest(self.m_manifest_path)
+                if (
+                    access.owner.agent_id != agent_id
+                    or access.execution_binding != self.plan.execution_binding
+                ):
+                    raise
+                reconcile_projection_index(
+                    storage,
+                    projection,
+                    handoff_evidence=lambda operation_id: access.store.handoff_evidence(
+                        owner_handoff_id(operation_id)
+                    ),
+                )
+                revision = storage.published_commit()
+                tree = storage.published_files(revision)
+                validate_skill_tree(tree)
+                projection.initialize(mount.mount_id, revision, tree)
+        except (GatewayAccessError, OSError, SessionManifestError, ValueError):
+            raise BackendExecutionError("DSH Web versioned skill state is unavailable") from None
+        return lineage, {"mount_id": mount.mount_id, "projection_root": str(projection.root)}
+
+    def skill_file_mount(self) -> DshWebSkillMount | None:
+        """Select the provisioned mount only while the matching native provider is live."""
+
+        state = self.state
+        selected = state.managed_skill_lineage
+        if selected is None:
+            return None
+        identity = dict(state.web_identity)
+        try:
+            lineage = skill_home_lineage(self._skill_mount_home())
+            if lineage != selected or any(
+                identity.get(key) != value for key, value in self._managed_identity().items()
+            ):
+                raise GatewayAccessError(503, "file_native_unavailable")
+            storage = self._skill_mount_storage(identity["agent_id"], lineage)
+            projection = FileProjection(storage.root / "projection")
+
+            def open_peer(timeout: float) -> AbstractContextManager[DshWebClient]:
+                """Open an independent credential scoped to the selected native listener."""
+
+                if self.m_state is not state or state.web_identity != identity:
+                    raise DshWebError("stale_identity", "DSH Web execution identity changed")
+                return self._temporary_web_peer(
+                    state, self._read_web_launch_token(state), timeout_seconds=timeout
+                )
+
+            mount = DshWebSkillMount(storage, projection, identity, open_peer)
+            with open_peer(3.0) as client:
+                mount.require_native_mount(client)
+            return mount
+        except (DshWebError, ProjectionConflict, OSError, ValueError):
+            raise GatewayAccessError(503, "file_native_unavailable") from None
+
     @contextmanager
-    def _temporary_web_peer(self, state: DshWebSessionState, token: str) -> Iterator[DshWebClient]:
+    def _temporary_web_peer(
+        self, state: DshWebSessionState, token: str, *, timeout_seconds: float = 15.0
+    ) -> Iterator[DshWebClient]:
         """Authenticate a transient client without changing runtime credentials."""
 
         origin = state.native_surface.origin
@@ -757,6 +867,7 @@ class DshWebSession:
         client = DshWebClient.from_connection(
             origin,
             launch_token=token,
+            timeout_seconds=timeout_seconds,
             secret_values=self._diagnostic_secrets(),
             verify_listener=require_owned_listener,
         )

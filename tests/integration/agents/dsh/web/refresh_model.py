@@ -5,8 +5,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+from pathlib import Path
 import threading
 from typing import Any
+
+from tests.integration.agents.dsh.conftest import ControlledModelGate
 
 
 @dataclass
@@ -18,7 +21,9 @@ class SkillModel:
 
 
 @contextmanager
-def controlled_skill_model() -> Iterator[SkillModel]:
+def controlled_skill_model(
+    *, read_asset: bool = False, hold_first: ControlledModelGate | None = None
+) -> Iterator[SkillModel]:
     """Alternate one native skill call with a settled assistant completion."""
 
     model = SkillModel()
@@ -32,14 +37,25 @@ def controlled_skill_model() -> Iterator[SkillModel]:
             assert self.path.endswith("/messages")
             model.requests.append(json.loads(self.rfile.read(int(self.headers["content-length"]))))
             number = len(model.requests)
-            tool = number % 2 == 1
+            if hold_first is not None and number == 1:
+                hold_first.entered.set()
+                if not hold_first.release.wait(timeout=20):
+                    self.send_error(504)
+                    return
+            step = (number - 1 - (hold_first is not None)) % (3 if read_asset else 2)
+            tool = step == 0 or (step == 1 and read_asset)
+            tool_name, arguments = "skill", {"name": "alpha"}
+            if step == 1 and read_asset:
+                payload = json.dumps(model.requests[-1])
+                base = payload.rsplit("Base directory for this skill: ", 1)[1].split("\\n", 1)[0]
+                tool_name, arguments = "read", {"file_path": str(Path(base) / "asset.txt")}
             block = (
-                {"type": "tool_use", "id": f"skill-{number}", "name": "skill", "input": {}}
+                {"type": "tool_use", "id": f"skill-{number}", "name": tool_name, "input": {}}
                 if tool
                 else {"type": "text", "text": ""}
             )
             delta = (
-                {"type": "input_json_delta", "partial_json": '{"name":"alpha"}'}
+                {"type": "input_json_delta", "partial_json": json.dumps(arguments)}
                 if tool
                 else {"type": "text_delta", "text": "Controlled skill completion"}
             )

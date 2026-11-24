@@ -34,6 +34,16 @@ The latter policies authorize an explicit native queue operation. They do not au
 
 Mailbox wakeups preserve the configured offline/online transport and owner binding. Periodic reminders remain subject to fresh native admission on every delivery. Shared-session observation includes browser-origin work and model changes. AG-UI exposes Web activity snapshots with native identities; it does not invent terminal text or attribute all subsequent human activity to the waiting programmatic caller.
 
+## Versioned Skills Mount
+
+Set `managed_web_skills: true` under `tool_params` in the owner's DSH Web launch profile, or in the selected `--tool-params` file. DSH build `0.2.2-rc.3` with the native `standard` preset qualifies for this mount. The owner opts in at launch, and an attached direct gateway exposes the mount through its file-edit API subject to the target's policy.
+
+The mount starts with an empty revision. Each skill has a kebab-case top-level directory and a `SKILL.md` with a matching `name` and a nonempty `description` in its YAML frontmatter. Put relative assets in the same directory. A candidate that would shadow a visible native skill is refused. The existing native skill roots remain available through their own providers.
+
+An authorized push prepares a complete revision in owner-private storage. The native host acquires immediate maintenance for the bound Agent, checks for active work, pending input, interaction waits, and host sharing, then switches the published revision. Native catalog and skill-tool lookups resolve each loaded definition and its relative assets from one immutable revision. A later lookup can see a newer revision while older lookups and recorded skill-tool results retain their original paths and content.
+
+The provider invalidates native skill discovery. DSH shares this cache across its skill providers, so a push checks that the other visible live providers have complete, current catalogs before switching the revision. Pending edits to native MCP declarations and the profile stay pending. Publication starts no model request and preserves the native process and conversation. The receipt reports publication, native activation, and native readiness separately. Explicit same-home relaunch reopens the retained mount and verified published revision.
+
 ## Capability and Recovery Boundaries
 
 Raw keys, terminal capture, terminal parser snapshots, terminal history, terminal tracking, and TUI timing options are unsupported for Web agents. Use semantic prompt/interrupt operations and the Web state/history routes. A healthy supervisor pane cannot replace unavailable native control.

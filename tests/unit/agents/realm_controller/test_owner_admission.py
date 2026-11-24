@@ -2,19 +2,31 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+from multiprocessing import get_context
+from multiprocessing.connection import Connection
+import os
 from pathlib import Path
 import sqlite3
 from threading import Barrier
 from types import SimpleNamespace
+from typing import Literal
+from unittest.mock import patch
 
 import pytest
 
 from houmao.agents.realm_controller import owner_admission
 from houmao.agents.realm_controller.owner_admission import (
     OwnerAdmissionError,
+    OwnerMaintenanceClaim,
     OwnerPromptClaim,
+    ensure_owner_input_allowed,
     exact_web_prompt_result,
+    guard_owner_operation,
+    load_owner_maintenance,
+    observe_owner_maintenance,
     observe_owner_prompt,
+    owner_process_has_exited,
+    reserve_owner_maintenance,
     reserve_owner_prompt,
 )
 
@@ -112,6 +124,217 @@ def test_explicit_web_queueing_and_ordinary_work_share_native_owner(
         reserve_owner_prompt(manifest_path, "generation", origin="manager")
     queued.finish("completed", evidence="web_native")
     assert observe_owner_prompt(manifest_path, "generation") is None
+
+
+def _owner_child(
+    sender: Connection,
+    manifest_path: Path,
+    operation: Literal["prompt", "maintenance", "handoff"],
+) -> None:
+    """Exercise owner admission under a new process birth identity."""
+
+    with (
+        sender,
+        patch.object(
+            owner_admission,
+            "_owner_manifest",
+            return_value=SimpleNamespace(mode="web", backend="dsh_web", backend_state={}),
+        ),
+    ):
+        try:
+            if operation == "prompt":
+                result: str | OwnerMaintenanceClaim | OwnerPromptClaim = reserve_owner_prompt(
+                    manifest_path, "generation", origin="manager"
+                )
+            else:
+                result = reserve_owner_maintenance(
+                    manifest_path, "generation", operation_id="child-publish"
+                )
+                if operation == "handoff":
+                    result.handoff()
+        except OwnerAdmissionError as exc:
+            result = exc.code
+        sender.send(result)
+
+
+def _run_owner_child(
+    manifest_path: Path, operation: Literal["prompt", "maintenance", "handoff"]
+) -> str | OwnerMaintenanceClaim | OwnerPromptClaim:
+    """Run one guarded operation in a distinct process and await its outcome."""
+
+    context = get_context("fork")
+    receiver, sender = context.Pipe(duplex=False)
+    child = context.Process(target=_owner_child, args=(sender, manifest_path, operation))
+    with receiver, sender:
+        child.start()
+        try:
+            assert receiver.poll(8)
+            outcome = receiver.recv()
+            child.join(timeout=4)
+            assert child.exitcode == 0
+            assert isinstance(outcome, (str, OwnerMaintenanceClaim, OwnerPromptClaim))
+            return outcome
+        finally:
+            if child.is_alive():
+                child.kill()
+                child.join(timeout=4)
+            child.close()
+
+
+def test_prompt_admission_precedes_publication_in_another_process(manifest_path: Path) -> None:
+    """A direct manager prompt reserves first, so a gateway publisher must wait."""
+
+    prompt = reserve_owner_prompt(manifest_path, "generation", origin="manager")
+    assert _run_owner_child(manifest_path, "maintenance") == "not_ready"
+    assert observe_owner_maintenance(manifest_path, "generation") is None
+    prompt.finish("completed")
+    claim = _run_owner_child(manifest_path, "maintenance")
+    assert isinstance(claim, OwnerMaintenanceClaim)
+    assert claim.finish(evidence="readiness_proved_no_effect", settled=True, ready=True)
+
+
+def test_publication_admission_precedes_prompt_and_lifecycle(manifest_path: Path) -> None:
+    """A durable publication claim refuses ordinary input before it reaches the target."""
+
+    claim = reserve_owner_maintenance(manifest_path, "generation", operation_id="publisher")
+    assert _run_owner_child(manifest_path, "prompt") == "not_ready"
+    with pytest.raises(OwnerAdmissionError, match="unresolved maintenance"):
+        with guard_owner_operation(manifest_path, "generation"):
+            pytest.fail("Immediate owner operation bypassed maintenance")
+    with pytest.raises(OwnerAdmissionError, match="unresolved maintenance"):
+        with guard_owner_operation(manifest_path, "generation", recover_lost_maintenance=True):
+            pytest.fail("Lifecycle recovery fenced a live caller")
+    claim.release_before_handoff(evidence="native_refused")
+    prompt = _run_owner_child(manifest_path, "prompt")
+    assert isinstance(prompt, OwnerPromptClaim)
+
+
+def test_immediate_owner_operations_can_overlap_and_exclude_publication(
+    manifest_path: Path,
+) -> None:
+    """An interrupt can overlap a prompt while both exclude maintenance."""
+
+    def interrupt() -> None:
+        """Acquire ordinary admission on an independent native-effect thread."""
+
+        with guard_owner_operation(manifest_path, "generation"):
+            pass
+
+    with guard_owner_operation(manifest_path, "generation"):
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(interrupt).result(timeout=2)
+        assert _run_owner_child(manifest_path, "maintenance") == "not_ready"
+
+
+def test_missing_birth_observation_cannot_fence_a_live_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A visible process with unreadable identity remains unsafe to supersede."""
+
+    monkeypatch.setattr(owner_admission, "_dispatch_origin_birth_token", lambda _: None)
+    assert not owner_process_has_exited(os.getpid(), "proc:0")
+
+
+def test_pre_handoff_uncertainty_retains_admission_until_exact_reconciliation(
+    manifest_path: Path,
+) -> None:
+    """Only the original caller can end a live reservation without resuming its effect."""
+
+    prior = _run_owner_child(manifest_path, "maintenance")
+    assert isinstance(prior, OwnerMaintenanceClaim)
+    prior.retain_before_handoff(evidence="other_process_cannot_change_reservation")
+    assert prior.state() == "reserved"
+    assert prior.finish(evidence="prior_process_settled", settled=True, ready=True)
+
+    claim = reserve_owner_maintenance(manifest_path, "generation", operation_id="publisher")
+    claim.retain_before_handoff(evidence="native_close_unconfirmed")
+    assert claim.state() == "uncertain"
+    assert not claim.active()
+    with pytest.raises(OwnerAdmissionError) as handoff:
+        claim.handoff()
+    assert handoff.value.code == "duplicate_request"
+    with pytest.raises(OwnerAdmissionError) as prompt:
+        reserve_owner_prompt(manifest_path, "generation", origin="manager")
+    assert prompt.value.code == "uncertain"
+    assert not claim.finish(evidence="native_still_unready", settled=True, ready=False)
+    assert claim.finish(evidence="native_settled_and_ready", settled=True, ready=True)
+    assert observe_owner_maintenance(manifest_path, "generation") is None
+
+
+def test_lost_maintenance_can_settle_without_dispatching_again(manifest_path: Path) -> None:
+    """Reattachment observes the same claim and must prove readiness as well as settlement."""
+
+    claim = _run_owner_child(manifest_path, "handoff")
+    assert isinstance(claim, OwnerMaintenanceClaim)
+    loaded = load_owner_maintenance(manifest_path, "generation", claim.operation_id)
+    assert loaded == claim
+    assert observe_owner_maintenance(manifest_path, "generation") == claim
+    assert not claim.active()
+    assert claim.state() == "handed_off"
+    with pytest.raises(OwnerAdmissionError) as exc:
+        reserve_owner_prompt(manifest_path, "generation", origin="manager")
+    assert exc.value.code == "uncertain"
+    with pytest.raises(OwnerAdmissionError) as exc:
+        claim.handoff()
+    assert exc.value.code == "duplicate_request"
+    assert not claim.finish(evidence="settled_but_unready", settled=True, ready=False)
+    assert claim.state() == "uncertain"
+    assert observe_owner_maintenance(manifest_path, "generation") == claim
+    assert claim.finish(evidence="confirmed_native_readiness", settled=True, ready=True)
+    assert observe_owner_maintenance(manifest_path, "generation") is None
+
+
+def test_owner_lifecycle_recovery_fences_only_lost_generation(manifest_path: Path) -> None:
+    """Late completion may not take or release the replacement owner's slot."""
+
+    old = _run_owner_child(manifest_path, "handoff")
+    assert isinstance(old, OwnerMaintenanceClaim)
+    with guard_owner_operation(
+        manifest_path, "generation", recover_lost_maintenance=True
+    ) as recovering:
+        assert recovering == old
+        assert recovering is not None
+        recovering.fence_after_recovery()
+    replacement = reserve_owner_maintenance(
+        manifest_path, "replacement", operation_id=old.operation_id
+    )
+    assert not old.finish(evidence="late_native_receipt", settled=True, ready=True)
+    assert old.state() == "fenced"
+    assert replacement.active()
+    assert observe_owner_maintenance(manifest_path, "replacement") == replacement
+
+
+def test_native_refusal_and_accepted_gateway_queue_leave_no_maintenance(
+    manifest_path: Path,
+) -> None:
+    """An immediate readiness refusal and queued work both release pre-effect admission."""
+
+    def refuse() -> None:
+        """Report busy before any effect has been authorized or started."""
+
+        raise OwnerAdmissionError("not_ready", "Native maintenance is busy.")
+
+    with pytest.raises(OwnerAdmissionError, match="Native maintenance is busy"):
+        reserve_owner_maintenance(
+            manifest_path, "generation", operation_id="publisher", readiness=refuse
+        )
+    assert observe_owner_maintenance(manifest_path, "generation") is None
+
+    database = manifest_path.parent / "gateway" / "queue.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE gateway_requests (state TEXT NOT NULL)")
+        connection.execute("INSERT INTO gateway_requests VALUES ('accepted')")
+    with pytest.raises(OwnerAdmissionError, match="pending gateway requests"):
+        reserve_owner_maintenance(manifest_path, "generation", operation_id="publisher")
+    assert observe_owner_maintenance(manifest_path, "generation") is None
+    with sqlite3.connect(database) as connection:
+        connection.execute("DELETE FROM gateway_requests")
+    guard = reserve_owner_maintenance(manifest_path, "generation", operation_id="publisher")
+    with sqlite3.connect(database) as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        with pytest.raises(OwnerAdmissionError, match="unresolved maintenance"):
+            ensure_owner_input_allowed(connection, manifest_path, "generation")
+    guard.release_before_handoff(evidence="test_finished")
 
 
 def test_web_terminal_projection_requires_exact_operation_and_native_turn(tmp_path: Path) -> None:

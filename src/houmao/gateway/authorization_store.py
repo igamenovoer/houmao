@@ -185,6 +185,18 @@ class AuthorizationStore:
         with self._open() as connection:
             return self._snapshot(connection)
 
+    def handoff_evidence(self, operation_id: str) -> AuthorizationDecision | None:
+        """Read a committed handoff without claiming or replaying the operation."""
+
+        operation_id = _IDENTIFIER.validate_python(operation_id)
+        with self._open() as connection:
+            row = connection.execute(
+                "SELECT decision FROM handoffs WHERE operation_id = ?", (operation_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return parse_access_document(AuthorizationDecision, row["decision"])
+
     @contextmanager
     def transaction(self) -> Iterator[AuthorizationTransaction]:
         """Order policy mutation and accepted handoff under the same database writer lock."""

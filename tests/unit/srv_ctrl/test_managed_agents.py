@@ -28,6 +28,7 @@ from houmao.agents.realm_controller.manifest import (
     write_session_manifest,
 )
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
+from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_manifest_path
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayExecutionModelV1,
@@ -1072,6 +1073,65 @@ def test_stop_managed_agent_recovers_stale_active_local_authority(
     assert stored.generation_id == record.generation_id
     assert stored.lifecycle.state == "stopped"
     assert stored.terminal.current_session_name is None
+
+
+def test_stale_terminal_alone_cannot_fence_lost_file_publication(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Only exact native shutdown permits stale lifecycle to fence file maintenance."""
+
+    record = _degraded_or_stale_record(
+        tmp_path=tmp_path, manifest_present=True, session_name="HOUMAO-stale"
+    )
+    manifest_path = Path(record.runtime.manifest_path)
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    paths.gateway_root.mkdir(exist_ok=True)
+    with sqlite3.connect(paths.queue_path):
+        pass
+    monkeypatch.setattr(owner_admission, "_owner_manifest", lambda *_: None)
+    claim = owner_admission.reserve_owner_maintenance(
+        manifest_path, record.generation_id, operation_id="lost-skill-push"
+    )
+    claim.handoff()
+    with sqlite3.connect(paths.queue_path) as connection:
+        connection.execute(
+            "UPDATE managed_owner_maintenance SET caller_birth_token='proc:0' WHERE claim_id=?",
+            (claim.claim_id,),
+        )
+    manifest = SimpleNamespace(
+        backend="dsh_web", runtime=SimpleNamespace(session_id="saved-runtime"), backend_state={}
+    )
+    state = SimpleNamespace(
+        web_identity={
+            "agent_id": record.agent_id,
+            "runtime_session_id": "saved-runtime",
+            "generation": record.generation_id,
+        }
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "load_managed_agent_record_by_agent_id", lambda _: record
+    )
+    monkeypatch.setattr(managed_agents_module, "_read_recovery_manifest", lambda _: manifest)
+    monkeypatch.setattr(managed_agents_module.DshWebSessionState, "from_payload", lambda _: state)
+    native_stopped = False
+    monkeypatch.setattr(
+        managed_agents_module, "dsh_web_processes_have_exited", lambda _: native_stopped
+    )
+    result = object()
+    monkeypatch.setattr(
+        managed_agents_module, "_recover_verified_broken_active_record", lambda *_: result
+    )
+    target = ManagedAgentTarget(
+        mode="local_stale", agent_ref="gpu", identity=_managed_identity(), record=record
+    )
+    with pytest.raises(owner_admission.OwnerAdmissionError, match="shutdown evidence"):
+        managed_agents_module._recover_broken_active_local_record(target)
+    assert claim.state() == "handed_off"
+
+    native_stopped = True
+    assert managed_agents_module._recover_broken_active_local_record(target) is result
+    assert claim.state() == "fenced"
 
 
 def test_stop_managed_agent_retires_stale_active_record_without_manifest(

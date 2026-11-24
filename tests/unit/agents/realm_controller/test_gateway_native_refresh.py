@@ -28,7 +28,15 @@ from houmao.agents.realm_controller import gateway_service as service
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient, GatewayEndpoint
 from houmao.agents.realm_controller.gateway_plugin_host import GatewayPluginHost
-from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime
+from houmao.agents.realm_controller.gateway_service import (
+    GatewayServiceRuntime,
+    _NativeWebGatewayAdapter,
+)
+from houmao.agents.realm_controller.gateway_storage import (
+    _ensure_queue_database,
+    gateway_paths_from_session_root,
+)
+from houmao.agents.realm_controller import owner_admission
 from houmao.agents.realm_controller.native_refresh_models import (
     CommonPluginObservationV1,
     CommonPluginResourceV1,
@@ -83,6 +91,87 @@ def _bind_native(
     monkeypatch.setattr(runtime, "_native_refresh_controller", lambda: controller)
     monkeypatch.setattr(service, "observe_common_plugins", lambda _: observation)
     return controller
+
+
+@pytest.fixture
+def maintenance_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[GatewayServiceRuntime, _NativeWebGatewayAdapter, owner_admission.OwnerMaintenanceClaim]:
+    """Pair synthetic native execution with a real generation-scoped maintenance row."""
+
+    runtime, adapter, _ = _runtime(tmp_path, monkeypatch)
+    runtime.m_manifest_path = tmp_path / "manifest.json"
+    paths = gateway_paths_from_session_root(session_root=tmp_path)
+    paths.gateway_root.mkdir()
+    _ensure_queue_database(paths.queue_path)
+    runtime.m_paths = paths
+    manifest = SimpleNamespace(registry_generation_id="generation", mode="web")
+    monkeypatch.setattr(runtime, "_verified_owner_manifest", lambda **_: manifest)
+    monkeypatch.setattr(runtime, "_require_owner_control", lambda *_, **__: manifest)
+    monkeypatch.setattr(owner_admission, "_owner_manifest", lambda *_: manifest)
+    claim = owner_admission.reserve_owner_maintenance(
+        runtime.m_manifest_path, "generation", operation_id="publish-files"
+    )
+    return runtime, adapter, claim
+
+
+@pytest.mark.parametrize("operation", ["web_interrupt", "web_prompt", "queued_interrupt", "keys"])
+def test_gateway_maintenance_refuses_input_before_queue_or_native_effect(
+    maintenance_runtime: tuple[
+        GatewayServiceRuntime, _NativeWebGatewayAdapter, owner_admission.OwnerMaintenanceClaim
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    """The durable row prevents queue acceptance and direct native dispatch."""
+
+    runtime, adapter, claim = maintenance_runtime
+    send_keys = Mock()
+    interrupt = Mock()
+    submit = Mock()
+    monkeypatch.setattr(adapter, "send_control_input", send_keys)
+    monkeypatch.setattr(adapter, "interrupt_captured", interrupt)
+    monkeypatch.setattr(adapter, "submit_scoped_web_prompt", submit)
+    if operation in {"queued_interrupt", "keys"}:
+        runtime.m_attach_contract = SimpleNamespace(backend="cao_rest")
+    with pytest.raises(HTTPException) as exc:
+        if operation == "keys":
+            runtime.send_control_input(GatewayControlInputRequestV1(sequence="Enter"))
+        elif operation == "web_prompt":
+            runtime.create_request(
+                GatewayRequestCreateV1(kind="submit_prompt", payload={"prompt": "ordinary work"})
+            )
+        else:
+            runtime.create_request(GatewayRequestCreateV1(kind="interrupt", payload={}))
+
+    assert exc.value.status_code == 409
+    assert exc.value.detail["error_code"] == "not_ready"
+    send_keys.assert_not_called()
+    interrupt.assert_not_called()
+    submit.assert_not_called()
+    with sqlite3.connect(runtime.m_paths.queue_path) as connection:
+        assert connection.execute("SELECT request_id FROM gateway_requests").fetchone() is None
+    assert claim.active()
+
+
+def test_gateway_native_refresh_cannot_run_during_file_publication(
+    maintenance_runtime: tuple[
+        GatewayServiceRuntime, _NativeWebGatewayAdapter, owner_admission.OwnerMaintenanceClaim
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A native refresh worker shares the publisher's exact owner exclusion."""
+
+    runtime, _, claim = maintenance_runtime
+    _bind_native(runtime, monkeypatch, _observation())
+    native = Mock()
+    monkeypatch.setattr(service, "perform_native_refresh", native)
+    result = runtime.refresh_native(NativeRefreshRequestV1())
+    assert result.outcome == "busy"
+    assert not runtime.m_native_refresh_active
+    assert not runtime.m_native_refresh_uncertain
+    assert claim.active()
+    native.assert_not_called()
 
 
 def test_native_refresh_workers_restore_controller_execution_scope(

@@ -107,6 +107,7 @@ from houmao.gateway.deployment import (
     owner_gateway_base_url,
     validate_gateway_base_url,
 )
+from houmao.gateway.file_edits.contracts import FILE_EDIT_PATH, FILE_REQUESTS, FileTargetRequest
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 GATEWAY_RESPECT_PROXY_ENV_VAR = "HOUMAO_GATEWAY_RESPECT_PROXY_ENV"
@@ -333,6 +334,22 @@ class GatewayClient:
         """Call `GET /v1/status`."""
 
         return self._request_model("GET", "/v1/status", GatewayStatusV1)
+
+    def request_file_edit(
+        self, name: str, payload: FileTargetRequest, response: type[_ModelT]
+    ) -> _ModelT:
+        """Use the shared direct proof transport for one typed file operation."""
+
+        route = FILE_REQUESTS.get(name)
+        if route is None or type(payload) is not route[0] or self.m_request_proof is not None:
+            raise ValueError("Select an exact direct gateway file operation.")
+        return self._request_model(
+            "POST",
+            f"{FILE_EDIT_PATH}/{name}",
+            response,
+            body=cast(GatewayJsonObject, payload.model_dump(mode="json")),
+            timeout_seconds=30.0 if name == "push" else None,
+        )
 
     def get_native_home(self) -> NativeHomeV1:
         """Read the bound native home without inspecting configuration contents."""
