@@ -587,7 +587,7 @@ Current behavior:
 
 ### `POST /v1/control/prompt`
 
-This route is the direct prompt-control surface for gateway-managed sessions. It returns success only after the prompt has been admitted for immediate live dispatch on the current target, and it refuses by default when the target is not prompt-ready.
+This route is the direct prompt admission surface for gateway-managed sessions. It reports immediate handoff or acknowledges queued work on the current target. The default admission policy requires readiness.
 
 Representative request:
 
@@ -625,9 +625,13 @@ Representative success response:
   "action": "submit_prompt",
   "sent": true,
   "admission_policy": "ready_only",
+  "operation_id": "turn-b4fd252015b1",
+  "outcome": "handed_off",
   "detail": "Prompt dispatched."
 }
 ```
+
+An accepted managed queue reservation or a native queued receipt reports `outcome: queued`, `sent: false`, and `operation_id`. The gateway includes `native_prompt_id` when native admission supplies it. Further observation uses the existing evidence for the selected mode. [Gateway Prompt CLI](../../cli/agents-gateway.md#prompt)
 
 Representative refusal payload (returned under an HTTP error status):
 

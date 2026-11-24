@@ -317,6 +317,167 @@ def test_fixture_peer_mail_discovery_uses_records_and_verified_gateway(
     assert sender.socket_log.read_text() == ""
 
 
+def test_fixture_mail_write_receipts_reference_the_owning_binding(
+    detached_peers: tuple[_Peer, _Peer],
+) -> None:
+    """Inspect each synthetic write without repeating it or changing read state."""
+
+    sender, recipient = detached_peers
+    sender_binding = sender.manager([*sender.scope, "mail", "status"])["offline"]["binding_id"]
+    recipient_binding = recipient.manager([*recipient.scope, "mail", "status"])["offline"][
+        "binding_id"
+    ]
+    assert sender_binding != recipient_binding
+
+    def self_mail(peer: _Peer, operation: str, binding_id: str, *args: str) -> dict[str, Any]:
+        """Exercise the same scoped command an agent invokes from its pane."""
+
+        return peer.manager(
+            [
+                "agents",
+                "self",
+                "mail",
+                operation,
+                "--channel",
+                "offline",
+                "--expected-binding-id",
+                binding_id,
+                *args,
+            ],
+            from_pane=True,
+        )
+
+    subject = "Record-backed mail receipts"
+    send = self_mail(
+        sender,
+        "send",
+        sender_binding,
+        "--to",
+        recipient.address,
+        "--subject",
+        subject,
+        "--body-content",
+        "One outbound message.",
+    )
+    assert send["binding_id"] == sender_binding
+    assert send["address"] == send["sender_address"] == sender.address
+    assert send["to"] == [recipient.address]
+    (sent,) = self_mail(sender, "list", sender_binding, "--box", "sent")["messages"]
+    assert sent["message_ref"] == send["message_ref"]
+    sent_peek = self_mail(sender, "peek", sender_binding, "--message-ref", send["message_ref"])
+    assert sent_peek["message"]["body_text"] == "One outbound message."
+    assert sent_peek["message"]["read"] == sent["read"]
+    assert self_mail(sender, "list", sender_binding, "--box", "sent")["messages"] == [sent]
+
+    (original,) = self_mail(recipient, "list", recipient_binding, "--box", "inbox")["messages"]
+    assert original["subject"] == subject and original["read"] is False
+    inbox_peek = self_mail(
+        recipient, "peek", recipient_binding, "--message-ref", original["message_ref"]
+    )
+    assert inbox_peek["message"]["read"] is False
+    assert self_mail(recipient, "list", recipient_binding, "--box", "inbox")["messages"] == [
+        original
+    ]
+
+    reply = self_mail(
+        recipient,
+        "reply",
+        recipient_binding,
+        "--message-ref",
+        original["message_ref"],
+        "--body-content",
+        "One reply.",
+    )
+    assert reply["binding_id"] == recipient_binding
+    assert reply["sender_address"] == recipient.address
+    assert reply["to"] == [sender.address] and reply["subject"] == f"Re: {subject}"
+    assert reply["parent_message_ref"] == original["message_ref"] != reply["message_ref"]
+    (reply_sent,) = self_mail(recipient, "list", recipient_binding, "--box", "sent")["messages"]
+    assert reply_sent["message_ref"] == reply["message_ref"]
+    reply_peek = self_mail(
+        recipient, "peek", recipient_binding, "--message-ref", reply["message_ref"]
+    )
+    assert reply_peek["message"]["body_text"] == "One reply."
+    assert reply_peek["message"]["read"] == reply_sent["read"]
+    assert self_mail(recipient, "list", recipient_binding, "--box", "sent")["messages"] == [
+        reply_sent
+    ]
+    (received_reply,) = self_mail(sender, "list", sender_binding, "--box", "inbox")["messages"]
+    assert received_reply["subject"] == reply["subject"]
+
+    post = recipient.manager(
+        [
+            *recipient.scope,
+            "mail",
+            "post",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            recipient_binding,
+            "--subject",
+            "Operator receipt",
+            "--body-content",
+            "One operator note.",
+        ]
+    )
+    assert post["binding_id"] == recipient_binding
+    assert post["address"] == recipient.address and post["to"] == [recipient.address]
+    assert post["sender_address"] == "HOUMAO-operator@houmao.localhost"
+    inbox = self_mail(recipient, "list", recipient_binding, "--box", "inbox")["messages"]
+    assert len(inbox) == 2
+    (note,) = [message for message in inbox if message["message_ref"] == post["message_ref"]]
+    assert note["read"] is False
+    post_peek = self_mail(
+        recipient, "peek", recipient_binding, "--message-ref", post["message_ref"]
+    )
+    assert post_peek["message"]["body_text"] == "One operator note."
+    assert post_peek["message"]["read"] is False
+    assert self_mail(recipient, "list", recipient_binding, "--box", "inbox")["messages"] == inbox
+
+    wrong_binding = recipient.invoke(
+        [
+            *recipient.scope,
+            "mail",
+            "peek",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            sender_binding,
+            "--message-ref",
+            post["message_ref"],
+        ],
+        env=recipient.owner_env,
+    )
+    assert wrong_binding.returncode != 0 and "binding changed" in wrong_binding.stderr.lower()
+    wrong_owner = sender.invoke(
+        [
+            *sender.scope,
+            "mail",
+            "peek",
+            "--channel",
+            "offline",
+            "--expected-binding-id",
+            sender_binding,
+            "--message-ref",
+            post["message_ref"],
+        ],
+        env=sender.owner_env,
+    )
+    assert wrong_owner.returncode != 0 and "another owner" in wrong_owner.stderr.lower()
+
+    self_mail(recipient, "archive", recipient_binding, "--message-ref", post["message_ref"])
+    archived = self_mail(recipient, "peek", recipient_binding, "--message-ref", post["message_ref"])
+    assert archived["message"]["box"] == "archive"
+    assert archived["message"]["body_text"] == "One operator note."
+    for operation, receipt in (("send", send), ("reply", reply), ("post", post)):
+        assert receipt["schema_version"] == 1
+        assert receipt["operation"] == operation
+        assert receipt["status"] == "verified" and receipt["authoritative"] is True
+        assert receipt["execution_path"] == "manager_direct"
+        assert receipt["channel"] == "offline"
+        assert "message" not in receipt
+
+
 def test_fixture_normal_prompt_uses_recorded_pane_across_sockets(
     detached_peers: tuple[_Peer, _Peer], tmp_path: Path
 ) -> None:

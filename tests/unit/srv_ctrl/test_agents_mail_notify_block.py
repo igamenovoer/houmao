@@ -16,7 +16,7 @@ _FAKE_TARGET = MagicMock(name="ManagedAgentTarget")
 
 @patch("houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target")
 @patch("houmao.srv_ctrl.commands.agents.mail.mail_send")
-@patch("houmao.srv_ctrl.commands.agents.mail.emit")
+@patch("houmao.srv_ctrl.commands.agents.mail.emit_receipt")
 def test_send_passes_notify_block_through_to_mail_send(
     mock_emit: MagicMock,
     mock_mail_send: MagicMock,
@@ -56,7 +56,7 @@ def test_send_passes_notify_block_through_to_mail_send(
 
 @patch("houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target")
 @patch("houmao.srv_ctrl.commands.agents.mail.mail_send")
-@patch("houmao.srv_ctrl.commands.agents.mail.emit")
+@patch("houmao.srv_ctrl.commands.agents.mail.emit_receipt")
 def test_send_passes_notify_block_with_prepend_placement(
     mock_emit: MagicMock,
     mock_mail_send: MagicMock,
@@ -97,7 +97,7 @@ def test_send_passes_notify_block_with_prepend_placement(
 
 @patch("houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target")
 @patch("houmao.srv_ctrl.commands.agents.mail.mail_send")
-@patch("houmao.srv_ctrl.commands.agents.mail.emit")
+@patch("houmao.srv_ctrl.commands.agents.mail.emit_receipt")
 def test_send_omits_notify_block_when_flag_absent(
     mock_emit: MagicMock,
     mock_mail_send: MagicMock,
@@ -133,7 +133,7 @@ def test_send_omits_notify_block_when_flag_absent(
 
 @patch("houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target")
 @patch("houmao.srv_ctrl.commands.agents.mail.mail_post")
-@patch("houmao.srv_ctrl.commands.agents.mail.emit")
+@patch("houmao.srv_ctrl.commands.agents.mail.emit_receipt")
 def test_post_passes_notify_block_through_to_mail_post(
     mock_emit: MagicMock,
     mock_mail_post: MagicMock,

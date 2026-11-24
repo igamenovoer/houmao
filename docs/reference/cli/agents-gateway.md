@@ -99,6 +99,15 @@ houmao-mgr agents single --agent-id <id> gateway prompt [OPTIONS]
 | `--reasoning-level INTEGER` | Optional tool/model-specific reasoning preset index override for this prompt only. |
 | `--pair-port INTEGER` | Houmao pair authority port override for explicit gateway prompt. |
 
+The first invocation reports `status`, `action`, `admission_policy`, `sent`, and `detail` in plain, fancy, and JSON output. It includes `operation_id`, `outcome`, and `native_prompt_id` when the gateway supplies them. A structured refusal is printed as JSON on stderr and exits nonzero.
+
+An `outcome` of `queued` with `sent: false` confirms acceptance ahead of handoff. A `sent: true` receipt confirms handoff and leaves provider completion for separate observation. Keep the available identifiers from the first invocation.
+
+- **Headless.** When the operation ID identifies a saved turn, run `houmao-mgr agents single --agent-id "$AGENT_ID" turn status "$TURN_ID"` or use `turn events "$TURN_ID"` for the recorded events.
+- **Service.** An authorized gateway client can read the exact operation with `GET /v1/control/service/requests/{operation_id}`.
+- **Web.** Inspect the current native state or bounded history through `GET /v1/control/web/state` or `GET /v1/control/web/history`. Use operation or native prompt IDs to correlate evidence when available.
+- **TUI.** Use `gateway tui state` or `gateway tui history` on the same agent for observed terminal activity. Keep the outcome unresolved if the observation cannot corroborate the exact input.
+
 The admission policies apply as follows:
 
 | Policy | TUI decision | Hook gate (TUI-backed, channel `active`) | Native headless scope |
@@ -218,7 +227,9 @@ houmao-mgr agents single --agent-id <id> gateway reminders create [OPTIONS]
 
 #### `reminders set`
 
-Patch one reminder through the CLI surface. The CLI fetches the current reminder, applies only supplied overrides, then sends the full replacement payload to the gateway.
+Patch one reminder through the CLI surface. The CLI fetches the current reminder, applies the supplied overrides, then sends the replacement to the gateway. The update receipt shows `status: updated`, `reminder_id`, `ranking`, `paused`, and the saved `next_due_at_utc` in all output modes.
+
+Use `reminders get --reminder-id <id>` to read the updated definition or `reminders list` to see the live set and its effective reminder.
 
 ```
 houmao-mgr agents single --agent-id <id> gateway reminders set [OPTIONS]

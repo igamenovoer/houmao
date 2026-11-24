@@ -10,7 +10,6 @@ Use this surface when `houmao-mgr agents self mail resolve-live` returns `gatewa
 <chosen houmao-mgr launcher> agents self mail peek --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
 <chosen houmao-mgr launcher> agents self mail read --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref>
 <chosen houmao-mgr launcher> agents self mail send --channel <channel> --expected-binding-id <binding_id> --to <recipient> --subject <subject> --body-content <body>
-<chosen houmao-mgr launcher> agents self mail post --channel <channel> --expected-binding-id <binding_id> --subject <subject> --body-content <body>
 <chosen houmao-mgr launcher> agents self mail reply --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --body-content <body>
 <chosen houmao-mgr launcher> agents self mail mark --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --read
 <chosen houmao-mgr launcher> agents self mail move --channel <channel> --expected-binding-id <binding_id> --message-ref <message_ref> --destination-box <box>
@@ -18,10 +17,12 @@ Use this surface when `houmao-mgr agents self mail resolve-live` returns `gatewa
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail status
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail list --channel <channel> --expected-binding-id <binding_id>
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail send --channel <channel> --expected-binding-id <binding_id> --to <recipient> --subject <subject> --body-content <body>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail post --channel offline --expected-binding-id <binding_id> --subject <subject> --body-content <body>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> mail peek --channel offline --expected-binding-id <binding_id> --message-ref <post_ref>
 ```
 
 Use only the structured fields returned by `agents self mail resolve-live` or `agents single ... mail resolve-live` for mailbox identity, transport, and fallback inputs.
 
 `post` is filesystem-only in v1 and refuses live TUI submission fallback.
 
-If a fallback `houmao-mgr agents self mail ...` or `houmao-mgr agents single ... mail ...` result returns `authoritative: false`, treat it as submission-only and verify outcome before assuming the mutation completed.
+A fallback result with `authoritative: false` reports request status. Preserve its request ID and original scope. Use authorized read-only inspection to reconcile uncertain writes. Report an unresolved outcome if the read is unavailable or inconclusive.

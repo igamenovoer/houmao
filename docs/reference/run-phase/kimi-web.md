@@ -4,8 +4,18 @@ Select `--mode web` with Kimi Code 2.6.0 or later. Houmao supervises `kimi web -
 
 ```bash
 houmao-mgr project agents launch --profile kimi-lab --mode web
-houmao-mgr agents single --agent-id "$agent_id" open-browser
+houmao-mgr --print-json agents single --agent-id "$agent_id" open-browser
 houmao-mgr agents single --agent-id "$agent_id" prompt --prompt 'Inspect the workspace.'
+```
+
+The browser command reports the owner-local action with the same outcome fields in text and JSON.
+
+```json
+{
+  "action": "open_browser",
+  "detail": "Opened the native Kimi Web browser location.",
+  "status": "ok"
+}
 ```
 
 The published browser surface contains a clean loopback origin and native session ID. `open-browser` opens the native UI from the owner execution context. The owning gateway's `/v1/web/enter` URL redirects to the verified Kimi Web destination with an empty admin roster and shows interactive sign-in with enrolled admins. The manager's `gateway web-entry` command also issues a one-time link under the live roster policy. [Gateway Access](../gateway/operations/access.md)

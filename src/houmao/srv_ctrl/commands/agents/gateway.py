@@ -64,6 +64,7 @@ from ..common import (
     resolve_prompt_text,
 )
 from ..output import emit
+from ..renderers.receipts import emit_receipt
 from ..renderers.gateway import (
     render_reminder_detail_fancy,
     render_reminder_detail_plain,
@@ -71,8 +72,6 @@ from ..renderers.gateway import (
     render_reminder_list_plain,
     render_gateway_status_fancy,
     render_gateway_status_plain,
-    render_prompt_result_fancy,
-    render_prompt_result_plain,
 )
 from ..managed_agents import (
     GatewayPromptControlCliError,
@@ -421,16 +420,14 @@ def prompt_gateway_command(
         operation_name="prompt",
     )
     try:
-        emit(
+        emit_receipt(
             gateway_prompt(
                 target,
                 prompt=resolve_prompt_text(prompt=prompt),
                 admission_policy=_PROMPT_ADMISSION_POLICY_BY_CLI_VALUE[admission_policy],
                 model=model,
                 reasoning_level=reasoning_level,
-            ),
-            plain_renderer=render_prompt_result_plain,
-            fancy_renderer=render_prompt_result_fancy,
+            )
         )
     except GatewayPromptControlCliError as exc:
         click.echo(
@@ -1150,8 +1147,15 @@ def set_gateway_reminder_command(
         interval_seconds=interval_seconds,
     )
     updated = gateway_put_reminder(target, reminder_id=reminder_id, payload=payload)
-    effective_reminder_id = gateway_list_reminders(target).effective_reminder_id
-    _emit_reminder_detail(updated, effective_reminder_id=effective_reminder_id)
+    emit_receipt(
+        {
+            "status": "updated",
+            "reminder_id": updated.reminder_id,
+            "ranking": updated.ranking,
+            "paused": updated.paused,
+            "next_due_at_utc": updated.next_due_at_utc,
+        }
+    )
 
 
 @reminders_gateway_group.command(name="remove")

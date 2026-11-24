@@ -91,7 +91,7 @@ houmao-mgr agents single --agent-id <id> mail peek --channel <offline|online> [O
 
 | Option | Description |
 |---|---|
-| `--message-ref TEXT` | Opaque message reference returned by the matching scoped mail `list` command. Required. |
+| `--message-ref TEXT` | Opaque reference from a scoped mail `list` result or write receipt on the same agent, channel, and binding. Required. |
 | `--box TEXT` | Require the message to be in this box. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 
@@ -213,12 +213,26 @@ houmao-mgr agents single --agent-id <id> mail archive --channel <offline|online>
 | `--message-ref TEXT` | Message reference. Required and repeatable. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 
-## Result Semantics
+## Confirm and Inspect a Mail Write
 
-- Verified pair-owned and manager-owned execution returns `authoritative: true`, `status: "verified"`, and `execution_path: "gateway_backed"` or `"manager_direct"`.
-- Local live-TUI fallback returns `authoritative: false` with submission-only status such as `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`.
-- `post` never returns a TUI-submission result because it refuses non-authoritative execution.
-- Non-authoritative fallback results may include `preview_result`, but callers must verify outcome through manager-owned follow-up such as `agents single ... mail status`, `agents self mail status`, `agents single ... mail list --channel <channel>`, or `agents self mail list --channel <channel>`, the live gateway `/v1/mail/*` state, filesystem mailbox inspection, or transport-native mailbox state.
+`send`, `reply`, and `post` return a version-1 CLI receipt. Report the status and reference from the first write. Plain, fancy, and JSON output expose the same receipt fields. Choose `--print-json` on the write if a script needs structured output.
+
+An authoritative receipt reports `status: verified` and `execution_path: gateway_backed` or `manager_direct`. It confirms the filesystem commit or provider-acknowledged submission. The receipt gives the `channel`, `binding_id`, `principal_id`, and `address` of the mailbox that owns `message_ref`. It also gives the actual `sender_address`, `to`, `cc`, `subject`, and `created_at_utc`. For a reply, `parent_message_ref` identifies the original message. For an operator post, `address` is the recipient's mailbox and `sender_address` is the reserved operator address.
+
+CLI JSON consumers previously read `message.message_ref`. Read top-level `message_ref` from the receipt now. Gateway and pair HTTP clients continue to receive their existing action response. Use read-only `peek` to inspect the created message, including after it moves to another box.
+
+```bash
+# Send or reply from the current agent. Use the binding and reference from its receipt.
+pixi run houmao-mgr --print-json agents self mail peek --channel "$channel" \
+  --expected-binding-id "$binding_id" --message-ref "$receipt_message_ref"
+
+# Operator post. Use the target selected for the write and the target binding from the receipt.
+pixi run houmao-mgr --print-json agents single --agent-id "$recipient_id" mail peek \
+  --channel offline --expected-binding-id "$recipient_binding_id" \
+  --message-ref "$post_message_ref"
+```
+
+For local live-TUI sends and replies, `authoritative: false` identifies a request outcome such as `submitted`, `rejected`, `busy`, `interrupted`, or `tui_error`. The receipt carries a request ID with the original channel and binding. A submission can precede delivery, and only a verified write yields a message reference. Reconcile an uncertain send or reply with `mail list --box sent` on the original writing agent's binding. For an uncertain post, inspect the selected recipient's inbox and archive. Report an inconclusive result as unresolved. Other TUI mailbox operations may still include a non-authoritative `preview_result`.
 
 ## Notification-prompt block
 

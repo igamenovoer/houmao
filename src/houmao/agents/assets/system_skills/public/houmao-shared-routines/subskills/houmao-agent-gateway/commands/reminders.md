@@ -31,7 +31,7 @@ Use this action when the attached agent needs one or more ranked live reminders 
    - use `--before-all` to insert above the current minimum ranking
    - use `--after-all` to append below the current maximum ranking
 13. Use direct live `{gateway.base_url}/v1/reminders...` only when the task genuinely needs the lower-level live HTTP contract and the exact live base URL is already known.
-14. Report the effective reminder, blocked reminders, ranking order, the delivery kind of each reminder, and any paused reminder that is currently blocking lower-ranked items.
+14. Confirm an update from its `status: updated`, `reminder_id`, `ranking`, `paused`, and `next_due_at_utc` receipt. Use `reminders get` to read the full definition and `reminders list` to inspect the effective, blocked, or paused reminders in the set.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
@@ -40,9 +40,11 @@ If the request does not map cleanly to this workflow, use the native planning to
 Run direct scoped reminder commands:
 
 ```bash
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds>
-<chosen houmao-mgr launcher> agents self gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds> --after-all
+<chosen houmao-mgr launcher> agents self gateway reminders create --title <title> --mode one_off --prompt <prompt> --start-after-seconds <seconds> --after-all
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders set --reminder-id <id> [--title <title>] [--prompt <prompt>] [--paused | --no-paused]
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders get --reminder-id <id>
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders list
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway reminders remove --reminder-id <id>
 ```
 

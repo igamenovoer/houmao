@@ -193,6 +193,7 @@ from ..common import (
     set_managed_agent_scope_context,
 )
 from ..output import emit
+from ..renderers.receipts import emit_receipt
 from ..project_aware_wording import (
     describe_mailbox_root_selection,
     describe_overlay_bootstrap,
@@ -2278,7 +2279,8 @@ def open_agent_browser_command(agent_id: str | None, agent_name: str | None) -> 
     """Open the native browser for an active local Kimi Web owner."""
 
     target = resolve_managed_agent_target(agent_id=agent_id, agent_name=agent_name, port=None)
-    emit(open_managed_agent_browser(target))
+    result = open_managed_agent_browser(target)
+    emit_receipt({"status": result.status, "action": result.action, "detail": result.detail})
 
 
 @agents_group.command(name="stop")

@@ -16,4 +16,13 @@ houmao-mgr agents self mail reply --channel "$MAIL_CHANNEL" --expected-binding-i
   --message-ref "$MESSAGE_REF" --body-content "$BODY"
 ```
 
+Report the first receipt's status and top-level `message_ref`. The receipt's `parent_message_ref` identifies the message you replied to. Set `REPLY_REF` from the verified receipt's `message_ref` when you need the new reply's details.
+
+```bash
+houmao-mgr --print-json agents self mail peek --channel "$MAIL_CHANNEL" \
+  --expected-binding-id "$BINDING_ID" --message-ref "$REPLY_REF"
+```
+
+Choose JSON on the first reply or on `peek`. If the outcome remains uncertain, check `mail list --box sent` on the replying agent's original binding. Use the parent's thread as a correlation hint. If the sent-box evidence is inconclusive, report the reply outcome as unresolved. An answered parent alone cannot confirm this particular reply.
+
 The gateway requires verified admin proof for owner-file attachments on this private route. Keep transport-local threading identifiers opaque.

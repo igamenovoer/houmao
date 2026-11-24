@@ -50,20 +50,22 @@ Work artifacts belong in the launched workdir, an operator-designated project pa
 
 ## Memory Commands
 
-Use `houmao-mgr agents memory` to inspect and operate the memo and pages:
+Use `houmao-mgr agents single --agent-name researcher memory` to manage the selected agent's memo and pages.
 
 ```bash
-houmao-mgr agents memory path --agent-name researcher
-houmao-mgr agents memory memo show --agent-name researcher
-houmao-mgr agents memory memo set --agent-name researcher --content-file ./init-notes.md
-houmao-mgr agents memory memo append --agent-name researcher --content "\nFollow repo conventions."
-houmao-mgr agents memory tree --agent-name researcher
-houmao-mgr agents memory resolve --agent-name researcher --path notes/todo.md
-houmao-mgr agents memory read --agent-name researcher --path notes/todo.md
-houmao-mgr agents memory write --agent-name researcher --path notes/todo.md --content "next step"
-houmao-mgr agents memory append --agent-name researcher --path notes/todo.md --content "\nfollow-up"
-houmao-mgr agents memory delete --agent-name researcher --path notes/todo.md
+houmao-mgr agents single --agent-name researcher memory path
+houmao-mgr agents single --agent-name researcher memory memo set --content-file ./init-notes.md
+houmao-mgr agents single --agent-name researcher memory memo append --content $'\nFollow repo conventions.'
+houmao-mgr --print-json agents single --agent-name researcher memory memo show
+houmao-mgr agents single --agent-name researcher memory tree
+houmao-mgr agents single --agent-name researcher memory resolve --path notes/todo.md
+houmao-mgr agents single --agent-name researcher memory read --path notes/todo.md
+houmao-mgr agents single --agent-name researcher memory write --path notes/todo.md --content "next step"
+houmao-mgr agents single --agent-name researcher memory append --path notes/todo.md --content $'\nfollow-up'
+houmao-mgr agents single --agent-name researcher memory delete --path notes/todo.md
 ```
+
+The first `memo set` or `memo append` result confirms the write with `success`, `action`, and `memo_file`. Use `memo show` in the same scope to read `content` after the write. Tasks inside the managed session can use `houmao-mgr agents self memory memo show`.
 
 Page operations accept only relative paths and reject traversal outside `pages/`. Page writes, appends, and deletes do not edit `houmao-memo.md`. Use `memo set` or `memo append` when you want to author memo text, and use `memory resolve --path <page>` when you need the page-relative path, memo-relative link, absolute path, existence, and kind for a page.
 

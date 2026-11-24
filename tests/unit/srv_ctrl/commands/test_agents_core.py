@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import click
+from contextlib import nullcontext
+import json
 from pathlib import Path
 import shutil
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import click
+from click.testing import CliRunner
 import pytest
 
 from houmao.agents.managed_prompt_header import compose_managed_launch_prompt
@@ -18,12 +21,15 @@ from houmao.agents.mailbox_runtime_models import (
     MailboxSlotConfig,
 )
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
+from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
+from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
 from houmao.agents.realm_controller.gateway_storage import (
     gateway_paths_from_manifest_path,
     read_gateway_mail_notifier_record,
 )
 from houmao.agents.realm_controller.manifest import default_manifest_path
+from houmao.agents.realm_controller.models import SessionControlResult
 from houmao.agents.system_skills import SystemSkillSelectionPolicy
 from houmao.execution.context import execution_binding_scope, observed_local_binding
 from houmao.owned_paths import (
@@ -36,6 +42,69 @@ from houmao.srv_ctrl.commands.agents.core import (
     _resolve_launch_profile_system_skill_policy_or_click,
     launch_managed_agent_locally,
 )
+from houmao.srv_ctrl.commands.main import cli
+
+
+@pytest.mark.parametrize("style", ["plain", "fancy", "json"])
+@pytest.mark.parametrize("owner_available", [True, False])
+def test_native_open_browser_reports_one_verified_outcome(
+    monkeypatch: pytest.MonkeyPatch, style: str, owner_available: bool
+) -> None:
+    """Format a verified browser outcome after one local action."""
+
+    backend = KimiWebSession()
+    calls: list[str] = []
+
+    def require_owner() -> None:
+        """Check the current owner before opening a browser."""
+
+        calls.append("owner")
+        if not owner_available:
+            raise SessionManifestError("Stale browser owner.")
+
+    def open_browser() -> SessionControlResult:
+        """Return a control result without invoking a real browser."""
+
+        calls.append("browser")
+        return SessionControlResult(
+            status="ok", action="open_browser", detail="Opened the browser."
+        )
+
+    target = SimpleNamespace(
+        mode="local",
+        controller=SimpleNamespace(
+            backend_session=backend,
+            execution_scope=nullcontext,
+            require_managed_control_owner=require_owner,
+        ),
+    )
+    monkeypatch.setattr(backend, "open_browser", open_browser)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        lambda **kwargs: target,
+    )
+
+    result = CliRunner().invoke(
+        cli, [f"--print-{style}", "agents", "single", "--agent-id", "kimi-web", "open-browser"]
+    )
+    if not owner_available:
+        assert result.exit_code != 0
+        assert "Stale browser owner." in result.output
+        assert calls == ["owner"]
+        return
+
+    assert result.exit_code == 0, result.output
+    fields = {"status": "ok", "action": "open_browser", "detail": "Opened the browser."}
+    if style == "json":
+        assert json.loads(result.output) == fields
+    else:
+        for name, value in fields.items():
+            assert name in result.output
+            assert value in result.output
+    assert "SessionControlResult" not in result.output
+    assert "#token=" not in result.output
+    assert "open-browser.html" not in result.output
+    assert calls == ["owner", "browser"]
 
 
 @pytest.fixture

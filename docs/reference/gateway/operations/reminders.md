@@ -24,6 +24,8 @@ Use reminder surfaces in this order:
 
 The CLI and pair-managed proxy are thin wrappers over the same live reminder model and ranking semantics.
 
+A successful CLI `reminders set` returns an `updated` receipt with the reminder ID, ranking, paused flag, and saved due time. Use `reminders get --reminder-id <id>` for the updated definition and `reminders list` for the effective reminder. A second update with a relative delay calculates a new due time.
+
 ## Supported Routes
 
 Preferred managed-agent reminder routes:

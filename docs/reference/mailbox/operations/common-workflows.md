@@ -26,7 +26,7 @@ pixi run houmao-mgr agents single --agent-id "$agent_id" mail read \
   --channel offline --expected-binding-id "$binding_id" --message-ref "$message_ref"
 ```
 
-Obtain `message_ref` from a list result and keep it opaque. `peek` preserves read state; `read` intentionally marks read. Optional list filters include `--read-state`, `--answered-state`, `--archived/--not-archived`, and `--since`.
+Obtain `message_ref` from a list result or a verified write receipt and keep it opaque. `peek` preserves read state. `read` marks the message read. Optional list filters include `--read-state`, `--answered-state`, `--archived/--not-archived`, and `--since`.
 
 For gateway access, use `GET /v1/mail/status` followed by `POST /v1/mail/{channel}/list|peek|read`. A list request body is:
 
@@ -58,6 +58,17 @@ pixi run houmao-mgr agents single --agent-id "$agent_id" mail reply \
 Choose exactly one body source, `--body-file` or `--body-content`. Repeat `--to`, `--cc`, or `--attach` as needed. Replies preserve their original binding and ancestry. A successful reply marks the parent read and answered without archiving it.
 
 Local filesystem `mail post --channel offline` creates an operator-origin note. The reserved sender is `HOUMAO-operator@houmao.localhost`, and reply-enabled posts use `reply_policy=operator_mailbox` by default. `--reply-policy none` disables replies to that note. `post` requires authoritative execution; unsupported backends fail explicitly.
+
+Confirm each write from its first receipt. For `send` and `reply`, peek through the writing agent's original channel and binding. For a `post`, select the recipient used for the write. Set the reference and binding variables from the corresponding receipt.
+
+```bash
+pixi run houmao-mgr --print-json agents single --agent-id "$agent_id" mail peek \
+  --channel offline --expected-binding-id "$binding_id" --message-ref "$written_ref"
+pixi run houmao-mgr --print-json agents single --agent-id "$recipient_id" mail peek \
+  --channel offline --expected-binding-id "$recipient_binding_id" --message-ref "$post_ref"
+```
+
+For submission-only or uncertain results without a verified reference, inspect the original agent binding's sent box for a send or reply. For a post, inspect the selected target's inbox and archive as authorized. If the lookup is inconclusive, report the outcome as unresolved. [Mail Receipt Fields and Statuses](../../cli/agents-mail.md#confirm-and-inspect-a-mail-write)
 
 Remote offline attachment handling uploads bounded content into registry-owned storage. Recipients download authorized content; neither host needs the other's filesystem path. Trusted local path references remain local-only.
 

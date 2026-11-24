@@ -40,6 +40,7 @@ from ..managed_agents import (
     mail_status,
     resolve_managed_agent_mail_target,
 )
+from ..renderers.receipts import emit_receipt
 
 
 @click.group(name="mail")
@@ -243,7 +244,7 @@ def send_mail_command(
     """Send one mailbox message for a managed agent."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(
+    emit_receipt(
         mail_send(
             target,
             to_recipients=list(to_recipients),
@@ -314,7 +315,7 @@ def post_mail_command(
     """Post one operator-origin mailbox note into a managed agent inbox."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(
+    emit_receipt(
         mail_post(
             target,
             subject=subject,
@@ -354,7 +355,7 @@ def reply_mail_command(
     """Reply to one mailbox message for a managed agent."""
 
     target = resolve_managed_agent_mail_target(agent_id=agent_id, agent_name=agent_name, port=port)
-    emit(
+    emit_receipt(
         mail_reply(
             target,
             message_ref=message_ref,

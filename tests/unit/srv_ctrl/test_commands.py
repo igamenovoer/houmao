@@ -28,6 +28,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
     GatewayCurrentInstanceV1,
     GatewayPromptControlErrorV1,
+    GatewayPromptControlResultV1,
     GatewayReminderCreateResultV1,
     GatewayReminderListV1,
     GatewayReminderSendKeysV1,
@@ -1519,31 +1520,127 @@ def test_agents_gateway_prompt_rejects_removed_force_option() -> None:
     assert "--force" in result.output
 
 
-def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
+def _assert_gateway_receipt(output: str, output_format: str, expected: dict[str, object]) -> None:
+    """Compare every visible field in a flat gateway receipt."""
+
+    if output_format == "--print-json":
+        assert json.loads(output) == expected
+        return
+    formatted = {
+        key: json.dumps(value) if isinstance(value, bool) else str(value)
+        for key, value in expected.items()
+    }
+    assert dict(line.strip().split(maxsplit=1) for line in output.splitlines()) == formatted
+
+
+@pytest.mark.parametrize("output_format", ["--print-plain", "--print-fancy", "--print-json"])
+@pytest.mark.parametrize(
+    ("scope", "receipt"),
+    [
+        (
+            ["single", "--agent-name", "gpu"],
+            GatewayPromptControlResultV1(
+                admission_policy="ready_only",
+                sent=False,
+                detail="Prompt reserved for native handoff.",
+                operation_id="turn-564fed127c32",
+                outcome="queued",
+            ),
+        ),
+        (
+            ["self"],
+            GatewayPromptControlResultV1(
+                admission_policy="ready_only",
+                sent=False,
+                detail="Kimi queued the prompt.",
+                operation_id="turn-own-web-" + "opaque-" * 20,
+                outcome="queued",
+                native_prompt_id="native-prompt-[2789]",
+            ),
+        ),
+        (
+            ["self"],
+            GatewayPromptControlResultV1(
+                admission_policy="ready_only",
+                detail="Prompt dispatched.",
+                operation_id="turn-handoff",
+                outcome="handed_off",
+            ),
+        ),
+        (
+            ["single", "--agent-name", "gpu"],
+            GatewayPromptControlResultV1(
+                admission_policy="ready_only",
+                detail="Prompt dispatched.",
+            ),
+        ),
+    ],
+    ids=["headless-queued", "web-queued", "handoff", "no-identifiers"],
+)
+def test_agents_gateway_prompt_shows_receipt_for_one_submission(
     monkeypatch: pytest.MonkeyPatch,
+    output_format: str,
+    scope: list[str],
+    receipt: GatewayPromptControlResultV1,
 ) -> None:
     target = SimpleNamespace(agent_ref="published-alpha")
+    calls: list[tuple[object, str, str]] = []
+
+    def submit(
+        resolved_target: object, *, prompt: str, admission_policy: str, **_kwargs: object
+    ) -> GatewayPromptControlResultV1:
+        calls.append((resolved_target, prompt, admission_policy))
+        return receipt
 
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
         lambda **_kwargs: target,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.gateway_prompt",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            GatewayPromptControlCliError(
-                GatewayPromptControlErrorV1(
-                    admission_policy="ready_only",
-                    error_code="not_ready",
-                    detail="Gateway prompt rejected because the TUI is not submit-ready.",
-                )
-            )
-        ),
+        "houmao.srv_ctrl.commands.agents.gateway._resolve_gateway_current_session_target",
+        lambda: target,
     )
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.gateway.gateway_prompt", submit)
+
+    result = CliRunner().invoke(
+        cli,
+        [output_format, "agents", *scope, "gateway", "prompt", "--prompt", "hello"],
+        env={"COLUMNS": "48"},
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == [(target, "hello", "ready_only")]
+    _assert_gateway_receipt(result.stdout, output_format, receipt.model_dump(mode="json"))
+
+
+@pytest.mark.parametrize("output_format", ["--print-plain", "--print-fancy", "--print-json"])
+def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
+    monkeypatch: pytest.MonkeyPatch, output_format: str
+) -> None:
+    target = SimpleNamespace(agent_ref="published-alpha")
+    calls: list[object] = []
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
+        lambda **_kwargs: target,
+    )
+
+    def refuse(resolved_target: object, **_kwargs: object) -> None:
+        calls.append(resolved_target)
+        raise GatewayPromptControlCliError(
+            GatewayPromptControlErrorV1(
+                admission_policy="ready_only",
+                error_code="not_ready",
+                detail="Gateway prompt rejected because the TUI is not submit-ready.",
+            )
+        )
+
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.gateway.gateway_prompt", refuse)
 
     result = CliRunner().invoke(
         cli,
         [
+            output_format,
             "agents",
             "single",
             "--agent-name",
@@ -1556,7 +1653,9 @@ def test_agents_gateway_prompt_renders_structured_json_error_and_exits_nonzero(
     )
 
     assert result.exit_code == 1
-    assert json.loads(result.output) == {
+    assert calls == [target]
+    assert result.stdout == ""
+    assert json.loads(result.stderr) == {
         "action": "submit_prompt",
         "detail": "Gateway prompt rejected because the TUI is not submit-ready.",
         "error_code": "not_ready",
@@ -1875,10 +1974,12 @@ def test_agents_gateway_reminders_create_with_explicit_selector_builds_payload(
     assert json.loads(result.output)["effective_reminder_id"] == "greminder-new"
 
 
+@pytest.mark.parametrize("output_format", ["--print-plain", "--print-fancy", "--print-json"])
 def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, output_format: str
 ) -> None:
     captured: dict[str, object] = {}
+    calls: list[str] = []
     target = SimpleNamespace(agent_ref="published-alpha")
     existing = GatewayReminderV1(
         reminder_id="greminder-edit",
@@ -1895,74 +1996,57 @@ def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
         interval_seconds=300,
         blocked_by_reminder_id="greminder-current",
     )
-    reminder_lists = iter(
-        [
-            GatewayReminderListV1(
-                effective_reminder_id="greminder-current",
-                reminders=[
-                    GatewayReminderV1(
-                        reminder_id="greminder-current",
-                        mode="one_off",
-                        delivery_kind="prompt",
-                        title="current",
-                        prompt="current prompt",
-                        ranking=-10,
-                        paused=False,
-                        selection_state="effective",
-                        delivery_state="scheduled",
-                        created_at_utc="2026-04-09T00:00:01+00:00",
-                        next_due_at_utc="2026-04-09T00:05:00+00:00",
-                    ),
-                    existing,
-                ],
+    live_reminders = GatewayReminderListV1(
+        effective_reminder_id="greminder-current",
+        reminders=[
+            GatewayReminderV1(
+                reminder_id="greminder-current",
+                mode="one_off",
+                delivery_kind="prompt",
+                title="current",
+                prompt="current prompt",
+                ranking=-10,
+                paused=False,
+                selection_state="effective",
+                delivery_state="scheduled",
+                created_at_utc="2026-04-09T00:00:01+00:00",
+                next_due_at_utc="2026-04-09T00:05:00+00:00",
             ),
-            GatewayReminderListV1(
-                effective_reminder_id="greminder-edit",
-                reminders=[
-                    GatewayReminderV1(
-                        reminder_id="greminder-edit",
-                        mode="repeat",
-                        delivery_kind="prompt",
-                        title="existing title",
-                        prompt="existing prompt",
-                        ranking=-11,
-                        paused=False,
-                        selection_state="effective",
-                        delivery_state="scheduled",
-                        created_at_utc="2026-04-09T00:00:00+00:00",
-                        next_due_at_utc="2026-04-09T01:00:00+00:00",
-                        interval_seconds=300,
-                    )
-                ],
-            ),
-        ]
+            existing,
+        ],
     )
 
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target",
         lambda **kwargs: target,
     )
+
+    def _get_reminder(resolved_target: object, *, reminder_id: str) -> GatewayReminderV1:
+        assert resolved_target is target
+        assert reminder_id == existing.reminder_id
+        calls.append("get")
+        return existing
+
+    def _list_reminders(resolved_target: object) -> GatewayReminderListV1:
+        assert resolved_target is target
+        if "put" in calls:
+            raise click.ClickException("Reminder list is unavailable after the update.")
+        calls.append("list")
+        return live_reminders
+
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.gateway_get_reminder",
-        lambda resolved_target, *, reminder_id: (
-            captured.setdefault("get_target", resolved_target),
-            captured.setdefault("get_reminder_id", reminder_id),
-            existing,
-        )[2],
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_get_reminder", _get_reminder
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.gateway.gateway_list_reminders",
-        lambda resolved_target: (
-            captured.setdefault("list_targets", []).append(resolved_target),
-            next(reminder_lists),
-        )[1],
+        "houmao.srv_ctrl.commands.agents.gateway.gateway_list_reminders", _list_reminders
     )
 
     def _put_reminder(
         resolved_target: object, *, reminder_id: str, payload: object
     ) -> GatewayReminderV1:
-        captured["put_target"] = resolved_target
-        captured["put_reminder_id"] = reminder_id
+        assert resolved_target is target
+        assert reminder_id == existing.reminder_id
+        calls.append("put")
         captured["put_payload"] = payload
         return GatewayReminderV1(
             reminder_id="greminder-edit",
@@ -1975,7 +2059,7 @@ def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
             selection_state="effective",
             delivery_state="scheduled",
             created_at_utc="2026-04-09T00:00:00+00:00",
-            next_due_at_utc="2026-04-09T01:00:00+00:00",
+            next_due_at_utc="2026-04-09T01:00:15+00:00",
             interval_seconds=300,
         )
 
@@ -1987,7 +2071,7 @@ def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
     result = CliRunner().invoke(
         cli,
         [
-            "--print-plain",
+            output_format,
             "agents",
             "single",
             "--agent-name",
@@ -1999,9 +2083,11 @@ def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
             "greminder-edit",
             "--before-all",
         ],
+        env={"COLUMNS": "120"},
     )
 
     assert result.exit_code == 0, result.output
+    assert calls == ["get", "list", "put"]
     payload = captured["put_payload"]
     assert payload.title == "existing title"
     assert payload.prompt == "existing prompt"
@@ -2009,8 +2095,17 @@ def test_agents_gateway_reminders_set_preserves_unspecified_fields_and_reranks(
     assert payload.ranking == -11
     assert payload.deliver_at_utc == "2026-04-09T01:00:00+00:00"
     assert payload.interval_seconds == 300
-    assert "effective_reminder_id" in result.output
-    assert "greminder-edit" in result.output
+    _assert_gateway_receipt(
+        result.stdout,
+        output_format,
+        {
+            "status": "updated",
+            "reminder_id": "greminder-edit",
+            "ranking": -11,
+            "paused": False,
+            "next_due_at_utc": "2026-04-09T01:00:15+00:00",
+        },
+    )
 
 
 def test_agents_gateway_tui_state_inside_tmux_uses_current_session_resolution(

@@ -18,6 +18,15 @@ houmao-mgr agents single --agent-id "$AGENT_ID" mail post --channel "$MAIL_CHANN
   --expected-binding-id "$BINDING_ID" --subject "$SUBJECT" --body-content "$BODY"
 ```
 
+Report the first receipt's status and top-level `message_ref`. The receipt's `address` and `binding_id` identify the selected recipient mailbox. Its `sender_address` identifies the operator. Use the recipient's original scope to inspect the posted message, even if the recipient has since archived it.
+
+```bash
+houmao-mgr --print-json agents single --agent-id "$AGENT_ID" mail peek \
+  --channel "$MAIL_CHANNEL" --expected-binding-id "$BINDING_ID" --message-ref "$POST_REF"
+```
+
+If the post outcome is uncertain, inspect the same target binding's inbox and archive where authorized. Report the outcome as unresolved if the evidence is inconclusive.
+
 With a live gateway, post follows the admin rule. Configure an explicit owner-side admin signer for a key-required gateway. A detached gateway uses the separately authorized manager path.
 
 This action is filesystem-only in v1. It delivers from the reserved sender `HOUMAO-operator@houmao.localhost`, refuses Stalwart-backed execution, and does not allow live TUI submission fallback.

@@ -22,4 +22,13 @@ houmao-mgr agents self mail send --channel "$MAIL_CHANNEL" --expected-binding-id
   --to "$RECIPIENT" --subject "$SUBJECT" --body-content "$BODY"
 ```
 
+Report `status` and the top-level `message_ref` from this receipt. `status: verified` and `authoritative: true` confirm an acknowledged write. Choose `--print-json` on the first send if you need structured output. Use read-only `peek` for details on the sender's original channel and binding.
+
+```bash
+houmao-mgr --print-json agents self mail peek --channel "$MAIL_CHANNEL" \
+  --expected-binding-id "$BINDING_ID" --message-ref "$RECEIPT_REF"
+```
+
+If the outcome is uncertain or the result only confirms submission, keep the receipt's request ID when present. Check `mail list --box sent` on the sender's original channel and binding when authorized. Report the outcome as unresolved if the read is unavailable or inconclusive.
+
 The gateway requires verified admin proof for owner-file attachments on this private route.

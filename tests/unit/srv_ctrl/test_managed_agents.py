@@ -67,6 +67,7 @@ from houmao.agents.realm_controller.registry_storage import (
 )
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
 from houmao.agents.realm_controller import runtime as runtime_module
+from houmao.mailbox.errors import GatewayMailboxMutationError
 from houmao.mailbox.managed import ManagedMailboxOperationError
 from houmao.execution.tmux import TmuxCommandError
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
@@ -1782,9 +1783,15 @@ def test_live_mail_proof_refusal_ends_the_scoped_call(monkeypatch: pytest.Monkey
         mail_status(target)
 
 
-def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
+@pytest.mark.parametrize("operation", ["send", "reply"])
+@pytest.mark.parametrize("status", ["submitted", "rejected", "busy", "interrupted", "tui_error"])
+def test_mail_write_local_tui_returns_submission_only_receipt(
     monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    status: str,
 ) -> None:
+    """Retain request status and exclude transcript evidence from the receipt."""
+
     monkeypatch.setattr(
         managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
     )
@@ -1794,14 +1801,26 @@ def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
         identity=_managed_identity(transport="tui"),
         controller=SimpleNamespace(),
     )
-    expected = {
+    submission = {
         "schema_version": 1,
-        "operation": "send",
+        "operation": operation,
         "authoritative": False,
-        "status": "submitted",
+        "status": status,
         "execution_path": "tui_submission",
+        "transport": "filesystem",
+        "principal_id": "alpha",
+        "address": "alpha@agents.localhost",
         "request_id": "mailreq-1",
+        "submitted_at_utc": "2026-11-24T00:00:00Z",
+        "preview_result": {"message_ref": "preview-ref", "body_text": "private body"},
+        "tui_diagnostics": {"output_text": "private transcript"},
     }
+
+    calls: list[dict[str, object]] = []
+
+    def dispatch(**kwargs: object) -> dict[str, object]:
+        calls.append(kwargs)
+        return submission
 
     monkeypatch.setattr(
         managed_agents_module,
@@ -1810,21 +1829,129 @@ def test_mail_send_local_tui_without_gateway_returns_submission_only_result(
     )
     monkeypatch.setattr(
         managed_agents_module,
+        "_local_manager_mail_authority_error",
+        lambda *args, **kwargs: "offline",
+    )
+    monkeypatch.setattr(managed_agents_module, "_run_local_mail_prompt", dispatch)
+
+    if operation == "send":
+        payload = mail_send(
+            target,
+            to_recipients=["beta@agents.localhost"],
+            cc_recipients=[],
+            subject="hello",
+            body_content="world",
+            attachments=[],
+            channel="offline",
+        )
+        assert payload["to"] == ["beta@agents.localhost"]
+        assert payload["subject"] == "hello"
+    else:
+        payload = managed_agents_module.mail_reply(
+            target,
+            message_ref="parent-ref",
+            body_content="world",
+            attachments=[],
+            channel="offline",
+        )
+        assert payload["parent_message_ref"] == "parent-ref"
+        assert {"to", "cc", "subject"}.isdisjoint(payload)
+
+    assert len(calls) == 1
+    assert calls[0]["operation"] == operation
+    assert calls[0]["expected_binding_id"] == "binding-test"
+    assert payload["authoritative"] is False
+    assert payload["status"] == status
+    assert payload["execution_path"] == "tui_submission"
+    assert payload["binding_id"] == "binding-test"
+    assert payload["channel"] == "offline"
+    assert payload["request_id"] == "mailreq-1"
+    assert payload["submitted_at_utc"] == "2026-11-24T00:00:00Z"
+    assert "mail list --box sent" in str(payload["verification"])
+    assert {"message_ref", "preview_result", "tui_diagnostics"}.isdisjoint(payload)
+
+
+def test_mail_post_refuses_tui_without_write_authority(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An operator note requires a directly authorized mailbox write."""
+
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="tui"),
+        controller=SimpleNamespace(),
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "_live_gateway_client_for_controller", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_manager_mail_authority_error",
+        lambda *args, **kwargs: "offline",
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
         "_run_local_mail_prompt",
-        lambda **kwargs: expected,
+        lambda **kwargs: pytest.fail("a post cannot fall back through the TUI"),
     )
+    with pytest.raises(click.ClickException, match="requires authoritative"):
+        managed_agents_module.mail_post(
+            target,
+            subject="Operator note",
+            body_content="hello",
+            reply_policy="operator_mailbox",
+            attachments=[],
+            channel="offline",
+        )
 
-    payload = mail_send(
-        target,
-        to_recipients=["alpha@agents.localhost"],
-        cc_recipients=[],
-        subject="hello",
-        body_content="world",
-        attachments=[],
-        channel="offline",
+
+def test_mail_reply_preserves_confirmed_submission_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed parent-state update retains the outcome of the one reply."""
+
+    target = ManagedAgentTarget(
+        mode="local",
+        agent_ref="local",
+        identity=_managed_identity(transport="headless"),
+        controller=SimpleNamespace(),
     )
+    error = GatewayMailboxMutationError(
+        operation="reply-parent-followup",
+        outcome="confirmed",
+        email_id="email-id",
+        submission_id="submission-id",
+        agent_id="owner",
+        binding_id="binding-test",
+        revision="revision",
+    )
+    calls: list[object] = []
 
-    assert payload == expected
+    def reply(**kwargs: object) -> None:
+        calls.append(kwargs["message_ref"])
+        raise error
+
+    monkeypatch.setattr(
+        managed_agents_module, "_resolve_mail_expected_binding", lambda *args: "binding-test"
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "_live_gateway_client_for_controller", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "_local_mailbox_adapter",
+        lambda *args, **kwargs: SimpleNamespace(reply=reply),
+    )
+    with pytest.raises(click.ClickException) as caught:
+        managed_agents_module.mail_reply(
+            target,
+            message_ref="parent-ref",
+            body_content="reply",
+            attachments=[],
+            channel="online",
+        )
+    assert json.loads(caught.value.message) == error.safe_payload()
+    assert calls == ["parent-ref"]
 
 
 @pytest.mark.parametrize(
@@ -1995,11 +2122,13 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
             to=[GatewayMailboxParticipantV1(address="beta@agents.localhost")],
         ),
     )
-    monkeypatch.setattr(
-        managed_agents_module,
-        "_local_manager_mail_send",
-        lambda controller, **kwargs: response,
-    )
+    calls: list[tuple[object, object]] = []
+
+    def dispatch(authority: object, **kwargs: object) -> GatewayMailActionResponseV1:
+        calls.append((kwargs["channel"], kwargs["expected_binding_id"]))
+        return response
+
+    monkeypatch.setattr(managed_agents_module, "_local_manager_mail_send", dispatch)
 
     payload = mail_send(
         target,
@@ -2011,10 +2140,25 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
         channel="offline",
     )
 
-    assert payload["authoritative"] is True
-    assert payload["status"] == "verified"
-    assert payload["execution_path"] == "manager_direct"
-    assert payload["message"]["message_ref"] == "filesystem:msg-1"
+    assert payload == {
+        "schema_version": 1,
+        "operation": "send",
+        "status": "verified",
+        "authoritative": True,
+        "execution_path": "manager_direct",
+        "channel": "offline",
+        "binding_id": "binding-test",
+        "transport": "filesystem",
+        "principal_id": "HOUMAO-alpha",
+        "address": "HOUMAO-alpha@agents.localhost",
+        "sender_address": "HOUMAO-alpha@agents.localhost",
+        "to": ["beta@agents.localhost"],
+        "cc": [],
+        "subject": "hello",
+        "message_ref": "filesystem:msg-1",
+        "created_at_utc": "2026-03-29T15:00:00Z",
+    }
+    assert calls == [("offline", "binding-test")]
 
 
 def test_mail_archive_local_headless_uses_verified_manager_direct_result(

@@ -276,6 +276,7 @@ from .common import (
     resolve_managed_agent_identity,
     resolve_server_base_url,
 )
+from .mail_receipts import submitted_mail_receipt, verified_mail_receipt
 from .managed_agent_observation import observe_selected_agent
 
 _HEADLESS_BACKENDS = frozenset(
@@ -4962,7 +4963,7 @@ def mail_send(
     attachments: Sequence[GatewayMailAttachmentUploadV1],
     notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
-) -> object:
+) -> dict[str, object]:
     """Send a mailbox message for one managed agent."""
 
     expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
@@ -4971,8 +4972,9 @@ def mail_send(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailSendRequest
 
-        return build_verified_mail_command_result(
-            operation="send",
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
             execution_path="gateway_backed",
             payload=pair_request(
                 target.client.send_managed_agent_mail,
@@ -4996,8 +4998,9 @@ def mail_send(
         authority, private=True, require_available=True
     )
     if gateway_client is not None:
-        return build_verified_mail_command_result(
-            operation="send",
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
             execution_path="gateway_backed",
             payload=_gateway_mail_send(
                 gateway_client,
@@ -5013,32 +5016,16 @@ def mail_send(
             ),
         )
 
-    if target.identity.transport != "tui":
-        return build_verified_mail_command_result(
-            operation="send",
-            execution_path="manager_direct",
-            payload=_local_manager_mail_send(
-                authority,
-                to_recipients=to_recipients,
-                cc_recipients=cc_recipients,
-                subject=subject,
-                body_content=body_content,
-                attachments=attachments,
-                notify_block=notify_block,
-                notify_auth=notify_auth,
-                channel=channel,
-                expected_binding_id=expected_binding_id,
-            ),
+    if (
+        target.identity.transport != "tui"
+        or _local_manager_mail_authority_error(
+            authority, channel=channel, expected_binding_id=expected_binding_id
         )
-
-    direct_mail_error = _local_manager_mail_authority_error(
-        authority,
-        channel=channel,
-        expected_binding_id=expected_binding_id,
-    )
-    if direct_mail_error is None:
-        return build_verified_mail_command_result(
-            operation="send",
+        is None
+    ):
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
             execution_path="manager_direct",
             payload=_local_manager_mail_send(
                 authority,
@@ -5060,7 +5047,7 @@ def mail_send(
     # because the live agent composes the canonical envelope itself; senders that
     # need that delivery path should encode the block as a `houmao-notify` body
     # fence so the agent's send tooling extracts it at composition time.
-    return _run_local_mail_prompt(
+    submission = _run_local_mail_prompt(
         controller=_require_live_local_controller(target, operation="submit TUI mail"),
         operation="send",
         args={
@@ -5073,6 +5060,9 @@ def mail_send(
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
+    receipt = submitted_mail_receipt(submission, channel=channel, binding_id=expected_binding_id)
+    receipt.update(to=to_recipients, cc=cc_recipients, subject=subject)
+    return receipt
 
 
 def mail_post(
@@ -5086,7 +5076,7 @@ def mail_post(
     attachments: Sequence[GatewayMailAttachmentUploadV1],
     notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
-) -> object:
+) -> dict[str, object]:
     """Post one operator-origin mailbox note into one managed agent inbox."""
 
     expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
@@ -5095,8 +5085,9 @@ def mail_post(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailPostRequest
 
-        return build_verified_mail_command_result(
-            operation="post",
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
             execution_path="gateway_backed",
             payload=pair_request(
                 target.client.post_managed_agent_mail,
@@ -5122,8 +5113,9 @@ def mail_post(
         authority, private=False, require_available=True
     )
     if gateway_client is not None:
-        return build_verified_mail_command_result(
-            operation="post",
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
             execution_path="gateway_backed",
             payload=_gateway_mail_post(
                 gateway_client,
@@ -5138,31 +5130,16 @@ def mail_post(
             ),
         )
 
-    if target.identity.transport != "tui":
-        return build_verified_mail_command_result(
-            operation="post",
-            execution_path="manager_direct",
-            payload=_local_manager_mail_post(
-                authority,
-                subject=subject,
-                body_content=body_content,
-                reply_policy=reply_policy,
-                attachments=attachments,
-                notify_block=notify_block,
-                notify_auth=notify_auth,
-                channel=channel,
-                expected_binding_id=expected_binding_id,
-            ),
+    if (
+        target.identity.transport != "tui"
+        or _local_manager_mail_authority_error(
+            authority, channel=channel, expected_binding_id=expected_binding_id
         )
-
-    direct_mail_error = _local_manager_mail_authority_error(
-        authority,
-        channel=channel,
-        expected_binding_id=expected_binding_id,
-    )
-    if direct_mail_error is None:
-        return build_verified_mail_command_result(
-            operation="post",
+        is None
+    ):
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
             execution_path="manager_direct",
             payload=_local_manager_mail_post(
                 authority,
@@ -5193,7 +5170,7 @@ def mail_reply(
     attachments: Sequence[GatewayMailAttachmentUploadV1],
     notify_block: MailboxNotifyBlock | None = None,
     notify_auth: MailboxNotifyAuth | None = None,
-) -> object:
+) -> dict[str, object]:
     """Reply to a mailbox message for one managed agent."""
 
     expected_binding_id = _resolve_mail_expected_binding(target, channel, expected_binding_id)
@@ -5202,8 +5179,10 @@ def mail_reply(
         assert target.client is not None
         from houmao.server.models import HoumaoManagedAgentMailReplyRequest
 
-        return build_verified_mail_command_result(
-            operation="reply",
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
+            parent_message_ref=message_ref,
             execution_path="gateway_backed",
             payload=pair_request(
                 target.client.reply_managed_agent_mail,
@@ -5225,8 +5204,10 @@ def mail_reply(
         authority, private=True, require_available=True
     )
     if gateway_client is not None:
-        return build_verified_mail_command_result(
-            operation="reply",
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
+            parent_message_ref=message_ref,
             execution_path="gateway_backed",
             payload=_gateway_mail_reply(
                 gateway_client,
@@ -5240,9 +5221,17 @@ def mail_reply(
             ),
         )
 
-    if target.identity.transport != "tui":
-        return build_verified_mail_command_result(
-            operation="reply",
+    if (
+        target.identity.transport != "tui"
+        or _local_manager_mail_authority_error(
+            authority, channel=channel, expected_binding_id=expected_binding_id
+        )
+        is None
+    ):
+        return verified_mail_receipt(
+            channel=channel,
+            binding_id=expected_binding_id,
+            parent_message_ref=message_ref,
             execution_path="manager_direct",
             payload=_local_manager_mail_reply(
                 authority,
@@ -5256,28 +5245,7 @@ def mail_reply(
             ),
         )
 
-    direct_mail_error = _local_manager_mail_authority_error(
-        authority,
-        channel=channel,
-        expected_binding_id=expected_binding_id,
-    )
-    if direct_mail_error is None:
-        return build_verified_mail_command_result(
-            operation="reply",
-            execution_path="manager_direct",
-            payload=_local_manager_mail_reply(
-                authority,
-                message_ref=message_ref,
-                body_content=body_content,
-                attachments=attachments,
-                notify_block=notify_block,
-                notify_auth=notify_auth,
-                channel=channel,
-                expected_binding_id=expected_binding_id,
-            ),
-        )
-
-    return _run_local_mail_prompt(
+    submission = _run_local_mail_prompt(
         controller=_require_live_local_controller(target, operation="submit TUI mail"),
         operation="reply",
         args={
@@ -5288,6 +5256,9 @@ def mail_reply(
         channel=channel,
         expected_binding_id=expected_binding_id,
     )
+    receipt = submitted_mail_receipt(submission, channel=channel, binding_id=expected_binding_id)
+    receipt["parent_message_ref"] = message_ref
+    return receipt
 
 
 def mail_mark(

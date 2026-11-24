@@ -64,34 +64,6 @@ def render_gateway_status_fancy(payload: object) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Prompt result
-# ---------------------------------------------------------------------------
-
-
-def render_prompt_result_plain(payload: object) -> None:
-    """Render prompt control result as a compact summary."""
-    data = _as_dict(payload)
-    status = data.get("status", "unknown")
-    detail = data.get("detail", "")
-    admission_policy = data.get("admission_policy", "unknown")
-    click.echo(f"Prompt: {status}  admission_policy={_pv(admission_policy)}  {detail}")
-
-
-def render_prompt_result_fancy(payload: object) -> None:
-    """Render prompt control result as rich output."""
-    from rich.console import Console
-
-    data = _as_dict(payload)
-    status = data.get("status", "unknown")
-    detail = data.get("detail", "")
-    admission_policy = data.get("admission_policy", "unknown")
-    style = "green" if status == "ok" else "red"
-    Console().print(
-        f"[{style}]Prompt: {status}[/{style}]  admission_policy={admission_policy}  {detail}"
-    )
-
-
-# ---------------------------------------------------------------------------
 # Reminder views
 # ---------------------------------------------------------------------------
 

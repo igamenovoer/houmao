@@ -40,6 +40,7 @@ from ..managed_agents import (
     resolve_managed_agent_target,
 )
 from ..output import emit
+from ..renderers.receipts import emit_receipt
 
 
 @click.group(name="memory")
@@ -97,7 +98,7 @@ def memory_memo_command(
         emit(memory_memo(target))
         return
 
-    emit(
+    emit_receipt(
         memory_memo_write(
             target,
             content=_resolve_memory_content(content=content, content_file=content_file),
@@ -287,31 +288,34 @@ def memory_memo_write(
     *,
     content: str,
     append: bool = False,
-) -> GatewayMemoryMemoResponseV1:
-    """Write or append the fixed memory memo for one managed agent."""
+) -> dict[str, str | bool]:
+    """Write or append the fixed memo and report completion with its path."""
 
-    request_model = GatewayMemoryMemoWriteRequestV1(content=content)
     if target.mode == "server":
         assert target.client is not None
-        if append:
-            return pair_request(
-                target.client.append_managed_agent_gateway_memory_memo,
-                target.agent_ref,
-                request_model,
-            )
-        return pair_request(
-            target.client.put_managed_agent_gateway_memory_memo,
-            target.agent_ref,
-            request_model,
+        write = (
+            target.client.append_managed_agent_gateway_memory_memo
+            if append
+            else target.client.put_managed_agent_gateway_memory_memo
         )
-
-    paths = _local_memory_paths(target)
-    try:
-        write_memo(paths, content, append=append)
-        new_content = read_memo(paths)
-    except (OSError, ValueError) as exc:
-        raise click.ClickException(str(exc)) from exc
-    return GatewayMemoryMemoResponseV1(memo_file=str(paths.memo_file), content=new_content)
+        response = pair_request(
+            write,
+            target.agent_ref,
+            GatewayMemoryMemoWriteRequestV1(content=content),
+        )
+        memo_file = response.memo_file
+    else:
+        paths = _local_memory_paths(target)
+        try:
+            write_memo(paths, content, append=append)
+        except (OSError, ValueError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        memo_file = str(paths.memo_file)
+    return {
+        "success": True,
+        "action": "append_memo" if append else "write_memo",
+        "memo_file": memo_file,
+    }
 
 
 def memory_pages_tree(

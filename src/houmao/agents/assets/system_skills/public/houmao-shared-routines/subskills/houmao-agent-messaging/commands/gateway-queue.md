@@ -12,11 +12,11 @@ Use this action when the user explicitly requests live-gateway prompt admission,
    - `ready-only`: submit only when the TUI is stably ready and has no provider-native pending prompt; this is the default
    - `if-no-pending`: permit submission while the TUI is busy, but back off when pending input is `yes` or `unknown`
    - `always`: submit regardless of tracked readiness and provider-native pending input
-6. Use `agents single ... gateway prompt` or `agents self gateway prompt` with the selected `--admission-policy`. Use the corresponding `gateway interrupt` path for an interrupt.
+6. Submit once with `agents single ... gateway prompt` or `agents self gateway prompt` and the selected `--admission-policy`. Use the corresponding `gateway interrupt` path for an interrupt.
 7. Use `agents single ... gateway tui state|history` or `agents self gateway tui state|history` when the task needs the exact raw gateway-owned TUI tracker surface before or after prompt control.
 8. Use `agents single ... gateway tui note-prompt` or `agents self gateway tui note-prompt` when the task needs prompt provenance without submitting a prompt.
 9. If the caller is already operating through the pair-managed HTTP API, use the managed-agent gateway routes in `references/managed-agent-http.md`.
-10. Report the selected admission policy, gateway result, or TUI inspection outcome.
+10. Report the selected admission policy and the evidence from the first receipt. Use read-only inspection for additional details.
 
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
@@ -27,6 +27,17 @@ Policy-controlled prompt:
 ```text
 <chosen houmao-mgr launcher> agents single --agent-name <name> gateway prompt --admission-policy <ready-only|if-no-pending|always> --prompt "<message>"
 ```
+
+## Read the Receipt
+
+The receipt shows `status`, `action`, `admission_policy`, `sent`, and `detail` in every output mode. Retain `operation_id` and `native_prompt_id` when returned. Report `outcome: queued` with `sent: false` as accepted queueing. A `sent: true` receipt confirms handoff. Observe provider completion separately when the evidence supports it.
+
+- For a saved headless turn, use `agents single ... turn status <turn-id>` or `turn events <turn-id>`. The matching `agents self turn ...` reads the current agent.
+- For a service request, use the existing authorized `GET /v1/control/service/requests/{operation_id}` route to inspect the exact request.
+- For Web, use the authorized native state or bounded history routes `GET /v1/control/web/state` and `GET /v1/control/web/history`. Correlate the available operation or native prompt ID where the observation supplies matching evidence.
+- For TUI, use `gateway tui state` or `history` to inspect terminal activity. Preserve uncertainty when Web or TUI observation cannot establish the exact outcome.
+
+## Related Gateway Controls
 
 Queued interrupt:
 

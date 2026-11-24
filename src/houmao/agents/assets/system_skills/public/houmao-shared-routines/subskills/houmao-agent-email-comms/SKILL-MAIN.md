@@ -73,8 +73,8 @@ Before starting the workflow, answer explicit skill-help intent from `## Help` a
 4. Read `mailboxes.offline` and `mailboxes.online` separately. Select the channel explicitly from the request or established round context. Pin that slot's `binding.binding_id`. Canonical mail identity describes the preferred address.
 5. Use `houmao-mgr agents self mail <verb> --channel <channel> --expected-binding-id <binding_id>` for routine work. The command signs attached-gateway calls internally with the current managed generation. Scoped operators use their explicitly configured admin signer.
 6. End the operation on an admission refusal, unavailable policy, or a binding change. Keep proof and credentials out of commands and result summaries.
-7. If the gateway is detached, the scoped command uses the established owner-authorized manager path for the selected channel. An `authoritative: false` result means the action was submitted and requires verification.
-8. Keep message and thread references opaque and scoped to their owner, channel, and binding.
+7. If the gateway is detached, the scoped command uses the established owner-authorized manager path for the selected channel. An `authoritative: false` result reports request status and requires read-only confirmation when the write outcome remains uncertain.
+8. Report send, reply, and post from their first receipts. Use `peek` for details on the binding that owns the receipt reference. Keep message and thread references opaque and preserve their channel and binding.
 9. Begin triage with one metadata page of 50 messages (maximum 200). Preserve filters and the opaque cursor when continuing within an explicit page/message budget. `has_more` describes unseen work; returned counts describe this page. Stop the page chain on a stale cursor or binding conflict. Fetch selected content with peek/read and check its completeness before acting.
 10. Archive processed messages only after the corresponding mailbox action and any required reply succeed.
 11. Include only fields the user explicitly supplied or that were recovered from explicit recent context in fallback commands.

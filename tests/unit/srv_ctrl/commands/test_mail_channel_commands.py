@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import click
 from click.testing import CliRunner
@@ -22,6 +23,13 @@ from houmao.agents.realm_controller.manifest import (
     write_session_manifest,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.mailbox.models import (
+    GatewayMailActionResponseV1,
+    GatewayMailboxAttachmentV1,
+    GatewayMailboxMessageV1,
+    GatewayMailboxParticipantV1,
+)
+from houmao.mailbox.protocol import HOUMAO_OPERATOR_ADDRESS
 from houmao.server.models import HoumaoManagedAgentIdentity
 from houmao.srv_ctrl.commands import managed_agents
 from houmao.srv_ctrl.commands.agents.mail import mail_group
@@ -212,9 +220,21 @@ def test_pair_send_forwards_channel_and_pinned_binding_once(
         calls.append(("status", agent_ref))
         return summary
 
-    def send(agent_ref: str, request: object, *, channel: str) -> dict[str, object]:
+    def send(agent_ref: str, request: object, *, channel: str) -> GatewayMailActionResponseV1:
         calls.append(("send", (agent_ref, channel, getattr(request, "expected_binding_id"))))
-        return {"schema_version": 2, "operation": "send"}
+        return GatewayMailActionResponseV1(
+            operation="send",
+            transport="stalwart",
+            principal_id="remote-agent",
+            address="alice@example.test",
+            message=GatewayMailboxMessageV1(
+                message_ref="scoped-stalwart-ref",
+                created_at_utc="2026-11-24T00:00:00Z",
+                subject="Work",
+                sender=GatewayMailboxParticipantV1(address="alice@example.test"),
+                to=[GatewayMailboxParticipantV1(address="bob@example.test")],
+            ),
+        )
 
     target = managed_agents.ManagedAgentTarget(
         mode="server",
@@ -238,6 +258,10 @@ def test_pair_send_forwards_channel_and_pinned_binding_once(
         attachments=[],
     )
     assert result["authoritative"] is True
+    assert result["binding_id"] == "account-a"
+    assert result["channel"] == "online"
+    assert result["transport"] == "stalwart"
+    assert result["message_ref"] == "scoped-stalwart-ref"
     assert calls == [("status", "remote-ref"), ("send", ("remote-ref", "online", "account-a"))]
     calls.clear()
     with pytest.raises(click.ClickException, match="binding changed"):
@@ -252,6 +276,123 @@ def test_pair_send_forwards_channel_and_pinned_binding_once(
             attachments=[],
         )
     assert calls == [("status", "remote-ref")]
+
+
+@pytest.mark.parametrize("scope", [["single", "--agent-id", "owner-a"], ["self"]])
+@pytest.mark.parametrize("style", ["plain", "fancy", "json"])
+@pytest.mark.parametrize("operation", ["send", "reply", "post"])
+def test_gateway_mail_write_prints_one_scoped_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scope: list[str],
+    style: str,
+    operation: Literal["send", "reply", "post"],
+) -> None:
+    """Print the actual envelope and full references from one gateway request."""
+
+    target = _mail_target(tmp_path)
+    mailbox = "alice@houmao.localhost"
+    sender = HOUMAO_OPERATOR_ADDRESS if operation == "post" else mailbox
+    to = [mailbox] if operation == "post" else ["actual@example.test", "second@example.test"]
+    cc = [] if operation == "post" else ["copy@example.test", "other-copy@example.test"]
+    reference = "hmail1." + "opaque-reference." * 12
+    subject = "Actual [result]\nwith unicode \u2603"
+    response = GatewayMailActionResponseV1(
+        operation=operation,
+        transport="filesystem",
+        principal_id="owner-a",
+        address=mailbox,
+        message=GatewayMailboxMessageV1(
+            message_ref=reference,
+            created_at_utc="2026-11-24T00:00:00Z",
+            subject=subject,
+            sender=GatewayMailboxParticipantV1(address=sender),
+            to=[GatewayMailboxParticipantV1(address=address) for address in to],
+            cc=[GatewayMailboxParticipantV1(address=address) for address in cc],
+            body_text="private message body",
+            attachments=[
+                GatewayMailboxAttachmentV1(
+                    attachment_id="private-attachment",
+                    kind="file",
+                    media_type="application/pdf",
+                    label="private.pdf",
+                    size_bytes=100,
+                )
+            ],
+        ),
+    )
+    calls: list[tuple[str, str]] = []
+
+    def dispatch(request: Any, *, channel: str) -> GatewayMailActionResponseV1:
+        calls.append((channel, request.expected_binding_id))
+        if operation == "reply":
+            assert request.message_ref == "parent-ref"
+        return response
+
+    gateway = SimpleNamespace(**{f"{operation}_mail": dispatch})
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.mail.resolve_managed_agent_mail_target",
+        lambda **kwargs: target,
+    )
+    monkeypatch.setattr(
+        managed_agents, "_live_gateway_client_for_controller", lambda *args, **kwargs: gateway
+    )
+    args = {
+        "send": ["--to", "requested@example.test", "--subject", "Requested"],
+        "reply": ["--message-ref", "parent-ref"],
+        "post": ["--subject", "Requested"],
+    }[operation]
+    result = CliRunner().invoke(
+        cli,
+        [
+            f"--print-{style}",
+            "agents",
+            *scope,
+            "mail",
+            operation,
+            "--channel",
+            "offline",
+            "--body-content",
+            "requested message body",
+            *args,
+        ],
+        env={"COLUMNS": "48"},
+    )
+    assert result.exit_code == 0, result.output
+    assert calls == [("offline", "registration-a")]
+    expected = {
+        "schema_version": 1,
+        "operation": operation,
+        "status": "verified",
+        "authoritative": True,
+        "execution_path": "gateway_backed",
+        "channel": "offline",
+        "binding_id": "registration-a",
+        "transport": "filesystem",
+        "principal_id": "owner-a",
+        "address": mailbox,
+        "sender_address": sender,
+        "to": to,
+        "cc": cc,
+        "subject": subject,
+        "message_ref": reference,
+        "created_at_utc": "2026-11-24T00:00:00Z",
+    }
+    if operation == "reply":
+        expected["parent_message_ref"] = "parent-ref"
+    if style == "json":
+        assert json.loads(result.output) == expected
+    else:
+        from rich.ansi import AnsiDecoder
+
+        lines = (line.plain for line in AnsiDecoder().decode(result.output))
+        actual = dict(line.strip().split(maxsplit=1) for line in lines)
+        assert actual == {
+            field: value if isinstance(value, str) and value.isprintable() else json.dumps(value)
+            for field, value in expected.items()
+        }
+    assert "private message body" not in result.output
+    assert "private.pdf" not in result.output
 
 
 def test_offline_mixed_recipient_batch_fails_before_staging_or_delivery(tmp_path: Path) -> None:

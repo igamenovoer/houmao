@@ -94,7 +94,7 @@ pixi run houmao-mgr agents single --agent-id "$agent_id" mail send \
   --body-content "Please review the current parser mismatch."
 ```
 
-Copy a returned opaque `message_ref` into `message_ref`. Keep it unchanged:
+The send receipt gives the status and a top-level scoped reference. Use `mail peek` on the sender's binding to inspect the sent copy. In the processing commands below, set `message_ref` to the opaque reference from the inbox list. The reply receipt has its own reference for the new message.
 
 ```bash
 pixi run houmao-mgr agents single --agent-id "$agent_id" mail peek \
