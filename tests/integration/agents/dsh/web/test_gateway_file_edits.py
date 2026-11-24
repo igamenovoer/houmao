@@ -13,9 +13,8 @@ from typing import Any
 from click.testing import CliRunner
 import pytest
 
-from houmao.agents.realm_controller import gateway_access_runtime
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
-from houmao.agents.realm_controller.backends.dsh_web_skill_mount import QUALIFIED_BUILD
+from houmao.agents.realm_controller.backends.dsh_web_file_mount import QUALIFIED_BUILD
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_service import create_app
 from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
@@ -121,9 +120,7 @@ def test_cross_account_versioned_files_use_the_target_gateway(
     version = subprocess.check_output([str(dsh_executable), "--version"], text=True).strip()
     if version != QUALIFIED_BUILD:
         pytest.skip(f"Versioned Web skills qualify DSH {QUALIFIED_BUILD}")
-    monkeypatch.setattr(
-        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
-    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner"))
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime._build_provider_start_launch_plan_for_relaunch",
         lambda current: current.launch_plan,

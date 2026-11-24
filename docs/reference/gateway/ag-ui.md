@@ -30,6 +30,8 @@ The gateway checks the caller's permission for the operation and its resolved re
 
 Grant the exact resource under the selected target's policy. A thread, run, or connection uses `ag-ui:<kind>:<digest>`, where the digest is the lowercase SHA-256 of the identifier's UTF-8 bytes. A thread-run pair uses the `thread-run` kind and hashes the compact ASCII JSON array containing the thread ID and run ID in that order. The default sink uses `ag-ui:sink`. A run requires both the submission and output permissions for its thread. Explicit native session or model selection through forwarded props also requires the corresponding native permission. [Gateway Access and Remote Deployment](operations/access.md)
 
+Create an `ag-ui-viewer` role for one thread when the caller needs its events. Create an `ag-ui-runner` role for that thread when the caller also submits runs. For each run, the gateway converts AG-UI messages, tool results, and context to task text. It quotes that text under the verified caller's identity or anonymous provenance. Command-shaped text remains task content. Native session and model selectors continue to require `native.session.select` and `native.model.override` on `native`.
+
 On a keyed target, carry fresh SSHSIG caller proof in the `Houmao-Challenge` and `Houmao-Signature` headers. An enrolled operator can use the standalone workbench's per-target signing configuration.
 
 ```ts

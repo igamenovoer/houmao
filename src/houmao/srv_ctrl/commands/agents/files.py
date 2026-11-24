@@ -13,6 +13,7 @@ import click
 from pydantic import BaseModel
 
 from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.gateway.access import read_private_access_file
 from houmao.gateway.file_edits import contracts as file
@@ -20,6 +21,7 @@ from houmao.srv_ctrl.commands.agents.access import (
     _VerifiedEndpoint,
     _access_errors,
     _endpoint_options,
+    _local_verified_endpoint,
     _peer_signer_path,
     _source_access,
     _verified_endpoint,
@@ -81,6 +83,7 @@ def _file_client() -> _FileClient:
 @click.option("--signer", type=_KEY_FILE, help="Explicit owner-private enrolled signing key.")
 @click.option("--source-agent-id", help="Use this local source agent's configured peer signer.")
 @click.option("--self-signer", is_flag=True, help="Use the current managed self's peer signer.")
+@click.option("--unsigned", is_flag=True, help="Use the target's unsigned admission policy.")
 @click.option("--mount", help="Exact mount ID from authorized discovery.")
 @click.option("--draft", help="Current draft ID for private draft operations.")
 @click.option(
@@ -98,14 +101,15 @@ def single_files_group(
     signer: Path | None,
     source_agent_id: str | None,
     self_signer: bool,
+    unsigned: bool,
     mount: str | None,
     draft: str | None,
     lease_capability_file: Path | None,
 ) -> None:
     """Edit versioned files on the selected agent's verified attached gateway."""
 
-    if sum((signer is not None, source_agent_id is not None, self_signer)) > 1:
-        raise click.UsageError("Select one explicit or configured peer signer.")
+    if sum((signer is not None, source_agent_id is not None, self_signer, unsigned)) > 1:
+        raise click.UsageError("Select one explicit or configured peer signer or --unsigned.")
     if draft is None and lease_capability_file is not None:
         raise click.UsageError("A lease capability requires a selected draft.")
 
@@ -118,7 +122,7 @@ def single_files_group(
             selected_signer = _peer_signer_path(_source_access(source_agent_id))
         if selected_signer is not None:
             client = endpoint.signed_client(selected_signer)
-        elif endpoint.descriptor.admin_mode == "open":
+        elif unsigned or endpoint.descriptor.admin_mode == "open":
             client = GatewayClient(
                 base_url=endpoint.base_url,
                 ca_bundle_path=endpoint.ca_bundle,
@@ -136,11 +140,68 @@ def single_files_group(
     ctx.meta["file_edit_client"] = connect
 
 
+@click.group(name="files")
+@click.pass_context
+@click.option("--mount", help="Exact mount ID from authorized discovery.")
+@click.option("--draft", help="Current draft ID for private draft operations.")
+@click.option("--unsigned", is_flag=True, help="Use the target's unsigned admission policy.")
+@click.option(
+    "--lease-capability-file",
+    type=_KEY_FILE,
+    help="Owner-private file containing the anonymous draft capability.",
+)
+def self_files_group(
+    ctx: click.Context,
+    mount: str | None,
+    draft: str | None,
+    unsigned: bool,
+    lease_capability_file: Path | None,
+) -> None:
+    """Edit versioned files on this managed runtime's verified attached gateway."""
+
+    if lease_capability_file is not None and (draft is None or not unsigned):
+        raise click.UsageError("A lease capability requires --draft and --unsigned.")
+
+    def connect() -> _FileClient:
+        """Use only this verified runtime and its current managed-self registration."""
+
+        access = _source_access(None)
+        endpoint, port = _local_verified_endpoint(access)
+        if unsigned:
+            client = GatewayClient(base_url=endpoint.base_url, respect_proxy_env=False)
+        else:
+            binding, generation = owner_gateway_client_binding(
+                access.manifest_path, port=port, private=True, prefer_self=True
+            )
+            if (
+                binding is None
+                or binding.owner != endpoint.descriptor.target.owner
+                or binding.base_url != endpoint.base_url
+                or generation != endpoint.descriptor.target.incarnation
+            ):
+                raise click.ClickException("Current managed-self signing authority is unavailable.")
+            client = GatewayClient(
+                binding=binding,
+                target_incarnation=generation,
+                target_presence_id=endpoint.descriptor.presence_id,
+                respect_proxy_env=False,
+            )
+        capability = (
+            read_private_access_file(lease_capability_file, limit=64).decode("ascii").strip()
+            if lease_capability_file is not None
+            else None
+        )
+        return _FileClient(endpoint, client, mount, draft, capability)
+
+    ctx.meta["file_edit_client"] = connect
+
+
 @single_files_group.command(name="mounts")
-def mounts() -> None:
+@click.option("--kind", type=click.Choice(["skills", "mcp"]), help="Select a provider kind.")
+def mounts(kind: str | None) -> None:
     """List mounts with current read permission."""
 
-    _file_client().emit("mounts", file.FileMountsResponse)
+    _file_client().emit("mounts", file.FileMountsResponse, kind=kind)
 
 
 @single_files_group.command(name="list")
@@ -302,6 +363,25 @@ def abort() -> None:
 def push(commit_id: str, expected_base: str, operation_id: str | None) -> None:
     """Request publication of an immutable candidate under owner maintenance."""
 
+    _push(commit_id, expected_base, operation_id, when_idle=False)
+
+
+@self_files_group.command(name="push")
+@click.argument("commit_id")
+@click.option("--expected-base", required=True)
+@click.option("--operation-id", help="Exact attempt identity. Defaults to a fresh ID.")
+@click.option("--when-idle", is_flag=True, help="Publish after this runtime becomes idle.")
+def self_push(
+    commit_id: str, expected_base: str, operation_id: str | None, when_idle: bool
+) -> None:
+    """Publish now or retain a signed intent until this runtime is idle."""
+
+    _push(commit_id, expected_base, operation_id, when_idle=when_idle)
+
+
+def _push(commit_id: str, expected_base: str, operation_id: str | None, *, when_idle: bool) -> None:
+    """Report the exact publication attempt and retain its identifier after transport loss."""
+
     identifier = operation_id or uuid4().hex
     client = _file_client()
     with _access_errors():
@@ -312,6 +392,7 @@ def push(commit_id: str, expected_base: str, operation_id: str | None) -> None:
                 commit_id=commit_id,
                 expected_base=expected_base,
                 operation_id=identifier,
+                when_idle=when_idle,
             )
         except GatewayHttpError as error:
             if error.status_code is not None and error.status_code < 500:
@@ -319,5 +400,12 @@ def push(commit_id: str, expected_base: str, operation_id: str | None) -> None:
             emit({"operation_id": identifier, "candidate": commit_id, "outcome": "unconfirmed"})
             raise click.exceptions.Exit(1) from None
         emit(receipt)
-        if receipt.outcome != "published":
+        if receipt.outcome != "published" and not (
+            when_idle and receipt.outcome in {"queued", "pending"}
+        ):
             raise click.exceptions.Exit(1)
+
+
+for _name, _command in single_files_group.commands.items():
+    if _name != "push":
+        self_files_group.add_command(_command, _name)

@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, SecretStr
 
+from houmao.mailbox.errors import GatewayMailboxRecipientPolicyError
 from houmao.mailbox.models import (
     GatewayMailArchiveRequestV1,
     GatewayMailListRequestV1,
@@ -98,6 +99,8 @@ def create_offline_registry_app(*, config: OfflineRegistryConfig) -> FastAPI:
     async def mail_error(_request: Request, exc: GatewayMailboxError) -> JSONResponse:
         """Exclude internal filesystem paths from public backend errors."""
 
+        if isinstance(exc, GatewayMailboxRecipientPolicyError):
+            return JSONResponse(status_code=409, content={"code": exc.code, "detail": str(exc)})
         unsupported = isinstance(exc, GatewayMailboxUnsupportedError)
         return JSONResponse(
             status_code=422 if unsupported else 409,

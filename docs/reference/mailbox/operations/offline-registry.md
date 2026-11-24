@@ -107,6 +107,12 @@ Every remote lifecycle operation includes `expected_binding_id`, equal to the se
 
 Remote callers upload attachment bytes first. `client.upload(content)` returns a `registry-attachment:<opaque-id>` locator and SHA-256/size metadata. A send supplies that managed locator through its attachment input. Remote adapters upload explicitly selected local files automatically. The registry never opens a path chosen by a remote caller. Downloads require upload ownership or a message projection owned by the current registration, and verify size and digest. The default transfer limit is 10 MiB, configurable in `service.json`.
 
+## Managed Recipient Policy
+
+The offline publisher checks `agent.mail.deliver` on every managed recipient before publishing mail, including recipients in `Cc` and replies. It uses Bob's retained policy even when Bob is stopped or his gateway is detached. The registry uses Alice's authenticated membership and current sender binding. Message headers do not establish caller identity. An unenrolled Alice can deliver under Bob's initial `agent-requester` default. Bob's explicit `builtin:agent-observer` assignment denies delivery for that verified sender.
+
+Run a policy-governed offline store where its delivery worker can verify the current recipient registration and read the recipient's owner-private policy. Managed remote joins record that the recipient requires this check. The service refuses delivery when it cannot resolve the retained policy, including a separate-account or separate-host recipient whose policy is unavailable to the worker. Use a qualified store for those recipients. Standalone registrations that have no managed agent policy retain the store's own membership rules.
+
 Read and answered flags do not complete inbox work. Archive is the completion operation. Independent channel notifiers can repeat reminders for unchanged eligible work; an offline registry outage never redirects work through online mail.
 
 ## Release and Recovery

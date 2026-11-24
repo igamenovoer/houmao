@@ -15,6 +15,7 @@ from fastapi import FastAPI, Query, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from starlette.responses import Response
 
 from houmao.mailbox.models import MailChannel
@@ -70,6 +71,11 @@ from houmao.agents.realm_controller.native_refresh_models import (
 )
 from houmao.version import get_version
 from houmao.cao.models import CaoSuccessResponse
+from houmao.gateway.access import GatewayAccessError, parse_access_document
+from houmao.gateway.authorization_models import (
+    DefaultPermissionGroupReceipt,
+    DefaultPermissionGroupRequest,
+)
 from houmao.passive_server.admission import (
     PassiveTargetRoute,
     describe_passive_endpoint,
@@ -99,6 +105,7 @@ from houmao.passive_server.models import (
     PassiveNotImplementedResponse,
     PassivePromptRequest,
     PassiveRequestAcceptedResponse,
+    PassiveWorkRequestReceipt,
     PassiveShutdownResponse,
 )
 from houmao.passive_server.service import PassiveServerService
@@ -198,6 +205,16 @@ def create_app(
         """Describe the current listener and canonical target of passive proof."""
 
         return describe_passive_endpoint(resolved_service, agent_ref)
+
+    @app.put("/houmao/agents/{agent_ref}/admin/default-permission-group")
+    async def set_default_permission_group(request: Request) -> DefaultPermissionGroupReceipt:
+        """Mutate the selected owner's retained policy without contacting a gateway."""
+
+        try:
+            payload = parse_access_document(DefaultPermissionGroupRequest, await request.body())
+        except ValueError:
+            raise GatewayAccessError(422, "invalid_operation") from None
+        return await run_in_threadpool(resolved_service.set_default_permission_group, payload)
 
     @app.post("/houmao/agents/{agent_ref}/auth/challenge")
     async def auth_challenge(agent_ref: str, request: Request) -> Response:
@@ -762,6 +779,17 @@ def create_app(
         return result
 
     # -- request submission routes (Tier 6) -----------------------------------
+
+    @app.post("/houmao/agents/{agent_ref}/work-requests", response_model=PassiveWorkRequestReceipt)
+    def submit_work_request(
+        payload: GatewayRequestCreateV1,
+    ) -> Response | PassiveWorkRequestReceipt:
+        """Submit attributed work through the explicitly selected detached owner route."""
+
+        result = resolved_service.submit_work_request(payload)
+        if isinstance(result, tuple):
+            return JSONResponse(status_code=result[0], content=result[1])
+        return result
 
     @app.post("/houmao/agents/{agent_ref}/requests")
     def submit_request(

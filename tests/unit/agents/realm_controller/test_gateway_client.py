@@ -7,10 +7,13 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import threading
+from types import SimpleNamespace
+from urllib.request import Request
 
 import pytest
 
 from houmao.ag_ui.models import AgUiEventPublishRequest
+from houmao.agents.realm_controller import gateway_access_runtime
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import (
     GATEWAY_RESPECT_PROXY_ENV_VAR,
@@ -101,6 +104,77 @@ def test_gateway_client_refuses_redirects_and_retargeting() -> None:
             worker.join(timeout=2)
     with pytest.raises(ValueError, match="literal loopback"):
         GatewayClient(base_url="http://gateway.example.org")
+
+
+def test_client_signs_with_verified_sqlite_registration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Load the exact active owner registration and refuse another generation."""
+
+    issuer = "http://127.0.0.1:43210"
+    owner = GatewayOwner(agent_id="self-client", context_id="owner")
+    target = GatewayTarget(owner=owner, incarnation="current")
+    store = AuthorizationStore(tmp_path / "access", owner)
+    store.initialize()
+    registration = store.provision_self(target.incarnation)
+    policy = GatewayAccessPolicy(
+        store=store,
+        target=lambda: target,
+        current_self=lambda: store.load_self(target.incarnation),
+        listener_id="current-listener",
+    )
+    expected_manifest = tmp_path / "manifest.json"
+
+    def authority(manifest: Path) -> SimpleNamespace:
+        """Select the actual fixture key from the owner store."""
+
+        assert manifest == expected_manifest
+        return SimpleNamespace(
+            target=target,
+            load_self_signer=lambda: (
+                registration,
+                store.load_self_signer(target.incarnation, expected=registration),
+            ),
+        )
+
+    monkeypatch.setattr(gateway_access_runtime, "gateway_access_for_manifest", authority)
+    binding = GatewayClientBinding(
+        base_url=issuer,
+        owner=owner,
+        purpose="caller",
+        managed_self_manifest_path=str(expected_manifest),
+    )
+    client = GatewayClient(
+        binding=binding,
+        target_incarnation=target.incarnation,
+        target_presence_id=policy.listener_id,
+    )
+
+    def respond(*, request_obj: Request, method: str, url: str) -> bytes:
+        """Issue real listener proof in process."""
+
+        assert method == "POST" and url == f"{issuer}/v1/auth/challenge"
+        challenge = policy.issue(
+            issuer, GatewayChallengeRequest.model_validate_json(request_obj.data)
+        )
+        return challenge.model_dump_json().encode()
+
+    monkeypatch.setattr(client, "_open_request", respond)
+    proof = client.caller_proof_headers("GET", "/v1/status", b"")
+    actor = policy.authenticate(
+        issuer=issuer,
+        request=GatewayRequestBinding.from_request("GET", "/v1/status", "", b""),
+        challenge_id=proof[CHALLENGE_HEADER],
+        signature=proof[SIGNATURE_HEADER],
+    )
+    assert actor.kind == "self"
+    assert actor.key_id == registration.key_id
+    assert actor.self_registration_revision == registration.registration_revision
+    wrong = GatewayClient(
+        binding=binding, target_incarnation="different", target_presence_id=policy.listener_id
+    )
+    with pytest.raises(GatewayHttpError, match="signer binding is unavailable"):
+        wrong.caller_proof_headers("GET", "/v1/status", b"")
 
 
 @pytest.mark.parametrize("outcome", ["ticket", "redirect", "native_url", "refused"])

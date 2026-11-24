@@ -14,7 +14,49 @@ First-key enrollment requires proof of possession of the proposed key. The first
 
 A target owner can enroll an authenticated peer public key for a logical agent and grant that principal specific permissions. The target checks the proof against its own retained enrollment. The peer can run under another OS account or relaunch without changing its grants. The target owner can enroll a replacement key on the same principal and then revoke the old key when rotating credentials.
 
-The managed self credential belongs to the current runtime generation and carries a fixed permission bundle for that agent. Relaunch replaces the self credential. Gateway detachment preserves the generation and its self credential.
+The `managed-self` credential belongs to the current runtime generation. It authorizes the supported non-admin effects on that agent, subject to the resource and operation's checks. A new generation gets a new credential. Gateway detachment and same-generation worker restarts reuse the saved registration. See [managed-self storage and recovery](access.md#provision-and-retain-admin-access).
+
+## Built-In Groups
+
+Bob can enroll Alice on one stable principal and use an exact `builtin:` assignment for her verified requests. The peer groups are cumulative.
+
+| Group | Additional Effects |
+| --- | --- |
+| `agent-observer` | Read Bob's status. |
+| `agent-requester` | Deliver mail to Bob and send a quoted work request. |
+| `agent-maintainer` | Read, edit, and publish versions on Bob's owner-exposed common skill and MCP mounts. |
+| `agent-operator` | Send verbatim prompts, invoke supported slash commands, and interrupt. Separate permissions cover raw keys, model and session selection, and admission overrides. |
+| `managed-self` | Bob's verified current runtime can use all supported non-admin effects on its own target. |
+| `agent-admin` | An enrolled admin key can use all supported effects, including admin routines. |
+
+In keyed mode, the initial default `agent-requester` lets an unenrolled caller reach Bob by status, work request, or qualified mail. Bob can type `access role-assign alice builtin:agent-observer` to narrow Alice's verified requests. An independently submitted unsigned work request still receives the default with anonymous attribution. An expired `builtin:` assignment continues to suppress fallback for that principal until Bob removes the assignment. Exact roles and grants add their effects to the applicable group.
+
+```bash
+houmao-mgr agents single --agent-id "$BOB_ID" access role-assign alice builtin:agent-observer
+houmao-mgr agents single --agent-id "$BOB_ID" access default-group set agent-observer --signer "$BOB_ADMIN_KEY"
+houmao-mgr agents single --agent-id "$BOB_ID" access default-group set agent-requester --retained --signer "$BOB_ADMIN_KEY"
+```
+
+The default-group command selects the attached gateway, direct `--passive-url`, or owner-local `--retained` path before sending. A retained update works while Bob is stopped. The gateway route is `PUT /v1/admin/default-permission-group`. The direct passive route is `PUT /houmao/agents/{agent_ref}/admin/default-permission-group`. The policy accepts all six groups. Selecting `agent-admin` lets otherwise unassigned callers perform applicable admin operations, including changing the default again. Roster mutation still requires the appropriate enrollment proof. Selecting `managed-self` confers its effects under the caller's own provenance.
+
+`access list` shows the current default group, version, revision, roles, and enrollments. `access explain alice agent agent.request.submit` shows the decision for Alice's enrolled keys. The default-setting revision fences pending effects even if Bob later restores the same group. The empty admin roster authorizes all supported effects regardless of the selected default.
+
+## Bind a Role to One Resource
+
+Bob can give Alice edit access to a single common-plugin mount and give another principal publish access. Use the canonical `files:<mount-id>` from file discovery.
+
+```bash
+houmao-mgr agents single --agent-id "$BOB_ID" access role-put skill-editor --template skill-editor --resource "$SKILL_MOUNT_RESOURCE"
+houmao-mgr agents single --agent-id "$BOB_ID" access role-put skill-publisher --template skill-publisher --resource "$SKILL_MOUNT_RESOURCE"
+houmao-mgr agents single --agent-id "$BOB_ID" access role-assign alice skill-editor
+houmao-mgr agents single --agent-id "$BOB_ID" access role-assign reviewer skill-publisher
+```
+
+The same templates apply to an exact MCP declaration mount. Other templates cover a selected mailbox (`mailbox-reader`, `mailbox-sender`), AG-UI thread (`ag-ui-viewer`, `ag-ui-runner`), or bound gateway plugin (`plugin-actions`). Supply the exact live plugin resource and repeat `--action` for each declared action. Bob can use `access role-revoke` to remove an assignment. Use `--local` to select a retained local role whose name collides with a built-in reference.
+
+## Migrate Prompt Grants
+
+Inspect retained `agent.prompt` rows using `access list` and `access explain`. The gateway preserves those rows for inspection. They have retired from authorization. Grant `agent.request.submit` for quoted work, `agent.prompt.direct` for verbatim input, or `agent.command.invoke` for supported native commands as appropriate. The `agent` resource remains the exact scope for these effects. Review queued work and reminders that were admitted under the old effect before submitting replacements.
 
 ## Owner and Effect Boundaries
 

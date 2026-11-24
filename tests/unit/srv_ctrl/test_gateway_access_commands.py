@@ -15,7 +15,7 @@ import pytest
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_models import GATEWAY_PROTOCOL_VERSION
-from houmao.gateway.access import GatewayAccessStore, GatewayAdminKey, GatewayClientBinding
+from houmao.gateway.access import GatewayAdminKey, GatewayClientBinding
 from houmao.gateway.access import GatewayOwner, GatewayTarget, public_key_text
 from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.gateway.deployment import GatewayEndpointDescriptor
@@ -68,6 +68,66 @@ def _command(*args: str) -> Any:
     return json.loads(result.output)
 
 
+def test_set_default_through_retained_policy(owner_access: SimpleNamespace, tmp_path: Path) -> None:
+    """Detached mutation needs the same effective admin authority as live ingress."""
+
+    operator, operator_path, _ = _key(tmp_path, "operator")
+    seed = tmp_path / "seed-default.json"
+    seed.touch(mode=0o600)
+    seed.write_text(json.dumps({"schema_version": 2, "admin_keys": [operator.model_dump()]}))
+    assert _command("init", "--seed", str(seed))["default_permission_group"] == "agent-requester"
+    denied = CliRunner().invoke(
+        cli, [*_SELECT, "default-group", "set", "agent-observer", "--retained"]
+    )
+    assert denied.exit_code == 1
+    assert owner_access.store.snapshot().default_permission_revision == 0
+    result = _command(
+        "default-group", "set", "agent-admin", "--retained", "--signer", str(operator_path)
+    )
+    assert result["default_permission_revision"] == 1
+    assert (
+        _command("default-group", "set", "agent-observer", "--retained")[
+            "default_permission_revision"
+        ]
+        == 2
+    )
+    listed = _command("list")
+    assert listed["admin_mode"] == "keyed"
+    assert listed["default_permission_group"] == "agent-observer"
+    assert listed["default_permission_group_version"] == 1
+
+
+def test_instantiate_exact_file_role(owner_access: SimpleNamespace) -> None:
+    """Capture a template's exact rows and refuse a mixed definition."""
+
+    _command("init", "--empty")
+    mount = "files:" + "a" * 32
+    _command("role-put", "editor", "--template", "skill-editor", "--resource", mount)
+    failed = CliRunner().invoke(
+        cli,
+        [
+            *_SELECT,
+            "role-put",
+            "editor",
+            "--template",
+            "skill-editor",
+            "--resource",
+            mount,
+            "--permission",
+            "agent",
+            "agent.interrupt",
+        ],
+    )
+    assert failed.exit_code == 2
+    roles = owner_access.store.snapshot().roles
+    assert len(roles) == 1 and roles[0].template is not None
+    assert roles[0].template.version == 1
+    assert {(effect.resource, effect.action) for effect in roles[0].permissions} == {
+        (mount, "files.read"),
+        (mount, "files.edit"),
+    }
+
+
 @pytest.fixture
 def owner_access(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     """Verify a stopped record through the maintained local owner selection path."""
@@ -81,8 +141,9 @@ def owner_access(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNames
         target=_TARGET,
         execution_binding=binding,
         store=AuthorizationStore(private_root, _OWNER),
-        self_store=GatewayAccessStore.from_root(private_root, _OWNER),
         require_current=lambda: None,
+        require_keyed_mail_qualification=lambda: None,
+        current_self=lambda: None,
     )
     record = SimpleNamespace(
         agent_id=_OWNER.agent_id,
@@ -121,7 +182,7 @@ def test_offline_owner_policy_cli(owner_access: SimpleNamespace, tmp_path: Path)
         json.dumps({"schema_version": 2, "admin_keys": [operator.model_dump(mode="json")]})
     )
     assert _command("init", "--seed", str(seed))["admin_mode"] == "keyed"
-    assert owner_access.self_store.load_self(_TARGET.incarnation).owner == _OWNER
+    assert owner_access.store.load_self(_TARGET.incarnation) is None
     assert (
         _command(
             "principal-add",
@@ -148,12 +209,18 @@ def test_offline_owner_policy_cli(owner_access: SimpleNamespace, tmp_path: Path)
     _command("role-assign", "reviewer-principal", "support")
     allowed = _command("explain", "reviewer-principal", "agent", "agent.status.read")
     assert allowed["direct_grant"] == {"expires_at": 1, "active": False}
-    assert allowed["matching_roles"] == [{"role_id": "support", "expires_at": None, "active": True}]
+    assert allowed["matching_roles"] == [
+        {
+            "role_id": "support",
+            "expires_at": None,
+            "active": True,
+            "builtin_version": None,
+            "template": None,
+        }
+    ]
     assert allowed["keys"] == [{"key_id": peer.key_id, "allowed": True, "basis": "scoped"}]
     denied = _command("explain", "reviewer-principal", "agent", "agent.prompt")
-    assert denied["keys"] == [
-        {"key_id": peer.key_id, "allowed": False, "reason": "insufficient_authority"}
-    ]
+    assert denied["keys"] == [{"key_id": peer.key_id, "allowed": False, "reason": "retired_effect"}]
 
     _command("role-revoke", "reviewer-principal", "support")
     _command("revoke", "reviewer-principal", "agent", "agent.status.read")

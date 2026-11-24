@@ -240,10 +240,7 @@ def _start_gateway_harness(
     if admin_required:
         key, signer = fixture_admin_key(tmp_path, "ag-ui-admin")
         seed = GatewayLaunchSeed(admin_keys=(key,))
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.gateway_access_runtime.resolve_houmao_home_root",
-        lambda: tmp_path / "owner-home",
-    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner-home"))
     manifest_path = _seed_gateway_manifest(tmp_path, seed=seed)
     gateway_root = (manifest_path.parent / "gateway").resolve()
     runtime = GatewayServiceRuntime.from_gateway_root(

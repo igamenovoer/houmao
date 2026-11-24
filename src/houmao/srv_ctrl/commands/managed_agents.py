@@ -4234,6 +4234,8 @@ def unregister_mailbox_binding(target: ManagedAgentTarget, *, mode: str) -> dict
 def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMailStatusV1:
     """Report both configured channels and independent backend availability."""
 
+    from houmao.mailbox.delivery_policy import require_open_provider_binding
+
     payload = _read_running_agent_manifest(authority)
     mailboxes = mailboxes_resolved_config_from_payload(
         payload.launch_plan.mailboxes.model_dump(mode="json"), manifest_path=authority.manifest_path
@@ -4247,7 +4249,12 @@ def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMail
             continue
         error = None
         try:
-            build_gateway_mailbox_adapter(binding).status()
+            with (
+                require_open_provider_binding(authority.manifest_path)
+                if channel == "online"
+                else nullcontext()
+            ):
+                build_gateway_mailbox_adapter(binding).status()
         except (GatewayMailboxError, ValueError, OSError):
             error = "Mailbox backend is unavailable."
         summaries[channel] = MailboxChannelStatusV1(

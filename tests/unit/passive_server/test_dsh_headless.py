@@ -14,7 +14,11 @@ from tests.unit.passive_server.contract_client import arrange_passive_launch_acc
 from houmao.agents.realm_controller.backends.headless_output import CanonicalHeadlessEvent
 from houmao.execution.context import current_execution_binding
 from houmao.execution.models import ExecutionBindingV1
-from houmao.passive_server.models import PassiveHeadlessTurnAcceptedResponse
+from houmao.gateway.access import GatewayAccessError
+from houmao.passive_server.models import (
+    PassiveHeadlessTurnAcceptedResponse,
+    PassiveWorkRequestReceipt,
+)
 from houmao.server.managed_agents import ManagedHeadlessActiveTurnRecord, ManagedHeadlessTurnRecord
 from tests.unit.passive_server.test_headless_service import (
     _FakeHeadlessBackendSession,
@@ -316,6 +320,110 @@ def test_dsh_concurrent_turn_requests_reserve_only_one_worker(
         handle = service.m_headless._require_handle(authority.tracked_agent_id)
         assert handle.turn_worker is not None
         handle.turn_worker.join(3)
+
+
+@pytest.mark.parametrize("result", ["handed_off", "not_sent", "unknown"])
+def test_detached_work_request_fences_the_native_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, result: str
+) -> None:
+    """Report native handoff only after the original retained decision is rechecked."""
+
+    passive = _make_service(tmp_path)
+    service = passive.m_headless
+    manifest = tmp_path / "runtime/manifest.json"
+    delivered: list[str] = []
+    claim = Mock()
+    claim.active.return_value = True
+    checked = 0
+    recorded: list[str] = []
+
+    def check_owner(request_id: str | None) -> None:
+        """Allow original admission and optionally retire before worker execution."""
+
+        nonlocal checked
+        checked += 1
+        if result == "not_sent" and checked > 1:
+            raise GatewayAccessError(409, "gateway_attached")
+        if request_id is not None:
+            assert not recorded
+            recorded.append(request_id)
+
+    def send(prompt: str, *, turn_artifact_dir_name: str) -> list:
+        """Report native handoff from the same request-scoped dispatch control."""
+
+        control = backend.m_dispatch_control
+        assert control is not None
+        control.require_allowed()
+        delivered.append(prompt)
+        if result == "handed_off":
+            control.confirm_handoff()
+        directory = manifest.parent / "manifest.turn-artifacts" / turn_artifact_dir_name
+        (directory / "exitcode").write_text("0\n", encoding="utf-8")
+        return []
+
+    backend = _FakeHeadlessBackendSession(send_prompt_callback=send)
+    backend.m_dispatch_control = None
+    backend._runner = Mock()
+    controller = _FakeRuntimeController(manifest_path=manifest, backend_session=backend)
+    controller.registry_generation_id = "current-generation"
+    authority = _seed_managed_handle(passive, controller=controller)
+    authority = authority.model_copy(update={"backend": "dsh_headless", "tool": "dsh"})
+    service.m_store.write_authority(authority)
+    service.m_handles[authority.tracked_agent_id].authority = authority
+    reserve = Mock(return_value=claim)
+    monkeypatch.setattr("houmao.passive_server.headless.reserve_owner_prompt", reserve)
+    monkeypatch.setattr(service, "_reconcile_usage", Mock())
+
+    receipt = service.submit_work_request(
+        authority.tracked_agent_id, "wrapped request", authorize_handoff=check_owner
+    )
+
+    assert isinstance(receipt, PassiveWorkRequestReceipt)
+    assert receipt.outcome == result
+    assert reserve.call_args.kwargs["request_id"] == receipt.request_id
+    assert delivered == ([] if result == "not_sent" else ["wrapped request"])
+    handle = service._require_handle(authority.tracked_agent_id)
+    assert handle is not None and handle.turn_worker is not None
+    handle.turn_worker.join(2)
+    assert not handle.turn_worker.is_alive()
+    assert claim.handoff.call_count == (1 if result == "handed_off" else 0)
+    assert recorded == ([] if result == "not_sent" else [receipt.request_id])
+    if result == "not_sent":
+        assert service.m_store.read_active_turn(tracked_agent_id=authority.tracked_agent_id) is None
+        settled = service.m_store.read_turn_record(
+            tracked_agent_id=authority.tracked_agent_id, turn_id=receipt.request_id
+        )
+        assert settled is not None and settled.status == "failed"
+
+
+@pytest.mark.parametrize("backend", ["dsh_headless", "codex_headless"])
+def test_detached_work_requests_refuse_busy_or_unqualified_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    """Return the typed refusal before reserving or scheduling native work."""
+
+    passive = _make_service(tmp_path)
+    service = passive.m_headless
+    authority = _seed_managed_handle(passive).model_copy(update={"backend": backend})
+    service.m_handles[authority.tracked_agent_id].authority = authority
+    monkeypatch.setattr(service, "_refresh_recovered_active_turn", Mock())
+    monkeypatch.setattr(
+        service.m_store, "read_active_turn", Mock(return_value=SimpleNamespace(turn_id="private"))
+    )
+    reserve = Mock()
+    monkeypatch.setattr("houmao.passive_server.headless.reserve_owner_prompt", reserve)
+
+    result = service.submit_work_request(
+        authority.tracked_agent_id, "wrapped request", authorize_handoff=Mock()
+    )
+
+    expected = (
+        (409, {"error_code": "not_ready"})
+        if backend == "dsh_headless"
+        else (501, {"error_code": "unsupported_backend"})
+    )
+    assert result == expected
+    reserve.assert_not_called()
 
 
 def test_dsh_recovery_requires_exact_native_closure(tmp_path: Path) -> None:

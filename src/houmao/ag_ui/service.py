@@ -19,6 +19,7 @@ from houmao.ag_ui.prompt import (
     convert_run_agent_input,
 )
 from houmao.ag_ui.runtime import (
+    AgUiNativeAdmission,
     AgUiObservedRequestState,
     AgUiRuntimeObservationProtocol,
     AgUiTargetTransportFamily,
@@ -38,7 +39,8 @@ from houmao.agents.realm_controller.backends.headless_output import (
     CanonicalHeadlessEvent,
     load_canonical_headless_events,
 )
-from houmao.gateway.authorization_models import AuthorizationDecision
+from houmao.gateway.authorization_models import AuthorizationActor, AuthorizationDecision
+from houmao.gateway.work_requests import render_work_request
 
 
 class AgUiRunDisconnectProbe(Protocol):
@@ -162,6 +164,22 @@ class AgUiRunService:
                         }
                     )
 
+        submitted = request_payload.payload
+        assert isinstance(submitted, GatewayRequestPayloadSubmitPromptV1)
+        request_payload = request_payload.model_copy(
+            update={
+                "payload": submitted.model_copy(
+                    update={
+                        "prompt": render_work_request(
+                            submitted.prompt,
+                            actor=authority.actor
+                            if authority
+                            else AuthorizationActor(kind="anonymous"),
+                        )
+                    }
+                )
+            }
+        )
         if authority is None:
             accepted_request = self.m_runtime.create_request(request_payload, ready_only=True)
         else:
@@ -169,7 +187,7 @@ class AgUiRunService:
                 request_payload,
                 ready_only=True,
                 expected_generation=authority.target.incarnation,
-                authority=authority,
+                ag_ui=AgUiNativeAdmission(authority=authority),
             )
         return AgUiAdmittedRun(
             run_input=run_input,

@@ -103,6 +103,70 @@ def _command(*args: str, style: str = "json", stdin: str | None = None) -> Resul
     return CliRunner().invoke(cli, [f"--print-{style}", *_SELECT, *args], input=stdin)
 
 
+def test_self_files_uses_only_the_managed_registration_for_idle_push(
+    transport: _Transport, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep native self distinct from peer signers and surface a queued operation as accepted."""
+
+    manifest = tmp_path / "manifest.json"
+    selected = SimpleNamespace(manifest_path=manifest)
+    endpoint = access._VerifiedEndpoint(_URL, None, transport.endpoint)
+    transport.results["push"] = {
+        "operation_id": "recorded",
+        "candidate": _CANDIDATE,
+        "expected_base": _BASE,
+        "publisher": {"kind": "self", "principal_id": _TARGET.owner.agent_id},
+        "outcome": "queued",
+    }
+    monkeypatch.setattr(
+        files, "_source_access", lambda agent_id: selected if agent_id is None else None
+    )
+    monkeypatch.setattr(files, "_local_verified_endpoint", lambda runtime: (endpoint, 1234))
+
+    def managed_binding(path: Path, **options: object) -> tuple[GatewayClientBinding, str]:
+        assert path == manifest
+        assert options == {"port": 1234, "private": True, "prefer_self": True}
+        return (
+            GatewayClientBinding(
+                base_url=_URL,
+                owner=_TARGET.owner,
+                purpose="caller",
+                managed_self_manifest_path=str(manifest),
+            ),
+            _TARGET.incarnation,
+        )
+
+    monkeypatch.setattr(files, "owner_gateway_client_binding", managed_binding)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "self",
+            "files",
+            "--mount",
+            _MOUNT,
+            "push",
+            _CANDIDATE,
+            "--expected-base",
+            _BASE,
+            "--operation-id",
+            "recorded",
+            "--when-idle",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["outcome"] == "queued"
+    _, request, options = transport.calls[0]
+    assert isinstance(request, file.FilePushRequest) and request.when_idle
+    assert options["target_presence_id"] == _PRESENCE
+    binding = options["binding"]
+    assert isinstance(binding, GatewayClientBinding)
+    assert binding.managed_self_manifest_path == str(manifest)
+    assert binding.private_key_path is None
+
+
 def test_owner_local_open_mount_and_draft(
     transport: _Transport, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

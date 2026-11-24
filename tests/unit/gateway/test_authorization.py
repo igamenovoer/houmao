@@ -14,8 +14,9 @@ import pytest
 from houmao.gateway._access_sshsig import public_key_text
 from houmao.gateway._access_storage import GatewayAccessError
 from houmao.gateway.access_models import GatewayAdminKey, GatewayLaunchSeed, GatewayOwner
-from houmao.gateway.access_models import GatewaySelfKey, GatewayTarget
+from houmao.gateway.access_models import GatewayTarget
 from houmao.gateway.authorization import GatewayAuthorizer
+from houmao.gateway.authorization_catalog import DEFAULT_GROUP_SET, MAIL_DELIVER
 from houmao.gateway.authorization_models import (
     AuthorizationActor,
     Credential,
@@ -42,6 +43,141 @@ _ATTACHMENT = Permission(resource="mail:offline", action="mail.read_attachment")
 _STATUS = Permission(resource="gateway", action="status.read")
 _HEALTH = Permission(resource="gateway", action="health.read")
 _ANONYMOUS = AuthorizationActor(kind="anonymous")
+
+_PEER_EFFECTS = tuple(
+    Permission(resource="agent", action=action)
+    for action in (
+        "agent.status.read",
+        "agent.request.submit",
+        "agent.prompt.direct",
+        "agent.command.invoke",
+        "agent.interrupt",
+        "agent.input.raw",
+    )
+)
+_COMMON_WRITE = Permission(resource="files:common", action="files.edit")
+_OTHER_WRITE = Permission(resource="files:other", action="files.edit")
+
+
+@pytest.mark.parametrize(
+    ("group", "allowed"),
+    [
+        ("agent-observer", (_PEER_EFFECTS[0],)),
+        ("agent-requester", (*_PEER_EFFECTS[:2], MAIL_DELIVER)),
+        ("agent-maintainer", (*_PEER_EFFECTS[:2], MAIL_DELIVER, _COMMON_WRITE)),
+        ("agent-operator", (*_PEER_EFFECTS[:5], MAIL_DELIVER, _COMMON_WRITE)),
+        ("managed-self", (*_PEER_EFFECTS, MAIL_DELIVER, _COMMON_WRITE, _OTHER_WRITE)),
+        (
+            "agent-admin",
+            (*_PEER_EFFECTS, MAIL_DELIVER, _COMMON_WRITE, _OTHER_WRITE, DEFAULT_GROUP_SET),
+        ),
+    ],
+)
+def test_default_group_effects(tmp_path: Path, group: str, allowed: tuple[Permission, ...]) -> None:
+    """Each default gives its versioned exact effects to an otherwise unassigned caller."""
+
+    catalog = (
+        *_PEER_EFFECTS,
+        MAIL_DELIVER,
+        _COMMON_WRITE,
+        _OTHER_WRITE,
+        DEFAULT_GROUP_SET,
+        _HEALTH,
+    )
+    store = _store(
+        tmp_path,
+        PolicySnapshot.model_validate(
+            {
+                "owner": _OWNER,
+                "principals": (_ADMIN,),
+                "credentials": (_key(_ADMIN, admin=True),),
+                "default_permission_group": group,
+            }
+        ),
+    )
+    authorizer = GatewayAuthorizer(
+        store,
+        catalog=catalog,
+        self_permissions=catalog,
+        public_permissions=(_HEALTH,),
+        supports_common=lambda effect: effect == _COMMON_WRITE,
+    )
+    for effect in catalog:
+        if effect == _HEALTH:
+            assert _allow(authorizer, _ANONYMOUS, effect) == "public"
+        elif effect in allowed:
+            assert _allow(authorizer, _ANONYMOUS, effect) == "default"
+        else:
+            _reject(authorizer, _ANONYMOUS, effect, status=401)
+
+
+def test_default_fencing_and_expired_builtin_assignment(tmp_path: Path) -> None:
+    """A legacy role and direct grant keep their exact scope while fallback changes."""
+
+    key = _key(_PEER)
+    actor = AuthorizationActor.from_credential(key)
+    old_role = "builtin:agent-observer"
+    status, request, direct = _PEER_EFFECTS[:3]
+    retired = Permission(resource="agent", action="agent.prompt")
+    initial = PolicySnapshot(
+        owner=_OWNER,
+        principals=(_ADMIN, _PEER),
+        credentials=(_key(_ADMIN, admin=True), key),
+        roles=(RoleDefinition(role_id=old_role, permissions=(direct, retired)),),
+        role_assignments=(RoleAssignment(principal_id=_PEER.principal_id, role_id=old_role),),
+    )
+    store = _store(tmp_path, initial)
+    authorizer = GatewayAuthorizer(store, catalog=(status, request, direct))
+    admitted = authorizer.authorize(actor, (request, direct), target=_TARGET, listener_id=_LISTENER)
+    assert admitted.default_permissions == (request,)
+    _reject(authorizer, actor, retired, status=403)
+
+    with store.transaction() as transaction:
+        state = transaction.snapshot
+        transaction.replace(
+            state.model_copy(
+                update={
+                    "role_assignments": (
+                        *state.role_assignments,
+                        RoleAssignment(
+                            principal_id=_PEER.principal_id,
+                            role_id=old_role,
+                            builtin_version=1,
+                            expires_at=1,
+                        ),
+                    )
+                }
+            ),
+            actor="owner",
+            action="role.assign",
+        )
+
+    assert _allow(authorizer, actor, direct) == "scoped"
+    _reject(authorizer, actor, request, status=403)
+    _reject(authorizer, actor, status, status=403)
+    assert not authorizer.revalidate(admitted, target=_TARGET, listener_id=_LISTENER)
+    assert _allow(authorizer, _ANONYMOUS, request) == "default"
+
+    with store.transaction() as transaction:
+        transaction.replace(
+            transaction.snapshot.model_copy(
+                update={
+                    "role_assignments": initial.role_assignments,
+                    "default_permission_group": "agent-observer",
+                }
+            ),
+            actor="owner",
+            action="test.setting",
+        )
+        transaction.replace(
+            transaction.snapshot.model_copy(update={"default_permission_group": "agent-requester"}),
+            actor="owner",
+            action="test.setting",
+        )
+    assert _allow(authorizer, actor, request) == "default"
+    assert not authorizer.revalidate(admitted, target=_TARGET, listener_id=_LISTENER)
+    with pytest.raises(GatewayAccessError, match="lacks authority"):
+        authorizer.handoff(admitted, operation_id="pending", target=_TARGET, listener_id=_LISTENER)
 
 
 def _key(principal: Principal, *, admin: bool = False) -> Credential:
@@ -339,9 +475,7 @@ def test_same_target_self_and_listener_are_current(tmp_path: Path) -> None:
         tmp_path,
         PolicySnapshot(owner=_OWNER, principals=(_ADMIN,), credentials=(_key(_ADMIN, admin=True),)),
     )
-    key = GatewaySelfKey(
-        owner=_OWNER, generation_id=_TARGET.incarnation, public_key=_key(_ADMIN).public_key
-    )
+    key = store.provision_self(_TARGET.incarnation)
     actor = AuthorizationActor.from_self(key)
     authorizer = GatewayAuthorizer(
         store,

@@ -42,3 +42,15 @@ A direct grant or role assignment accepts `--expires-at` in UTC Unix seconds. Re
 - DO NOT infer that a retained grant proves current live applicability.
 - DO NOT grant to a public key whose principal or logical source has not been authenticated.
 - DO NOT infer a broad grant or revoke unrelated assignments from a narrower request.
+## Built-In Groups and the Default
+
+Bob can assign a verified Alice `builtin:agent-observer` for status only, `builtin:agent-requester` for status, mail, and quoted requests, `builtin:agent-maintainer` to add common skill and MCP edits, or `builtin:agent-operator` to add direct prompts, supported slash commands, and interruption. Bob's current runtime uses its `managed-self` identity for supported non-admin actions. `agent-admin` includes policy administration.
+
+```bash
+houmao-mgr agents single --agent-id "$BOB_ID" access role-assign alice builtin:agent-observer
+houmao-mgr agents single --agent-id "$BOB_ID" access default-group set agent-observer --retained --signer "$BOB_ADMIN_KEY"
+```
+
+Keyed Bob initially gives unassigned callers `agent-requester` without enrollment. Alice's verified observer assignment denies mail and wrapped requests. A separate unsigned request receives the configured default with anonymous attribution. With an empty admin roster, every caller receives the applicable admin permissions. Use `access list` to inspect Bob's chosen default and `access explain alice agent agent.request.submit` to examine Alice's verified authority.
+
+For one common skill or MCP mount, get its exact `files:<mount-id>` from file discovery. `access role-put editor --template skill-editor --resource "$MOUNT_RESOURCE"` creates a role with read and edit. `skill-publisher` gives read and publish on that exact resource. Assign them separately so the editor can save a draft and the publisher can decide when to apply it.

@@ -364,12 +364,14 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         launch_env_overrides={"CURRENT_GEN_FEATURE": "private-live-value"},
     )
     first_access = gateway_access_for_manifest(controller.manifest_path)
-    first_self = first_access.self_store.load_self(first_access.target.incarnation)
-    assert (
-        first_access.self_store.self_signer_path(first_access.target.incarnation).stat().st_mode
-        & 0o777
-        == 0o600
-    )
+    first_self = first_access.store.load_self(first_access.target.incarnation)
+    with monkeypatch.context() as worker_env:
+        worker_env.setenv("XDG_CONFIG_HOME", str(tmp_path / "different-worker-config"))
+        worker_env.setenv("HOME", str(tmp_path / "different-worker-home"))
+        worker_access = gateway_access_for_manifest(controller.manifest_path)
+        assert worker_access.private_root == first_access.private_root
+        assert worker_access.store.load_self(worker_access.target.incarnation) == first_self
+    assert (first_access.private_root / "authorization.sqlite3").stat().st_mode & 0o777 == 0o600
     assert tuple(entry.key_id for entry in first_access.store.snapshot().credentials) == tuple(
         key.key_id for key in admin_keys
     )
@@ -503,9 +505,7 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
     assert "CURRENT_GEN_FEATURE" not in controller.launch_plan.env
     assert controller.launch_plan.runtime_launch_environment_file != environment_file.name
     relaunched_access = gateway_access_for_manifest(controller.manifest_path)
-    assert (
-        relaunched_access.self_store.load_self(relaunched_access.target.incarnation) != first_self
-    )
+    assert relaunched_access.store.load_self(relaunched_access.target.incarnation) != first_self
     assert (
         relaunched_access.store.snapshot().find_credential(admin_keys[0].key_id).admin_revision
         is None

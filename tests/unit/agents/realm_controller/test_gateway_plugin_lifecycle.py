@@ -289,8 +289,8 @@ def test_plugin_actions_use_current_policy_and_exact_instance_resources(
         scoped_auth = FixtureProofAuth(scoped_signer)
         assert client.post(control_path).status_code == 401
         assert client.get(ordinary_path).status_code == 401
-        assert client.post(control_path, auth=self_auth).status_code == 403
-        assert client.get(ordinary_path, auth=self_auth).status_code == 403
+        assert client.post(control_path, auth=self_auth).status_code == 200
+        assert client.get(ordinary_path, auth=self_auth).json() == bound_instance
         assert client.post(control_path, auth=admin_auth).status_code == 200
         assert client.get(ordinary_path, auth=admin_auth).json() == bound_instance
         assert client.get(ordinary_path, auth=scoped_auth).json() == bound_instance

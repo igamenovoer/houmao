@@ -22,6 +22,15 @@ publisher=(houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" f
 
 Use the remote endpoint and signer choices from [Mount Scope](../references/mount-scope.md) when the publisher works from another account. A caller with `files.push` can publish another actor's candidate. The receipt attributes the publisher separately from the author recorded in history.
 
+Within your own runtime, current managed-self proof can queue the exact candidate while your turn is active.
+
+```bash
+houmao-mgr --print-json agents self files --mount "$MOUNT_ID" push "$CANDIDATE_COMMIT" \
+  --expected-base "$BASE_COMMIT" --operation-id "$OPERATION_ID" --when-idle
+```
+
+Use `agents self files --mount "$MOUNT_ID" status "$OPERATION_ID"` to read a queued or settled receipt.
+
 If publication conflicts with a newer base, inspect the current revision and prepare a fresh draft for the intended changes. A confirmed busy result preserves the saved candidate. Any later attempt proceeds explicitly with a new operation ID after readiness.
 
 ## Guardrails

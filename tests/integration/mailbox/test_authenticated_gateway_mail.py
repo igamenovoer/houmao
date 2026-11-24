@@ -22,7 +22,6 @@ import httpx
 import pytest
 
 from houmao.agents.mailbox_runtime_models import RemoteRegistryMailboxResolvedConfig
-from houmao.agents.realm_controller import gateway_access_runtime
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
@@ -183,15 +182,12 @@ def _deployed_gateway(
                     binding=enrollment.model_copy(update={"purpose": "caller"}),
                     target_incarnation=generation,
                 )
-                self_path = gateway_access_runtime.gateway_access_for_manifest(
-                    manifest
-                ).self_store.self_signer_path(generation)
                 own = GatewayClient(
                     binding=GatewayClientBinding(
                         base_url=owner_url,
                         owner=target.owner,
                         purpose="caller",
-                        private_key_path=str(self_path),
+                        managed_self_manifest_path=str(manifest),
                     ),
                     target_incarnation=generation,
                 )

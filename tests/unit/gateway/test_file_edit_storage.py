@@ -492,6 +492,50 @@ def test_anonymous_lease_capability_is_private_and_expires_with_epoch(mount: Mou
     assert receipt.actor == actor
 
 
+def test_anonymous_default_draft_capability_is_fenced_by_revision(mount: Mount) -> None:
+    """Reject an anonymous capability after the editing default changes and returns."""
+
+    anonymous = AuthorizationActor(kind="anonymous")
+    current = AuthorizationDecision(
+        actor=anonymous,
+        target=mount.target,
+        listener_id="listener",
+        permissions=(Permission(resource=f"files:{mount.mount_id}", action=EDIT),),
+        basis="default",
+        policy_id="policy",
+        policy_revision=2,
+        default_permission_revision=2,
+        default_permissions=(Permission(resource=f"files:{mount.mount_id}", action=EDIT),),
+    )
+    request = FileDraftOpenRequest(expected_base=mount.initial, **mount.coordinates)
+    opened = mount.store.lease_open(
+        request, decision=current, actor=FileActor(kind="anonymous"), fence=_fence
+    )
+    # A signed editor cannot replace a valid anonymous lease before its policy changes.
+    with pytest.raises(GatewayAccessError) as busy:
+        mount.store.lease_open(
+            request,
+            decision=mount.decision(EDIT),
+            actor=mount.editor(),
+            fence=_fence,
+            current_default_revision=2,
+        )
+    assert busy.value.code == "draft_busy"
+
+    replacement = current.model_copy(
+        update={"policy_revision": 4, "default_permission_revision": 4}
+    )
+    with pytest.raises(GatewayAccessError) as stale:
+        mount.store.draft_list(
+            FileDraftListRequest(**mount.draft(opened)), decision=replacement, fence=_fence
+        )
+    assert stale.value.code == "unknown_draft"
+    renewed = mount.store.lease_open(
+        request, decision=replacement, actor=FileActor(kind="anonymous"), fence=_fence
+    )
+    assert renewed.draft_id != opened.draft_id
+
+
 def test_commit_refuses_override_and_preserves_a_concurrent_draft_edit(mount: Mount) -> None:
     """Validate a frozen draft off lock and refuse to commit a superseded snapshot."""
 

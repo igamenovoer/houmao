@@ -27,6 +27,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderListV1,
     GatewayReminderPutV1,
     GatewayReminderV1,
+    GatewayRequestCreateV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.native_refresh_models import (
@@ -46,6 +47,10 @@ from houmao.gateway.access import (
     GatewayClientBinding,
     GatewayRequestBinding,
     parse_access_document,
+)
+from houmao.gateway.authorization_models import (
+    DefaultPermissionGroupReceipt,
+    DefaultPermissionGroupRequest,
 )
 from houmao.gateway.owner_authority import (
     BACKING_HEADER,
@@ -68,6 +73,7 @@ from houmao.passive_server.models import (
     PassivePromptRequest,
     PassiveRequestAcceptedResponse,
     PassiveShutdownResponse,
+    PassiveWorkRequestReceipt,
 )
 from houmao.server.client import HoumaoServerClient
 from houmao.server.models import (
@@ -171,6 +177,7 @@ class PassiveServerClient(HoumaoServerClient):
         *,
         binding: GatewayClientBinding | None = None,
         target_incarnation: str | None = None,
+        target_presence_id: str | None = None,
     ) -> None:
         """Select an explicitly bound signer for protected selected-agent calls."""
 
@@ -182,6 +189,7 @@ class PassiveServerClient(HoumaoServerClient):
                 base_url=self.base_url,
                 binding=binding,
                 target_incarnation=target_incarnation,
+                target_presence_id=target_presence_id,
                 timeout_seconds=timeout_seconds,
             )
             if binding is not None
@@ -294,6 +302,27 @@ class PassiveServerClient(HoumaoServerClient):
             HoumaoCurrentInstance,
         )
 
+    def set_default_permission_group(
+        self, agent_ref: str, payload: DefaultPermissionGroupRequest
+    ) -> DefaultPermissionGroupReceipt:
+        """Mutate the selected target policy through direct passive ingress."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "PUT",
+            f"/houmao/agents/{escaped}/admin/default-permission-group",
+            DefaultPermissionGroupReceipt,
+            json_body=payload.model_dump(mode="json"),
+        )
+
+    def describe_agent_proof(self, agent_ref: str) -> PassiveProofEndpoint:
+        """Observe the passive proof listener and its exact selected agent."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "GET", f"/houmao/agents/{escaped}/auth/endpoint", PassiveProofEndpoint
+        )
+
     def shutdown_server(self) -> CaoSuccessResponse:
         """Call `POST /houmao/server/shutdown` and normalize to `CaoSuccessResponse`."""
 
@@ -378,6 +407,19 @@ class PassiveServerClient(HoumaoServerClient):
             f"/houmao/agents/{escaped}/managed-history",
             HoumaoManagedAgentHistoryResponse,
             params=params,
+        )
+
+    def submit_detached_work_request(
+        self, agent_ref: str, payload: GatewayRequestCreateV1
+    ) -> PassiveWorkRequestReceipt:
+        """Submit one wrapped request to the direct detached passive route."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        return self._request_root_model(
+            "POST",
+            f"/houmao/agents/{escaped}/work-requests",
+            PassiveWorkRequestReceipt,
+            json_body=payload.model_dump(mode="json"),
         )
 
     def submit_managed_agent_request(

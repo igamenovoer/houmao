@@ -197,7 +197,7 @@ The dedicated `POST /houmao/agents/{agent_ref}/interrupt` route still exists for
 
 ## Gateway Lifecycle, Gateway-Mediated Requests, And Notifier Control
 
-Selected-agent HTTP operations resolve canonical owner policy even when the gateway is detached. A valid empty administrator roster grants every supported client action. With a keyed roster, the server checks each action against the enrolled caller's authority. Prompt and interrupt use distinct `agent.prompt` and `agent.interrupt` permissions even when both reach the same gateway queue. Passive stop requires `agent.stop`. A detailed state response requires `agent.status.read` and `agent.state.detail.read`.
+Selected-agent HTTP operations resolve canonical owner policy even when the gateway is detached. A valid empty administrator roster grants every supported client action. With a keyed roster, the server checks each action against the caller's verified permissions or the applicable default group. Verbatim prompts and interrupts require `agent.prompt.direct` and `agent.interrupt`, respectively. Qualified slash commands also require `agent.command.invoke`. Passive stop requires `agent.stop`. A detailed state response requires `agent.status.read` and `agent.state.detail.read`.
 
 Use `GET /houmao/agents/{agent_ref}/auth/endpoint` to retrieve the target generation, current passive listener, and challenge path. For a signed call, request proof at that path and sign the exact passive method, path, query, and body. The typed `PassiveServerClient` checks the endpoint and challenge against its configured target before signing.
 
@@ -237,7 +237,11 @@ houmao-mgr agents single --agent-id "$AGENT_ID" relaunch
 
 `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt` records explicit prompt-note provenance on the live gateway tracker without enqueueing a gateway request.
 
-`POST /houmao/agents/{agent_ref}/gateway/requests` proxies live gateway `submit_prompt` and `interrupt` requests. It rejects the request explicitly when no eligible live gateway is attached instead of silently falling back to the transport-neutral `/requests` surface. For `submit_prompt`, the same optional headless-only `execution.model` shape is accepted here and rejected with HTTP `422` for TUI-backed targets.
+`POST /houmao/agents/{agent_ref}/gateway/requests` proxies live gateway `submit_work_request`, `submit_prompt`, and `interrupt` requests. A detached gateway yields an unavailable result. For `submit_prompt`, headless targets accept the optional `execution.model` override. TUI targets return HTTP 422 for that override.
+
+`POST /houmao/agents/{agent_ref}/work-requests` delivers one immediate wrapped request to a ready, passive-managed DSH Headless agent with a detached gateway. Send `{"kind":"submit_work_request","payload":{"text":"Review PR 42"}}` under `agent.request.submit`. Passive ingress keeps verified or anonymous attribution, quotes the text, and uses the current conversation and configured model. It rechecks authority, generation, and detachment before native handoff. The receipt contains `request_id` and `outcome`. `handed_off` confirms native delivery. `not_sent` indicates a known refusal. `unknown` indicates that handoff could not be confirmed. Private turn output requires separate access.
+
+Choose the gateway proxy or direct passive route before submitting the request. A refusal applies to that attempt. To contact a detached agent through its mailbox, send ordinary mail under the recipient's mail policy.
 
 `POST /houmao/agents/{agent_ref}/gateway/control/prompt` is the immediate "send now or refuse now" gateway-control surface. It accepts the same optional headless-only `execution.model.name` plus optional `execution.model.reasoning.level` (`>=0`, interpreted against the resolved tool/model ladder) payload as the queued `submit_prompt` surface, applies the override to exactly the current prompt admission, and rejects the request with HTTP `422` when the resolved target is TUI-backed. Partial overrides merge with launch-resolved defaults through the shared headless resolution helper.
 

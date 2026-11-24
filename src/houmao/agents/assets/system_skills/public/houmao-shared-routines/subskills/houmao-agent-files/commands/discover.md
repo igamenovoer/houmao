@@ -4,7 +4,7 @@
 
 1. Verify the selected target and choose a caller lane from [Mount Scope](../references/mount-scope.md).
 2. Run `mounts` through the target's directly attached gateway.
-3. Record the exact `mount_id`, `resource`, `actions`, and `published_commit` for the intended mount.
+3. Record the exact `mount_id`, `kind`, `resource`, `actions`, and `published_commit` for the intended mount.
 4. If no mount is visible, report the read-authority or provider prerequisite that the evidence supports.
 
 For a wider authorized workflow, use the native planning tool and carry the verified discovery evidence to the selected next step.
@@ -19,7 +19,9 @@ files=(houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" files
 "${files[@]}" mounts
 ```
 
-From verified managed self, use the target's trusted deployment coordinates and the source's configured peer signer. Add `--ca-bundle "$TARGET_CA_BUNDLE"` for a private TLS deployment.
+Within your own runtime, use `houmao-mgr --print-json agents self files mounts`. Add `--kind mcp` when you need the MCP declaration mount.
+
+To reach another agent from verified managed self, use the peer's trusted deployment coordinates and the source's configured peer signer. Add `--ca-bundle "$TARGET_CA_BUNDLE"` for a private TLS deployment.
 
 ```bash
 files=(houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" files

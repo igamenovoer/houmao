@@ -39,7 +39,8 @@ def managed_self_gateway_client(*, base_url: str, timeout_seconds: float = 5.0) 
         if paths is None:
             raise ValueError("Missing gateway capability.")
         current = load_gateway_current_instance(paths.current_instance_path)
-        if owner_gateway_base_url(current.port) != base_url:
+        endpoint = current.endpoint_descriptor
+        if endpoint is None or owner_gateway_base_url(current.port) != base_url:
             raise ValueError("Gateway does not match the current managed self endpoint.")
         binding, generation = owner_gateway_client_binding(
             identity.manifest_path, port=current.port, private=True, prefer_self=True
@@ -52,5 +53,7 @@ def managed_self_gateway_client(*, base_url: str, timeout_seconds: float = 5.0) 
         base_url=base_url,
         binding=binding,
         target_incarnation=generation,
+        target_presence_id=endpoint.presence_id,
         timeout_seconds=timeout_seconds,
+        respect_proxy_env=False,
     )

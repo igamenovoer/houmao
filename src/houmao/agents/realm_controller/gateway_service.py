@@ -54,6 +54,7 @@ from starlette.concurrency import run_in_threadpool
 
 from houmao.ag_ui.runtime import (
     AgUiHeadlessArtifactObservation,
+    AgUiNativeAdmission,
     AgUiObservedRequestState,
     AgUiTargetTransportFamily,
     AgUiTuiObservation,
@@ -151,10 +152,24 @@ from houmao.gateway.access import (
     GatewayTarget,
     parse_access_document,
 )
-from houmao.gateway.authorization_models import AuthorizationActor, Permission
+from houmao.gateway.authorization_models import (
+    AuthorizationActor,
+    DefaultPermissionGroupReceipt,
+    DefaultPermissionGroupRequest,
+    Permission,
+)
+from houmao.gateway.access_models import MANAGED_SELF_PATH, ManagedSelfChange, ManagedSelfReceipt
 from houmao.gateway.file_edits.publication import NativeFileMount
 from houmao.gateway.file_edits.routes import GatewayFileEdits, register_file_edit_routes
-from houmao.gateway.operations import ATTACHMENT_ACTION, GatewayOperation
+from houmao.gateway.operations import (
+    ATTACHMENT_ACTION,
+    RAW_INPUT,
+    WORK_REQUEST,
+    GatewayOperation,
+    direct_text_permissions,
+    native_command_candidate,
+    prompt_permissions,
+)
 from houmao.gateway.deployment import GatewayDeployment, GatewayEndpointDescriptor
 from houmao.gateway.owner_authority import RELAY_HEADER, consume_gateway_relay
 from houmao.gateway.plugins import (
@@ -164,6 +179,7 @@ from houmao.gateway.plugins import (
     PluginEvent,
     PluginOwner,
 )
+from houmao.gateway.work_requests import render_work_request
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 from houmao.agents.realm_controller.usage_support import UsageService
@@ -267,6 +283,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
+    GatewayRequestPayloadSubmitWorkRequestV1,
     GatewayReminderCreateBatchV1,
     GatewayReminderCreateResultV1,
     GatewayReminderDefinitionV1,
@@ -488,6 +505,7 @@ class _QueuedGatewayRequestRecord:
     owner_claim: OwnerPromptClaim | None = None
     owner_generation: str | None = None
     authority: GatewayGrant | None = None
+    ag_ui: bool = False
 
 
 @dataclass(frozen=True)
@@ -501,6 +519,7 @@ class _AcceptedGatewayRequestRecord:
     owner_generation: str | None = None
     authority: GatewayGrant | None = None
     authority_valid: bool = True
+    ag_ui: bool = False
 
 
 @dataclass(frozen=True)
@@ -2331,6 +2350,7 @@ class GatewayServiceRuntime:
         self.m_access_runtime: GatewayRuntimeAccess | None = None
         self.m_access_policy: GatewayAccessPolicy | None = None
         self.m_file_edits: GatewayFileEdits | None = None
+        self.m_file_edit_thread: threading.Thread | None = None
         self.m_deployment: GatewayDeployment | None = None
         self.m_presence_id: str = uuid.uuid4().hex
         self.m_public_attempts: list[float] = []
@@ -2452,9 +2472,7 @@ class GatewayServiceRuntime:
                 selected.bind_port is not None and selected.bind_port != self.m_port
             ):
                 raise GatewayAccessError(503, "deployment_unavailable")
-            if self.m_host != "127.0.0.1":
-                access.store.snapshot()
-                access.self_store.load_self(access.target.incarnation)
+            access.require_self_signing_state()
         except (GatewayAccessError, GatewayError, SessionManifestError, OSError, ValueError):
             raise GatewayError("Gateway startup requires valid owner access state.") from None
         self.m_access_runtime = access
@@ -2470,32 +2488,68 @@ class GatewayServiceRuntime:
                 or supports_ag_ui_permission(permission)
                 or (self.m_file_edits is not None and self.m_file_edits.supports(permission))
             ),
+            supports_common=lambda permission: (
+                self.m_file_edits is not None and self.m_file_edits.supports_common(permission)
+            ),
+            require_keyed_transition=access.require_keyed_mail_qualification,
         )
         self.m_file_edits = GatewayFileEdits(
             policy=self._require_access_policy,
             target=self._access_target,
             presence_id=self.m_presence_id,
             manifest_path=manifest_path,
-            resolve_mount=self._resolve_qualified_file_mount,
+            resolve_mounts=self._resolve_qualified_file_mounts,
+            listener_is_current=self._file_listener_is_current,
         )
 
-    def _resolve_qualified_file_mount(self) -> NativeFileMount | None:
-        """Load only a qualified DSH Web mount in the current execution binding."""
+    def _file_listener_is_current(self) -> bool:
+        """Fence deferred work against shutdown or replacement of this listener."""
+
+        if self.m_stop_event.is_set():
+            return False
+        try:
+            instance = load_gateway_current_instance(self.m_paths.current_instance_path)
+        except (GatewayError, SessionManifestError, OSError, ValueError):
+            return False
+        endpoint = instance.endpoint_descriptor
+        return endpoint is not None and endpoint.presence_id == self.m_presence_id
+
+    def _file_edit_loop(self) -> None:
+        """Dispatch saved idle work without blocking the agent's request worker."""
+
+        file_edits = self.m_file_edits
+        if file_edits is None:
+            return
+        while not self.m_stop_event.wait(0.5):
+            try:
+                file_edits.dispatch_scheduled()
+            except (GatewayAccessError, OwnerAdmissionError, OSError, sqlite3.Error):
+                # A revoked or temporarily unavailable mount cannot dispatch.
+                continue
+
+    def _resolve_qualified_file_mounts(self) -> tuple[NativeFileMount, ...]:
+        """Load qualified DSH Web mounts in the current execution binding."""
 
         adapter = self.m_adapter
         if self.m_attach_contract.backend != "dsh_web" or not isinstance(
             adapter, _NativeWebGatewayAdapter
         ):
-            return None
+            return ()
         try:
             manifest = self._verified_owner_manifest(
                 expected_generation=self._access_target().incarnation
             )
             if manifest is None:
-                return None
+                return ()
             controller = adapter._resume_controller()
             backend = controller.backend_session
-            return backend.skill_file_mount() if isinstance(backend, DshWebSession) else None
+            if not isinstance(backend, DshWebSession):
+                return ()
+            return tuple(
+                mount
+                for mount in (backend.skill_file_mount(), backend.mcp_file_mount())
+                if mount is not None
+            )
         except (OwnerAdmissionError, GatewayError, SessionManifestError, OSError, ValueError):
             raise GatewayAccessError(503, "file_mount_unavailable") from None
 
@@ -2822,7 +2876,7 @@ class GatewayServiceRuntime:
                 or operation.registration
                 or operation.transport_public
                 or operation.direct_web_entry
-                or operation.selector == "files-resolved"
+                or operation.selector in {"files-resolved", "self-registration"}
                 or self.m_access_runtime is None
             ):
                 raise GatewayAccessError(401, "invalid_proof")
@@ -2842,7 +2896,9 @@ class GatewayServiceRuntime:
                 signature=proof.get(SIGNATURE_HEADER),
             )
             return None
-        if operation.selector in {"ag-ui-resolved", "files-resolved"}:
+        if operation.selector in {"ag-ui-resolved", "files-resolved", "self-registration"}:
+            if operation.selector == "self-registration":
+                request.state.gateway_self_management_target = self._access_target()
             request.state.gateway_actor = policy.authenticate(
                 issuer=issuer,
                 request=binding,
@@ -2918,6 +2974,16 @@ class GatewayServiceRuntime:
 
         if grant is not None:
             self._require_access_policy().handoff(grant, operation_id=operation_id)
+
+    def _native_access_is_current(self, grant: GatewayGrant | None) -> bool:
+        """Check the same admitted grant at the adapter's last launch boundary."""
+
+        if self.m_stop_event.is_set():
+            return False
+        try:
+            return grant is None or self._require_access_policy().revalidate(grant)
+        except GatewayAccessError:
+            return False
 
     def authorize_resolved_effects(
         self, request: Request, permissions: tuple[Permission, ...]
@@ -3077,9 +3143,7 @@ class GatewayServiceRuntime:
         if self.m_access_runtime is None:
             self.prepare_access()
         access = self._current_access()
-        if self.m_host != "127.0.0.1":
-            access.store.snapshot()
-            access.self_store.load_self(access.target.incarnation)
+        access.require_self_signing_state()
         with self.m_lock:
             self._mark_running_requests_failed()
             self._initialize_instance_state()
@@ -3108,6 +3172,13 @@ class GatewayServiceRuntime:
             daemon=True,
         )
         self.m_notifier_thread.start()
+        if self.m_attach_contract.backend == "dsh_web":
+            self.m_file_edit_thread = threading.Thread(
+                target=self._file_edit_loop,
+                name="gateway-file-publication",
+                daemon=True,
+            )
+            self.m_file_edit_thread.start()
         if self.m_usage_service is not None:
             self.m_usage_service.start()
 
@@ -3133,6 +3204,8 @@ class GatewayServiceRuntime:
             self.m_reminder_thread.join(timeout=2.0)
         if self.m_notifier_thread is not None:
             self.m_notifier_thread.join(timeout=2.0)
+        if self.m_file_edit_thread is not None:
+            self.m_file_edit_thread.join(timeout=2.0)
         with self.m_lock:
             self._drop_pending_reminders_locked()
             if isinstance(self.m_adapter, _NativeWebGatewayAdapter):
@@ -4027,12 +4100,17 @@ class GatewayServiceRuntime:
         ready_only: bool = False,
         expected_generation: str | None = None,
         authority: GatewayGrant | None = None,
+        ag_ui: AgUiNativeAdmission | None = None,
     ) -> GatewayAcceptedRequestV1:
         """Validate admission and persist one gateway-managed request."""
 
+        work_request = request_payload.kind == "submit_work_request"
+        if ag_ui is not None:
+            assert isinstance(request_payload.payload, GatewayRequestPayloadSubmitPromptV1)
+            authority = ag_ui.authority
         try:
             manifest = self._require_owner_control(
-                "prompt" if request_payload.kind == "submit_prompt" else "interrupt",
+                "interrupt" if request_payload.kind == "interrupt" else "prompt",
                 expected_generation=expected_generation,
             )
         except OwnerAdmissionError as exc:
@@ -4048,7 +4126,7 @@ class GatewayServiceRuntime:
             )
         ):
             return self._create_owned_interrupt(manifest, authority=authority)
-        if self.m_attach_contract.backend in MANAGED_WEB_BACKENDS:
+        if self.m_attach_contract.backend in MANAGED_WEB_BACKENDS and not work_request:
             return self._create_web_request(
                 request_payload,
                 manifest=manifest,
@@ -4058,7 +4136,7 @@ class GatewayServiceRuntime:
         with self.m_lock:
             claim: OwnerPromptClaim | None = None
             request_id = generate_gateway_request_id()
-            if request_payload.kind == "submit_prompt":
+            if request_payload.kind != "interrupt":
                 self._require_no_native_refresh_locked()
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             if status.request_admission == "blocked_reconciliation":
@@ -4071,6 +4149,10 @@ class GatewayServiceRuntime:
                     status_code=503,
                     detail="Gateway admission is blocked because the managed agent is unavailable.",
                 )
+            if work_request:
+                if authority is None or WORK_REQUEST not in authority.permissions:
+                    raise GatewayAccessError(403, "insufficient_authority")
+                self._prompt_dispatch_mode_locked(admission_policy="ready_only")
             if (
                 self.m_attach_contract.backend
                 in {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}
@@ -4087,6 +4169,15 @@ class GatewayServiceRuntime:
             if request_payload.kind == "submit_prompt":
                 submit_payload = cast(GatewayRequestPayloadSubmitPromptV1, request_payload.payload)
                 dispatch_mode = self._prompt_dispatch_mode_locked(admission_policy="ready_only")
+                self._require_qualified_command(
+                    submit_payload.prompt,
+                    dispatch_mode=dispatch_mode,
+                    admission_policy="ready_only",
+                    has_native_overrides=(
+                        submit_payload.chat_session is not None
+                        or submit_payload.execution is not None
+                    ),
+                )
                 execution_rejection = self._execution_override_rejection_detail(
                     dispatch_mode=dispatch_mode,
                     request_execution=submit_payload.execution,
@@ -4134,6 +4225,7 @@ class GatewayServiceRuntime:
             admission_metadata = {
                 "owner_generation": owner_generation,
                 "authority": authority.model_dump(mode="json") if authority is not None else None,
+                "ag_ui": ag_ui is not None,
             }
             try:
                 with self._queue_input_transaction(manifest) as connection:
@@ -4290,6 +4382,9 @@ class GatewayServiceRuntime:
                 )
             if request_payload.kind == "submit_prompt":
                 submit = cast(GatewayRequestPayloadSubmitPromptV1, request_payload.payload)
+                self._require_qualified_command(
+                    submit.prompt, dispatch_mode="web", admission_policy="ready_only"
+                )
                 selector = submit.chat_session
                 if submit.execution is not None:
                     raise HTTPException(
@@ -4314,7 +4409,6 @@ class GatewayServiceRuntime:
             else:
                 request_id = generate_gateway_request_id()
             operation_id = request_id
-            self.fence_access(authority, operation_id=operation_id)
             accepted_at = now_utc_iso()
             metadata = {
                 "operation_id": operation_id,
@@ -4354,6 +4448,7 @@ class GatewayServiceRuntime:
                 # must never turn this into a cancellation of later human work.
                 try:
                     with self._owner_effect(manifest):
+                        self.fence_access(authority, operation_id=operation_id)
                         adapter.interrupt_captured(captured_state, operation_id=operation_id)
                 except OwnerAdmissionError as exc:
                     raise self._owner_http_error(exc) from None
@@ -4367,10 +4462,14 @@ class GatewayServiceRuntime:
                     operation_id=operation_id,
                     expected_identity=expected_identity,
                     expected_generation=expected_generation,
+                    authority=authority,
                     on_terminal=lambda result: self._finish_web_operation(
                         request_id, result=result
                     ),
                 )
+        except GatewayAccessError:
+            self._finish_web_operation(request_id, succeeded=False)
+            raise
         except HTTPException as exc:
             code = exc.detail.get("error_code") if isinstance(exc.detail, dict) else None
             self._finish_web_operation(
@@ -4456,6 +4555,7 @@ class GatewayServiceRuntime:
             created_reminders: list[_GatewayReminderRecord] = []
             for definition in request_payload.reminders:
                 self._validate_reminder_delivery_supported(definition)
+            self.fence_access(authority)
             for definition in request_payload.reminders:
                 created_at = datetime.now(UTC)
                 due_at = self._due_at_from_reminder_definition(
@@ -4576,6 +4676,7 @@ class GatewayServiceRuntime:
                     ),
                 )
             self._validate_reminder_delivery_supported(request_payload)
+            self.fence_access(authority)
             updated_at = datetime.now(UTC)
             due_at = self._due_at_from_reminder_definition(
                 request_payload,
@@ -4706,6 +4807,12 @@ class GatewayServiceRuntime:
         """Reject reminder delivery shapes unsupported by the attached gateway target."""
 
         if definition.send_keys is None:
+            if definition.prompt is not None and native_command_candidate(definition.prompt):
+                self._require_qualified_command(
+                    definition.prompt,
+                    dispatch_mode=self._prompt_dispatch_mode_locked(admission_policy="ready_only"),
+                    admission_policy="ready_only",
+                )
             return
         control_input_support = self.m_adapter.describe_control_input_support()
         if control_input_support.supported:
@@ -5311,6 +5418,15 @@ class GatewayServiceRuntime:
                 )
             status = self._refresh_status_snapshot(active_execution=self._active_execution_state())
             dispatch_mode = self._prompt_dispatch_mode_locked(admission_policy=admission_policy)
+            self._require_qualified_command(
+                prompt,
+                dispatch_mode=dispatch_mode,
+                admission_policy=admission_policy,
+                has_native_overrides=(
+                    request_payload.chat_session is not None
+                    or request_payload.execution is not None
+                ),
+            )
             self._validate_prompt_control_locked(
                 status=status,
                 admission_policy=admission_policy,
@@ -5400,6 +5516,7 @@ class GatewayServiceRuntime:
                     execution_model=execution_model,
                     consume_next_prompt_override=consume_headless_override,
                     claim=claim,
+                    authority=authority,
                 )
             tracking = self.m_tui_tracking
             use_tui_reset_workflow = (
@@ -5420,7 +5537,8 @@ class GatewayServiceRuntime:
             )
         try:
             if use_tui_reset_workflow:
-                self._dispatch_tui_new_prompt_workflow(prompt=prompt)
+                self.fence_access(authority)
+                self._dispatch_tui_new_prompt_workflow(prompt=prompt, authority=authority)
                 if claim is not None:
                     claim.handoff()
             else:
@@ -5434,10 +5552,19 @@ class GatewayServiceRuntime:
                     claim=claim,
                     session_selection=headless_session_selection,
                     execution_model=execution_model,
+                    authority=authority,
                 )
                 if tracking is not None:
                     with self.m_lock:
                         tracking.note_prompt_submission(message=prompt)
+        except GatewayAccessError:
+            if claim is not None:
+                claim.finish(
+                    "uncertain" if use_tui_reset_workflow else "failed",
+                    evidence="authorization_retired_before_dispatch",
+                )
+            self._abandon_usage_prompt(usage_turn_id)
+            raise
         except (GatewayError, CaoApiError, ValidationError, UsageStoreError) as exc:
             if claim is not None:
                 claim.finish("uncertain", evidence="native_handoff_unavailable")
@@ -5480,9 +5607,11 @@ class GatewayServiceRuntime:
         claim: OwnerPromptClaim | None,
         session_selection: HeadlessTurnSessionSelection | None,
         execution_model: ModelConfig | None,
+        authority: GatewayGrant | None = None,
     ) -> Literal["interrupted"] | None:
         """Use the native control guard when one real managed owner reserved input."""
 
+        self.fence_access(authority)
         outcome = None
         if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
             if claim is None or claim.mode != "service":
@@ -5491,7 +5620,7 @@ class GatewayServiceRuntime:
                 claim=claim,
                 prompt=prompt,
                 execution_model=execution_model,
-                allowed=lambda: not self.m_stop_event.is_set(),
+                allowed=lambda: self._native_access_is_current(authority),
                 expected_session_id=session_selection.session_id if session_selection else None,
             )
             if snapshot is None or snapshot.state not in {"completed", "interrupted", "failed"}:
@@ -5505,7 +5634,7 @@ class GatewayServiceRuntime:
                 prompt=prompt,
                 session_selection=session_selection,
                 execution_model=execution_model,
-                allowed=lambda: not self.m_stop_event.is_set(),
+                allowed=lambda: self._native_access_is_current(authority),
             )
         else:
             self.m_adapter.submit_prompt(
@@ -5589,7 +5718,7 @@ class GatewayServiceRuntime:
         def allowed() -> bool:
             """Fence insertion against gateway shutdown, expiry, and replacement."""
 
-            if self.m_stop_event.is_set() or time.monotonic() >= deadline:
+            if time.monotonic() >= deadline or not self._native_access_is_current(authority):
                 return False
             if claim is not None and not claim.active():
                 return False
@@ -5816,17 +5945,56 @@ class GatewayServiceRuntime:
         )
         return GatewayControlInputResultV1(detail=detail)
 
-    def _dispatch_tui_new_prompt_workflow(self, *, prompt: str) -> None:
+    def _dispatch_tui_new_prompt_workflow(
+        self, *, prompt: str, authority: GatewayGrant | None = None
+    ) -> None:
         """Clear the current TUI conversation, wait for readiness, then send the prompt."""
 
         tracking = self._dispatch_tui_context_reset_only()
         usage_turn_id = self._register_usage_prompt()
         try:
+            self.fence_access(authority)
             self.m_adapter.submit_prompt(prompt=prompt)
         except Exception:
             self._abandon_usage_prompt(usage_turn_id)
             raise
         tracking.note_prompt_submission(message=prompt)
+
+    def _require_qualified_command(
+        self,
+        prompt: str,
+        *,
+        dispatch_mode: _GatewayPromptDispatchMode,
+        admission_policy: GatewayPromptAdmissionPolicy,
+        has_native_overrides: bool = False,
+    ) -> None:
+        """Permit only exact maintained controls on the native surface that supports them."""
+
+        command = native_command_candidate(prompt)
+        if command is None:
+            return
+        if (
+            not has_native_overrides
+            and dispatch_mode == "tui"
+            and self._qualified_tui_command(prompt, command)
+        ):
+            return
+        self._raise_prompt_control_http_error(
+            status_code=422,
+            admission_policy=admission_policy,
+            error_code="unsupported_command",
+            detail="The native surface cannot qualify the exact slash command requested.",
+        )
+
+    def _qualified_tui_command(self, prompt: str, command: str) -> bool:
+        """Verify that a direct prompt is an exact supported control for its provider."""
+
+        if prompt != command:
+            return False
+        tool = self._tui_tool_name()
+        if tool == "codex":
+            return command in _GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS
+        return tool in {"claude", "kimi"} and command == _DEFAULT_TUI_RESET_PROMPT
 
     def _dispatch_tui_context_reset_only(
         self,
@@ -5925,6 +6093,15 @@ class GatewayServiceRuntime:
         metadata = self.m_attach_contract.backend_metadata
         if isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1):
             return metadata.tool
+        manifest_path = self.m_attach_contract.manifest_path
+        if manifest_path is not None:
+            try:
+                manifest = load_session_manifest(Path(manifest_path))
+                return parse_session_manifest_payload(
+                    manifest.payload, source=str(manifest.path)
+                ).tool
+            except SessionManifestError:
+                return None
         return None
 
     def _resolve_headless_prompt_selection_locked(
@@ -6191,15 +6368,16 @@ class GatewayServiceRuntime:
         status: GatewayStatusV1,
         dispatch_mode: _GatewayPromptDispatchMode,
         admission_policy: GatewayPromptAdmissionPolicy,
+        queued_handoff: bool = False,
     ) -> None:
         """Require prompt-ready posture for ready-only direct prompt control."""
 
         self._require_no_native_refresh_locked()
-        if status.active_execution != "idle" or status.queue_depth > 0:
+        if status.active_execution != "idle" or (status.queue_depth > 0 and not queued_handoff):
             reasons: list[str] = []
             if status.active_execution != "idle":
                 reasons.append(f"active_execution={status.active_execution!r}")
-            if status.queue_depth > 0:
+            if status.queue_depth > 0 and not queued_handoff:
                 reasons.append(f"queue_depth={status.queue_depth}")
             self._raise_prompt_control_http_error(
                 status_code=409,
@@ -6234,7 +6412,9 @@ class GatewayServiceRuntime:
                 )
             return
         if dispatch_mode == "local_headless":
-            active_turn_id = self._active_headless_turn_id_locked()
+            active_turn_id = self._active_headless_turn_id_locked(
+                include_accepted=not queued_handoff
+            )
             if active_turn_id is not None or status.terminal_surface_eligibility != "ready":
                 self._raise_prompt_control_http_error(
                     status_code=409,
@@ -6474,6 +6654,7 @@ class GatewayServiceRuntime:
         execution_model: ModelConfig | None,
         consume_next_prompt_override: bool,
         claim: OwnerPromptClaim | None = None,
+        authority: GatewayGrant | None = None,
     ) -> GatewayPromptControlResultV1:
         """Start one native headless prompt in the background and return immediately."""
 
@@ -6486,6 +6667,7 @@ class GatewayServiceRuntime:
                 "session_selection": session_selection,
                 "execution_model": execution_model,
                 "claim": claim,
+                "authority": authority,
             },
             name=f"gateway-direct-prompt-{turn_id}",
             daemon=True,
@@ -6532,6 +6714,7 @@ class GatewayServiceRuntime:
         session_selection: HeadlessTurnSessionSelection | None,
         execution_model: ModelConfig | None,
         claim: OwnerPromptClaim | None = None,
+        authority: GatewayGrant | None = None,
     ) -> None:
         """Execute one native headless direct prompt in a background thread."""
 
@@ -6542,7 +6725,12 @@ class GatewayServiceRuntime:
                 claim=claim,
                 session_selection=session_selection,
                 execution_model=execution_model,
+                authority=authority,
             )
+        except GatewayAccessError as exc:
+            if claim is not None:
+                claim.finish("failed", evidence="authorization_retired_before_dispatch")
+            self._log(f"direct gateway prompt refused turn_id={turn_id} code={exc.code}")
         except (GatewayError, CaoApiError, ValidationError) as exc:
             if claim is not None:
                 claim.finish("uncertain", evidence="native_result_unavailable")
@@ -6734,6 +6922,7 @@ class GatewayServiceRuntime:
 
         payload = self._load_manifest_payload_for_mailbox_support()
         from houmao.agents.mailbox_runtime_support import mailboxes_resolved_config_from_payload
+        from houmao.mailbox.delivery_policy import require_open_provider_binding
 
         mailboxes = mailboxes_resolved_config_from_payload(
             payload.launch_plan.mailboxes, manifest_path=self.m_manifest_path or Path("<unknown>")
@@ -6746,8 +6935,13 @@ class GatewayServiceRuntime:
                 continue
             error = None
             try:
-                resolve_live_mailbox_binding(durable_mailbox=binding)
-                build_gateway_mailbox_adapter(binding).status()
+                with (
+                    require_open_provider_binding(self.m_manifest_path or Path("<unknown>"))
+                    if channel == "online"
+                    else nullcontext()
+                ):
+                    resolve_live_mailbox_binding(durable_mailbox=binding)
+                    build_gateway_mailbox_adapter(binding).status()
             except (ValueError, OSError, GatewayMailboxError, StalwartError):
                 error = f"{channel.capitalize()} mailbox is unavailable"
             summaries[channel] = MailboxChannelStatusV1(
@@ -8217,19 +8411,39 @@ class GatewayServiceRuntime:
             error_detail: str | None = None
             assert reminder is not None
             try:
-                self.fence_access(reminder.authority)
                 if reminder.delivery_kind == "prompt":
                     assert reminder.prompt is not None
+                    if reminder.authority is not None and not set(
+                        direct_text_permissions(reminder.prompt)
+                    ).issubset(reminder.authority.permissions):
+                        raise GatewayAccessError(403, "insufficient_authority")
+                    if native_command_candidate(reminder.prompt):
+                        with self.m_lock:
+                            self._require_qualified_command(
+                                reminder.prompt,
+                                dispatch_mode=self._prompt_dispatch_mode_locked(
+                                    admission_policy="ready_only"
+                                ),
+                                admission_policy="ready_only",
+                            )
+                    self.fence_access(reminder.authority)
                     self._submit_prompt_via_adapter(
                         prompt=reminder.prompt,
                         turn_id=None,
                         session_selection=None,
                         execution_model=None,
                         note_prompt_submission=False,
+                        authority=reminder.authority,
                     )
                 else:
                     assert reminder.send_keys_sequence is not None
+                    if (
+                        reminder.authority is not None
+                        and RAW_INPUT not in reminder.authority.permissions
+                    ):
+                        raise GatewayAccessError(403, "insufficient_authority")
                     with self._owner_effect(self._require_owner_control("send_keys")):
+                        self.fence_access(reminder.authority)
                         self.m_adapter.send_control_input(
                             sequence=self._normalize_reminder_send_keys_sequence(
                                 sequence=reminder.send_keys_sequence,
@@ -8241,7 +8455,13 @@ class GatewayServiceRuntime:
                 with self.m_reminder_condition:
                     reminder.paused = True
                 error_detail = exc.detail
-            except (GatewayError, BackendExecutionError, CaoApiError, ValidationError) as exc:
+            except (
+                GatewayError,
+                BackendExecutionError,
+                CaoApiError,
+                HTTPException,
+                ValidationError,
+            ) as exc:
                 error_detail = str(exc)
             self._finish_reminder_execution(
                 reminder_id=reminder.reminder_id,
@@ -8400,6 +8620,7 @@ class GatewayServiceRuntime:
         note_prompt_submission: bool,
         claim: OwnerPromptClaim | None = None,
         origin: str = "gateway_queue",
+        authority: GatewayGrant | None = None,
     ) -> Literal["interrupted"] | None:
         """Submit one prompt through the shared gateway execution adapter."""
 
@@ -8420,6 +8641,7 @@ class GatewayServiceRuntime:
                         identity.agent_incarnation,
                         identity.native_session_id,
                     ),
+                    authority=authority,
                 )
             except HTTPException as exc:
                 detail = exc.detail.get("detail") if isinstance(exc.detail, dict) else None
@@ -8448,6 +8670,7 @@ class GatewayServiceRuntime:
                 claim=claim,
                 session_selection=session_selection,
                 execution_model=execution_model,
+                authority=authority,
             )
         except Exception:
             self._abandon_usage_prompt(usage_turn_id)
@@ -8597,10 +8820,21 @@ class GatewayServiceRuntime:
                 ):
                     return None
                 direct = self.m_direct_prompt_thread
-                if record.request_kind == "submit_prompt" and (
+                if record.request_kind in {"submit_prompt", "submit_work_request"} and (
                     self.m_plugin_dispatch_pending or (direct is not None and direct.is_alive())
                 ):
                     return None
+                if record.request_kind == "submit_work_request":
+                    try:
+                        mode = self._prompt_dispatch_mode_locked(admission_policy="ready_only")
+                        self._require_prompt_ready_locked(
+                            status=status,
+                            dispatch_mode=mode,
+                            admission_policy="ready_only",
+                            queued_handoff=True,
+                        )
+                    except HTTPException:
+                        return None
                 reserved = getattr(self, "m_reserved_queue_prompts", {})
                 claim = reserved.get(record.request_id)
                 if record.request_kind != "interrupt" and claim is None:
@@ -8611,12 +8845,15 @@ class GatewayServiceRuntime:
                             self._require_hook_admission_locked(admission_policy="ready_only")
                         except HTTPException:
                             return None
-                    payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(
-                        record.payload_json
-                    )
+                    selected_turn_id = record.request_id
+                    if record.request_kind != "submit_work_request":
+                        payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(
+                            record.payload_json
+                        )
+                        selected_turn_id = payload.turn_id or selected_turn_id
                     try:
                         claim = self._reserve_prompt(
-                            request_id=payload.turn_id or record.request_id,
+                            request_id=selected_turn_id,
                             origin="gateway_queue",
                             expected_generation=record.owner_generation,
                         )
@@ -8648,6 +8885,7 @@ class GatewayServiceRuntime:
                 owner_claim=claim,
                 owner_generation=record.owner_generation,
                 authority=record.authority,
+                ag_ui=record.ag_ui,
             )
 
     def _next_effective_accepted_request_locked(
@@ -8725,6 +8963,7 @@ class GatewayServiceRuntime:
             owner_generation=owner_generation if isinstance(owner_generation, str) else None,
             authority=authority,
             authority_valid=authority_valid,
+            ag_ui=isinstance(result, dict) and result.get("ag_ui") is True,
         )
 
     def _retire_unauthorized_queue_record(
@@ -8783,14 +9022,23 @@ class GatewayServiceRuntime:
 
         if record.request_kind == "interrupt":
             return _GatewayControlIntent(action="interrupt")
-        if record.request_kind != "submit_prompt":
+        if record.request_kind != "submit_prompt" or self.m_attach_contract.backend not in {
+            "cao_rest",
+            "houmao_server_rest",
+            "local_interactive",
+        }:
             return None
         try:
             payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(record.payload_json)
         except ValidationError:
             return None
-        command = payload.prompt.strip()
-        if command not in _GATEWAY_CONTEXT_CONTROL_COMMAND_RANKS:
+        command = native_command_candidate(payload.prompt)
+        if (
+            command is None
+            or payload.chat_session is not None
+            or payload.execution is not None
+            or not self._qualified_tui_command(payload.prompt, command)
+        ):
             return None
         return _GatewayControlIntent(action="context", command=command)
 
@@ -8955,19 +9203,50 @@ class GatewayServiceRuntime:
         dispatch_started = False
         outcome: Literal["interrupted"] | None = None
         try:
-            if request_kind in {"submit_prompt", "mail_notifier_prompt"}:
+            if request_kind in {"submit_work_request", "submit_prompt", "mail_notifier_prompt"}:
                 if (
                     request_kind == "mail_notifier_prompt"
                     and not self._mail_reminder_origin_is_current(request_id)
                 ):
                     raise GatewayError("Origin mailbox revision retired before dispatch")
-                payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
+                wrapped = request_kind == "submit_work_request"
+                if wrapped:
+                    work = GatewayRequestPayloadSubmitWorkRequestV1.model_validate_json(
+                        payload_json
+                    )
+                    if (
+                        request_record.authority is None
+                        or WORK_REQUEST not in request_record.authority.permissions
+                    ):
+                        raise GatewayAccessError(403, "insufficient_authority")
+                    payload = GatewayRequestPayloadSubmitPromptV1(
+                        prompt=render_work_request(work.text, actor=request_record.authority.actor)
+                    )
+                else:
+                    payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(payload_json)
+                    if (
+                        not request_record.ag_ui
+                        and request_record.authority is not None
+                        and not set(prompt_permissions(payload)).issubset(
+                            request_record.authority.permissions
+                        )
+                    ):
+                        raise GatewayAccessError(403, "insufficient_authority")
                 session_selection: HeadlessTurnSessionSelection | None = None
                 execution_model = (
                     payload.execution.to_model_config() if payload.execution is not None else None
                 )
                 with self.m_lock:
                     dispatch_mode = self._prompt_dispatch_mode_locked(admission_policy="ready_only")
+                    if request_kind == "submit_prompt":
+                        self._require_qualified_command(
+                            payload.prompt,
+                            dispatch_mode=dispatch_mode,
+                            admission_policy="ready_only",
+                            has_native_overrides=(
+                                payload.chat_session is not None or payload.execution is not None
+                            ),
+                        )
                     if claim is not None and claim.mode == "tui":
                         self._require_tui_prompt_ready_locked(admission_policy="ready_only")
                         self._require_tui_no_pending_locked(admission_policy="ready_only")
@@ -8984,7 +9263,9 @@ class GatewayServiceRuntime:
                         session_selection = self._service_session_selection_locked(
                             status, "ready_only", payload.chat_session
                         )
-                    elif payload.chat_session is not None:
+                    elif payload.chat_session is not None or (
+                        wrapped and dispatch_mode in {"local_headless", "server_headless"}
+                    ):
                         if dispatch_mode not in {"local_headless", "server_headless"}:
                             raise GatewayError(
                                 "Queued prompt chat_session selection is only supported for "
@@ -9004,6 +9285,36 @@ class GatewayServiceRuntime:
                     else nullcontext()
                 )
                 with effect:
+                    if wrapped and isinstance(self.m_adapter, _NativeWebGatewayAdapter):
+                        state = self.m_adapter.get_web_state()
+                        if not state.can_accept_prompt_now:
+                            raise GatewayError("Native Web ordinary admission is closed")
+                        identity = state.identity
+                        with sqlite3.connect(self.m_paths.queue_path) as connection:
+                            connection.execute(
+                                "UPDATE gateway_requests SET state='observing' WHERE request_id=?",
+                                (request_id,),
+                            )
+                        dispatch_started = True
+                        self._dispatch_direct_web_prompt(
+                            prompt=payload.prompt,
+                            admission_policy="ready_only",
+                            operator=False,
+                            operation_id=request_id,
+                            expected_identity=(
+                                identity.generation,
+                                identity.host_incarnation,
+                                identity.agent_incarnation,
+                                identity.native_session_id,
+                            ),
+                            expected_generation=request_record.owner_generation,
+                            claim=claim,
+                            authority=request_record.authority,
+                            on_terminal=lambda result: self._finish_web_operation(
+                                request_id, result=result
+                            ),
+                        )
+                        return
                     self.fence_access(request_record.authority, operation_id=request_id)
                     dispatch_started = True
                     if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
@@ -9013,7 +9324,9 @@ class GatewayServiceRuntime:
                             claim=claim,
                             prompt=payload.prompt,
                             execution_model=execution_model,
-                            allowed=lambda: not self.m_stop_event.is_set(),
+                            allowed=lambda: self._native_access_is_current(
+                                request_record.authority
+                            ),
                             expected_session_id=session_selection.session_id
                             if session_selection
                             else None,
@@ -9022,12 +9335,12 @@ class GatewayServiceRuntime:
                         return
                     outcome = self._submit_prompt_via_adapter(
                         prompt=payload.prompt,
-                        turn_id=payload.turn_id,
+                        turn_id=request_id if wrapped else payload.turn_id,
                         session_selection=session_selection,
                         execution_model=execution_model,
-                        note_prompt_submission=request_kind
-                        in {"submit_prompt", "mail_notifier_prompt"},
+                        note_prompt_submission=True,
                         claim=request_record.owner_claim,
+                        authority=request_record.authority,
                     )
             elif request_kind == "interrupt":
                 GatewayRequestPayloadInterruptV1.model_validate_json(payload_json)
@@ -9060,7 +9373,8 @@ class GatewayServiceRuntime:
             UsageStoreError,
             ValidationError,
         ) as exc:
-            if request_record.owner_claim is not None and not dispatch_started:
+            known_refusal = not dispatch_started or isinstance(exc, GatewayAccessError)
+            if request_record.owner_claim is not None and known_refusal:
                 request_record.owner_claim.finish(
                     "failed", evidence="request_refused_before_dispatch"
                 )
@@ -9069,7 +9383,7 @@ class GatewayServiceRuntime:
             self._finish_request(
                 request_id=request_id,
                 state="uncertain"
-                if request_record.owner_claim is not None and dispatch_started
+                if request_record.owner_claim is not None and not known_refusal
                 else "failed",
                 error_detail=str(exc),
                 result_json=None,
@@ -9169,7 +9483,8 @@ class GatewayServiceRuntime:
                 """
                 UPDATE gateway_requests
                 SET state='failed', finished_at_utc=?, error_detail=?
-                WHERE state='accepted' AND request_kind IN ('submit_prompt', 'interrupt')
+                WHERE state='accepted'
+                  AND request_kind IN ('submit_work_request', 'submit_prompt', 'interrupt')
                     AND CASE WHEN json_valid(result_json)
                         THEN json_type(result_json, '$.authority') IS NULL ELSE 1 END
                 """,
@@ -9524,7 +9839,7 @@ class GatewayServiceRuntime:
                 detail="Native refresh is active or its readiness is uncertain.",
             )
 
-    def _active_headless_turn_id_locked(self) -> str | None:
+    def _active_headless_turn_id_locked(self, *, include_accepted: bool = True) -> str | None:
         """Return the current headless turn id from queued or running prompt work."""
 
         direct_prompt_thread = self.m_direct_prompt_thread
@@ -9537,14 +9852,18 @@ class GatewayServiceRuntime:
         with sqlite3.connect(self.m_paths.queue_path) as connection:
             rows = connection.execute(
                 """
-                SELECT payload_json
+                SELECT payload_json, request_kind, request_id
                 FROM gateway_requests
-                WHERE request_kind = 'submit_prompt'
-                  AND state IN ('accepted', 'running')
+                WHERE request_kind IN ('submit_prompt', 'submit_work_request')
+                  AND (state = 'running'
+                       OR (? AND state = 'accepted' AND request_kind = 'submit_prompt'))
                 ORDER BY accepted_at_utc ASC
-                """
+                """,
+                (include_accepted,),
             ).fetchall()
         for row in rows:
+            if row[1] == "submit_work_request":
+                return str(row[2])
             try:
                 payload = GatewayRequestPayloadSubmitPromptV1.model_validate_json(str(row[0]))
             except ValidationError:
@@ -9932,15 +10251,22 @@ def _verified_gateway_grant(request: Request) -> GatewayGrant:
 
 def _require_owner_file_authority(
     request: Request,
-    payload: GatewayMailSendRequestV1 | GatewayMailReplyRequestV1,
+    payload: GatewayMailSendRequestV1 | GatewayMailReplyRequestV1 | GatewayMailPostRequestV1,
 ) -> None:
-    """Require current open or enrolled admin authority before file access."""
+    """Require exact attachment authority and exclude credential databases."""
 
     if not payload.attachments:
         return
     grant = _verified_gateway_grant(request)
     if not any(permission.action == ATTACHMENT_ACTION for permission in grant.permissions):
         raise GatewayAccessError(403, "insufficient_authority")
+    for upload in payload.attachments:
+        try:
+            path = Path(upload.path).expanduser().resolve()
+        except (OSError, RuntimeError, ValueError):
+            raise GatewayAccessError(422, "invalid_attachment_source") from None
+        if path.name == "authorization.sqlite3" or path.name.startswith("authorization.sqlite3-"):
+            raise GatewayAccessError(403, "private_attachment_source")
 
 
 def _diagnostic_operation(request: Request) -> str:
@@ -10205,6 +10531,46 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
         runtime._require_access_policy().remove_key(_verified_gateway_grant(request), key_id)
         return Response(status_code=204)
+
+    @app.put(MANAGED_SELF_PATH, response_model=ManagedSelfReceipt)
+    async def _change_managed_self(request: Request) -> ManagedSelfReceipt:
+        """Commit a verified current self rotation or administrator recovery."""
+
+        actor = getattr(request.state, "gateway_actor", None)
+        if not isinstance(runtime, GatewayServiceRuntime) or not isinstance(
+            actor, AuthorizationActor
+        ):
+            raise GatewayAccessError(401, "invalid_proof")
+        try:
+            change = parse_access_document(ManagedSelfChange, await request.body())
+        except ValueError:
+            raise GatewayAccessError(422, "invalid_self_registration_request") from None
+        access = runtime._current_access()
+        if getattr(request.state, "gateway_self_management_target", None) != access.target:
+            raise GatewayAccessError(409, "authorization_target_conflict")
+        try:
+            return await run_in_threadpool(
+                runtime._require_access_policy().change_self_registration,
+                actor,
+                change,
+                require_live_target=access.require_live_generation,
+            )
+        except (OSError, SessionManifestError, ValueError):
+            raise GatewayAccessError(409, "authorization_target_conflict") from None
+
+    @app.put("/v1/admin/default-permission-group")
+    async def _set_default_permission_group(request: Request) -> DefaultPermissionGroupReceipt:
+        """Change the retained default under the admitted administrator authority."""
+
+        try:
+            payload = parse_access_document(DefaultPermissionGroupRequest, await request.body())
+        except ValueError:
+            raise GatewayAccessError(422, "invalid_operation") from None
+        grant = _verified_gateway_grant(request)
+        payload.require_expected(grant)
+        return await run_in_threadpool(
+            runtime._require_access_policy().set_default_permission_group, grant, payload.group
+        )
 
     @app.post("/v1/messages", response_model=_PublicHandoff)
     def _public_message(payload: _PublicMessage) -> _PublicHandoff:
@@ -10683,10 +11049,11 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
 
     @app.post("/v1/mail/{channel}/post", response_model=GatewayMailActionResponseV1)
     def _mail_post(
-        channel: MailChannel, request_payload: GatewayMailPostRequestV1
+        channel: MailChannel, request_payload: GatewayMailPostRequestV1, request: Request
     ) -> GatewayMailActionResponseV1:
         """Run one shared mailbox operator-origin post request."""
 
+        _require_owner_file_authority(request, request_payload)
         return _mailbox_call(
             operation="post",
             request_payload=request_payload,

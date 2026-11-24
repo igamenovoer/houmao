@@ -102,6 +102,7 @@ class OfflineRegistryClient:
         address: str,
         member_credential: str,
         display_name: str | None = None,
+        require_recipient_policy: bool = False,
     ) -> RegistryMember:
         """Enroll using this client's admin credential and a caller-prepared member token."""
 
@@ -110,6 +111,7 @@ class OfflineRegistryClient:
             address=address,
             member_credential=SecretStr(member_credential),
             display_name=display_name,
+            require_recipient_policy=require_recipient_policy,
         )
         payload = request.model_dump(mode="json")
         payload["member_credential"] = request.member_credential.get_secret_value()

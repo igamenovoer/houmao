@@ -167,6 +167,7 @@ class PluginStatus(_PluginModel):
     lifecycle: PluginLifecycleState = "configured"
     connection: PluginConnectionState = "unattached"
     binding_id: str | None = None
+    declared_actions: list[str] = Field(default_factory=list)
     error_code: str | None = None
     error_detail: str | None = None
     conflicts: list[dict[str, str]] = Field(default_factory=list)

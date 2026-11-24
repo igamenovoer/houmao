@@ -1,10 +1,12 @@
 """Qualify isolated native skill publication on the selected DSH Web build."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from pathlib import Path
 import shutil
 import subprocess
+from threading import Thread
 import time
 from typing import Any
 
@@ -12,7 +14,7 @@ import pytest
 
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient, DshWebError
-from houmao.agents.realm_controller.backends.dsh_web_skill_mount import QUALIFIED_BUILD
+from houmao.agents.realm_controller.backends.dsh_web_file_mount import QUALIFIED_BUILD
 from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
 from houmao.gateway.file_edits.projection import FileProjection
 from tests.integration.agents.dsh.web.conftest import NativeWebHost, call_native_request
@@ -57,19 +59,130 @@ def _intent(
     }
 
 
-def _publish(projection: FileProjection, host: NativeWebHost, request: dict[str, Any]) -> None:
+def _publish(
+    projection: FileProjection,
+    host: NativeWebHost,
+    request: dict[str, Any],
+    *,
+    kind: str = "skill",
+) -> None:
     """Confirm publication evidence remains distinct from maintenance settlement."""
 
-    opened = host.client.call("skill_mount_open", request)
+    opened = host.client.call(f"{kind}_mount_open", request)
     assert projection.published_marker() == request["expected"]
     request["maintenance_token"] = opened["maintenance_token"]
-    published = host.client.call("skill_mount_publish", request)
+    published = host.client.call(f"{kind}_mount_publish", request)
     assert published["effective_commit"] == request["candidate"], published
     assert published["native_settled"] is False
     assert projection.published_marker() == request["candidate"]
-    settlement = host.client.call("skill_mount_close", request)
-    assert settlement == host.client.call("skill_mount_status", request)
+    settlement = host.client.call(f"{kind}_mount_close", request)
+    assert settlement == host.client.call(f"{kind}_mount_status", request)
     assert settlement["native_settled"] and settlement["native_ready"]
+
+
+@pytest.fixture
+def mcp_connector() -> Iterator[str]:
+    """Serve a synthetic read-only MCP tool entirely inside the loopback fixture."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            if "id" not in request:
+                self.send_response(202)
+                self.end_headers()
+                return
+            reply = {"jsonrpc": "2.0", "id": request["id"]}
+            if request["method"] == "initialize":
+                reply["result"] = {
+                    "protocolVersion": request["params"]["protocolVersion"],
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "fixture", "version": "1.0"},
+                }
+            elif request["method"] == "tools/list":
+                reply["result"] = {
+                    "tools": [
+                        {
+                            "name": "read_replacement"
+                            if self.path.endswith("/replacement")
+                            else "read_marker",
+                            "description": "Read the synthetic marker",
+                            "inputSchema": {"type": "object", "properties": {}},
+                        }
+                    ]
+                }
+            elif request["method"] == "ping":
+                reply["result"] = {}
+            else:
+                reply["error"] = {"code": -32601, "message": "Method not found"}
+            body = json.dumps(reply).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            self.send_response(405)
+            self.end_headers()
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        worker = Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            yield f"http://127.0.0.1:{server.server_port}/mcp"
+        finally:
+            server.shutdown()
+            worker.join(timeout=5.0)
+
+
+def test_native_mcp_file_mount_reconciles_only_approved_connections(
+    native_web_factory: Callable[..., NativeWebHost], tmp_path: Path, mcp_connector: str
+) -> None:
+    """Add, replace, and remove a scoped tool within the same live Agent and conversation."""
+
+    projection = FileProjection(tmp_path / "mcp-projection")
+    base, candidate, invalid, removed, replacement = (value * 40 for value in "abcde")
+    projection.initialize("0" * 32, base, {})
+    projection.prepare(candidate, {"review.json": b'{"connector":"approved"}'})
+    projection.prepare(invalid, {"review.json": b'{"connector":"unknown"}'})
+    projection.prepare(removed, {})
+    projection.prepare(replacement, {"review.json": b'{"connector":"replacement"}'})
+    host = native_web_factory(
+        mcp_projection=projection.root,
+        mcp_connectors={
+            "approved": {"url": mcp_connector, "headers": {}},
+            "replacement": {"url": f"{mcp_connector}/replacement", "headers": {}},
+        },
+    )
+    identity = dict(host.identity)
+    assert host.client.call("mcp_mount", {"identity": identity})["mount_id"] == "0" * 32
+    cursor = host.client.conversation(identity)["current_cursor"]
+    with pytest.raises(DshWebError) as bad:
+        host.client.call("mcp_mount_open", _intent(host, "bad", base, invalid))
+    assert bad.value.code == "invalid_request"
+    assert projection.published_marker() == base
+
+    def review_tools() -> list[str]:
+        """Read the scoped MCP tools from ordinary common-plugin observation."""
+
+        observation = host.client.observe_common_plugins(identity)
+        return [
+            name
+            for resource in observation["resources"]
+            if resource["component"] == "tools"
+            for item in resource["inventory"]
+            if item["name"] == "review"
+            for name in item["tools"]
+        ]
+
+    _publish(projection, host, _intent(host, "add", base, candidate), kind="mcp")
+    assert review_tools() == ["mcp__review__read_marker"]
+    _publish(projection, host, _intent(host, "replace", candidate, replacement), kind="mcp")
+    assert review_tools() == ["mcp__review__read_replacement"]
+    _publish(projection, host, _intent(host, "remove", replacement, removed), kind="mcp")
+    assert review_tools() == []
+    assert host.client.describe()["identity"] == identity
+    assert host.client.conversation(identity)["current_cursor"] == cursor
 
 
 def _catalog(host: NativeWebHost) -> dict[str, dict[str, Any]]:
@@ -286,6 +399,7 @@ def test_backend_owner_opt_in_retains_mount_identity_on_same_home_relaunch(
     controlled_messages_server: tuple[str, list[dict[str, Any]]],
     isolated_tmux: Path,
     monkeypatch: pytest.MonkeyPatch,
+    mcp_connector: str,
 ) -> None:
     """Provision from the selected launch config and recover the exact retained mount."""
 
@@ -293,7 +407,16 @@ def test_backend_owner_opt_in_retains_mount_identity_on_same_home_relaunch(
     endpoint, requests = controlled_messages_server
     plan, manifest = _web_plan(tmp_path, dsh_executable, endpoint, tmux_socket=isolated_tmux)
     setup = Path(plan.metadata["dsh"]["setup_path"])
-    setup.write_text(json.dumps({**json.loads(setup.read_text()), "managed_web_skills": True}))
+    setup.write_text(
+        json.dumps(
+            {
+                **json.loads(setup.read_text()),
+                "managed_web_skills": True,
+                "managed_web_mcp": True,
+                "mcp_servers": [{"name": "approved", "type": "http", "url": mcp_connector}],
+            }
+        )
+    )
     session = DshWebSession.from_launch_plan(
         launch_plan=plan,
         session_manifest_path=manifest,
@@ -308,6 +431,10 @@ def test_backend_owner_opt_in_retains_mount_identity_on_same_home_relaunch(
         details = mount.storage.describe()
         assert mount.projection.published_marker() == details.published_commit
         assert session.state.managed_skill_lineage
+        mcp = session.mcp_file_mount()
+        assert mcp is not None
+        mcp_details = mcp.storage.describe()
+        assert mcp_details.kind == "mcp" and mcp_details.mount_id != details.mount_id
         result = session.relaunch(
             chat_session=RelaunchChatSessionSelection(
                 mode="exact", session_id=identity["native_session_id"]
@@ -316,6 +443,8 @@ def test_backend_owner_opt_in_retains_mount_identity_on_same_home_relaunch(
         assert result.status == "ok", result.detail
         retained = session.skill_file_mount()
         assert retained is not None and retained.storage.describe() == details
+        retained_mcp = session.mcp_file_mount()
+        assert retained_mcp is not None and retained_mcp.storage.describe() == mcp_details
         assert session.state.web_identity["native_session_id"] == identity["native_session_id"]
         assert session.state.web_identity["host_incarnation"] != identity["host_incarnation"]
         assert requests == []

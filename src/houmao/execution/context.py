@@ -80,10 +80,12 @@ def require_owner_tmux_socket(binding: ExecutionBindingV1 | None, socket_path: s
 
 
 @contextmanager
-def execution_binding_scope(binding: ExecutionBindingV1 | None) -> Iterator[None]:
+def execution_binding_scope(
+    binding: ExecutionBindingV1 | None, *, inherit: bool = True
+) -> Iterator[None]:
     """Restore one runtime's binding without changing another thread or caller."""
 
-    selected = binding if binding is not None else current_execution_binding()
+    selected = current_execution_binding() if inherit and binding is None else binding
     token = _BINDING.set(selected)
     try:
         yield

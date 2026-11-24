@@ -33,6 +33,7 @@ class PushRecord(FileEditModel):
     request: FilePushRequest
     decision: AuthorizationDecision
     receipt: FilePushReceipt
+    attempt: int = 0
 
     @property
     def handoff_id(self) -> str:
@@ -42,6 +43,8 @@ class PushRecord(FileEditModel):
             f"{self.request.mount_id}\0{self.request.target.incarnation}\0"
             f"{self.request.operation_id}"
         )
+        if self.attempt:
+            identity += f"\0{self.attempt}"
         return "file-push:" + hashlib.sha256(identity.encode()).hexdigest()
 
     def matches(self, request: FilePushRequest, decision: AuthorizationDecision) -> bool:
@@ -53,7 +56,15 @@ class PushRecord(FileEditModel):
             self.request.model_dump(exclude={"presence_id"})
             == request.model_dump(exclude={"presence_id"})
             and (old_actor.kind, old_actor.principal_id) == (new_actor.kind, new_actor.principal_id)
-            and (old_actor.kind != "anonymous" or self.decision.open_epoch == decision.open_epoch)
+            and (
+                old_actor.kind != "anonymous"
+                or (
+                    self.decision.policy_id == decision.policy_id
+                    and self.decision.open_epoch == decision.open_epoch
+                    and self.decision.default_permission_revision
+                    == decision.default_permission_revision
+                )
+            )
         )
 
 
@@ -85,7 +96,7 @@ class PushJournal:
                     candidate=request.commit_id,
                     expected_base=request.expected_base,
                     publisher=publisher,
-                    outcome="pending",
+                    outcome="queued" if request.when_idle else "pending",
                 ),
             )
             connection.execute(
@@ -93,6 +104,40 @@ class PushJournal:
                 (request.operation_id, record.handoff_id, record.model_dump_json()),
             )
             return record, True
+
+    def scheduled(self, generation: str) -> tuple[PushRecord, ...]:
+        """Find work awaiting idle or recovery after an interrupted dispatch."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT record FROM file_pushes WHERE json_extract(record, '$.request.when_idle')
+                AND (
+                    json_extract(record, '$.receipt.outcome') IN ('queued', 'pending')
+                    OR (
+                        json_extract(record, '$.request.target.incarnation') = ?
+                        AND json_extract(record, '$.receipt.outcome') IN ('unknown', 'published')
+                        AND (
+                            json_extract(record, '$.receipt.native_ready') IS NOT 1
+                            OR json_extract(record, '$.receipt.native_settled') IS NOT 1
+                        )
+                    )
+                ) ORDER BY rowid
+                """,
+                (generation,),
+            ).fetchall()
+        return tuple(PushRecord.model_validate_json(row[0]) for row in rows)
+
+    def start_scheduled(self, record: PushRecord) -> PushRecord:
+        """Record a new native attempt before acquiring any external reservation."""
+
+        updated = record.model_copy(
+            update={
+                "attempt": record.attempt + 1,
+                "receipt": record.receipt.model_copy(update={"outcome": "pending", "reason": None}),
+            }
+        )
+        return self._save(record, updated)
 
     def read(self, operation_id: str) -> PushRecord:
         """Read a retained receipt by operation ID without admitting effects."""
@@ -146,23 +191,23 @@ class PushJournal:
     def save(self, record: PushRecord, receipt: FilePushReceipt) -> FilePushReceipt:
         """Advance only the journal state the caller actually observed."""
 
-        new_record = record.model_copy(update={"receipt": receipt})
+        return self._save(record, record.model_copy(update={"receipt": receipt})).receipt
+
+    def _save(self, record: PushRecord, updated: PushRecord) -> PushRecord:
+        """Keep the journal record and its native attempt index in sync."""
+
         with self._connect() as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
-            updated = connection.execute(
-                "UPDATE file_pushes SET record = ? WHERE operation_id = ? AND record = ?",
-                (
-                    new_record.model_dump_json(),
-                    record.request.operation_id,
-                    record.model_dump_json(),
-                ),
-            )
-            if updated.rowcount == 1:
-                return receipt
             current = self._get(connection, record.request.operation_id)
+            if current == record:
+                connection.execute(
+                    "UPDATE file_pushes SET record = ?, handoff_id = ? WHERE operation_id = ?",
+                    (updated.model_dump_json(), updated.handoff_id, record.request.operation_id),
+                )
+                return updated
         if current is None:
             raise GatewayAccessError(503, "file_journal_unavailable")
-        return current.receipt
+        return current
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

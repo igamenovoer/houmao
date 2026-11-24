@@ -21,7 +21,7 @@ from urllib import error, parse, request
 from pydantic import BaseModel, ValidationError
 
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
-from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.agents.realm_controller.native_refresh_models import (
@@ -87,10 +87,12 @@ from houmao.server.models import (
     HoumaoTerminalStateResponse,
 )
 from houmao.gateway.plugins import GatewayPluginStatusResponse, PluginStatus
+from houmao.gateway._access_sshsig import PrivateKey
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
     GatewayAdminKey,
+    GatewayAccessError,
     GatewayChallenge,
     GatewayChallengeRequest,
     GatewayClientBinding,
@@ -102,6 +104,11 @@ from houmao.gateway.access import (
     sign_sshsig,
     sshsig_header,
 )
+from houmao.gateway.authorization_models import (
+    DefaultPermissionGroupReceipt,
+    DefaultPermissionGroupRequest,
+)
+from houmao.gateway.access_models import MANAGED_SELF_PATH, ManagedSelfChange, ManagedSelfReceipt
 from houmao.gateway.deployment import (
     GatewayEndpointDescriptor,
     owner_gateway_base_url,
@@ -297,6 +304,27 @@ class GatewayClient:
             )
         return key.key_id
 
+    def change_managed_self(self, change: ManagedSelfChange) -> ManagedSelfReceipt:
+        """Rotate or revoke the explicitly selected managed-self registration."""
+
+        result = self._request_model(
+            method="PUT",
+            path=MANAGED_SELF_PATH,
+            model=ManagedSelfReceipt,
+            body=change.model_dump(mode="json"),
+        )
+        if (
+            result.generation_id != change.generation_id
+            or result.registration_revision != change.expected_revision + 1
+            or result.active != (change.operation == "rotate")
+        ):
+            raise GatewayHttpError(
+                method="PUT",
+                url=self._build_url(MANAGED_SELF_PATH),
+                detail="Gateway registration result differs from the request.",
+            )
+        return result
+
     def remove_admin_key(self, key_id: str) -> None:
         """Remove a key with current listed admin proof."""
 
@@ -304,6 +332,18 @@ class GatewayClient:
         url = self._build_url(path)
         request_obj = self._prepare_request("DELETE", path, None, {})
         self._open_request(request_obj=request_obj, method="DELETE", url=url)
+
+    def set_default_permission_group(
+        self, payload: DefaultPermissionGroupRequest
+    ) -> DefaultPermissionGroupReceipt:
+        """Change the default through this single verified gateway path."""
+
+        return self._request_model(
+            "PUT",
+            "/v1/admin/default-permission-group",
+            DefaultPermissionGroupReceipt,
+            body=payload.model_dump(mode="json"),
+        )
 
     def request_plugin_json(
         self, method: str, path: str, *, body: GatewayJsonObject | None = None
@@ -1107,7 +1147,23 @@ class GatewayClient:
             incarnation = target.incarnation
             presence = listener_id
         try:
-            signer = load_gateway_signer(Path(binding.private_key_path))
+            self_registration = None
+            signer: PrivateKey
+            if binding.managed_self_manifest_path is not None:
+                from houmao.agents.realm_controller.gateway_access_runtime import (
+                    gateway_access_for_manifest,
+                )
+
+                authority = gateway_access_for_manifest(Path(binding.managed_self_manifest_path))
+                if (
+                    authority.target.owner != binding.owner
+                    or authority.target.incarnation != incarnation
+                ):
+                    raise ValueError("Self authority differs from the selected binding.")
+                self_registration, signer = authority.load_self_signer()
+            else:
+                assert binding.private_key_path is not None
+                signer = load_gateway_signer(Path(binding.private_key_path))
             key = GatewayAdminKey(
                 principal="signer", public_key=public_key_text(signer.public_key())
             )
@@ -1123,7 +1179,7 @@ class GatewayClient:
                 key_id=key.key_id if binding.purpose == "caller" else None,
                 proposed_key=proposed,
             )
-        except (OSError, ValueError):
+        except (GatewayAccessError, OSError, ValueError, SessionManifestError):
             raise GatewayHttpError(
                 method=method, url=url, detail="Gateway signer binding is unavailable."
             ) from None
@@ -1147,6 +1203,13 @@ class GatewayClient:
                 or challenge.request != intended
                 or challenge.key_id != key.key_id
                 or challenge.proposed_key != proposed
+                or (
+                    self_registration is not None
+                    and (
+                        challenge.generation_id != self_registration.generation_id
+                        or challenge.revision != self_registration.registration_revision
+                    )
+                )
                 or not now < challenge.expires_at <= now + 120
             ):
                 raise ValueError("Challenge differs from the selected binding.")

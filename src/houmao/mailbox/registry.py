@@ -50,6 +50,7 @@ from houmao.mailbox.scope import MailScope, MailboxScopeError
 from houmao.mailbox.services import FilesystemGatewayMailboxAdapter, ScopedMailboxAdapter
 
 _MEMBER_SCHEMA = (
+    "CREATE TABLE IF NOT EXISTS offline_policy_members (registration_id TEXT PRIMARY KEY)",
     "CREATE TABLE IF NOT EXISTS offline_members ("
     "agent_id TEXT PRIMARY KEY, address TEXT NOT NULL, registration_id TEXT NOT NULL, "
     "credential_digest TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('active','released')))",
@@ -107,6 +108,7 @@ class RegistryEnrollment(BaseModel):
     address: str
     member_credential: SecretStr
     display_name: str | None = None
+    require_recipient_policy: bool = False
 
     @field_validator("address")
     @classmethod
@@ -253,6 +255,11 @@ class OfflineRegistryService:
                     "status='active'",
                     (request.agent_id, request.address, registration_id, digest),
                 )
+                if request.require_recipient_policy:
+                    connection.execute(
+                        "INSERT OR IGNORE INTO offline_policy_members (registration_id) VALUES (?)",
+                        (registration_id,),
+                    )
                 connection.commit()
             return RegistryMember(
                 agent_id=request.agent_id,

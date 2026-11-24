@@ -34,6 +34,7 @@ from houmao.gateway.access import (
     sign_sshsig,
     sshsig_header,
 )
+from houmao.gateway._access_sshsig import PrivateKey
 from houmao.gateway._web_login import WEB_LOGIN_NAMESPACE, WEB_LOGIN_PROOF_MAX_BYTES
 from houmao.gateway.authorization_models import (
     AuthorizationActor,
@@ -178,7 +179,7 @@ def test_dashboard_web_link_follows_existing_admission(dashboard_entry, tmp_path
     opened = client.get(WEB_ENTER_PATH)
     if keyed:
         assert "start-login" in opened.text and opened.status_code == 200
-        assert client.get("/v1/status").status_code == 401
+        assert client.get("/v1/memory").status_code == 401
         native.assert_not_called()
     else:
         assert opened.status_code == 302
@@ -272,12 +273,13 @@ def _start(client: TestClient) -> dict[str, str]:
 
 
 def _login_proof(
-    login: dict[str, str], path: Path, *, namespace: str = WEB_LOGIN_NAMESPACE
+    login: dict[str, str], source: Path | PrivateKey, *, namespace: str = WEB_LOGIN_NAMESPACE
 ) -> bytes:
     """Sign the exact challenge with a synthetic private key."""
 
     message = base64.urlsafe_b64decode(login["challenge"] + "===")
-    return sign_sshsig(load_gateway_signer(path), message, namespace=namespace)
+    signer = load_gateway_signer(source) if isinstance(source, Path) else source
+    return sign_sshsig(signer, message, namespace=namespace)
 
 
 def _approval(client: TestClient, login: dict[str, str], proof: bytes):
@@ -372,7 +374,7 @@ def test_missing_policy_denies_entry(entry, gateway_fixture_access: FixtureGatew
 
 
 def test_direct_ticket_admission_precedes_any_native_access(entry, tmp_path: Path) -> None:
-    """Only an open unsigned request or a directly signed admin can issue a ticket."""
+    """Check applicable policy and transport separately before issuing a native ticket."""
 
     runtime, app, native, _ = entry
     client = _client(app)
@@ -393,14 +395,11 @@ def test_direct_ticket_admission_precedes_any_native_access(entry, tmp_path: Pat
             request=GatewayRequestBinding.from_request("POST", WEB_TICKET_PATH, "", b""),
         ),
     )
-    signer = load_gateway_signer(
-        runtime.m_access_runtime.self_store.self_signer_path(challenge.target.incarnation)
-    )
+    signer = runtime.m_access_runtime.store.load_self_signer(challenge.target.incarnation)
     self_proof = {
         CHALLENGE_HEADER: challenge.challenge_id,
         SIGNATURE_HEADER: sshsig_header(sign_sshsig(signer, challenge.signing_bytes())),
     }
-    assert client.post(WEB_TICKET_PATH, headers=self_proof).status_code == 403
     for header in (RELAY_HEADER, BACKING_HEADER):
         assert client.post(WEB_TICKET_PATH, headers={header: "delegated"}).status_code == 403
     assert client.post(WEB_TICKET_PATH, headers={"Forwarded": "proto=http"}).status_code == 403
@@ -435,6 +434,8 @@ def test_direct_ticket_admission_precedes_any_native_access(entry, tmp_path: Pat
     native.assert_not_called()
     _ticket(client, auth)
     native.assert_called_once()
+    assert client.post(WEB_TICKET_PATH, headers=self_proof).status_code == 200
+    assert native.call_count == 2
 
 
 def test_scoped_web_caller_loses_unredeemed_ticket_when_grant_is_revoked(entry, tmp_path) -> None:
@@ -773,7 +774,7 @@ def test_new_listener_drops_pending_logins_and_refuses_delegated_proof(
     login = _start(client)
     proof = _login_proof(login, path)
     proof_path = f"{WEB_LOGIN_PATH}/{login['attempt_id']}/prove"
-    self_signer = runtime.m_access_runtime.self_store.self_signer_path(
+    self_signer = runtime.m_access_runtime.store.load_self_signer(
         read_binding.return_value.target.incarnation
     )
     assert _approval(client, login, _login_proof(login, self_signer)).status_code == 401

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 import pytest
 
@@ -483,8 +483,9 @@ class TestManagedHeadlessRouting:
             "hello",
             chat_session=None,
             execution=None,
-            authorize_effect=svc._claim_direct_effect,
+            authorize_effect=ANY,
         )
+        assert callable(svc.m_headless.submit_turn.call_args.kwargs["authorize_effect"])
 
     def test_interrupt_and_stop_accept_tracked_and_published_refs(
         self,

@@ -7,6 +7,8 @@ import hashlib
 from typing import TypeAlias
 from uuid import uuid4
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from houmao.gateway._access_sshsig import (
     MAX_SIGNATURE_HEADER as MAX_SIGNATURE_HEADER,
     SSHSIG_NAMESPACE as SSHSIG_NAMESPACE,
@@ -19,7 +21,6 @@ from houmao.gateway._access_sshsig import (
 )
 from houmao.gateway._access_storage import (
     GatewayAccessError as GatewayAccessError,
-    GatewayAccessStore as GatewayAccessStore,
     load_gateway_signer as load_gateway_signer,
     read_private_access_file as read_private_access_file,
 )
@@ -37,15 +38,20 @@ from houmao.gateway.access_models import (
     GatewayRequestBinding as GatewayRequestBinding,
     GatewaySelfKey as GatewaySelfKey,
     GatewayTarget as GatewayTarget,
+    ManagedSelfChange,
+    ManagedSelfReceipt,
     ProofPurpose as ProofPurpose,
     parse_access_document as parse_access_document,
     validate_gateway_base_url as validate_gateway_base_url,
 )
 from houmao.gateway.authorization import GatewayAuthorizer
+from houmao.gateway.authorization_catalog import DEFAULT_GROUP_SET
 from houmao.gateway.authorization_models import (
     AuthorizationActor,
     AuthorizationDecision,
+    DefaultPermissionGroupReceipt,
     Permission,
+    PermissionGroupName,
     PolicySnapshot,
 )
 from houmao.gateway.authorization_store import AuthorizationStore
@@ -58,11 +64,10 @@ from houmao.gateway.operations import (
     ADMIN_ADD,
     ADMIN_REMOVE,
     CORE_PERMISSIONS,
+    MANAGED_SELF_CHANGE,
     PUBLIC_INPUT_PERMISSIONS,
-    SELF_PERMISSIONS,
     WEB_ENTRY,
     supports_mail_permission,
-    supports_self_mail_permission,
 )
 from houmao.gateway.roster import add_admin_key, remove_admin_key
 
@@ -87,12 +92,15 @@ class GatewayAccessPolicy:
         listener_id: str,
         catalog: Callable[[], Iterable[Permission]] | None = None,
         supports: Callable[[Permission], bool] | None = None,
+        supports_common: Callable[[Permission], bool] | None = None,
+        require_keyed_transition: Callable[[], None] | None = None,
     ) -> None:
         """Bind one transient listener to retained owner authorization."""
 
         self.m_store: AuthorizationStore = store
         self.m_listener_id: str = listener_id
         self.m_self: Callable[[], GatewaySelfKey | None] = current_self
+        self.m_require_keyed_transition: Callable[[], None] | None = require_keyed_transition
         self.m_proofs: CallerProofs = CallerProofs(
             store=store, target=target, current_self=current_self, listener_id=listener_id
         )
@@ -104,13 +112,18 @@ class GatewayAccessPolicy:
                 else CORE_PERMISSIONS
             ),
             public_permissions=PUBLIC_INPUT_PERMISSIONS,
-            self_permissions=SELF_PERMISSIONS,
+            self_permissions=CORE_PERMISSIONS,
             supports=(
                 (lambda permission: supports_mail_permission(permission) or supports(permission))
                 if supports is not None
                 else supports_mail_permission
             ),
-            supports_self=supports_self_mail_permission,
+            supports_self=lambda permission: (
+                supports_mail_permission(permission)
+                or (supports is not None and supports(permission))
+                or (catalog is not None and permission in catalog())
+            ),
+            supports_common=supports_common,
         )
 
     @property
@@ -151,12 +164,6 @@ class GatewayAccessPolicy:
         )
         if isinstance(actor, FirstEnrollment):
             return actor
-        if (
-            callable(permissions)
-            and actor.kind == "anonymous"
-            and self.m_store.snapshot().admin_mode == "keyed"
-        ):
-            raise GatewayAccessError(401, "proof_required")
         operation = permissions() if callable(permissions) else permissions
         return self.authorize(actor, operation)
 
@@ -183,8 +190,6 @@ class GatewayAccessPolicy:
         """Authenticate a caller before a handler selects its resolved resource."""
 
         if challenge_id is None and signature is None:
-            if self.m_store.snapshot().admin_mode == "keyed":
-                raise GatewayAccessError(401, "proof_required")
             return AuthorizationActor(kind="anonymous")
         actor = self.m_proofs.verify(issuer, request, challenge_id, signature)
         if not isinstance(actor, AuthorizationActor):
@@ -274,6 +279,8 @@ class GatewayAccessPolicy:
                 ):
                     raise GatewayAccessError(409, "enrollment_conflict")
                 actor = "bootstrap"
+                if self.m_require_keyed_transition is not None:
+                    self.m_require_keyed_transition()
             else:
                 actor = self._require_admin(current, grant, ADMIN_ADD)
             transaction.replace(add_admin_key(current, key), actor=actor, action=ADMIN_ADD.action)
@@ -288,6 +295,96 @@ class GatewayAccessPolicy:
             transaction.replace(
                 remove_admin_key(current, key_id), actor=actor, action=ADMIN_REMOVE.action
             )
+
+    def set_default_permission_group(
+        self,
+        grant: GatewayGrant,
+        group: PermissionGroupName,
+        *,
+        require_current_target: Callable[[], None] | None = None,
+    ) -> DefaultPermissionGroupReceipt:
+        """Commit an explicit default selection under its admitted admin authority."""
+
+        if DEFAULT_GROUP_SET not in grant.permissions:
+            raise GatewayAccessError(403, "insufficient_authority")
+        with self.m_store.transaction() as transaction:
+            if require_current_target is not None:
+                require_current_target()
+            current = transaction.snapshot
+            self.m_authorizer.require_current(
+                current,
+                grant,
+                target=self.m_proofs.target(),
+                listener_id=self.m_listener_id,
+                current_self=(
+                    transaction.load_self(grant.target.incarnation)
+                    if grant.actor.kind == "self"
+                    else None
+                ),
+            )
+            changed = transaction.replace(
+                current.model_copy(
+                    update={
+                        "default_permission_group": group,
+                        "default_permission_revision": current.default_permission_revision + 1,
+                    }
+                ),
+                actor=grant.actor.principal_id or "anonymous",
+                action=DEFAULT_GROUP_SET.action,
+            )
+        return DefaultPermissionGroupReceipt(
+            default_permission_group=changed.default_permission_group,
+            default_permission_revision=changed.default_permission_revision,
+            policy_revision=changed.revision,
+        )
+
+    def change_self_registration(
+        self,
+        actor: AuthorizationActor,
+        change: ManagedSelfChange,
+        *,
+        require_live_target: Callable[[], None],
+    ) -> ManagedSelfReceipt:
+        """Rotate or revoke one live registration using exact self proof or effective admin."""
+
+        target = self.m_proofs.target()
+        if target.incarnation != change.generation_id:
+            raise GatewayAccessError(409, "authorization_target_conflict")
+        with self.m_store.transaction() as transaction:
+            require_live_target()
+            if self.m_proofs.target() != target:
+                raise GatewayAccessError(409, "authorization_target_conflict")
+            snapshot = transaction.snapshot
+            if snapshot.owner != target.owner:
+                raise GatewayAccessError(409, "authorization_target_conflict")
+            binding = transaction.load_self(target.incarnation)
+            if actor.kind == "self":
+                if binding is None or actor != AuthorizationActor.from_self(binding):
+                    raise GatewayAccessError(401, "invalid_proof")
+                transaction.require_self_signer(binding)
+            else:
+                grant = self.m_authorizer.authorize_snapshot(
+                    snapshot,
+                    actor,
+                    (MANAGED_SELF_CHANGE,),
+                    target=target,
+                    listener_id=self.m_listener_id,
+                )
+                if grant.basis not in {"open", "admin", "default"}:
+                    raise GatewayAccessError(403, "insufficient_authority")
+            signer = Ed25519PrivateKey.generate() if change.operation == "rotate" else None
+            registered = transaction.replace_self(
+                target.incarnation,
+                expected_revision=change.expected_revision,
+                signer=signer,
+                actor=actor.principal_id or "anonymous",
+            )
+        return ManagedSelfReceipt(
+            generation_id=registered.generation_id,
+            key_id=registered.key_id,
+            registration_revision=registered.registration_revision,
+            active=signer is not None,
+        )
 
     def _require_admin(
         self, state: PolicySnapshot, grant: GatewayGrant, permission: Permission

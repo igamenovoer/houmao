@@ -7,7 +7,9 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 import time
+from typing import Literal
 
 import click
 
@@ -18,6 +20,7 @@ from houmao.agents.realm_controller.gateway_access_runtime import (
     gateway_access_for_manifest,
     load_gateway_admin_seed,
     load_gateway_deployment,
+    owner_gateway_client_binding,
     save_gateway_deployment,
 )
 from houmao.agents.realm_controller.gateway_client import GatewayClient
@@ -27,26 +30,48 @@ from houmao.agents.realm_controller.gateway_storage import (
     load_gateway_current_instance,
 )
 from houmao.agents.realm_controller.self_manifest import resolve_self_manifest
+from houmao.cao.rest_client import CaoApiError
+from houmao.gateway._access_sshsig import PrivateKey
 from houmao.gateway.access import (
     GatewayAccessError,
+    GatewayAccessPolicy,
     GatewayAdminKey,
+    GatewayChallengeRequest,
     GatewayClientBinding,
     GatewayLaunchSeed,
     GatewayOwner,
+    GatewayRequestBinding,
     GatewayTarget,
     load_gateway_signer,
     public_key_text,
+    sign_sshsig,
+    sshsig_header,
+    validate_gateway_base_url,
 )
-from houmao.gateway.access_models import ProofPurpose
+from houmao.gateway._access_sshsig import key_fingerprint
+from houmao.gateway.access_models import MANAGED_SELF_PATH, ManagedSelfChange, ProofPurpose
 from houmao.gateway.authorization import GatewayAuthorizer
+from houmao.gateway.authorization_catalog import (
+    DEFAULT_GROUP_SET,
+    FILE_ACTIONS,
+    PERMISSION_GROUPS,
+    ROLE_TEMPLATE_ACTIONS,
+    group_allows,
+    is_admin_exclusive,
+    peer_group_effects,
+)
 from houmao.gateway.authorization_models import (
+    BUILTIN_PEER_ROLES,
     AuthorizationActor,
     Credential,
+    DefaultPermissionGroupRequest,
     Permission,
+    PermissionGroupName,
     PolicySnapshot,
     Principal,
     RoleAssignment,
     RoleDefinition,
+    RoleTemplate,
     ScopedGrant,
     seed_snapshot,
 )
@@ -57,6 +82,7 @@ from houmao.gateway.deployment import (
 )
 from houmao.gateway.operations import CORE_PERMISSIONS, supports_mail_permission
 from houmao.passive_server.admission import PASSIVE_PERMISSIONS
+from houmao.passive_server.client import PassiveServerClient
 from houmao.srv_ctrl.commands.common import (
     ManagedAgentScopeContext,
     get_managed_agent_scope_context,
@@ -67,6 +93,7 @@ from houmao.srv_ctrl.commands.output import emit
 _FILE = click.Path(exists=True, dir_okay=False, path_type=Path)
 _EXPIRES = click.IntRange(min=0)
 _ENDPOINT_REFUSED = "Could not verify the selected gateway target and listener."
+_FILE_RESOURCE = re.compile(r"files:[a-f0-9]{32}")
 _INSPECTION_PERMISSIONS = (
     CORE_PERMISSIONS
     | PASSIVE_PERMISSIONS
@@ -92,7 +119,7 @@ def _access_errors() -> Iterator[None]:
         yield
     except GatewayAccessError as error:
         raise click.ClickException(f"{error.detail} ({error.code})") from None
-    except GatewayHttpError as error:
+    except (GatewayHttpError, CaoApiError) as error:
         if error.status_code is not None:
             raise click.ClickException(
                 f"Gateway refused the operation (HTTP {error.status_code})."
@@ -128,17 +155,24 @@ def _summary(state: PolicySnapshot, **fields: object) -> dict[str, object]:
         "policy_revision": state.revision,
         "roster_revision": state.roster_revision,
         "admin_mode": state.admin_mode,
+        "default_permission_group": state.default_permission_group,
+        "default_permission_group_version": state.default_permission_group_version,
+        "default_permission_revision": state.default_permission_revision,
         **fields,
     }
 
 
 def _update(
-    audit_action: str, transform: Callable[[PolicySnapshot], PolicySnapshot], **fields: object
+    audit_action: str,
+    transform: Callable[[PolicySnapshot], PolicySnapshot],
+    *,
+    selected_access: GatewayRuntimeAccess | None = None,
+    **fields: object,
 ) -> None:
     """Apply a local owner mutation under the current target and policy fence."""
 
     with _access_errors():
-        access = _owner_access()
+        access = selected_access if selected_access is not None else _owner_access()
 
         def apply(state: PolicySnapshot) -> PolicySnapshot:
             """Revalidate the selected generation inside the policy transaction."""
@@ -170,9 +204,12 @@ def initialize_policy(empty: bool, seed: Path | None, manifest: Path | None) -> 
         )
         launch_seed = load_gateway_admin_seed(seed) if seed is not None else GatewayLaunchSeed()
         access.require_current()
-        state = access.store.initialize(seed_snapshot(access.owner, launch_seed), allow_retired=True)
+        if launch_seed.admin_keys:
+            access.require_keyed_mail_qualification()
+        state = access.store.initialize(
+            seed_snapshot(access.owner, launch_seed), allow_retired=True
+        )
         access.require_current()
-        access.self_store.provision_self(access.target.incarnation)
         emit(_summary(state))
 
 
@@ -245,6 +282,8 @@ def grant_permission(principal_id: str, resource: str, action: str, expires_at: 
         """Replace the same principal/resource/action row to update its expiry."""
 
         permission = Permission(resource=resource, action=action)
+        if is_admin_exclusive(permission):
+            raise GatewayAccessError(403, "insufficient_authority")
         grant = ScopedGrant(principal_id=principal_id, permission=permission, expires_at=expires_at)
         remaining = tuple(
             row
@@ -281,42 +320,121 @@ def revoke_permission(principal_id: str, resource: str, action: str) -> None:
 
 @single_access_group.command(name="role-put")
 @click.argument("role_id")
-@click.option("--permission", nargs=2, multiple=True, required=True, metavar="RESOURCE ACTION")
-def put_role(role_id: str, permission: tuple[tuple[str, str], ...]) -> None:
+@click.option("--permission", nargs=2, multiple=True, metavar="RESOURCE ACTION")
+@click.option("--template", type=click.Choice(tuple(ROLE_TEMPLATE_ACTIONS)))
+@click.option("--resource", help="Exact resource for a role template.")
+@click.option("--action", multiple=True, help="Declared action for the plugin-actions template.")
+def put_role(
+    role_id: str,
+    permission: tuple[tuple[str, str], ...],
+    template: str | None,
+    resource: str | None,
+    action: tuple[str, ...],
+) -> None:
     """Set a target-local role's exact permissions."""
+
+    if template is None:
+        if not permission or resource is not None or action:
+            raise click.UsageError("Choose --permission or --template with --resource.")
+    elif permission or resource is None or bool(action) != (template == "plugin-actions"):
+        raise click.UsageError(
+            "Use --template with --resource and supply --action only for plugin-actions."
+        )
+    with _access_errors():
+        access = _owner_access()
+        provenance = (
+            RoleTemplate(name=template, resource=resource)
+            if template is not None and resource is not None
+            else None
+        )
+        role = RoleDefinition(
+            role_id=role_id,
+            permissions=(
+                _template_permissions(access, provenance, action)
+                if provenance is not None
+                else tuple(Permission(resource=res, action=act) for res, act in permission)
+            ),
+            template=provenance,
+        )
+        if any(is_admin_exclusive(effect) for effect in role.permissions):
+            raise GatewayAccessError(403, "insufficient_authority")
 
     def change(state: PolicySnapshot) -> PolicySnapshot:
         """Keep existing role assignments while replacing the role definition."""
 
-        role = RoleDefinition(
-            role_id=role_id,
-            permissions=tuple(
-                Permission(resource=resource, action=action) for resource, action in permission
-            ),
-        )
         remaining = tuple(row for row in state.roles if row.role_id != role_id)
         return state.model_copy(update={"roles": (*remaining, role)})
 
-    _update("role.put", change, role_id=role_id)
+    _update("role.put", change, selected_access=access, role_id=role_id)
+
+
+def _template_permissions(
+    access: GatewayRuntimeAccess, template: RoleTemplate, actions: tuple[str, ...]
+) -> tuple[Permission, ...]:
+    """Expand compatible effects of the selected exact resource kind."""
+
+    effects = tuple(
+        Permission(resource=template.resource, action=action)
+        for action in ROLE_TEMPLATE_ACTIONS[template.name] or actions
+    )
+    if template.name == "plugin-actions":
+        declared = _plugin_declared_permissions(access, template.resource)
+        if not set(effects).issubset(declared):
+            raise GatewayAccessError(422, "plugin_action_unverified")
+    elif not all(_supports_inspection(effect) for effect in effects):
+        raise GatewayAccessError(422, "invalid_template_resource")
+    return effects
+
+
+def _plugin_declared_permissions(
+    access: GatewayRuntimeAccess, resource: str
+) -> frozenset[Permission]:
+    """Verify an exact binding and its host-declared actions on the live listener."""
+
+    parts = resource.split(":")
+    if len(parts) != 3 or parts[0] != "plugin" or not all(parts):
+        raise GatewayAccessError(422, "invalid_template_resource")
+    endpoint, port = _local_verified_endpoint(access)
+    binding, _ = owner_gateway_client_binding(
+        access.manifest_path, port=port, private=True, prefer_self=True
+    )
+    client = GatewayClient(
+        base_url=endpoint.base_url,
+        binding=binding,
+        target_incarnation=access.target.incarnation,
+        target_presence_id=endpoint.descriptor.presence_id,
+        respect_proxy_env=False,
+    )
+    status = client.get_plugin_status(parts[1])
+    if status.binding_id != parts[2]:
+        raise GatewayAccessError(422, "plugin_binding_unverified")
+    return frozenset(
+        Permission(resource=resource, action=action) for action in status.declared_actions
+    )
 
 
 @single_access_group.command(name="role-assign")
 @click.argument("principal_id")
 @click.argument("role_id")
 @click.option("--expires-at", type=_EXPIRES, help="Expiry as UTC Unix seconds.")
-def assign_role(principal_id: str, role_id: str, expires_at: int | None) -> None:
+@click.option("--local", is_flag=True, help="Select a legacy local role with a built-in name.")
+def assign_role(principal_id: str, role_id: str, expires_at: int | None, local: bool) -> None:
     """Assign or renew a target-local role for one principal."""
 
     def change(state: PolicySnapshot) -> PolicySnapshot:
         """Upsert one explicit assignment by principal and role."""
 
         assignment = RoleAssignment(
-            principal_id=principal_id, role_id=role_id, expires_at=expires_at
+            principal_id=principal_id,
+            role_id=role_id,
+            expires_at=expires_at,
+            builtin_version=1 if not local and role_id in BUILTIN_PEER_ROLES else None,
         )
         remaining = tuple(
             row
             for row in state.role_assignments
-            if (row.principal_id, row.role_id) != (principal_id, role_id)
+            if (row.principal_id, row.role_id, row.builtin_version)
+            != (principal_id, role_id, assignment.builtin_version)
         )
         return state.model_copy(update={"role_assignments": (*remaining, assignment)})
 
@@ -326,7 +444,8 @@ def assign_role(principal_id: str, role_id: str, expires_at: int | None) -> None
 @single_access_group.command(name="role-revoke")
 @click.argument("principal_id")
 @click.argument("role_id")
-def revoke_role(principal_id: str, role_id: str) -> None:
+@click.option("--local", is_flag=True, help="Select a legacy local role with a built-in name.")
+def revoke_role(principal_id: str, role_id: str, local: bool) -> None:
     """Revoke this principal's assignment to a target-local role."""
 
     def change(state: PolicySnapshot) -> PolicySnapshot:
@@ -335,7 +454,8 @@ def revoke_role(principal_id: str, role_id: str) -> None:
         remaining = tuple(
             row
             for row in state.role_assignments
-            if (row.principal_id, row.role_id) != (principal_id, role_id)
+            if (row.principal_id, row.role_id, row.builtin_version)
+            != (principal_id, role_id, 1 if not local and role_id in BUILTIN_PEER_ROLES else None)
         )
         if len(remaining) == len(state.role_assignments):
             raise GatewayAccessError(404, "unknown_assignment")
@@ -367,6 +487,20 @@ def list_policy() -> None:
                 grants=[row.model_dump(mode="json") for row in state.grants],
                 roles=[row.model_dump(mode="json") for row in state.roles],
                 role_assignments=[row.model_dump(mode="json") for row in state.role_assignments],
+                builtin_catalog={
+                    "version": 1,
+                    "assignable_roles": BUILTIN_PEER_ROLES,
+                    "agent_effects": {
+                        role: peer_group_effects(group)
+                        for role, group in BUILTIN_PEER_ROLES.items()
+                    },
+                    "common_mount_effects": {
+                        role: tuple(sorted(FILE_ACTIONS))
+                        for role in ("builtin:agent-maintainer", "builtin:agent-operator")
+                    },
+                    "default_choices": PERMISSION_GROUPS,
+                    "templates": ROLE_TEMPLATE_ACTIONS,
+                },
             )
         )
 
@@ -402,22 +536,49 @@ def explain_permission(principal_id: str, resource: str, action: str, key_id: st
             ),
             None,
         )
-        roles = {role.role_id for role in state.roles if permission in role.permissions}
+        roles = {role.role_id: role for role in state.roles if permission in role.permissions}
         matching_roles = [
             {
                 "role_id": row.role_id,
                 "expires_at": row.expires_at,
                 "active": row.expires_at is None or row.expires_at > now,
+                "builtin_version": row.builtin_version,
+                "template": (
+                    template.model_dump(mode="json")
+                    if row.builtin_version is None
+                    and (template := roles[row.role_id].template) is not None
+                    else None
+                ),
             }
             for row in state.role_assignments
-            if row.principal_id == principal_id and row.role_id in roles
+            if row.principal_id == principal_id
+            and (
+                row.role_id in roles
+                if row.builtin_version is None
+                else group_allows(
+                    BUILTIN_PEER_ROLES[row.role_id],
+                    permission,
+                    supports_self=lambda _: False,
+                    supports_common=_supports_inspection,
+                )
+            )
         ]
         authorizer = GatewayAuthorizer(
-            access.store, catalog=_INSPECTION_PERMISSIONS, supports=_supports_inspection
+            access.store,
+            catalog=_INSPECTION_PERMISSIONS,
+            supports=_supports_inspection,
+            supports_common=_supports_inspection,
+            self_permissions=_INSPECTION_PERMISSIONS,
+            supports_self=_supports_inspection,
         )
         known_permission = permission in _INSPECTION_PERMISSIONS or _supports_inspection(permission)
         decisions: list[dict[str, object]] = []
         for key in keys:
+            if action == "agent.prompt" and resource == "agent":
+                decisions.append(
+                    {"key_id": key.key_id, "allowed": False, "reason": "retired_effect"}
+                )
+                continue
             if not known_permission:
                 decisions.append(
                     {
@@ -456,6 +617,9 @@ def explain_permission(principal_id: str, resource: str, action: str, key_id: st
                     }
                 ),
                 matching_roles=matching_roles,
+                resource_availability=(
+                    "defined" if permission in _INSPECTION_PERMISSIONS else "unresolved"
+                ),
                 keys=decisions,
             )
         )
@@ -464,7 +628,14 @@ def explain_permission(principal_id: str, resource: str, action: str, key_id: st
 def _supports_inspection(permission: Permission) -> bool:
     """Recognize dynamic core operation resources without starting an agent."""
 
-    return supports_mail_permission(permission) or supports_ag_ui_permission(permission)
+    return (
+        supports_mail_permission(permission)
+        or supports_ag_ui_permission(permission)
+        or (
+            _FILE_RESOURCE.fullmatch(permission.resource) is not None
+            and permission.action in {"files.read", "files.edit", "files.push"}
+        )
+    )
 
 
 @single_access_group.command(name="peer-signer")
@@ -617,30 +788,34 @@ def _verified_endpoint(
     if url is None:
         if any(value is not None for value in (context_id, generation, presence, ca_bundle)):
             raise click.UsageError("Explicit gateway coordinates require --url.")
-        access = _owner_access()
-        paths = gateway_paths_from_manifest_path(access.manifest_path)
-        if paths is None:
-            raise click.ClickException("No gateway is attached to the selected target.")
-        instance = load_gateway_current_instance(paths.current_instance_path)
-        retained = instance.endpoint_descriptor
-        if retained is None or retained.target != access.target:
-            raise click.ClickException(_ENDPOINT_REFUSED)
-        base_url = owner_gateway_base_url(instance.port)
-        expected = access.target
-        presence = retained.presence_id
-        access.require_current()
-    else:
-        if not (scope.agent_id and context_id and generation and presence):
-            raise click.UsageError(
-                "With --url, select --agent-id, --context-id, --generation, and --presence."
-            )
-        base_url = url
-        expected = GatewayTarget(
-            owner=GatewayOwner(agent_id=scope.agent_id, context_id=context_id),
-            incarnation=generation,
+        endpoint, _ = _local_verified_endpoint(_owner_access())
+        return endpoint
+    if not (scope.agent_id and context_id and generation and presence):
+        raise click.UsageError(
+            "With --url, select --agent-id, --context-id, --generation, and --presence."
         )
-    descriptor = _probe_endpoint(base_url, ca_bundle, expected, presence)
-    return _VerifiedEndpoint(base_url, ca_bundle, descriptor)
+    expected = GatewayTarget(
+        owner=GatewayOwner(agent_id=scope.agent_id, context_id=context_id),
+        incarnation=generation,
+    )
+    descriptor = _probe_endpoint(url, ca_bundle, expected, presence)
+    return _VerifiedEndpoint(url, ca_bundle, descriptor)
+
+
+def _local_verified_endpoint(access: GatewayRuntimeAccess) -> tuple[_VerifiedEndpoint, int]:
+    """Match a local listener to the already-verified owner manifest."""
+
+    paths = gateway_paths_from_manifest_path(access.manifest_path)
+    if paths is None:
+        raise click.ClickException("No gateway is attached to the selected target.")
+    instance = load_gateway_current_instance(paths.current_instance_path)
+    retained = instance.endpoint_descriptor
+    if retained is None or retained.target != access.target:
+        raise click.ClickException(_ENDPOINT_REFUSED)
+    base_url = owner_gateway_base_url(instance.port)
+    access.require_current()
+    descriptor = _probe_endpoint(base_url, None, access.target, retained.presence_id)
+    return _VerifiedEndpoint(base_url, None, descriptor), instance.port
 
 
 def _endpoint_options(command: Callable[..., None]) -> Callable[..., None]:
@@ -658,6 +833,273 @@ def _endpoint_options(command: Callable[..., None]) -> Callable[..., None]:
     for option in reversed(options):
         command = option(command)
     return command
+
+
+def _retained_actor(
+    access: GatewayRuntimeAccess,
+    *,
+    method: str,
+    path: str,
+    body: bytes,
+    signer: Path | PrivateKey | None,
+) -> tuple[GatewayAccessPolicy, AuthorizationActor]:
+    """Bind local retained admission to the same request and proof as HTTP ingress."""
+
+    def target() -> GatewayTarget:
+        """Recheck the owner manifest before using the retained policy."""
+
+        access.require_current()
+        return access.target
+
+    policy = GatewayAccessPolicy(
+        store=access.store,
+        target=target,
+        current_self=access.current_self,
+        listener_id="owner-retained",
+    )
+    if signer is None:
+        return policy, AuthorizationActor(kind="anonymous")
+    private_key = load_gateway_signer(signer) if isinstance(signer, Path) else signer
+    request = GatewayRequestBinding.from_request(method, path, "", body)
+    challenge = policy.issue(
+        "owner-retained",
+        GatewayChallengeRequest(
+            purpose="caller",
+            request=request,
+            key_id=key_fingerprint(public_key_text(private_key.public_key())),
+        ),
+    )
+    return policy, policy.authenticate(
+        issuer="owner-retained",
+        request=request,
+        challenge_id=challenge.challenge_id,
+        signature=sshsig_header(sign_sshsig(private_key, challenge.signing_bytes())),
+    )
+
+
+@single_access_group.group(name="default-group")
+def default_group() -> None:
+    """Manage the selected agent's retained default caller permissions."""
+
+
+@default_group.command(name="set")
+@click.argument("group", type=click.Choice(PERMISSION_GROUPS))
+@_endpoint_options
+@click.option("--retained", is_flag=True, help="Use the selected local policy directly.")
+@click.option("--passive-url", help="Use the direct route at this trusted passive listener.")
+@click.option("--signer", type=_FILE, help="Explicit private key for an authenticated call.")
+def set_default_group(
+    group: PermissionGroupName,
+    url: str | None,
+    context_id: str | None,
+    generation: str | None,
+    presence: str | None,
+    ca_bundle: Path | None,
+    retained: bool,
+    passive_url: str | None,
+    signer: Path | None,
+) -> None:
+    """Set one of the six built-in groups through a single chosen path."""
+
+    if sum((url is not None, retained, passive_url is not None)) > 1:
+        raise click.UsageError("Choose one of --url, --passive-url, or --retained.")
+    payload = DefaultPermissionGroupRequest(group=group)
+    with _access_errors():
+        if retained:
+            if any(value is not None for value in (context_id, generation, presence, ca_bundle)):
+                raise click.UsageError("Retained access uses the verified local owner coordinates.")
+            access = _owner_access()
+            policy, actor = _retained_actor(
+                access,
+                method="PUT",
+                path="/v1/admin/default-permission-group",
+                body=payload.model_dump_json().encode(),
+                signer=signer,
+            )
+            receipt = policy.set_default_permission_group(
+                policy.authorize(actor, (DEFAULT_GROUP_SET,)), group
+            )
+        elif passive_url is not None:
+            if any(value is not None for value in (context_id, generation, presence)):
+                raise click.UsageError(
+                    "The passive path uses the verified local owner coordinates."
+                )
+            access = _owner_access()
+            passive_url = validate_gateway_base_url(passive_url)
+            binding = (
+                GatewayClientBinding(
+                    base_url=passive_url,
+                    owner=access.owner,
+                    purpose="caller",
+                    private_key_path=str(signer),
+                    ca_bundle_path=str(ca_bundle) if ca_bundle is not None else None,
+                )
+                if signer is not None
+                else None
+            )
+            if ca_bundle is not None and binding is None:
+                raise click.UsageError("A custom passive CA bundle requires --signer.")
+            client_passive = PassiveServerClient(
+                passive_url, binding=binding, target_incarnation=access.target.incarnation
+            )
+            selected = client_passive.describe_agent_proof(access.owner.agent_id)
+            if selected.target != access.target:
+                raise click.ClickException(_ENDPOINT_REFUSED)
+            receipt = client_passive.set_default_permission_group(
+                access.owner.agent_id,
+                DefaultPermissionGroupRequest(
+                    group=group,
+                    expected_target=selected.target,
+                    expected_listener_id=selected.presence_id,
+                ),
+            )
+        else:
+            endpoint = _verified_endpoint(url, context_id, generation, presence, ca_bundle)
+            client = (
+                endpoint.signed_client(signer)
+                if signer is not None
+                else GatewayClient(
+                    base_url=endpoint.base_url,
+                    ca_bundle_path=endpoint.ca_bundle,
+                    respect_proxy_env=False,
+                )
+            )
+            receipt = client.set_default_permission_group(
+                DefaultPermissionGroupRequest(
+                    group=group,
+                    expected_target=endpoint.descriptor.target,
+                    expected_listener_id=endpoint.descriptor.presence_id,
+                )
+            )
+        if receipt.default_permission_group != group:
+            raise click.ClickException("The selected path returned a different retained group.")
+        emit(receipt.model_dump(mode="json"))
+
+
+def _self_revision(access: GatewayRuntimeAccess) -> int:
+    """Resolve the last committed revision for the selected managed generation."""
+
+    access.require_live_generation()
+    revision = access.store.self_revision(access.target.incarnation)
+    if revision is None:
+        raise GatewayAccessError(503, "self_authorization_unavailable")
+    return revision
+
+
+@single_access_group.command(name="self-key")
+@_endpoint_options
+@click.argument("operation", type=click.Choice(("rotate", "revoke")))
+@click.option("--signer", type=_FILE, help="Use this private key to prove effective admin.")
+@click.option("--expected-revision", type=click.IntRange(min=1))
+@click.option("--retained", is_flag=True, help="Use verified local authority without a listener.")
+def change_managed_self(
+    url: str | None,
+    context_id: str | None,
+    generation: str | None,
+    presence: str | None,
+    ca_bundle: Path | None,
+    operation: Literal["rotate", "revoke"],
+    signer: Path | None,
+    expected_revision: int | None,
+    retained: bool,
+) -> None:
+    """Rotate or revoke the current managed-self key using effective admin authority."""
+
+    with _access_errors():
+        if retained and any(
+            value is not None for value in (url, context_id, generation, presence, ca_bundle)
+        ):
+            raise click.UsageError("Use --retained with a verified local target.")
+        if expected_revision is None and url is not None:
+            raise click.UsageError("Use --expected-revision for a remote target.")
+        if retained:
+            access = _owner_access()
+            change = ManagedSelfChange(
+                operation=operation,
+                generation_id=access.target.incarnation,
+                expected_revision=expected_revision or _self_revision(access),
+            )
+            policy, actor = _retained_actor(
+                access,
+                method="PUT",
+                path=MANAGED_SELF_PATH,
+                body=change.model_dump_json().encode(),
+                signer=signer,
+            )
+            result = policy.change_self_registration(
+                actor, change, require_live_target=access.require_live_generation
+            )
+        else:
+            endpoint = _verified_endpoint(url, context_id, generation, presence, ca_bundle)
+            target = endpoint.descriptor.target
+            if expected_revision is None:
+                access = _owner_access()
+                if access.target != target:
+                    raise click.ClickException(_ENDPOINT_REFUSED)
+                expected_revision = _self_revision(access)
+            change = ManagedSelfChange(
+                operation=operation,
+                generation_id=target.incarnation,
+                expected_revision=expected_revision,
+            )
+            client = (
+                endpoint.signed_client(signer)
+                if signer is not None
+                else GatewayClient(
+                    base_url=endpoint.base_url,
+                    ca_bundle_path=endpoint.ca_bundle,
+                    respect_proxy_env=False,
+                )
+            )
+            result = client.change_managed_self(change)
+        emit(result.model_dump(mode="json"))
+
+
+@self_access_group.command(name="self-key")
+@click.argument("operation", type=click.Choice(("rotate", "revoke")))
+@click.option("--retained", is_flag=True, help="Use the current signer without a listener.")
+def change_own_managed_self(operation: Literal["rotate", "revoke"], retained: bool) -> None:
+    """Rotate or revoke this runtime's current managed-self key with its own proof."""
+
+    with _access_errors():
+        access = _source_access(None)
+        change = ManagedSelfChange(
+            operation=operation,
+            generation_id=access.target.incarnation,
+            expected_revision=_self_revision(access),
+        )
+        if retained:
+            _, signer = access.load_self_signer()
+            policy, actor = _retained_actor(
+                access,
+                method="PUT",
+                path=MANAGED_SELF_PATH,
+                body=change.model_dump_json().encode(),
+                signer=signer,
+            )
+            result = policy.change_self_registration(
+                actor, change, require_live_target=access.require_live_generation
+            )
+            emit(result.model_dump(mode="json"))
+            return
+        paths = gateway_paths_from_manifest_path(access.manifest_path)
+        if paths is None:
+            raise click.ClickException("No gateway is attached to this runtime.")
+        instance = load_gateway_current_instance(paths.current_instance_path)
+        descriptor = instance.endpoint_descriptor
+        if descriptor is None or descriptor.target != access.target:
+            raise click.ClickException(_ENDPOINT_REFUSED)
+        binding, incarnation = owner_gateway_client_binding(
+            access.manifest_path, port=instance.port, private=True, prefer_self=True
+        )
+        assert binding is not None
+        result = GatewayClient(
+            binding=binding,
+            target_incarnation=incarnation,
+            target_presence_id=descriptor.presence_id,
+            respect_proxy_env=False,
+        ).change_managed_self(change)
+        emit(result.model_dump(mode="json"))
 
 
 @single_access_group.command(name="admin-add")

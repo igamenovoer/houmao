@@ -31,6 +31,7 @@ If a request spans supported operations, use the native planning tool to plan th
 Accept only the immutable admin or verified managed-agent frame established by `houmao-shared-routines`. Require an explicit target for a peer edit. Verify the target gateway and use the chosen caller's current mount authority.
 
 - **Owner-local caller.** Select the target by ID or name in its verified execution-owner context. Use an appropriate enrolled key or the initialized open-roster path.
+- **Managed self.** For your own runtime, use `agents self files` with the current managed-self registration.
 - **Managed peer.** Preserve verified self as the source. Select the target by exact ID and trusted endpoint coordinates. Use the configured source peer signer when signing as this agent.
 - **Operator using an independent source.** Select either a locally owned configured source or an explicitly authorized private signing key. The source gateway and tmux topology do not determine access to the target.
 
@@ -56,7 +57,7 @@ For enrollment and exact resource grants, use `houmao-shared-routines->houmao-ag
 
 ## Help
 
-Explain that the current qualified provider is the owner-enabled DSH Web `skills` mount. Outline discovery, read-only inspection, private draft editing, candidate publication, and receipt reconciliation. Example starting points are `$houmao-agent-entrypoint agent-files discover for TARGET` and `$houmao-admin-entrypoint agent-files reconcile for TARGET`. Answer from this section without collecting targets or running commands.
+Explain that qualified DSH Web runtimes can expose owner-enabled `skills` and `mcp` mounts. Outline discovery, read-only inspection, private draft editing, candidate publication, and receipt reconciliation. Example starting points are `$houmao-agent-entrypoint agent-files discover for TARGET` and `$houmao-admin-entrypoint agent-files reconcile for TARGET`. Answer from this section without collecting targets or running commands.
 
 ## Guardrails
 

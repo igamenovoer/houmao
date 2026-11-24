@@ -1,5 +1,7 @@
 # Gateway Troubleshooting
 
+If gateway attach reports unavailable owner access after the native agent starts, check that the selected owner can read the current generation's retained policy and matching self key. A revoked key or missing private record needs effective admin recovery while the native runtime is live. A superseded generation needs a new managed launch or join. Keep the database and its sidecars owned by the runtime account with mode `0600` in its private `0700` authorization directory. [Gateway Access and Remote Deployment](access.md#provision-and-retain-admin-access)
+
 This page covers the current operator-facing failure modes for gateway attach, live readiness, and same-session gateway lifecycle.
 
 ## Web Supervisor Is Alive but Native Control Is Unavailable

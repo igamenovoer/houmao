@@ -59,8 +59,10 @@ from houmao.mailbox.models import (
 
 GatewayHost = Literal["127.0.0.1", "0.0.0.0"]
 GatewayProtocolVersion = Literal["v1"]
-GatewayRequestKind = Literal["submit_prompt", "interrupt"]
-GatewayStoredRequestKind = Literal["submit_prompt", "interrupt", "mail_notifier_prompt"]
+GatewayRequestKind = Literal["submit_work_request", "submit_prompt", "interrupt"]
+GatewayStoredRequestKind = Literal[
+    "submit_work_request", "submit_prompt", "interrupt", "mail_notifier_prompt"
+]
 GatewayReminderMode = Literal["one_off", "repeat"]
 GatewayReminderDeliveryKind = Literal["prompt", "send_keys"]
 GatewayReminderSelectionState = Literal["effective", "blocked"]
@@ -1272,6 +1274,21 @@ class GatewayHeadlessChatSessionStateV1(_StrictGatewayModel):
     next_prompt_override: GatewayHeadlessNextPromptOverrideV1 | None = None
 
 
+class GatewayRequestPayloadSubmitWorkRequestV1(_StrictGatewayModel):
+    """Caller-provided content for a gateway-authored work request."""
+
+    text: str = Field(max_length=65_536)
+
+    @field_validator("text")
+    @classmethod
+    def _nonempty_text(cls, value: str) -> str:
+        """Require nonempty request text within the UTF-8 byte budget."""
+
+        if not value.strip() or len(value.encode("utf-8")) > 65_536:
+            raise ValueError("must contain between 1 and 65536 UTF-8 bytes of nonempty text")
+        return value
+
+
 class GatewayRequestPayloadSubmitPromptV1(_StrictGatewayModel):
     """Public payload for `submit_prompt` requests."""
 
@@ -1432,7 +1449,11 @@ class GatewayRequestCreateV1(_StrictGatewayModel):
 
     schema_version: int = Field(default=GATEWAY_REQUEST_SCHEMA_VERSION)
     kind: GatewayRequestKind
-    payload: GatewayRequestPayloadSubmitPromptV1 | GatewayRequestPayloadInterruptV1
+    payload: (
+        GatewayRequestPayloadSubmitWorkRequestV1
+        | GatewayRequestPayloadSubmitPromptV1
+        | GatewayRequestPayloadInterruptV1
+    )
 
     @model_validator(mode="after")
     def _validate_payload_shape(self) -> "GatewayRequestCreateV1":
@@ -1440,6 +1461,10 @@ class GatewayRequestCreateV1(_StrictGatewayModel):
 
         if self.schema_version != GATEWAY_REQUEST_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_REQUEST_SCHEMA_VERSION}")
+        if self.kind == "submit_work_request" and not isinstance(
+            self.payload, GatewayRequestPayloadSubmitWorkRequestV1
+        ):
+            raise ValueError("submit_work_request requires submit_work_request payload")
         if self.kind == "submit_prompt" and not isinstance(
             self.payload, GatewayRequestPayloadSubmitPromptV1
         ):

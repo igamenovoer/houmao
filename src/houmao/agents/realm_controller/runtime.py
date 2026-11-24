@@ -1440,6 +1440,7 @@ class RuntimeSessionController:
             address=address,
             member_credential=read_private_credential(credential_file),
             display_name=self.agent_identity,
+            require_recipient_policy=True,
         )
         binding = RemoteRegistryMailboxResolvedConfig(
             transport="registry",
@@ -2515,6 +2516,7 @@ def start_runtime_session(
             agent_id=resolved_agent_id,
             generation_id=registry_generation_id,
             seed=gateway_admin_seed,
+            online_mailbox_configured=resolved_mailboxes.online.binding is not None,
         )
     elif gateway_admin_seed is not None:
         raise SessionManifestError(
@@ -3725,7 +3727,10 @@ def _provision_relaunch_gateway_generation(
     if binding is None or controller.agent_id is None:
         raise SessionManifestError("Gateway generation requires managed execution authority.")
     provision_gateway_generation(
-        binding=binding, agent_id=controller.agent_id, generation_id=generation
+        binding=binding,
+        agent_id=controller.agent_id,
+        generation_id=generation,
+        online_mailbox_configured=controller.launch_plan.mailboxes.online.binding is not None,
     )
 
 
@@ -5255,13 +5260,13 @@ def _require_gateway_paths_for_controller(controller: RuntimeSessionController) 
 
 
 @contextmanager
-def _gateway_lifecycle_lock(manifest_path: Path) -> Iterator[None]:
+def _gateway_lifecycle_lock(manifest_path: Path, *, wait: bool = True) -> Iterator[None]:
     """Serialize live deployment selection with the owner's attach and detach."""
 
     lock_path = manifest_path.parent / ".gateway-lifecycle.lock"
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        fcntl.flock(descriptor, fcntl.LOCK_EX if wait else fcntl.LOCK_EX | fcntl.LOCK_NB)
         yield
     finally:
         os.close(descriptor)
@@ -5333,8 +5338,7 @@ def _attach_gateway_for_controller(
     attach_contract = resolve_internal_gateway_attach_contract(paths)
     try:
         access = gateway_access_for_manifest(controller.manifest_path)
-        access.store.snapshot()
-        access.self_store.load_self(access.target.incarnation)
+        access.require_self_signing_state()
         retained_deployment = load_gateway_deployment(controller.manifest_path)
     except (GatewayAccessError, OSError, ValueError, SessionManifestError):
         return GatewayControlResult(

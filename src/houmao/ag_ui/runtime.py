@@ -21,6 +21,13 @@ AgUiTargetTransportFamily = Literal["headless", "tui", "service", "web", "http_r
 
 
 @dataclass(frozen=True)
+class AgUiNativeAdmission:
+    """Carry the exact thread and optional native effects checked at AG-UI ingress."""
+
+    authority: AuthorizationDecision
+
+
+@dataclass(frozen=True)
 class AgUiObservedRequestState:
     """Observed durable gateway request state for one admitted AG-UI run."""
 
@@ -82,6 +89,7 @@ class AgUiRuntimeObservationProtocol(Protocol):
         ready_only: bool = False,
         expected_generation: str | None = None,
         authority: AuthorizationDecision | None = None,
+        ag_ui: AgUiNativeAdmission | None = None,
     ) -> GatewayAcceptedRequestV1:
         """Admit one gateway request through the existing gateway controls."""
 

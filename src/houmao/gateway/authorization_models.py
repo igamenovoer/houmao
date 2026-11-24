@@ -21,8 +21,22 @@ Resource = Annotated[str, Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.:/-]{0,255}$"
 Action = Annotated[str, Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$")]
 KeyId = Annotated[str, Field(pattern=r"^SHA256:[A-Za-z0-9_-]{43}$")]
 Expiry = Annotated[int, Field(ge=0)]
-AuthorizationBasis = Literal["public", "scoped", "self", "admin", "open"]
+AuthorizationBasis = Literal["public", "scoped", "self", "admin", "open", "default"]
 AuthorizationMode = Literal["open", "keyed"]
+PermissionGroupName = Literal[
+    "agent-observer",
+    "agent-requester",
+    "agent-maintainer",
+    "agent-operator",
+    "managed-self",
+    "agent-admin",
+]
+BUILTIN_PEER_ROLES: dict[str, PermissionGroupName] = {
+    "builtin:agent-observer": "agent-observer",
+    "builtin:agent-requester": "agent-requester",
+    "builtin:agent-maintainer": "agent-maintainer",
+    "builtin:agent-operator": "agent-operator",
+}
 
 
 class _AuthorizationModel(BaseModel):
@@ -36,6 +50,34 @@ class Permission(_AuthorizationModel):
 
     resource: Resource
     action: Action
+
+
+class DefaultPermissionGroupRequest(_AuthorizationModel):
+    """Select one versioned built-in group as the unassigned caller default."""
+
+    group: PermissionGroupName
+    expected_target: GatewayTarget | None = None
+    expected_listener_id: Identifier | None = None
+
+    def require_expected(self, decision: AuthorizationDecision) -> None:
+        """Refuse a mutation on a different listener or generation than selected."""
+
+        from houmao.gateway._access_storage import GatewayAccessError
+
+        if (self.expected_target is not None and self.expected_target != decision.target) or (
+            self.expected_listener_id is not None
+            and self.expected_listener_id != decision.listener_id
+        ):
+            raise GatewayAccessError(409, "authorization_target_conflict")
+
+
+class DefaultPermissionGroupReceipt(_AuthorizationModel):
+    """Report the retained default after a completed policy transaction."""
+
+    schema_version: Literal[1] = 1
+    default_permission_group: PermissionGroupName
+    default_permission_revision: Annotated[int, Field(ge=0)]
+    policy_revision: Annotated[int, Field(ge=0)]
 
 
 class Principal(_AuthorizationModel):
@@ -85,11 +127,20 @@ class ScopedGrant(_AuthorizationModel):
     expires_at: Expiry | None = None
 
 
+class RoleTemplate(_AuthorizationModel):
+    """Retain the catalog revision and exact resource used to create a local role."""
+
+    name: Identifier
+    resource: Resource
+    version: Literal[1] = 1
+
+
 class RoleDefinition(_AuthorizationModel):
     """Define explicit permissions for a domain-scoped role."""
 
     role_id: Identifier
     permissions: tuple[Permission, ...] = Field(max_length=1024)
+    template: RoleTemplate | None = None
 
     @model_validator(mode="after")
     def _validate_permissions(self) -> RoleDefinition:
@@ -99,6 +150,10 @@ class RoleDefinition(_AuthorizationModel):
             raise ValueError("role name is reserved")
         if len(set(self.permissions)) != len(self.permissions):
             raise ValueError("role repeats a permission")
+        if self.template is not None and any(
+            permission.resource != self.template.resource for permission in self.permissions
+        ):
+            raise ValueError("template permissions must use its exact resource")
         return self
 
 
@@ -108,6 +163,7 @@ class RoleAssignment(_AuthorizationModel):
     principal_id: Identifier
     role_id: Identifier
     expires_at: Expiry | None = None
+    builtin_version: Literal[1] | None = None
 
 
 class PolicySnapshot(_AuthorizationModel):
@@ -119,6 +175,9 @@ class PolicySnapshot(_AuthorizationModel):
     revision: Annotated[int, Field(ge=0)] = 0
     roster_revision: Annotated[int, Field(ge=0)] = 0
     open_epoch: Annotated[int, Field(ge=0)] = 0
+    default_permission_group: PermissionGroupName = "agent-requester"
+    default_permission_group_version: Literal[1] = 1
+    default_permission_revision: Annotated[int, Field(ge=0)] = 0
     principals: tuple[Principal, ...] = Field(default=(), max_length=512)
     credentials: tuple[Credential, ...] = Field(default=(), max_length=512)
     roles: tuple[RoleDefinition, ...] = Field(default=(), max_length=128)
@@ -141,21 +200,26 @@ class PolicySnapshot(_AuthorizationModel):
             raise ValueError("duplicate credential enrollment")
         if len({(row.principal_id, row.permission) for row in self.grants}) != len(self.grants):
             raise ValueError("duplicate scoped grant")
-        if len({(row.principal_id, row.role_id) for row in self.role_assignments}) != len(
-            self.role_assignments
-        ):
+        assignments = {
+            (row.principal_id, row.role_id, row.builtin_version is not None)
+            for row in self.role_assignments
+        }
+        if len(assignments) != len(self.role_assignments):
             raise ValueError("duplicate role assignment")
         if any(row.principal_id not in principal_ids for row in self.credentials):
             raise ValueError("credential principal is missing")
         if any(row.principal_id not in principal_ids for row in self.grants):
             raise ValueError("grant principal is missing")
         if any(
-            row.principal_id not in principal_ids or row.role_id not in role_ids
+            row.principal_id not in principal_ids
+            or row.role_id not in (BUILTIN_PEER_ROLES if row.builtin_version else role_ids)
             for row in self.role_assignments
         ):
             raise ValueError("role assignment principal or role is missing")
         if self.open_epoch > self.roster_revision or self.roster_revision > self.revision:
             raise ValueError("invalid roster revisions")
+        if self.default_permission_revision > self.revision:
+            raise ValueError("invalid default permission revision")
         if any(
             key.admin_revision is not None and key.admin_revision > self.revision
             for key in self.credentials
@@ -180,16 +244,34 @@ class PolicySnapshot(_AuthorizationModel):
 class AuthorizationActor(_AuthorizationModel):
     """Carry proof identity established by a trusted ingress."""
 
-    kind: Literal["anonymous", "credential", "self"]
+    kind: Literal["anonymous", "credential", "self", "mail"]
     principal_id: Identifier | None = None
     key_id: KeyId | None = None
     enrollment_id: Identifier | None = None
     generation_id: Identifier | None = None
+    self_registration_revision: Annotated[int, Field(ge=1)] | None = None
+    transport_issuer: Identifier | None = None
+    transport_member: Identifier | None = None
+    transport_binding: Identifier | None = None
 
     @model_validator(mode="after")
     def _validate_provenance(self) -> AuthorizationActor:
         """Reject credential attributes that are inconsistent with proof type."""
 
+        transport = (self.transport_issuer, self.transport_member, self.transport_binding)
+        if self.kind == "mail":
+            if not all(transport) or any(
+                (
+                    self.key_id,
+                    self.enrollment_id,
+                    self.generation_id,
+                    self.self_registration_revision,
+                )
+            ):
+                raise ValueError("mail actor requires independent transport evidence")
+            return self
+        if any(transport):
+            raise ValueError("transport evidence belongs to the mail ingress")
         if self.kind == "anonymous":
             if any((self.principal_id, self.key_id, self.enrollment_id, self.generation_id)):
                 raise ValueError("anonymous actor cannot have credential evidence")
@@ -200,6 +282,8 @@ class AuthorizationActor(_AuthorizationModel):
             or (self.generation_id is not None) != (self.kind == "self")
         ):
             raise ValueError("actor has incomplete or inconsistent credential evidence")
+        if self.self_registration_revision is not None and self.kind != "self":
+            raise ValueError("registration revision requires managed-self evidence")
         return self
 
     @classmethod
@@ -222,6 +306,7 @@ class AuthorizationActor(_AuthorizationModel):
             principal_id=binding.owner.agent_id,
             key_id=binding.key_id,
             generation_id=binding.generation_id,
+            self_registration_revision=binding.registration_revision,
         )
 
 
@@ -237,6 +322,8 @@ class AuthorizationDecision(_AuthorizationModel):
     policy_revision: Annotated[int, Field(ge=0)]
     open_epoch: Annotated[int, Field(ge=0)] | None = None
     admin_revision: Annotated[int, Field(ge=0)] | None = None
+    default_permission_revision: Annotated[int, Field(ge=0)] | None = None
+    default_permissions: tuple[Permission, ...] = Field(default=(), max_length=64)
 
     @model_validator(mode="after")
     def _validate_basis(self) -> AuthorizationDecision:
@@ -246,7 +333,14 @@ class AuthorizationDecision(_AuthorizationModel):
             raise ValueError("invalid open authority evidence")
         if (self.admin_revision is not None) != (self.basis == "admin"):
             raise ValueError("invalid admin authority evidence")
-        if self.basis in {"scoped", "admin"} and self.actor.kind != "credential":
+        if (self.default_permission_revision is not None) != (self.basis == "default") or (
+            bool(self.default_permissions) != (self.basis == "default")
+            or not set(self.default_permissions).issubset(self.permissions)
+        ):
+            raise ValueError("invalid default authority evidence")
+        if self.basis == "admin" and self.actor.kind != "credential":
+            raise ValueError("an enrolled admin key is required")
+        if self.basis == "scoped" and self.actor.kind not in {"credential", "mail"}:
             raise ValueError("an enrolled actor is required")
         if self.basis == "self" and self.actor.kind != "self":
             raise ValueError("same-agent self evidence is required")

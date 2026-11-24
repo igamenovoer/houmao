@@ -1,33 +1,20 @@
-"""Keep generation credentials and selected signing sources private."""
+"""Keep owner-side authorization and selected signing sources private."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
 import fcntl
-import hashlib
 import os
 from pathlib import Path
 import secrets
 import stat
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from pydantic import BaseModel
-
-from houmao.gateway._access_sshsig import PrivateKey, load_private_key, public_key_text
-from houmao.gateway.access_models import (
-    MAX_ACCESS_DOCUMENT,
-    GatewayOwner,
-    GatewaySelfKey,
-    parse_access_document,
-)
+from houmao.gateway._access_sshsig import PrivateKey, load_private_key
+from houmao.gateway.access_models import MAX_ACCESS_DOCUMENT
 
 _FILE_FLAGS = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 _DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-_SELF_FILE = "self.json"
-_SIGNER_FILE = "self.key"
-_LOCK_FILE = ".lock"
 _ERRORS = {
     401: "Valid gateway proof is required.",
     403: "The verified caller lacks authority for this operation.",
@@ -68,88 +55,6 @@ class GatewayAccessError(RuntimeError):
         """Return a safe message without source paths or policy data."""
 
         return self.m_detail
-
-
-class GatewayAccessStore:
-    """Keep generation-specific signers under owner authority."""
-
-    def __init__(self, root: Path, owner: GatewayOwner) -> None:
-        """Bind a lexical private namespace to one agent and execution context."""
-
-        self.m_root: Path = root
-        self.m_owner: GatewayOwner = owner
-        self.m_binding: str = hashlib.sha256(owner.model_dump_json().encode()).hexdigest()
-
-    @classmethod
-    def from_root(cls, root: Path, owner: GatewayOwner) -> GatewayAccessStore:
-        """Select the private access namespace for the owner without creating it."""
-
-        return cls(root, owner)
-
-    @property
-    def owner(self) -> GatewayOwner:
-        """Return the owner required by this store."""
-
-        return self.m_owner
-
-    def provision_self(self, generation_id: str) -> GatewaySelfKey:
-        """Allocate a distinct Ed25519 credential for this managed generation."""
-
-        generation_root = self._generation_root(generation_id)
-        try:
-            with _private_directory(generation_root.parent, create=True) as directory:
-                with _file_lock(directory, _LOCK_FILE, create=True):
-                    try:
-                        os.mkdir(generation_root.name, mode=0o700, dir_fd=directory)
-                    except FileExistsError:
-                        binding = self.load_self(generation_id)
-                        signer = load_gateway_signer(self.self_signer_path(generation_id))
-                        if public_key_text(signer.public_key()) != binding.public_key:
-                            raise ValueError("invalid self signer binding")
-                        return binding
-                    os.fsync(directory)
-                    with _private_directory(generation_root) as generation:
-                        signer = Ed25519PrivateKey.generate()
-                        private = signer.private_bytes(
-                            serialization.Encoding.PEM,
-                            serialization.PrivateFormat.OpenSSH,
-                            serialization.NoEncryption(),
-                        )
-                        binding = GatewaySelfKey(
-                            owner=self.m_owner,
-                            generation_id=generation_id,
-                            public_key=public_key_text(signer.public_key()),
-                        )
-                        _write_file(generation, _SIGNER_FILE, private)
-                        _write_document(generation, _SELF_FILE, binding)
-                        return binding
-        except (OSError, ValueError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-
-    def load_self(self, generation_id: str) -> GatewaySelfKey:
-        """Read one explicit generation's owner-bound verification key."""
-
-        try:
-            with _private_directory(self._generation_root(generation_id)) as generation:
-                binding = parse_access_document(
-                    GatewaySelfKey, _read_file(generation, _SELF_FILE, MAX_ACCESS_DOCUMENT)
-                )
-                if binding.owner != self.m_owner or binding.generation_id != generation_id:
-                    raise ValueError("invalid self key binding")
-                return binding
-        except (OSError, ValueError):
-            raise GatewayAccessError(503, "policy_unavailable") from None
-
-    def self_signer_path(self, generation_id: str) -> Path:
-        """Resolve the private source for an already verified current generation."""
-
-        return self._generation_root(generation_id) / _SIGNER_FILE
-
-    def _generation_root(self, generation_id: str) -> Path:
-        """Select a generation without treating caller labels as path components."""
-
-        generation = hashlib.sha256(generation_id.encode()).hexdigest()
-        return self.m_root / "generation-keys" / self.m_binding / generation
 
 
 def read_private_access_file(path: Path, *, limit: int = MAX_ACCESS_DOCUMENT) -> bytes:
@@ -271,15 +176,6 @@ def _read_file(directory: int, name: str, limit: int) -> bytes:
     if len(payload) > limit:
         raise ValueError("private file exceeds its size limit")
     return payload
-
-
-def _write_document(directory: int, name: str, value: BaseModel) -> None:
-    """Write a bounded owner-only JSON record."""
-
-    payload = (value.model_dump_json() + "\n").encode()
-    if len(payload) > MAX_ACCESS_DOCUMENT:
-        raise ValueError("private document exceeds its size limit")
-    _write_file(directory, name, payload)
 
 
 def _write_file(directory: int, name: str, payload: bytes) -> None:

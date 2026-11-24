@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 import sqlite3
@@ -26,10 +27,10 @@ from houmao.gateway.access import (
     GatewayChallenge,
     GatewayChallengeRequest,
     GatewayRequestBinding,
-    load_gateway_signer,
     sign_sshsig,
     sshsig_header,
 )
+from houmao.gateway.access_models import MANAGED_SELF_PATH
 from houmao.gateway.deployment import GatewayDeployment
 from houmao.gateway.authorization_models import Credential, Permission, Principal, ScopedGrant
 from houmao.gateway.operations import PROMPT, mailbox_resource
@@ -58,6 +59,48 @@ def _runtime(
     return GatewayServiceRuntime.from_gateway_root(
         gateway_root=_seed_headless_gateway_root(tmp_path, tool="claude"), host=host, port=43123
     )
+
+
+def test_default_group_http_gate(tmp_path: Path) -> None:
+    """Malformed proof and managed-self cannot perform a keyed admin effect."""
+
+    runtime = _runtime(tmp_path)
+    client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+    path = "/v1/admin/default-permission-group"
+    signed = self_fixture_auth(runtime)
+    admin, signer = fixture_admin_key(tmp_path, "default-admin")
+    enroll_fixture_admin(client, admin, signer)
+    payload = {"group": "agent-observer"}
+    assert client.put(path, json=payload, auth=signed).status_code == 403
+    assert client.put(path, json=payload).status_code == 401
+    granted = client.put(path, json=payload, auth=FixtureProofAuth(signer))
+    assert granted.status_code == 200, granted.text
+    assert granted.json()["default_permission_revision"] == 1
+    refused = client.put(path, json=payload, headers={SIGNATURE_HEADER: "bad"})
+    assert refused.status_code == 401
+    assert runtime._require_access_policy().store.snapshot().default_permission_revision == 1
+
+
+@pytest.mark.parametrize("name", ["authorization.sqlite3", "authorization.sqlite3-wal"])
+def test_owner_database_excluded_from_mail_export(tmp_path: Path, name: str) -> None:
+    """Even open-admin attachment admission refuses the database through a symlink."""
+
+    runtime = _runtime(tmp_path)
+    client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+    alias = tmp_path / "attachment.txt"
+    alias.symlink_to(runtime._current_access().private_root / name)
+    reply = client.post(
+        "/v1/mail/online/send",
+        json={
+            "expected_binding_id": "fixture-binding",
+            "to": ["someone@example.test"],
+            "subject": "Attachment qualification",
+            "body_content": "test",
+            "attachments": [{"path": str(alias)}],
+        },
+    )
+    assert reply.status_code == 403
+    assert "attachment.txt" not in reply.text
 
 
 def test_route_admission_and_live_enrollment(
@@ -122,18 +165,18 @@ def test_route_admission_and_live_enrollment(
     assert client.get("/v1/endpoint").json()["admin_mode"] == "keyed"
     assert client.get("/v1/endpoint").json()["challenge_path"] == "/v1/auth/challenge"
     assert first.public_key not in client.get("/v1/endpoint").text
-    unauthenticated = client.post("/v1/mail/offline/send", content=b"{malformed")
+    unauthenticated = client.get("/v1/memory")
     assert unauthenticated.status_code == 401
     assert unauthenticated.json()["detail"]["purposes"] == ["caller"]
     assert "/v1/auth/challenge" in unauthenticated.headers["WWW-Authenticate"]
-    assert client.post("/v1/requests", content=b"{malformed").status_code == 401
+    assert client.post("/v1/requests", content=b"{malformed").status_code == 422
     assert client.post("/v1/requests", content=b"{malformed", auth=self_auth).status_code == 422
     assert client.get("/v1/ag-ui/capabilities").status_code == 401
     assert client.post("/v1/ag-ui/events", content=b"{bad", auth=self_auth).status_code == 422
     call.assert_not_called()
     admin_auth = FixtureProofAuth(signer, purpose="caller")
     for path in ("/v1/status", "/v1/memory", "/v1/usage"):
-        assert client.get(path).status_code == 401
+        assert client.get(path).status_code == (200 if path == "/v1/status" else 401)
         assert client.get(path, auth=self_auth).status_code == 200
         assert client.get(path, auth=admin_auth).status_code == 200
     assert client.post("/v1/requests", content=b"{malformed", auth=admin_auth).status_code == 422
@@ -150,6 +193,57 @@ def test_route_admission_and_live_enrollment(
     assert client.get("/v1/endpoint").json()["proof_protocol"] == "sshsig-v2"
     assert client.post("/v1/requests", content=b"{malformed").status_code == 422
     assert client.get("/v1/status").status_code == 200
+
+
+def test_gateway_startup_requires_matching_private_registration(
+    tmp_path: Path, gateway_fixture_access: FixtureGatewayAccess
+) -> None:
+    """A committed public registration alone does not make the gateway ready."""
+
+    registration = gateway_fixture_access.require_self_registration()
+    database = gateway_fixture_access.private_root / "authorization.sqlite3"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("DELETE FROM managed_self_keys")
+    with pytest.raises(GatewayError, match="requires valid owner access state"):
+        create_app(runtime=_runtime(tmp_path))
+    assert gateway_fixture_access.current_self() == registration
+
+
+def test_self_registration_route_rotates_and_recovers(
+    tmp_path: Path, gateway_fixture_access: FixtureGatewayAccess
+) -> None:
+    """Require current self or admin proof and recover a revoked live registration."""
+
+    runtime = _runtime(tmp_path)
+    client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+    first, admin_signer = fixture_admin_key(tmp_path, "operator")
+    enroll_fixture_admin(client, first, admin_signer)
+    original_self = self_fixture_auth(runtime)
+    request = {
+        "operation": "rotate",
+        "generation_id": gateway_fixture_access.target.incarnation,
+        "expected_revision": 1,
+    }
+    assert client.put(MANAGED_SELF_PATH, json=request).status_code == 401
+    rotated = client.put(MANAGED_SELF_PATH, json=request, auth=original_self)
+    assert rotated.status_code == 200, rotated.text
+    assert rotated.json()["registration_revision"] == 2
+    assert client.put(MANAGED_SELF_PATH, json=request, auth=original_self).status_code == 401
+    current_self = self_fixture_auth(runtime)
+    revoked = client.put(
+        MANAGED_SELF_PATH,
+        json={**request, "operation": "revoke", "expected_revision": 2},
+        auth=current_self,
+    )
+    assert revoked.status_code == 200 and not revoked.json()["active"]
+    recovered = client.put(
+        MANAGED_SELF_PATH,
+        json={**request, "expected_revision": 3},
+        auth=FixtureProofAuth(admin_signer),
+    )
+    assert recovered.status_code == 200, recovered.text
+    assert recovered.json()["registration_revision"] == 4 and recovered.json()["active"]
+    assert set(recovered.json()) == {"generation_id", "key_id", "registration_revision", "active"}
 
 
 @pytest.mark.parametrize("channel", ["online", "offline"])
@@ -352,7 +446,13 @@ def test_wildcard_attached_policy_and_policy_failure(
     assert client.get("/v1/endpoint").json()["admin_mode"] == "unavailable"
     assert client.get("/v1/endpoint").json()["proof_protocol"] == "sshsig-v2"
     assert client.get("/v1/status").status_code == 503
-    assert client.post("/v1/requests", content=b"{bad").status_code == 503
+    assert (
+        client.post(
+            "/v1/requests",
+            json={"kind": "submit_work_request", "payload": {"text": "Review the build."}},
+        ).status_code
+        == 503
+    )
 
 
 def test_gateway_rebind_uses_new_generation_and_rejects_old_proof(
@@ -365,35 +465,31 @@ def test_gateway_rebind_uses_new_generation_and_rejects_old_proof(
     client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
     challenge_request = GatewayChallengeRequest(
         purpose="caller",
-        key_id=gateway_fixture_access.current_self().key_id,
+        key_id=gateway_fixture_access.require_self_registration().key_id,
         request=GatewayRequestBinding.from_request("GET", "/v1/usage", "", b""),
     )
     challenge = GatewayChallenge.model_validate_json(
         client.post("/v1/auth/challenge", json=challenge_request.model_dump(mode="json")).content
     )
-    old = gateway_fixture_access.self_store.self_signer_path(
-        gateway_fixture_access.target.incarnation
-    )
+    old = gateway_fixture_access.store.load_self_signer(gateway_fixture_access.target.incarnation)
     current = replace(
         gateway_fixture_access,
         target=gateway_fixture_access.target.model_copy(update={"incarnation": "replacement"}),
     )
-    current.self_store.provision_self(current.target.incarnation)
+    current.store.provision_self(current.target.incarnation)
     monkeypatch.setattr(gateway_service, "gateway_access_for_manifest", lambda _path: current)
     expired = client.get(
         "/v1/usage",
         headers={
             CHALLENGE_HEADER: challenge.challenge_id,
-            SIGNATURE_HEADER: sshsig_header(
-                sign_sshsig(load_gateway_signer(old), challenge.signing_bytes())
-            ),
+            SIGNATURE_HEADER: sshsig_header(sign_sshsig(old, challenge.signing_bytes())),
         },
     )
     assert expired.status_code == 401
     assert client.get("/v1/endpoint").json()["target"]["incarnation"] == "replacement"
     assert (
         client.get(
-            "/v1/usage", auth=FixtureProofAuth(current.self_store.self_signer_path("replacement"))
+            "/v1/usage", auth=FixtureProofAuth(current.store.load_self_signer("replacement"))
         ).status_code
         == 422
     )
@@ -479,7 +575,7 @@ def test_public_input_is_literal_bounded_and_handoff_only(
         )
         access = runtime.m_access_runtime
         assert access is not None
-        signer = load_gateway_signer(access.self_store.self_signer_path(access.target.incarnation))
+        signer = access.store.load_self_signer(access.target.incarnation)
         response = client.post(
             "/v1/messages",
             content=raw,

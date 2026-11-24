@@ -596,10 +596,10 @@ def test_self_status_queries_use_authority_without_publication(
 ) -> None:
     """Verify owner-local and signed gateway self queries with publication disabled."""
 
-    monkeypatch.setattr(
-        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
-    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner"))
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
 
     def deny_publication(*args: object, **kwargs: object) -> None:
         pytest.fail("Self status attempted registry or gateway publication")
@@ -635,9 +635,7 @@ def test_authenticated_gateway_over_a_verified_https_proxy(
     """Qualify signed access and the selected public or owner-local operation over HTTPS."""
 
     ca, tls = _certificate(tmp_path)
-    monkeypatch.setattr(
-        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
-    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner"))
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.delenv("TMUX_PANE", raising=False)
@@ -748,8 +746,9 @@ def _exercise_access(
     keyed = unsigned.describe_endpoint()
     assert keyed.admin_mode == "keyed"
     assert keyed.proof_protocol == "sshsig-v2"
+    unsigned.status()
     with pytest.raises(GatewayHttpError) as private:
-        unsigned.status()
+        unsigned.memory()
     assert private.value.status_code == 401
     with pytest.raises(GatewayHttpError) as local_denial:
         local.list_reminders()
@@ -774,10 +773,8 @@ def _exercise_access(
     assert result.exit_code == 0, result.output
     cli_payload = json.loads(result.output)
     assert cli_payload["execution_path"] == "gateway_backed"
-    self_signer = gateway_access_runtime.gateway_access_for_manifest(
-        manifest
-    ).self_store.self_signer_path(descriptor.target.incarnation)
-    assert str(self_signer) not in result.output
+    authority = gateway_access_runtime.gateway_access_for_manifest(manifest)
+    assert str(authority.private_root / "authorization.sqlite3") not in result.output
     assert "SSHSIG" not in result.output
 
     trust = ssl.create_default_context(cafile=str(ca))
@@ -790,8 +787,7 @@ def _exercise_access(
         refused = caller.post(
             "/v1/requests", content=b"{", headers={"Content-Type": "application/json"}
         )
-        assert refused.status_code == 401
-        assert "/v1/auth/challenge" in refused.headers["WWW-Authenticate"]
+        assert refused.status_code == 422
         for route, event, content in (
             ("/v1/messages", "contact-1", {"text": "Read this notice when available."}),
             ("/v1/public/prompt", "contact-2", {"prompt": "Reply by approved mail if permitted."}),
@@ -807,8 +803,9 @@ def _exercise_access(
     )
 
     second_client.remove_admin_key(first.key_id)
+    first_client.status()
     with pytest.raises(GatewayHttpError) as revoked:
-        first_client.status()
+        first_client.memory()
     assert revoked.value.status_code == 403
     second_client.remove_admin_key(second.key_id)
     assert unsigned.describe_endpoint().admin_mode == "open"
@@ -860,6 +857,7 @@ _PEER_SESSION = "HOUMAO-tls-cross-account-peer"
 # Run the second managed fixture and its signers inside the other account.
 _PEER_SCRIPT = """
 import json
+import os
 from pathlib import Path
 import runpy
 import sys
@@ -878,7 +876,7 @@ from houmao.srv_ctrl.commands.main import cli
 
 operation, root, fixture_path, *arguments = sys.argv[1:]
 root = Path(root)
-gateway_access_runtime.resolve_houmao_home_root = lambda: root / "owner"
+os.environ["XDG_CONFIG_HOME"] = str(root / "owner")
 if operation == "provision":
     fixture = runpy.run_path(fixture_path)
     fixture["_provision_runtime"](
@@ -1195,9 +1193,7 @@ def test_cross_account_peer_policy_on_distinct_tmux_servers(
     peer_user = os.environ.get("HOUMAO_TEST_PEER_USER")
     if not peer_user:
         pytest.skip("Set HOUMAO_TEST_PEER_USER to an existing account accessible with sudo -n -u")
-    monkeypatch.setattr(
-        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
-    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner"))
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.delenv("TMUX_PANE", raising=False)
@@ -1341,9 +1337,7 @@ def test_explicit_reprovisioning_bypasses_retired_discovery_and_roster(
 ) -> None:
     """Use current owner manifest authority when retired registry records cannot be selected."""
 
-    monkeypatch.setattr(
-        gateway_access_runtime, "resolve_houmao_home_root", lambda: tmp_path / "owner"
-    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "owner"))
     monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
     monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.delenv("TMUX_PANE", raising=False)
@@ -1437,5 +1431,13 @@ def test_explicit_reprovisioning_bypasses_retired_discovery_and_roster(
         state = access.store.snapshot()
         assert json.loads(result.output)["admin_mode"] == state.admin_mode == mode
         assert state.find_credential(old_key.key_id) is None
-        assert access.self_store.load_self(generation).owner == access.owner
+        assert access.store.load_self(generation) is None
+        next_generation = "relaunch-after-initialization"
+        gateway_access_runtime.provision_gateway_generation(
+            binding=access.execution_binding,
+            agent_id=access.owner.agent_id,
+            generation_id=next_generation,
+        )
+        registration = access.store.load_self(next_generation)
+        assert registration is not None and registration.owner == access.owner
         assert old_roster.read_bytes() == preserved

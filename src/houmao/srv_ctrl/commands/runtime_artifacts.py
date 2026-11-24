@@ -281,6 +281,7 @@ def materialize_joined_launch(
             agent_id=resolved_agent_id,
             generation_id=generation_id,
             seed=seed,
+            online_mailbox_configured=launch_plan.mailboxes.online.binding is not None,
         )
         manifest_payload = build_session_manifest_payload(
             SessionManifestRequest(

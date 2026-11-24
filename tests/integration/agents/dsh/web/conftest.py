@@ -230,6 +230,8 @@ def native_web_factory(
         models: list[dict[str, Any]] | None = None,
         generation: str = "web-generation",
         skill_projection: Path | None = None,
+        mcp_projection: Path | None = None,
+        mcp_connectors: dict[str, dict[str, Any]] | None = None,
     ) -> NativeWebHost:
         """Create isolated private state or explicitly reuse a captured fixture home."""
 
@@ -301,6 +303,17 @@ def native_web_factory(
                             }
                         }
                         if skill_projection is not None
+                        else {}
+                    ),
+                    **(
+                        {
+                            "mcp_mount": {
+                                "mount_id": (mcp_projection / "mount-id").read_text().strip(),
+                                "projection_root": str(mcp_projection),
+                                "connectors": mcp_connectors or {},
+                            }
+                        }
+                        if mcp_projection is not None
                         else {}
                     ),
                 }

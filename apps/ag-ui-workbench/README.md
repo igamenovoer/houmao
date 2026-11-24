@@ -69,7 +69,16 @@ Validation flows:
 
 ### Sign AG-UI Requests as a Local Operator
 
-Ask the target owner to enroll your public SSH key under your operator identity and grant the AG-UI permissions you need. An observe-only operator can attach and read events. A run-capable operator also needs permission to submit a run and receive its output. Launch a separate local workbench for each operator so each instance uses that operator's key and local browser session.
+Ask the target owner to enroll your public SSH key under your operator identity. An `ag-ui-viewer` role for one thread can attach and read events. An `ag-ui-runner` role can also submit attributed tasks on that thread. Launch a separate local workbench for each operator so each instance uses that operator's key and local browser session.
+
+For example, to let enrolled operator Alice run tasks on `review-thread`, Bob's owner can create a role scoped to that exact thread and assign it to Alice's principal.
+
+```sh
+digest=$(printf '%s' review-thread | sha256sum | cut -d ' ' -f 1)
+houmao-mgr agents single --agent-id bob access role-put review-runner \
+  --template ag-ui-runner --resource "ag-ui:thread:$digest"
+houmao-mgr agents single --agent-id bob access role-assign alice review-runner
+```
 
 Save a client binding and its dedicated OpenSSH private key as owner-private files (mode `0600`) in an owner-private directory (mode `0700`) outside the checkout. Copy the exact agent ID and execution context ID from the target owner's trusted deployment information. The gateway base is the origin and any deployment prefix before `/v1/ag-ui`.
 

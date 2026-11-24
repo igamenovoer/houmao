@@ -5,7 +5,8 @@ import { isAbsolute } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { createCommonRefresh } from './managed-refresh.mjs';
-import { createManagedSkillMount } from './managed-skill-mount.mjs';
+import { managedMcpAdapter } from './managed-mcp-mount.mjs';
+import { createManagedFileMount } from './managed-file-mount.mjs';
 
 export const name = 'houmao-managed-web';
 export const inject = ['agents', 'sessions', 'agentPresets', 'llm', 'systemPrompt', 'sessionPersistence', 'sessionQuery', 'connection', 'webServer', 'typertGateway', 'attachments', 'permissionPresets', 'workspaceRegistry'];
@@ -275,6 +276,7 @@ export function apply(ctx, config) {
         installModelSelection(agentCtx);
         await ctx.agentPresets.mount(agentCtx, preset.id);
         await skillMount.register(agentCtx, agent, preset.id);
+        await mcpMount.register(agentCtx, agent, preset.id);
         await attachWorkspaceSession(workspace, agent, sessionId);
         managedWorkspaces.set(agent, workspace.id);
       },
@@ -287,17 +289,24 @@ export function apply(ctx, config) {
     await ctx.llm.resolveCallConfig(agent.model.current());
     return true;
   };
-  const skillMount = createManagedSkillMount(ctx, control.skill_mount, {
+  const mountCallbacks = {
     cwd: control.working_directory, authenticate, requireIdentity, pendingInteractions,
     pendingInbox, fail, nativeVersion, ready: nativeReady,
     checkSkillScope: (agent, signal) => commonRefresh.checkSkillScope(agent, signal),
-  });
-  ctx.on('agent/created', ({agent}) => skillMount.guardCreated(agent), {global: true});
+  };
+  const skillMount = createManagedFileMount(ctx, control.skill_mount, mountCallbacks);
+  const mcpMount = createManagedFileMount(ctx, control.mcp_mount, mountCallbacks,
+    managedMcpAdapter(ctx, control.mcp_mount, fail));
+  const requireIdleMounts = () => { skillMount.assertIdle(); mcpMount.assertIdle(); };
+  ctx.on('agent/created', ({agent}) => {
+    skillMount.guardCreated(agent);
+    mcpMount.guardCreated(agent);
+  }, {global: true});
   const commonRefresh = createCommonRefresh(ctx, {
     cwd: control.working_directory, identity, live, authenticate, requireIdentity,
     pendingInteractions, pendingInbox, fail, nativeVersion,
     ready: nativeReady,
-    skillMount,
+    skillMount, mcpMount,
   });
 
   ctx.on('webserver/index-inject', (table, peer) => {
@@ -389,10 +398,10 @@ export function apply(ctx, config) {
   ctx.on('agent/disposed', ({agent}) => { if (agent === root) record('disposed', agent); });
 
   const operations = {
-    describe: async () => ({protocol_version: VERSION, identity: identity(root), capabilities: ['state', 'history', 'conversation', 'prompt', 'receipt', 'interrupt', 'start', 'reset', 'stop', 'set_model', 'common_state', 'refresh', ...(skillMount.describe(root) ? ['skill_mount'] : [])], build: nativeVersion}),
+    describe: async () => ({protocol_version: VERSION, identity: identity(root), capabilities: ['state', 'history', 'conversation', 'prompt', 'receipt', 'interrupt', 'start', 'reset', 'stop', 'set_model', 'common_state', 'refresh', ...(skillMount.describe(root) ? ['skill_mount'] : []), ...(mcpMount.describe(root) ? ['mcp_mount'] : [])], build: nativeVersion}),
     common_state: async request => commonRefresh.observe(requireIdentity(request.identity)),
     refresh: async (request, signal, peer) => {
-      skillMount.assertIdle();
+      requireIdleMounts();
       return commonRefresh.refresh(requireIdentity(request.identity), request, signal, peer);
     },
     skill_mount: async request => skillMount.describe(requireIdentity(request.identity)),
@@ -400,6 +409,11 @@ export function apply(ctx, config) {
     skill_mount_publish: async (request, signal, peer) => skillMount.publish(requireIdentity(request.identity), request, signal, peer),
     skill_mount_close: async (request, _signal, peer) => skillMount.close(requireIdentity(request.identity), request, peer),
     skill_mount_status: async request => skillMount.status(requireIdentity(request.identity), request),
+    mcp_mount: async request => mcpMount.describe(requireIdentity(request.identity)),
+    mcp_mount_open: async (request, signal, peer) => mcpMount.open(requireIdentity(request.identity), request, signal, peer),
+    mcp_mount_publish: async (request, signal, peer) => mcpMount.publish(requireIdentity(request.identity), request, signal, peer),
+    mcp_mount_close: async (request, _signal, peer) => mcpMount.close(requireIdentity(request.identity), request, peer),
+    mcp_mount_status: async request => mcpMount.status(requireIdentity(request.identity), request),
     state: async request => {
       if (request.identity) requireIdentity(request.identity);
       const readState = (trueIdle = false) => {
@@ -454,7 +468,7 @@ export function apply(ctx, config) {
       return {identity: identity(agent), after_native_sequence: after, cursor: through, current_cursor: current, entries, has_more: through < current};
     },
     start: async (request, signal, peer) => {
-      skillMount.assertIdle();
+      requireIdleMounts();
       if (creating) fail('busy', 'Lifecycle operation already active');
       if (!['new', 'exact'].includes(request.mode)) fail('invalid_request', 'Explicit new or exact selection required');
       if (live()) fail('busy', 'Stop the bound Agent before starting another');
@@ -497,7 +511,7 @@ export function apply(ctx, config) {
       if (receipts.has(request.operation_id)) return {...receipts.get(request.operation_id), duplicate: true};
       const admit = () => {
         checkDeadline(request, signal, peer);
-        skillMount.assertIdle();
+        requireIdleMounts();
         checkDispatchPermission(request);
         if (requireIdentity(request.identity) !== agent || creating) fail('stale_identity', 'Native execution changed');
         if (receipts.has(request.operation_id)) return receipts.get(request.operation_id);
@@ -524,13 +538,13 @@ export function apply(ctx, config) {
       const selection = {provider: request.provider, model: request.model, ...(request.reasoning_effort === undefined || request.reasoning_effort === null ? {} : {reasoningEffort: request.reasoning_effort})};
       await ctx.llm.resolveCallConfig(selection);
       authenticate(request, signal, peer);
-      skillMount.assertIdle();
+      requireIdleMounts();
       if (requireIdentity(request.identity) !== agent || creating) fail('stale_identity', 'Native execution changed during model resolution');
       agent.model.select(selection);
       return {identity: identity(agent), model: {provider: selection.provider, model: selection.model, reasoning_effort: selection.reasoningEffort ?? null}};
     },
     reset: async (request, signal, peer) => {
-      skillMount.assertIdle();
+      requireIdleMounts();
       const agent = requireIdentity(request.identity);
       if (creating || !handle || handle.agent !== agent) fail('unavailable', 'Native lifecycle ownership unavailable');
       if ((request.admission_policy ?? 'ready_only') !== 'ready_only') fail('invalid_policy', 'Reset requires ready-only admission');
@@ -560,7 +574,7 @@ export function apply(ctx, config) {
       } finally { creating = false; }
     },
     interrupt: async request => {
-      skillMount.assertIdle();
+      requireIdleMounts();
       const agent = requireIdentity(request.identity);
       const boundary = ctx.agents.turnBoundaryOf(agent.session);
       if (request.operation_id) {
@@ -573,7 +587,7 @@ export function apply(ctx, config) {
       agent.cancel({kind: 'user'}, {keepInbox: true});
       return {interrupted: true, removed: false};
     },
-    stop: async request => { skillMount.assertIdle(); const agent = requireIdentity(request.identity); if (!handle || handle.agent !== agent) fail('unavailable', 'Lifecycle ownership unavailable'); await handle.dispose(); return {stopped: true}; },
+    stop: async request => { requireIdleMounts(); const agent = requireIdentity(request.identity); if (!handle || handle.agent !== agent) fail('unavailable', 'Lifecycle ownership unavailable'); await handle.dispose(); return {stopped: true}; },
   };
   const dispatch = async (endpoint, request, signal, peer) => {
     try {

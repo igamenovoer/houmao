@@ -88,7 +88,8 @@ Related skills and boundaries:
 | --- | --- | --- |
 | `help` | [Help](#help) | Read-only usage. |
 | `discover` | [Discover](commands/discover.md) | Resolve identity, liveness, or messaging capability. |
-| `prompt` | [Prompt](commands/prompt.md) | Submit one ordinary managed prompt. |
+| `request` | [Request](commands/request.md) | Send quoted work through the target's requester permission. |
+| `prompt` | [Prompt](commands/prompt.md) | Submit one verbatim managed prompt with direct-input authority. |
 | `interrupt` | [Interrupt](commands/interrupt.md) | Request a transport-neutral interruption. |
 | `gateway-queue` | [Gateway Queue](commands/gateway-queue.md) | Use explicit gateway admission or queue behavior. |
 | `send-keys` | [Send Keys](commands/send-keys.md) | Deliver exact raw TUI keys. Alias `raw-input`. |

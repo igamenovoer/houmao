@@ -426,8 +426,17 @@ sequenceDiagram
 
 Current public request kinds:
 
+- `submit_work_request`
 - `submit_prompt`
 - `interrupt`
+
+Work requests require `agent.request.submit` on `agent` and accept only a nonempty `text` field of up to 65,536 UTF-8 bytes. At handoff, the gateway identifies the verified caller or labels an unsigned caller anonymous. It quotes the text under the target's existing instructions and checks readiness and authority again before sending it to the current conversation with the configured model. Queue acceptance confirms that the gateway recorded the request. Native handoff and task completion have separate evidence.
+
+```json
+{"schema_version": 1, "kind": "submit_work_request", "payload": {"text": "Review PR 42"}}
+```
+
+Verbatim `submit_prompt` and `POST /v1/control/prompt` require `agent.prompt.direct`. Native slash commands also require `agent.command.invoke`. Commands that reset the conversation require `native.session.select`. The gateway rejects ambiguous spellings and commands outside the maintained controls for the selected surface with `unsupported_command`. The same input effects apply to reminders at registration and delivery.
 
 The reminder timer path does not add a new public request kind. Reminders are registered and inspected only through `/v1/reminders`, and due reminders execute as gateway-owned in-memory behavior instead of becoming another public `POST /v1/requests` kind.
 
@@ -435,7 +444,7 @@ The notifier reminder path also does not add a new public request kind. The gate
 
 `POST /v1/requests` stays the semantic queued prompt surface. For headless targets, both this route and `POST /v1/control/prompt` also accept an optional request-scoped `execution.model` object with normalized `name` plus optional `reasoning.level` as a tool/model-specific preset index. Higher unused numbers saturate to the highest maintained Houmao preset for the resolved ladder, and `0` means explicit off only when that ladder supports it. For immediate "send now or refuse now" prompt control, use `POST /v1/control/prompt`. For raw terminal mutation that must preserve exact `<[key-name]>` send-keys behavior without creating managed prompt history, use `POST /v1/control/send-keys` instead.
 
-Before the worker promotes accepted durable work to `running`, it coalesces adjacent accepted control-intent records for the same managed-agent epoch. Coalescible records are limited to `interrupt` and `submit_prompt` records whose entire trimmed prompt is exactly `/compact`, `/clear`, or `/new`. Ordinary prompts, internal `mail_notifier_prompt` rows, unsupported request kinds, and different epoch values are hard boundaries. Duplicate interrupts collapse to one interrupt. Duplicate or superseded context-control prompts collapse to one final context action, with `/new` dominating `/clear` and `/compact`, and `/clear` dominating `/compact`. When a control run contains both interrupt and context action, one interrupt executes before the final context action. Superseded rows are retained as terminal `coalesced` records with result metadata and a `coalesced` gateway event; they do not contribute to active queue depth.
+Before promoting accepted work to `running`, the worker coalesces adjacent control intents for the same managed-agent epoch. Eligible intents are interrupts and exact, qualified `/compact`, `/clear`, and `/new` commands. Wrapped work requests, ordinary prompts, internal `mail_notifier_prompt` rows, and epoch changes separate control-intent runs. Duplicate interrupts collapse to one interrupt. Duplicate or superseded context commands collapse to one final action, with `/new` above `/clear` above `/compact`. If a block contains both an interrupt and a context action, the worker executes the interrupt first. Superseded rows retain terminal `coalesced` state and result metadata and generate a `coalesced` gateway event.
 
 Representative prompt submission:
 

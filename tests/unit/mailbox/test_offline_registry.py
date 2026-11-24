@@ -5,13 +5,30 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 import sqlite3
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from pydantic import ValidationError
 import pytest
 
-from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox
+from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig
+from houmao.agents.realm_controller import gateway_access_runtime, manifest, registry_storage
+from houmao.execution.context import current_execution_binding, execution_binding_scope
+from houmao.execution.models import ExecutionBindingV1
+from houmao.gateway._access_storage import GatewayAccessError
+from houmao.gateway._access_sshsig import public_key_text
+from houmao.gateway.access_models import GatewayOwner, GatewayTarget
+from houmao.gateway.authorization_models import (
+    Credential,
+    PolicySnapshot,
+    Principal,
+    RoleAssignment,
+)
+from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.mailbox import delivery_policy
+from houmao.mailbox.filesystem import bootstrap_filesystem_mailbox, load_active_mailbox_registration
 from houmao.mailbox.managed import (
     DeregisterMailboxRequest,
     ManagedMailboxOperationError,
@@ -29,6 +46,7 @@ from houmao.mailbox.registry_config import (
     validate_registry_url,
     verify_selected_registry_store,
 )
+from houmao.mailbox.services import FilesystemGatewayMailboxAdapter
 
 _ADMIN = "admin-test-credential-" + "a" * 48
 _ALICE = "alice-test-credential-" + "b" * 48
@@ -57,7 +75,12 @@ def _headers(token: str) -> dict[str, str]:
 
 
 def _join(
-    client: TestClient, agent: str, credential: str, address: str | None = None
+    client: TestClient,
+    agent: str,
+    credential: str,
+    address: str | None = None,
+    *,
+    require_recipient_policy: bool = False,
 ) -> dict[str, str]:
     """Enroll without creating a body or gateway."""
 
@@ -68,6 +91,7 @@ def _join(
             "agent_id": agent,
             "address": address or f"{agent}@houmao.localhost",
             "member_credential": credential,
+            "require_recipient_policy": require_recipient_policy,
         },
     )
     assert response.status_code == 200, response.text
@@ -134,6 +158,232 @@ def test_conflicting_owner_cannot_claim_address(config: OfflineRegistryConfig) -
         assert response.status_code == 409
         assert client.get("/houmao/registry/self", headers=_headers(_ALICE)).json() == alice
         assert not (config.mailbox_root / "mailboxes" / "bob@houmao.localhost").exists()
+
+
+def test_managed_recipient_admission_at_offline_deposit(
+    config: OfflineRegistryConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The authenticated member's scoped role overrides the recipient's default."""
+
+    owner = GatewayOwner(agent_id="bob", context_id="bob-owner")
+    store = AuthorizationStore(tmp_path / "bob-policy", owner)
+    admin = Principal(principal_id="bob-admin", label="Bob admin", kind="operator")
+    alice_principal = Principal(
+        principal_id="alice-peer", label="Alice", kind="agent", logical_agent_id="alice"
+    )
+    store.initialize(
+        PolicySnapshot(
+            owner=owner,
+            principals=(admin,),
+            credentials=(
+                Credential(
+                    principal_id=admin.principal_id,
+                    public_key=public_key_text(Ed25519PrivateKey.generate().public_key()),
+                    admin_revision=0,
+                ),
+            ),
+        )
+    )
+    access = SimpleNamespace(
+        private_root=tmp_path / "bob-policy",
+        store=store,
+        target=GatewayTarget(owner=owner, incarnation="stopped-bob"),
+        require_current=lambda: None,
+    )
+    carol_owner = GatewayOwner(agent_id="carol", context_id="carol-owner")
+    carol_store = AuthorizationStore(tmp_path / "aaa-carol-policy", carol_owner)
+    carol_store.initialize()
+    carol_access = SimpleNamespace(
+        private_root=tmp_path / "aaa-carol-policy",
+        store=carol_store,
+        target=GatewayTarget(owner=carol_owner, incarnation="stopped-carol"),
+        require_current=lambda: None,
+    )
+
+    with TestClient(create_offline_registry_app(config=config)) as client:
+        alice = _join(client, "alice", _ALICE)
+        bob = _join(client, "bob", _BOB, require_recipient_policy=True)
+        carol_token = "carol-credential-" + "c" * 48
+        carol = _join(client, "carol", carol_token, require_recipient_policy=True)
+
+        def send(*, to: list[str], cc: list[str] | None = None):
+            return client.post(
+                "/houmao/registry/self/mail/send",
+                headers=_headers(_ALICE),
+                json={
+                    "expected_binding_id": alice["registration_id"],
+                    "to": to,
+                    "cc": cc or [],
+                    "subject": "work",
+                    "body_content": "Please review the report.",
+                },
+            )
+
+        unavailable = send(to=[bob["address"]])
+        assert unavailable.status_code == 409
+        assert unavailable.json()["code"] == "recipient_policy_unavailable"
+        monkeypatch.setattr(
+            delivery_policy,
+            "_select_recipient",
+            lambda receipt, **_: {"bob": access, "carol": carol_access}.get(
+                receipt.owner_principal_id
+            ),
+        )
+        assert send(to=[bob["address"]]).status_code == 200
+
+        with store.transaction() as transaction:
+            transaction.replace(
+                transaction.snapshot.model_copy(
+                    update={
+                        "principals": (*transaction.snapshot.principals, alice_principal),
+                        "role_assignments": (
+                            RoleAssignment(
+                                principal_id="alice-peer",
+                                role_id="builtin:agent-observer",
+                                builtin_version=1,
+                            ),
+                        ),
+                    }
+                ),
+                actor="bob-admin",
+                action="role.assign",
+            )
+        denied = send(to=[carol["address"]], cc=[bob["address"]])
+        assert denied.status_code == 409
+        assert denied.json()["code"] == "recipient_policy_refused"
+        assert (
+            _request(client, _BOB, bob, "list")["messages"][0]["sender"]["principal_id"] == "alice"
+        )
+        assert _request(client, carol_token, carol, "list")["messages"] == []
+        assert all(entry.action != "operation.handoff" for entry in carol_store.audit_entries())
+        assert len(list((config.mailbox_root / "messages").rglob("*.md"))) == 1
+
+        operator = FilesystemGatewayMailboxAdapter(
+            FilesystemMailboxResolvedConfig(
+                transport="filesystem",
+                principal_id="bob",
+                agent_id="bob",
+                binding_id=bob["registration_id"],
+                address=bob["address"],
+                filesystem_root=config.mailbox_root,
+                bindings_version=bob["registration_id"],
+                registry_root=config.registry_root,
+            )
+        )
+        posted = operator.post(
+            subject="operator post",
+            body_content="Operator body",
+            attachments=(),
+            reply_policy="none",
+        )
+        assert posted.sender.principal_id == "HOUMAO-operator"
+
+        with store.transaction() as transaction:
+            transaction.replace(
+                transaction.snapshot.model_copy(
+                    update={
+                        "role_assignments": (),
+                        "default_permission_group": "agent-observer",
+                    }
+                ),
+                actor="bob-admin",
+                action="admin.default-group.set",
+            )
+        assert send(to=[bob["address"]]).status_code == 409
+        assert _request(client, _BOB, bob, "list")["message_count"] == 2
+
+
+def test_delivery_selects_owner_independently_of_sender_execution(
+    config: OfflineRegistryConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A caller's execution binding must not become recipient host authority."""
+
+    with TestClient(create_offline_registry_app(config=config)) as client:
+        alice = _join(client, "alice", _ALICE)
+        bob = _join(client, "bob", _BOB)
+    sender = load_active_mailbox_registration(config.mailbox_root, address=alice["address"])
+    recipient = load_active_mailbox_registration(config.mailbox_root, address=bob["address"])
+    inspected = []
+
+    def select(*_args: object, **_kwargs: object) -> None:
+        inspected.append(current_execution_binding())
+
+    monkeypatch.setattr(delivery_policy, "_select_recipient", select)
+    binding = ExecutionBindingV1.model_construct(context_id="caller-only")
+    with (
+        execution_binding_scope(binding),
+        sqlite3.connect(config.mailbox_root / "index.sqlite") as connection,
+    ):
+        with delivery_policy.require_delivery_authority(
+            connection,
+            mailbox_root=config.mailbox_root,
+            registry_root=config.registry_root,
+            sender=sender,
+            sender_verified=True,
+            recipients={recipient.address: recipient},
+            message_id="test-cross-execution",
+        ):
+            assert current_execution_binding() is binding
+    assert inspected == [None]
+
+
+def test_stopped_recipient_uses_manifest_offline_binding_when_projection_is_stale(
+    config: OfflineRegistryConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A detached recipient's retained manifest controls exact address ownership."""
+
+    with TestClient(create_offline_registry_app(config=config)) as client:
+        bob = _join(client, "bob", _BOB, require_recipient_policy=True)
+    registration = load_active_mailbox_registration(config.mailbox_root, address=bob["address"])
+    manifest_path = config.registry_root / "bob.json"
+    execution = ExecutionBindingV1.model_construct(context_id="recipient")
+    owner = GatewayOwner(agent_id="bob", context_id="recipient")
+    access = SimpleNamespace(
+        manifest_path=manifest_path,
+        execution_binding=execution,
+        target=GatewayTarget(owner=owner, incarnation="stopped-bob"),
+        owner=owner,
+    )
+    record = SimpleNamespace(
+        agent_id="bob",
+        generation_id="stopped-bob",
+        execution_binding=execution,
+        runtime=SimpleNamespace(manifest_path=str(manifest_path)),
+        mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=None)),
+    )
+    binding = SimpleNamespace(
+        transport="registry",
+        binding_id=bob["registration_id"],
+        address=bob["address"],
+        agent_id="bob",
+    )
+    parsed = SimpleNamespace(
+        registry_generation_id="stopped-bob",
+        runtime=SimpleNamespace(execution_binding=execution),
+        launch_plan=SimpleNamespace(
+            mailboxes=SimpleNamespace(offline=SimpleNamespace(binding=binding))
+        ),
+    )
+    monkeypatch.setattr(
+        registry_storage, "load_managed_agent_record_by_agent_id", lambda *_args, **_kwargs: record
+    )
+    monkeypatch.setattr(gateway_access_runtime, "gateway_access_for_manifest", lambda _path: access)
+    monkeypatch.setattr(
+        manifest, "load_session_manifest", lambda _path: SimpleNamespace(payload={})
+    )
+    monkeypatch.setattr(
+        manifest, "parse_session_manifest_payload", lambda _payload, **_kwargs: parsed
+    )
+    coordinates = {
+        "mailbox_root": config.mailbox_root,
+        "registry_root": config.registry_root,
+        "required": True,
+    }
+    assert delivery_policy._select_recipient(registration, **coordinates) is access
+    binding.binding_id = "replaced-binding"
+    with pytest.raises(GatewayAccessError) as denied:
+        delivery_policy._select_recipient(registration, **coordinates)
+    assert denied.value.code == "recipient_mail_binding_changed"
 
 
 def test_offline_lifecycle_and_reassignment_isolate_history(config: OfflineRegistryConfig) -> None:

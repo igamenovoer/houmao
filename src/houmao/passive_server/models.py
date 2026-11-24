@@ -49,6 +49,15 @@ class PassiveProofEndpoint(_PassiveModel):
     challenge_path: str
 
 
+class PassiveWorkRequestReceipt(_PassiveModel):
+    """Evidence for a single direct passive work request."""
+
+    request_id: str
+    request_kind: Literal["submit_work_request"] = "submit_work_request"
+    outcome: Literal["handed_off", "not_sent", "unknown"]
+    error_code: str | None = None
+
+
 class PassiveHealthResponse(_PassiveModel):
     """Health endpoint response."""
 

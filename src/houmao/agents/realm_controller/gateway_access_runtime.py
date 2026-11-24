@@ -9,6 +9,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, list_tmux_panes
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.manifest import (
@@ -21,9 +23,10 @@ from houmao.agents.realm_controller.registry_storage import (
 )
 from houmao.execution.context import validate_execution_owner
 from houmao.execution.models import ExecutionBindingV1
+from houmao.execution.owner import retained_owner_config_root
 from houmao.execution.tmux import tmux_server_scope
 from houmao.gateway.access import (
-    GatewayAccessStore,
+    GatewayAccessError,
     GatewayClientBinding,
     GatewayLaunchSeed,
     GatewayOwner,
@@ -36,7 +39,7 @@ from houmao.gateway.access import (
 from houmao.gateway.deployment import GatewayDeployment, owner_gateway_base_url
 from houmao.gateway.authorization_models import seed_snapshot
 from houmao.gateway.authorization_store import AuthorizationStore
-from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, resolve_houmao_home_root
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 
 
 @dataclass(frozen=True)
@@ -48,7 +51,6 @@ class GatewayRuntimeAccess:
     target: GatewayTarget
     private_root: Path
     store: AuthorizationStore
-    self_store: GatewayAccessStore
 
     @property
     def owner(self) -> GatewayOwner:
@@ -63,8 +65,32 @@ class GatewayRuntimeAccess:
         if current.target != self.target or current.execution_binding != self.execution_binding:
             raise SessionManifestError("Gateway execution authority has changed.")
 
-    def current_self(self) -> GatewaySelfKey | None:
-        """Resolve self only for the current active registry generation."""
+    def require_keyed_mail_qualification(self) -> None:
+        """Refuse promotion to a keyed roster with an unqualified provider binding."""
+
+        self.require_current()
+        manifest = load_session_manifest(self.manifest_path)
+        payload = parse_session_manifest_payload(manifest.payload, source="runtime manifest")
+        if payload.launch_plan.mailboxes.online.binding is not None:
+            raise GatewayAccessError(409, "provider_delivery_unqualified")
+
+    def require_self_registration(self) -> GatewaySelfKey:
+        """Load the exact generation's public registration for startup and readiness."""
+
+        self.require_current()
+        binding = self.store.load_self(self.target.incarnation)
+        if binding is None:
+            raise GatewayAccessError(503, "self_authorization_unavailable")
+        return binding
+
+    def require_self_signing_state(self) -> None:
+        """Require the prepared public registration and corresponding private record."""
+
+        registration = self.require_self_registration()
+        self.store.load_self_signer(self.target.incarnation, expected=registration)
+
+    def require_live_generation(self) -> None:
+        """Verify that the active registry and primary runtime still match this manifest."""
 
         self.require_current()
         record = load_managed_agent_record_by_agent_id(
@@ -80,27 +106,47 @@ class GatewayRuntimeAccess:
             or record.execution_binding != self.execution_binding
             or record.terminal.current_session_name is None
         ):
-            return None
+            raise SessionManifestError("Current gateway runtime generation is unavailable.")
         try:
             with tmux_server_scope(record.terminal.socket_path):
                 panes = list_tmux_panes(session_name=record.terminal.current_session_name)
         except TmuxCommandError:
-            return None
+            raise SessionManifestError(
+                "Current gateway runtime generation is unavailable."
+            ) from None
         if not any(
             pane.window_index == "0" and pane.pane_index == "0" and not pane.pane_dead
             for pane in panes
         ):
+            raise SessionManifestError("Current gateway runtime generation is unavailable.")
+
+    def current_self(self) -> GatewaySelfKey | None:
+        """Resolve public proof evidence only for the live current generation."""
+
+        try:
+            self.require_live_generation()
+        except SessionManifestError:
             return None
-        return self.self_store.load_self(self.target.incarnation)
+        return self.store.load_self(self.target.incarnation)
+
+    def load_self_signer(self) -> tuple[GatewaySelfKey, Ed25519PrivateKey]:
+        """Resolve this verified live target and load its exact owner-private signing key."""
+
+        binding = self.current_self()
+        if binding is None:
+            raise GatewayAccessError(503, "self_authorization_unavailable")
+        return binding, self.store.load_self_signer(self.target.incarnation, expected=binding)
 
 
-def _owner_access(binding: ExecutionBindingV1, agent_id: str) -> tuple[GatewayOwner, Path]:
+def _owner_access(
+    binding: ExecutionBindingV1, agent_id: str, *, initialize: bool = False
+) -> tuple[GatewayOwner, Path]:
     """Select one external owner-private directory for a bound logical agent."""
 
     validate_execution_owner(binding)
     owner = GatewayOwner(agent_id=agent_id, context_id=binding.context_id)
     scope = hashlib.sha256(f"{binding.context_id}\0{agent_id}".encode()).hexdigest()
-    root = resolve_houmao_home_root() / "gateway-access" / scope
+    root = retained_owner_config_root(binding, initialize=initialize) / "gateway-access" / scope
     return owner, root
 
 
@@ -124,7 +170,6 @@ def gateway_access_for_manifest(manifest_path: Path) -> GatewayRuntimeAccess:
         target=GatewayTarget(owner=owner, incarnation=payload.registry_generation_id),
         private_root=root,
         store=AuthorizationStore(root, owner),
-        self_store=GatewayAccessStore.from_root(root, owner),
     )
 
 
@@ -134,23 +179,28 @@ def provision_gateway_generation(
     agent_id: str,
     generation_id: str,
     seed: GatewayLaunchSeed | None = None,
+    online_mailbox_configured: bool = False,
 ) -> None:
     """Prepare a fresh generation, optionally initializing the first owner policy."""
 
-    owner, root = _owner_access(binding, agent_id)
+    owner, root = _owner_access(binding, agent_id, initialize=True)
     store = AuthorizationStore(root, owner)
     if seed is None:
-        store.snapshot()
+        state = store.snapshot()
     else:
         record = load_managed_agent_record_by_agent_id(
             agent_id, env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: binding.registry_root}
         )
         previous_binding = record.execution_binding if record is not None else None
         if previous_binding is not None and previous_binding.context_id == owner.context_id:
-            store.snapshot()
+            state = store.snapshot()
         else:
-            store.initialize(seed_snapshot(owner, seed))
-    GatewayAccessStore.from_root(root, owner).provision_self(generation_id)
+            state = store.initialize(seed_snapshot(owner, seed))
+    if online_mailbox_configured and state.admin_mode == "keyed":
+        raise SessionManifestError(
+            "The configured online mailbox cannot enforce keyed Houmao delivery policy."
+        )
+    store.provision_self(generation_id)
 
 
 def load_gateway_access_config(path: Path) -> GatewayDeployment:
@@ -237,7 +287,7 @@ def owner_gateway_client_binding(
             ),
             generation,
         )
-    if not private:
+    if not private and not prefer_self:
         return None, generation
     if access.current_self() is None:
         raise SessionManifestError("Current self signing authority is unavailable.")
@@ -246,7 +296,7 @@ def owner_gateway_client_binding(
             base_url=base_url,
             owner=access.owner,
             purpose="caller",
-            private_key_path=str(access.self_store.self_signer_path(generation)),
+            managed_self_manifest_path=str(manifest_path),
         ),
         generation,
     )

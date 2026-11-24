@@ -548,6 +548,7 @@ class DshPartialToolParams(StrictToolParams):
     models: Sequence[DshPartialModel] | None = None
     skill_roots: list[str] | None = None
     managed_web_skills: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    managed_web_mcp: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     mcp_servers: Sequence[DshPartialMcpServer] | None = None
     permissions: DshPermissionParams = Field(default_factory=DshPermissionParams)
 
@@ -759,7 +760,16 @@ class DshToolParamsAdapter(ToolParamsAdapter[DshPartialToolParams, DshEffectiveT
             raise DshConfigurationError(
                 f"DSH headless cannot project ACP MCP declarations {declarations} to the native CLI."
             )
-        if backend == "dsh_web" and effective.mcp_servers:
+        if effective.managed_web_mcp and backend not in {"raw_launch", "dsh_web"}:
+            raise DshConfigurationError("managed_web_mcp requires the DSH Web backend.")
+        if effective.managed_web_mcp and any(
+            server.type != "http" or not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", server.name)
+            for server in effective.mcp_servers
+        ):
+            raise DshConfigurationError(
+                "DSH Web managed MCP requires named owner-approved HTTP connectors."
+            )
+        if backend == "dsh_web" and effective.mcp_servers and not effective.managed_web_mcp:
             raise DshConfigurationError(
                 f"DSH tool_params MCP declarations are unsupported by backend {backend!r}."
             )

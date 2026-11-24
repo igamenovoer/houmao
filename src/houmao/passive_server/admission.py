@@ -20,6 +20,7 @@ from starlette.types import Message
 
 from houmao.agents.realm_controller.gateway_access_runtime import GatewayRuntimeAccess
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayRequestCreateV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
 from houmao.gateway.access import (
@@ -37,8 +38,8 @@ from houmao.gateway.operations import (
     CORE_OPERATIONS,
     INTERRUPT,
     MAIL_ACTIONS,
-    PROMPT,
     STATUS,
+    WORK_REQUEST,
     GatewayOperation,
     prompt_permissions,
 )
@@ -49,7 +50,11 @@ from houmao.gateway.owner_authority import (
     consume_passive_backing,
 )
 
-from houmao.passive_server.models import PassiveHeadlessTurnRequest, PassiveProofEndpoint
+from houmao.passive_server.models import (
+    PassiveHeadlessTurnRequest,
+    PassivePromptRequest,
+    PassiveProofEndpoint,
+)
 
 if TYPE_CHECKING:
     from houmao.passive_server.service import PassiveServerService
@@ -77,12 +82,26 @@ class PassiveOperation:
 
     permission: Permission | None = None
     downstream: tuple[tuple[str, GatewayOperation], ...] = ()
-    selector: Literal["turn"] | None = None
+    selector: Literal["turn", "prompt", "work-request"] | None = None
     additional_permissions: tuple[Permission, ...] = ()
 
     def permissions(self, body: bytes, *, channel: str | None) -> tuple[Permission, ...]:
         """Check local intent or evaluate the explicit set of proxy operations."""
 
+        if self.selector == "work-request":
+            try:
+                work_request = parse_access_document(GatewayRequestCreateV1, body)
+            except ValueError:
+                raise GatewayAccessError(422, "invalid_operation") from None
+            if work_request.kind != "submit_work_request":
+                raise GatewayAccessError(422, "invalid_operation")
+            return (WORK_REQUEST,)
+        if self.selector == "prompt":
+            try:
+                prompt = parse_access_document(PassivePromptRequest, body)
+                return prompt_permissions(GatewayRequestPayloadSubmitPromptV1(prompt=prompt.prompt))
+            except ValueError:
+                raise GatewayAccessError(422, "invalid_operation") from None
         if self.selector == "turn":
             try:
                 payload = parse_access_document(PassiveHeadlessTurnRequest, body)
@@ -123,6 +142,7 @@ def _local(resource: str, action: str) -> PassiveOperation:
 
 
 _OPERATIONS = {
+    ("PUT", "/admin/default-permission-group"): _local("policy", "admin.default-group.set"),
     ("GET", "/usage"): _proxy("GET", "/v1/usage"),
     ("GET", "/gateway"): _proxy("GET", "/v1/status"),
     **{
@@ -205,8 +225,9 @@ _OPERATIONS = {
         for path in ("/history", "/managed-history")
     },
     ("POST", "/requests"): PassiveOperation(
-        PROMPT, downstream=(_gateway_operation("POST", "/v1/requests"),)
+        selector="prompt", downstream=(_gateway_operation("POST", "/v1/requests"),)
     ),
+    ("POST", "/work-requests"): PassiveOperation(WORK_REQUEST, selector="work-request"),
     ("POST", "/interrupt"): PassiveOperation(
         INTERRUPT, downstream=(_gateway_operation("POST", "/v1/requests"),)
     ),

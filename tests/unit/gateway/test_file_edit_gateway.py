@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 from unittest.mock import Mock
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 import pytest
 
@@ -28,6 +29,7 @@ from tests.fixtures.gateway_access import (
     enroll_fixture_admin,
     enroll_fixture_caller,
     fixture_admin_key,
+    self_fixture_auth,
 )
 from tests.unit.agents.realm_controller.test_gateway_access_http import _runtime
 
@@ -116,7 +118,8 @@ class _Fixture:
         projection.initialize(self.descriptor.mount_id, self.descriptor.published_commit, {})
         self.mount = _Mount(storage, projection)
         self.runtime = _runtime(tmp_path)
-        monkeypatch.setattr(self.runtime, "_resolve_qualified_file_mount", lambda: self.mount)
+        monkeypatch.setattr(self.runtime, "_resolve_qualified_file_mounts", lambda: (self.mount,))
+        monkeypatch.setattr(self.runtime, "_file_listener_is_current", lambda: True)
         self.client = self._client(self.runtime)
         self.store = access.store
         self.target = access.target.model_dump(mode="json")
@@ -228,6 +231,119 @@ def test_open_file_workflow_recovers_publication_and_never_replays(
     assert fixture.post("read", fields={"path": "draft/SKILL.md"}).json()["revision"] == candidate
     stale = fixture.post("push", fields=fixture.push_fields(candidate, "stale"))
     assert stale.json()["outcome"] == "conflict"
+
+
+def test_scheduled_push_waits_for_native_idle_and_keeps_one_handoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Retry only the native pre-handoff busy race and keep status observational."""
+
+    fixture = _Fixture(tmp_path, monkeypatch)
+    candidate = fixture.candidate()
+    auth = self_fixture_auth(fixture.runtime)
+    fields = {**fixture.push_fields(candidate, "when-idle"), "when_idle": True}
+    assert fixture.post("push", fields=fields).status_code == 403
+    accepted = fixture.post("push", fields=fields, auth=auth)
+    assert accepted.json()["outcome"] == "queued"
+    assert fixture.post("status", fields={"operation_id": "when-idle"}, auth=auth).json() == (
+        accepted.json()
+    )
+    fixture.reserve.assert_not_called()
+
+    def busy() -> None:
+        """Simulate a native turn starting first after owner reservation."""
+
+        raise GatewayAccessError(409, "file_native_busy")
+
+    fixture.mount.before_handoff = busy
+    service = fixture.runtime.m_file_edits
+    assert service is not None
+    service.dispatch_scheduled()
+    fixture.claim.release_before_handoff.assert_called_once()
+    journal = PushJournal(fixture.mount.storage.root)
+    first_attempt = journal.read("when-idle")
+    assert first_attempt.receipt.outcome == "queued"
+    assert fixture.policy.handoff_evidence(first_attempt.handoff_id) is None
+
+    fixture.mount.before_handoff = None
+    service.dispatch_scheduled()
+    settled = journal.read("when-idle")
+    assert settled.receipt.outcome == "published"
+    assert settled.receipt.effective_commit == candidate
+    assert settled.handoff_id != first_attempt.handoff_id
+    assert fixture.policy.handoff_evidence(settled.handoff_id) is not None
+    assert fixture.post("push", fields=fields, auth=auth).json()["outcome"] == "published"
+    assert fixture.post("push", fields={**fields, "when_idle": False}, auth=auth).status_code == 409
+    assert fixture.mount.publishes == 1
+
+
+def test_multiple_exact_mounts_have_independent_drafts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Discover two owner-exposed resources and acquire a lease in each independent store."""
+
+    fixture = _Fixture(tmp_path, monkeypatch)
+    storage = MountStorage(
+        tmp_path / "versioned-mount",
+        fixture.store.snapshot().owner,
+        lineage="test-home",
+        name="mcp",
+        kind="mcp",
+    )
+    second = storage.initialize()
+    projection = FileProjection(storage.root / "projection")
+    projection.initialize(second.mount_id, second.published_commit, {})
+    service = fixture.runtime.m_file_edits
+    assert service is not None
+    monkeypatch.setattr(
+        service, "m_resolve_mounts", lambda: (fixture.mount, _Mount(storage, projection))
+    )
+    discovered = fixture.post("mounts").json()["mounts"]
+    assert {item["kind"]: item["mount_id"] for item in discovered} == {
+        "skills": fixture.descriptor.mount_id,
+        "mcp": second.mount_id,
+    }
+    for descriptor in (fixture.descriptor, second):
+        opened = fixture.post(
+            "lease/open",
+            fields={"mount_id": descriptor.mount_id, "expected_base": descriptor.published_commit},
+        )
+        assert opened.is_success, opened.text
+
+
+def test_queued_push_retires_on_managed_self_rotation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fence the original proof even when the same generation can submit a fresh intent."""
+
+    fixture = _Fixture(tmp_path, monkeypatch)
+    candidate = fixture.candidate()
+    fields = {**fixture.push_fields(candidate, "retired-key"), "when_idle": True}
+    old_auth = self_fixture_auth(fixture.runtime)
+    assert fixture.post("push", fields=fields, auth=old_auth).json()["outcome"] == "queued"
+    generation = str(fixture.target["incarnation"])
+    with fixture.store.transaction() as transaction:
+        transaction.replace_self(
+            generation,
+            expected_revision=transaction.self_revision(generation),
+            signer=Ed25519PrivateKey.generate(),
+            actor="fixture-owner",
+        )
+    service = fixture.runtime.m_file_edits
+    assert service is not None
+    service.dispatch_scheduled()
+    fixture.reserve.assert_not_called()
+    new_auth = self_fixture_auth(fixture.runtime)
+    status = fixture.post("status", fields={"operation_id": "retired-key"}, auth=new_auth)
+    assert status.json()["outcome"] == "refused"
+    assert (
+        fixture.post(
+            "push", fields={**fields, "operation_id": "current-key"}, auth=new_auth
+        ).json()["outcome"]
+        == "queued"
+    )
+    service.dispatch_scheduled()
+    assert fixture.mount.publishes == 1
 
 
 def test_direct_gateway_authentication_and_scoped_mount_visibility(
@@ -352,7 +468,7 @@ def test_replacement_mount_requires_new_exact_grants(
     fixture.runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=fixture.runtime.m_paths.gateway_root, host="127.0.0.1", port=43123
     )
-    monkeypatch.setattr(fixture.runtime, "_resolve_qualified_file_mount", lambda: fixture.mount)
+    monkeypatch.setattr(fixture.runtime, "_resolve_qualified_file_mounts", lambda: (fixture.mount,))
     fixture.fields["presence_id"] = fixture.runtime.m_presence_id
     fixture.client = fixture._client(fixture.runtime)
     assert fixture.post("mounts", auth=auth).json() == {"mounts": []}
@@ -543,7 +659,7 @@ def test_new_listener_resolves_only_the_operation_in_the_durable_marker(
     fixture.runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=fixture.runtime.m_paths.gateway_root, host="127.0.0.1", port=43123
     )
-    monkeypatch.setattr(fixture.runtime, "_resolve_qualified_file_mount", lambda: fixture.mount)
+    monkeypatch.setattr(fixture.runtime, "_resolve_qualified_file_mounts", lambda: (fixture.mount,))
     fixture.fields["presence_id"] = fixture.runtime.m_presence_id
     fixture.client = fixture._client(fixture.runtime)
     listed = fixture.post("list")

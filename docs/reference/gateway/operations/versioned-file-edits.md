@@ -1,6 +1,6 @@
 # Versioned Gateway File Edits
 
-Use `houmao-mgr agents single … files` to edit a peer agent’s published skill tree through its attached gateway. The gateway exposes logical paths, keeps drafts and saved commits in the target owner’s private storage, and activates a candidate only through a separate push. Peers can work across OS accounts and tmux servers using the same command. [Gateway Authorization Policy](authorization-policy.md)
+Use `houmao-mgr agents single … files` to edit an authorized peer mount and `houmao-mgr agents self files` within your own managed runtime. The gateway exposes logical paths, keeps drafts and saved commits in the target owner’s private storage, and activates a candidate only through a separate push. Peers can work across OS accounts and tmux servers using the same command. [Gateway Authorization Policy](authorization-policy.md)
 
 ## Enable and Discover the Mount
 
@@ -18,7 +18,11 @@ houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" files \
     --signer "$TARGET_ADMIN_KEY" mounts
 ```
 
-Each visible mount has a `mount_id`, canonical `resource` (`files:<mount-id>`), supported `actions`, and `published_commit`. Discovery filters mounts using the caller’s current `files.read` permission. A fresh home can have a different mount ID even when the display name stays `skills`. The CLI reports missing gateway or proof errors and exits. The owner controls gateway attachment and launch separately.
+Each visible mount has a `mount_id`, `kind`, canonical `resource` (`files:<mount-id>`), supported `actions`, and `published_commit`. Discovery filters mounts using the caller’s current `files.read` permission. A fresh home can have a different mount ID even when the display name stays `skills`. The CLI reports missing gateway or proof errors and exits. The owner controls gateway attachment and launch separately.
+
+The same DSH Web build and preset support a separate MCP declaration mount. Enable `managed_web_mcp` before launch and define the approved HTTP connectors in `mcp_servers`. For example, `{"managed_web_mcp":true,"mcp_servers":[{"name":"review-api","type":"http","url":"https://review.example/mcp"}]}` gives a maintainer the option to select `review-api`. An owner can supply authentication through the connector’s `headers` references to the private credential source. Each draft entry is a file named for its server, such as `review.json`, containing `{"connector":"review-api"}`. Change the approved reference to replace its connection, set `enabled` to `false` to disable it, or delete the file to remove it. Candidate files accept only `connector` and optional `enabled`. `files mounts --kind mcp` reports unsupported when the gateway has no qualified MCP provider. MCP publication requires a dedicated live native host and leaves global native configuration and other mounts outside its scope.
+
+Within the target runtime, `houmao-mgr agents self files mounts` verifies the attached gateway and signs with the current managed-self registration. Use `--unsigned` to request the target’s open or configured default policy explicitly. A missing self credential produces an error. On a peer command, `--self-signer` continues to select the caller’s stable peer key.
 
 ## Enroll a Peer and Select Its Signer
 
@@ -83,8 +87,9 @@ This publisher example uses an owner-local gateway. Remote publishers use the sa
 | --- | --- |
 | `published` | Read `published_commit`, `effective_commit`, `activation`, `native_settled`, and `native_ready` separately. Publication identifies the visible tree. Native effectiveness and readiness can have different evidence. |
 | `busy` | The candidate stays saved. After the target is ready, make an explicit new attempt with a fresh operation ID. |
+| `queued` | The gateway is waiting for an idle maintenance boundary. Read the retained receipt through `status`. |
 | `conflict` | Recheck the selected target and published base. If the base changed, open a fresh draft at the current base and apply the intended changes there. |
 | `unconfirmed` | Use `status` with the original operation ID printed by the CLI. An uncertain request may already have taken effect. |
 | `pending` or `unknown` | Use `status` for the best available evidence while the owner resolves the attempt. |
 
-`push` exits successfully when the receipt confirms publication. Other outcomes have a nonzero exit status. All versioned file changes go through the logical tree. To restore earlier contents, save and push a new commit based on the current publication.
+An immediate `push` exits successfully when its receipt confirms publication. To publish during your own active turn, submit `houmao-mgr agents self files --mount "$MOUNT_ID" push "$CANDIDATE_COMMIT" --expected-base "$BASE_COMMIT" --when-idle`. Successful exit can report that the intent is queued. Use the operation ID with `agents self files --mount "$MOUNT_ID" status`. A listener replacement, managed-self rotation, or changed base can retire the queued intent. The saved candidate remains available, and any new attempt takes a fresh operation ID. To restore earlier contents, save and push a new commit based on the current publication.

@@ -31,6 +31,7 @@ from houmao.ag_ui.diagnostics import AgUiDiagnostics
 from houmao.ag_ui.event_hub import AgUiEventHub
 from houmao.ag_ui.models import AgUiConnectInput
 from houmao.ag_ui.runtime import (
+    AgUiNativeAdmission,
     AgUiHeadlessArtifactObservation,
     AgUiObservedRequestState,
     AgUiTuiObservation,
@@ -40,6 +41,7 @@ from houmao.ag_ui.routes import connect_event_stream, register_ag_ui_routes, run
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
     GatewayRequestCreateV1,
+    GatewayRequestPayloadSubmitPromptV1,
     GatewayStatusV1,
 )
 from houmao.agents.realm_controller.gateway_service import create_app
@@ -160,10 +162,13 @@ class _SpyRuntime:
         ready_only: bool = False,
         authority: AuthorizationDecision | None = None,
         expected_generation: str | None = None,
+        ag_ui: AgUiNativeAdmission | None = None,
     ) -> GatewayAcceptedRequestV1:
         """Detect queued gateway request creation."""
 
         assert ready_only
+        if ag_ui is not None:
+            authority = ag_ui.authority
         assert expected_generation == (
             authority.target.incarnation if authority is not None else None
         )
@@ -1167,7 +1172,8 @@ def test_run_requires_submission_and_output_and_revalidates_only_observation() -
     foreign = _connect_payload(threadId="other-thread")
     assert client.post("/v1/ag-ui/runs", json=foreign).status_code == 403
     override = _connect_payload(
-        forwardedProps={"houmao": {"chatSession": {"mode": "exact", "id": "other-session"}}}
+        forwardedProps={"houmao": {"chatSession": {"mode": "exact", "id": "other-session"}}},
+        messages=[{"id": "message-1", "role": "user", "content": "/compact"}],
     )
     assert client.post("/v1/ag-ui/runs", json=override).status_code == 403
     assert runtime.queued_requests == 0
@@ -1179,6 +1185,14 @@ def test_run_requires_submission_and_output_and_revalidates_only_observation() -
     authority = runtime.request_authorities[0]
     assert authority is not None
     assert authority.permissions == (submit, observe, SELECT_SESSION)
+    submitted = runtime.created_requests[0].payload
+    assert isinstance(submitted, GatewayRequestPayloadSubmitPromptV1)
+    attributed = json.loads(submitted.prompt.split("\n", 1)[1])
+    assert attributed["requester"] == {
+        "provenance": "verified",
+        "principal_id": authority.actor.principal_id,
+    }
+    assert "/compact" in attributed["text"]
     assert all(
         check.permissions == (observe,) and check.actor == authority.actor for check in rechecks
     )

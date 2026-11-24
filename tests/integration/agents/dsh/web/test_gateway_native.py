@@ -337,9 +337,7 @@ def test_owned_web_exact_relaunch_atomically_hands_registry_and_gateway_to_new_g
         current = runtime._current_access()
         assert client.get("/v1/endpoint").json()["target"]["incarnation"] == record.generation_id
         assert client.get("/v1/status", auth=stale_self).status_code == 401
-        fresh_self = FixtureProofAuth(
-            current.self_store.self_signer_path(current.target.incarnation)
-        )
+        fresh_self = FixtureProofAuth(current.store.load_self_signer(current.target.incarnation))
         assert client.get("/v1/status", auth=fresh_self).status_code == 200
         runtime.create_request(
             GatewayRequestCreateV1(

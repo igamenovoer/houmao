@@ -148,8 +148,16 @@ class _OwnerContextV1(BaseModel):
     host_id: str
     registry_root: str
     runtime_root: str
+    config_root: str | None = None
 
     _roots = field_validator("registry_root", "runtime_root")(validate_absolute_path)
+
+    @field_validator("config_root")
+    @classmethod
+    def _config_path(cls, value: str | None) -> str | None:
+        """Keep the captured owner configuration root lexical and absolute."""
+
+        return validate_absolute_path(value) if value is not None else None
 
     @field_validator("context_id")
     @classmethod
@@ -257,6 +265,49 @@ def validate_observed_binding(binding: ExecutionBindingV1) -> None:
         Effective ownership, context, host, roots, or groups differ from the binding.
     """
 
+    _bound_owner_context(binding)
+
+
+def retained_owner_config_root(binding: ExecutionBindingV1, *, initialize: bool = False) -> Path:
+    """Resolve a captured owner config root independent of the current environment."""
+
+    from houmao.owned_paths import resolve_houmao_home_root
+
+    context = _bound_owner_context(binding)
+    if context.config_root is not None:
+        return Path(context.config_root)
+    # Older contexts retain their original identity. Capture their selected config
+    # root before provisioning the first SQLite-backed generation.
+    path = Path(context.runtime_root) / f".gateway-config-{context.context_id}"
+    try:
+        return Path(validate_absolute_path(_read_trusted_file(path, limit=4096).decode()))
+    except FileNotFoundError:
+        root = resolve_houmao_home_root()
+        if not initialize:
+            return root
+    descriptor, temporary = tempfile.mkstemp(prefix=".gateway-config-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(os.fsencode(root))
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            return Path(validate_absolute_path(_read_trusted_file(path, limit=4096).decode()))
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        return root
+    finally:
+        os.unlink(temporary)
+
+
+def _bound_owner_context(binding: ExecutionBindingV1) -> _OwnerContextV1:
+    """Read the trusted saved context for this verified Linux owner."""
+
     if (binding.uid, binding.gid) != (os.geteuid(), os.getegid()):
         raise OwnerAdmissionError(
             "owner_mismatch", "Saved execution owner UID/GID differs from caller."
@@ -294,6 +345,7 @@ def validate_observed_binding(binding: ExecutionBindingV1) -> None:
         raise OwnerAdmissionError(
             "context_mismatch", "Saved execution context differs from observed authority."
         )
+    return context
 
 
 def handle_request(
@@ -709,6 +761,8 @@ def _read_context(path: Path) -> _OwnerContextV1 | None:
 def _initialize_context(policy: OwnerPolicyV1, host_id: str) -> _OwnerContextV1:
     """Publish a context atomically without replacing a concurrently created identity."""
 
+    from houmao.owned_paths import resolve_houmao_home_root
+
     path = policy.context_file
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     context = _OwnerContextV1(
@@ -718,6 +772,7 @@ def _initialize_context(policy: OwnerPolicyV1, host_id: str) -> _OwnerContextV1:
         host_id=host_id,
         registry_root=policy.registry_root,
         runtime_root=policy.runtime_root,
+        config_root=str(resolve_houmao_home_root()),
     )
     descriptor, temporary = tempfile.mkstemp(prefix=".execution-context-", dir=path.parent)
     try:

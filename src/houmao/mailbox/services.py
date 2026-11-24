@@ -57,6 +57,7 @@ from houmao.mailbox.managed import (
     ManagedAttachment,
     ManagedMailboxOperationError,
     ManagedPrincipal,
+    ManagedRecipientPolicyError,
     StateUpdateRequest,
     deliver_message,
     ensure_operator_mailbox_registration,
@@ -398,7 +399,14 @@ class FilesystemGatewayMailboxAdapter:
             notify_auth=notify_auth,
         )
         try:
-            deliver_message(self.m_mailbox.filesystem_root, request)
+            deliver_message(
+                self.m_mailbox.filesystem_root,
+                request,
+                registry_root=self.m_mailbox.registry_root,
+                verified_sender_binding=self.m_mailbox.binding_id,
+            )
+        except ManagedRecipientPolicyError:
+            raise
         except ManagedMailboxOperationError as exc:
             raise GatewayMailboxError(str(exc)) from exc
         state = self._load_local_message_state(message_id=message_id)
@@ -427,7 +435,7 @@ class FilesystemGatewayMailboxAdapter:
         notify_block: MailboxNotifyBlock | None = None,
         notify_auth: MailboxNotifyAuth | None = None,
     ) -> GatewayMailboxMessageV1:
-        self._ensure_operator_registration()
+        operator_binding = self._ensure_operator_registration()
         now = datetime.now(UTC)
         message_id = _generate_filesystem_message_id(now)
         created_at_utc = now.isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -453,7 +461,14 @@ class FilesystemGatewayMailboxAdapter:
             notify_auth=notify_auth,
         )
         try:
-            deliver_message(self.m_mailbox.filesystem_root, request)
+            deliver_message(
+                self.m_mailbox.filesystem_root,
+                request,
+                registry_root=self.m_mailbox.registry_root,
+                verified_sender_binding=operator_binding,
+            )
+        except ManagedRecipientPolicyError:
+            raise
         except ManagedMailboxOperationError as exc:
             raise GatewayMailboxError(str(exc)) from exc
         state = self._load_local_message_state(message_id=message_id)
@@ -511,7 +526,12 @@ class FilesystemGatewayMailboxAdapter:
             notify_auth=notify_auth,
         )
         try:
-            deliver_message(self.m_mailbox.filesystem_root, request)
+            deliver_message(
+                self.m_mailbox.filesystem_root,
+                request,
+                registry_root=self.m_mailbox.registry_root,
+                verified_sender_binding=self.m_mailbox.binding_id,
+            )
             update_mailbox_state(
                 self.m_mailbox.filesystem_root,
                 StateUpdateRequest(
@@ -521,6 +541,8 @@ class FilesystemGatewayMailboxAdapter:
                     answered=True,
                 ),
             )
+        except ManagedRecipientPolicyError:
+            raise
         except ManagedMailboxOperationError as exc:
             raise GatewayMailboxError(str(exc)) from exc
         state = self._load_local_message_state(message_id=message_id)
@@ -1083,11 +1105,14 @@ class FilesystemGatewayMailboxAdapter:
                 f"filesystem mailbox canonical message `{message_id}` is invalid: {canonical_path}"
             ) from exc
 
-    def _ensure_operator_registration(self) -> None:
+    def _ensure_operator_registration(self) -> str:
+        """Confirm the reserved local operator registration used by authenticated post."""
+
         try:
-            ensure_operator_mailbox_registration(self.m_mailbox.filesystem_root)
+            registration = ensure_operator_mailbox_registration(self.m_mailbox.filesystem_root)
         except ManagedMailboxOperationError as exc:
             raise GatewayMailboxError(str(exc)) from exc
+        return str(registration["active_registration_id"])
 
     def _operator_sender(self) -> ManagedPrincipal:
         return ManagedPrincipal(

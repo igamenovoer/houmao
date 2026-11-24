@@ -18,6 +18,7 @@ MAX_ACCESS_DOCUMENT = 1024 * 1024
 MAX_ADMIN_KEYS = 256
 CHALLENGE_HEADER = "Houmao-Challenge"
 SIGNATURE_HEADER = "Houmao-Signature"
+MANAGED_SELF_PATH = "/v1/auth/managed-self"
 
 ProofPurpose: TypeAlias = Literal["caller", "register"]
 _Identifier = Annotated[str, Field(pattern=r"^[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}$")]
@@ -90,6 +91,7 @@ class GatewaySelfKey(_AccessModel):
     owner: GatewayOwner
     generation_id: _Identifier
     public_key: str = Field(min_length=1, max_length=4096, repr=False)
+    registration_revision: int = Field(ge=1)
 
     @field_validator("public_key")
     @classmethod
@@ -108,13 +110,31 @@ class GatewaySelfKey(_AccessModel):
         return key_fingerprint(self.public_key)
 
 
+class ManagedSelfChange(_AccessModel):
+    """Request an owner-generated replacement or revocation of the selected binding."""
+
+    operation: Literal["rotate", "revoke"]
+    generation_id: _Identifier
+    expected_revision: int = Field(ge=1)
+
+
+class ManagedSelfReceipt(_AccessModel):
+    """Return public evidence of a committed managed-self change."""
+
+    generation_id: _Identifier
+    key_id: _KeyId
+    registration_revision: int = Field(ge=1)
+    active: bool
+
+
 class GatewayClientBinding(_AccessModel):
     """Select an exact target, endpoint, signer, and optional deployment CA."""
 
     base_url: str = Field(max_length=2048)
     owner: GatewayOwner
     purpose: ProofPurpose
-    private_key_path: str = Field(max_length=4096, repr=False)
+    private_key_path: str | None = Field(default=None, max_length=4096, repr=False)
+    managed_self_manifest_path: str | None = Field(default=None, max_length=4096, repr=False)
     ca_bundle_path: str | None = Field(default=None, max_length=4096, repr=False)
 
     @field_validator("base_url")
@@ -124,7 +144,7 @@ class GatewayClientBinding(_AccessModel):
 
         return validate_gateway_base_url(value)
 
-    @field_validator("private_key_path", "ca_bundle_path")
+    @field_validator("private_key_path", "managed_self_manifest_path", "ca_bundle_path")
     @classmethod
     def _absolute(cls, value: str | None) -> str | None:
         """Keep selected credential sources explicit and lexical."""
@@ -136,6 +156,16 @@ class GatewayClientBinding(_AccessModel):
         ):
             raise ValueError("private source requires a safe absolute path")
         return value
+
+    @model_validator(mode="after")
+    def _signing_source(self) -> GatewayClientBinding:
+        """Select one owner-store locator or one explicit SSH signer."""
+
+        if (self.private_key_path is None) == (self.managed_self_manifest_path is None) or (
+            self.managed_self_manifest_path is not None and self.purpose != "caller"
+        ):
+            raise ValueError("invalid gateway signing source")
+        return self
 
 
 class GatewayRequestBinding(_AccessModel):
@@ -233,8 +263,9 @@ class GatewayChallenge(_AccessModel):
                 raise ValueError("invalid first-registration challenge")
         elif (
             self.proposed_key is not None
-            or self.revision is not None
             or (self.generation_id is None) == (self.enrollment_id is None)
+            or (self.revision is not None) != (self.generation_id is not None)
+            or (self.generation_id is not None and self.revision == 0)
             or (self.generation_id is not None and self.generation_id != self.target.incarnation)
         ):
             raise ValueError("invalid caller challenge scope")

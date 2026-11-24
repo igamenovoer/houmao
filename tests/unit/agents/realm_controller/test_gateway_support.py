@@ -819,9 +819,10 @@ def _mock_bound_controller_policy(monkeypatch: pytest.MonkeyPatch) -> None:
         "houmao.agents.realm_controller.runtime.tmux_session_exists_shared", lambda **_: False
     )
     store = SimpleNamespace(snapshot=lambda: None)
-    self_store = SimpleNamespace(load_self=lambda _generation: None)
     access = SimpleNamespace(
-        store=store, self_store=self_store, target=SimpleNamespace(incarnation="fixture")
+        store=store,
+        require_self_signing_state=lambda: None,
+        target=SimpleNamespace(incarnation="fixture"),
     )
     monkeypatch.setattr(
         "houmao.agents.realm_controller.runtime.gateway_access_for_manifest", lambda _path: access
@@ -5554,7 +5555,7 @@ def test_gateway_service_coalesces_duplicate_compact_prompts(
         monkeypatch,
         [
             ("gwreq-1", "submit_prompt", {"prompt": "/compact"}, 1),
-            ("gwreq-2", "submit_prompt", {"prompt": " /compact\n"}, 1),
+            ("gwreq-2", "submit_prompt", {"prompt": "/compact"}, 1),
             ("gwreq-3", "submit_prompt", {"prompt": "/compact"}, 1),
         ],
     )

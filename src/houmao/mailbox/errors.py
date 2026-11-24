@@ -17,6 +17,19 @@ class GatewayMailboxError(RuntimeError):
     """Raised when a managed mailbox cannot satisfy a request."""
 
 
+class GatewayMailboxRecipientPolicyError(GatewayMailboxError):
+    """Preserve the recipient policy result without identifying a refused recipient."""
+
+    def __init__(self, *, unavailable: bool) -> None:
+        self.code = "recipient_policy_unavailable" if unavailable else "recipient_policy_refused"
+        detail = (
+            "Recipient mail policy is unavailable"
+            if unavailable
+            else "Recipient mail policy refused delivery"
+        )
+        super().__init__(detail)
+
+
 class GatewayMailboxUnsupportedError(GatewayMailboxError):
     """Raised when a provider does not implement the selected operation."""
 

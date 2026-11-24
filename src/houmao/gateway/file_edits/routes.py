@@ -41,6 +41,7 @@ from houmao.gateway.file_edits.contracts import (
     FileHistoryRequest,
     FileListRequest,
     FileMountRequest,
+    FileMountsRequest,
     FileMountsResponse,
     FilePushRequest,
     FileReadRequest,
@@ -60,7 +61,8 @@ class GatewayFileEdits:
         target: Callable[[], GatewayTarget],
         presence_id: str,
         manifest_path: Path,
-        resolve_mount: Callable[[], NativeFileMount | None],
+        resolve_mounts: Callable[[], tuple[NativeFileMount, ...]],
+        listener_is_current: Callable[[], bool],
     ) -> None:
         """Bind file operations to this gateway and the verified owner target."""
 
@@ -68,19 +70,30 @@ class GatewayFileEdits:
         self.m_target: Callable[[], GatewayTarget] = target
         self.m_presence_id: str = presence_id
         self.m_manifest_path: Path = manifest_path
-        self.m_resolve_mount: Callable[[], NativeFileMount | None] = resolve_mount
-        self.m_selected: tuple[GatewayTarget, str, NativeFileMount] | None = None
+        self.m_resolve_mounts: Callable[[], tuple[NativeFileMount, ...]] = resolve_mounts
+        self.m_listener_is_current: Callable[[], bool] = listener_is_current
+        self.m_selected: tuple[GatewayTarget, dict[str, NativeFileMount]] | None = None
         self.m_lock: Lock = Lock()
 
     def supports(self, permission: Permission) -> bool:
         """Recognize only the selected generation's qualified mount actions."""
 
+        return self._supported_mount(permission) is not None
+
+    def supports_common(self, permission: Permission) -> bool:
+        """Recognize only exact owner-exposed common-plugin mount actions."""
+
+        mount = self._supported_mount(permission)
+        return mount is not None and mount.storage.kind in {"skills", "mcp"}
+
+    def _supported_mount(self, permission: Permission) -> NativeFileMount | None:
+        """Resolve a declared file effect without treating the prefix as a wildcard."""
+
         selected = self.m_selected
-        return (
-            selected is not None
-            and permission.resource == f"files:{selected[1]}"
-            and permission.action in FILE_ACTIONS
-        )
+        scope, separator, mount_id = permission.resource.partition(":")
+        if selected is None or scope != "files" or not separator:
+            return None
+        return selected[1].get(mount_id) if permission.action in FILE_ACTIONS else None
 
     def dispatch(
         self, name: str, payload: FileTargetRequest, actor: AuthorizationActor
@@ -91,13 +104,20 @@ class GatewayFileEdits:
         if payload.target != target or payload.presence_id != self.m_presence_id:
             raise GatewayAccessError(409, "file_target_changed")
         policy = self.m_policy()
-        selected = self._select_mount(target)
-        if name == "mounts":
-            return self._mounts(actor, target, selected, policy)
+        selected = self._select_mounts(target)
+        if isinstance(payload, FileMountsRequest):
+            qualified = {
+                mount_id: mount
+                for mount_id, mount in selected.items()
+                if payload.kind is None or mount.storage.kind == payload.kind
+            }
+            if payload.kind is not None and not qualified:
+                raise GatewayAccessError(501, "file_mount_kind_unsupported")
+            return self._mounts(actor, target, qualified, policy)
         assert isinstance(payload, FileMountRequest)
-        if selected is None or payload.mount_id != selected[1]:
+        mount = selected.get(payload.mount_id)
+        if mount is None:
             raise GatewayAccessError(404, "unknown_file_mount")
-        mount = selected[2]
         action = FILE_REQUESTS[name][1]
         assert action is not None
         permission = Permission(resource=f"files:{payload.mount_id}", action=action)
@@ -115,7 +135,7 @@ class GatewayFileEdits:
             result = self._edit(name, payload, mount, decision, policy, disclose)
             disclose(decision)
             return result
-        publication = FilePublication(mount, policy, self.m_manifest_path, target)
+        publication = self._publication(mount, policy, target)
         if isinstance(payload, FilePushRequest):
             return publication.push(payload, decision, _attributed_actor(actor, policy))
         if isinstance(payload, FileStatusRequest):
@@ -132,48 +152,72 @@ class GatewayFileEdits:
             return storage.history(payload, decision=decision, fence=disclose)
         raise GatewayAccessError(422, "invalid_file_operation")
 
-    def _select_mount(
-        self, target: GatewayTarget
-    ) -> tuple[GatewayTarget, str, NativeFileMount] | None:
-        """Load the owner-selected adapter before resolving its policy resource."""
+    def dispatch_scheduled(self) -> None:
+        """Process queued publication attempts independently of active caller requests."""
+
+        if not self.m_listener_is_current():
+            return
+        target = self.m_target()
+        policy = self.m_policy()
+        for mount in self._select_mounts(target).values():
+            self._publication(mount, policy, target).dispatch_scheduled()
+
+    def _publication(
+        self, mount: NativeFileMount, policy: GatewayAccessPolicy, target: GatewayTarget
+    ) -> FilePublication:
+        """Construct the coordinator with the verified gateway listener boundary."""
+
+        return FilePublication(
+            mount,
+            policy,
+            self.m_manifest_path,
+            target,
+            listener_is_current=self.m_listener_is_current,
+        )
+
+    def _select_mounts(self, target: GatewayTarget) -> dict[str, NativeFileMount]:
+        """Load owner-selected adapters before resolving their exact policy resources."""
 
         with self.m_lock:
             selected = self.m_selected
             if selected is not None and selected[0] == target:
-                return selected
+                return selected[1]
             self.m_selected = None
-            mount = self.m_resolve_mount()
-            if mount is not None:
-                self.m_selected = target, mount.storage.mount_id, mount
-            return self.m_selected
+            mounts: dict[str, NativeFileMount] = {}
+            for mount in self.m_resolve_mounts():
+                mount_id = mount.storage.mount_id
+                if mount_id in mounts:
+                    raise GatewayAccessError(503, "file_mount_conflict")
+                mounts[mount_id] = mount
+            self.m_selected = target, mounts
+            return mounts
 
     def _mounts(
         self,
         actor: AuthorizationActor,
         target: GatewayTarget,
-        selected: tuple[GatewayTarget, str, NativeFileMount] | None,
+        selected: dict[str, NativeFileMount],
         policy: GatewayAccessPolicy,
     ) -> FileMountsResponse:
         """Filter mount discovery by the caller's exact current read permission."""
 
-        if selected is None:
-            return FileMountsResponse(mounts=[])
-        _, mount_id, mount = selected
-        try:
-            decision = policy.authorize(
-                actor, (Permission(resource=f"files:{mount_id}", action=READ),)
-            )
-        except GatewayAccessError as error:
-            if error.status_code == 403:
-                return FileMountsResponse(mounts=[])
-            raise
-        if decision.target != target:
-            raise GatewayAccessError(409, "file_target_changed")
-        FilePublication(mount, policy, self.m_manifest_path, target).reconcile_visible_revision()
-        descriptor = mount.storage.describe()
-        if not policy.revalidate(decision):
+        results = []
+        for mount_id, mount in sorted(selected.items()):
+            try:
+                decision = policy.authorize(
+                    actor, (Permission(resource=f"files:{mount_id}", action=READ),)
+                )
+            except GatewayAccessError as error:
+                if error.status_code == 403:
+                    continue
+                raise
+            if decision.target != target:
+                raise GatewayAccessError(409, "file_target_changed")
+            self._publication(mount, policy, target).reconcile_visible_revision()
+            results.append((decision, mount.storage.describe()))
+        if any(not policy.revalidate(decision) for decision, _ in results):
             raise GatewayAccessError(403, "insufficient_authority")
-        return FileMountsResponse(mounts=[descriptor])
+        return FileMountsResponse(mounts=[descriptor for _, descriptor in results])
 
     @staticmethod
     def _edit(
@@ -198,7 +242,13 @@ class GatewayFileEdits:
         fence = policy.handoff
         match payload:
             case FileDraftOpenRequest():
-                return storage.lease_open(payload, decision=decision, actor=actor, fence=fence)
+                return storage.lease_open(
+                    payload,
+                    decision=decision,
+                    actor=actor,
+                    fence=fence,
+                    current_default_revision=policy.store.snapshot().default_permission_revision,
+                )
             case FileDraftWriteRequest():
                 content = _decode_file(payload.content_base64)
                 return storage.draft_write(

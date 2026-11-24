@@ -19,7 +19,6 @@ from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
     GatewayAdminKey,
-    GatewayAccessStore,
     GatewayChallenge,
     GatewayChallengeRequest,
     GatewayRequestBinding,
@@ -31,7 +30,7 @@ from houmao.gateway.access import (
     sign_sshsig,
     sshsig_header,
 )
-from houmao.gateway._access_sshsig import key_fingerprint
+from houmao.gateway._access_sshsig import PrivateKey, key_fingerprint
 from houmao.gateway.authorization_models import (
     Credential,
     Permission,
@@ -48,7 +47,6 @@ class FixtureGatewayAccess:
     """Supply an isolated owner and generation for a synthetic manifest."""
 
     store: AuthorizationStore
-    self_store: GatewayAccessStore
     target: GatewayTarget
     private_root: Path
     execution_binding: None = None
@@ -59,10 +57,29 @@ class FixtureGatewayAccess:
 
         return self.target.owner
 
-    def current_self(self) -> GatewaySelfKey:
+    def current_self(self) -> GatewaySelfKey | None:
         """Read the current self key from private fixture storage."""
 
-        return self.self_store.load_self(self.target.incarnation)
+        return self.store.load_self(self.target.incarnation)
+
+    def require_self_registration(self) -> GatewaySelfKey:
+        """Return the fixture's provisioned public registration."""
+
+        binding = self.current_self()
+        assert binding is not None
+        return binding
+
+    def require_self_signing_state(self) -> None:
+        """Verify the active fixture registration and private signer."""
+
+        registration = self.require_self_registration()
+        self.store.load_self_signer(self.target.incarnation, expected=registration)
+
+    def require_live_generation(self) -> None:
+        """The synthetic target owns the selected fixture generation."""
+
+    def require_keyed_mail_qualification(self) -> None:
+        """The synthetic target has no provider inbox to qualify."""
 
 
 def configure_fixture_gateway_access(
@@ -74,13 +91,10 @@ def configure_fixture_gateway_access(
     owner = GatewayOwner(agent_id="fixture-agent", context_id="fixture-owner")
     private_root = tmp_path / "gateway-access"
     store = AuthorizationStore(private_root, owner)
-    self_store = GatewayAccessStore.from_root(private_root, owner)
     target = GatewayTarget(owner=owner, incarnation="fixture-generation")
     store.initialize()
-    self_store.provision_self(target.incarnation)
-    access = FixtureGatewayAccess(
-        store=store, self_store=self_store, target=target, private_root=private_root
-    )
+    store.provision_self(target.incarnation)
+    access = FixtureGatewayAccess(store=store, target=target, private_root=private_root)
     monkeypatch.setattr(gateway_service, "gateway_access_for_manifest", lambda _path: access)
 
     def verify_fixture_owner(
@@ -171,14 +185,14 @@ class FixtureProofAuth(httpx.Auth):
 
     def __init__(
         self,
-        signer_path: Path,
+        signer: Path | PrivateKey,
         *,
         purpose: Literal["caller", "self", "admin", "register"] = "caller",
         proposed_key: GatewayAdminKey | None = None,
     ) -> None:
         """Select an isolated fixture signer and challenge purpose."""
 
-        self.m_signer = load_gateway_signer(signer_path)
+        self.m_signer = load_gateway_signer(signer) if isinstance(signer, Path) else signer
         self.m_purpose: Literal["caller", "register"] = (
             "register" if purpose == "register" else "caller"
         )
@@ -221,7 +235,7 @@ def self_fixture_auth(runtime: GatewayServiceRuntime) -> FixtureProofAuth:
 
     access = runtime.m_access_runtime
     assert access is not None
-    return FixtureProofAuth(access.self_store.self_signer_path(access.target.incarnation))
+    return FixtureProofAuth(access.store.load_self_signer(access.target.incarnation))
 
 
 def gateway_fixture_client(

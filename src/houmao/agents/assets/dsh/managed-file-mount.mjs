@@ -78,8 +78,8 @@ function verifyTree(directory) {
   }
 }
 
-/** Bind all RPCs to the one owner-provisioned scoped provider in this native host. */
-export function createManagedSkillMount(ctx, config, callbacks) {
+/** Bind RPCs to the owner-provisioned provider inside the exact managed Agent. */
+export function createManagedFileMount(ctx, config, callbacks, adapter = undefined) {
   if (config !== undefined && (!config || typeof config.mount_id !== 'string' || !MOUNT.test(config.mount_id)
     || typeof config.projection_root !== 'string' || !isAbsolute(config.projection_root))) {
     throw new Error('Invalid managed skill mount configuration');
@@ -131,6 +131,7 @@ export function createManagedSkillMount(ctx, config, callbacks) {
   const preflight = async (state, agent, revision, signal) => {
     const directory = revisionDirectory(config.projection_root, revision);
     verifyTree(directory);
+    if (adapter) return adapter.preflight(state, agent, directory, signal);
     const names = new Set();
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       if (!entry.isDirectory() || !SKILL.test(entry.name)) {
@@ -162,6 +163,16 @@ export function createManagedSkillMount(ctx, config, callbacks) {
   /** Register once from the exact native Agent scope. */
   const register = async (agentCtx, agent, preset) => {
     if (!config || callbacks.nativeVersion !== QUALIFIED_VERSION || preset !== 'standard') return;
+    if (adapter) {
+      const revision = marker();
+      const state = await adapter.register(agentCtx, agent, preset, revision);
+      if (!state) return;
+      const prepared = await preflight(state, agent, revision, AbortSignal.timeout(10000));
+      await adapter.activate(state, agent, prepared, revision, AbortSignal.timeout(10000));
+      state.qualified = true;
+      states.set(agent, state);
+      return;
+    }
     const [filesystem, scope] = await load();
     const registry = ctx.get('skills');
     if (!registry || scope.scopeOf(agentCtx) !== agent
@@ -217,8 +228,9 @@ export function createManagedSkillMount(ctx, config, callbacks) {
       || Date.now() >= operation.deadline) {
       callbacks.fail('stale_operation', 'Native skill maintenance authority changed');
     }
-    if (callbacks.pendingInbox(operation.agent).hasPending || callbacks.pendingInteractions(operation.agent).length
-      || ctx.agents.list().some(agent => agent !== operation.agent)) {
+    const shared = ctx.agents.list().some(agent => agent !== operation.agent);
+    if (adapter && shared) callbacks.fail('unsupported_operation', 'Managed MCP requires a dedicated native host');
+    if (callbacks.pendingInbox(operation.agent).hasPending || callbacks.pendingInteractions(operation.agent).length || shared) {
       callbacks.fail('busy', 'Native input, interaction, or a shared execution is active');
     }
   };
@@ -234,6 +246,7 @@ export function createManagedSkillMount(ctx, config, callbacks) {
       return await agent.runMaintenance(async () => {
         if (callbacks.pendingInbox(agent).hasPending || callbacks.pendingInteractions(agent).length
           || ctx.agents.list().some(other => other !== agent)) return false;
+        if (adapter && !adapter.ready(checkedState(agent), agent, marker())) return false;
         return callbacks.ready(agent);
       });
     } catch { return false; }
@@ -299,7 +312,7 @@ export function createManagedSkillMount(ctx, config, callbacks) {
           callbacks.fail('conflict', 'Native skill publication base changed');
         }
         await preflight(state, agent, operation.candidate, signal);
-        if (!await callbacks.checkSkillScope(agent, signal)) {
+        if (!adapter && !await callbacks.checkSkillScope(agent, signal)) {
           callbacks.fail('unavailable', 'Native skill cache can affect an unverified live provider');
         }
         ensureIdleBoundary(operation, request, signal, peer);
@@ -312,7 +325,7 @@ export function createManagedSkillMount(ctx, config, callbacks) {
         try {
           const publicationSignal = AbortSignal.any([signal, invocation.signal]);
           const prepared = await preflight(state, agent, operation.candidate, publicationSignal);
-          if (!await callbacks.checkSkillScope(agent, publicationSignal)) {
+          if (!adapter && !await callbacks.checkSkillScope(agent, publicationSignal)) {
             callbacks.fail('unavailable', 'Native skill cache can affect an unverified live provider');
           }
           ensureIdleBoundary(operation, invocation.request, publicationSignal, peer);
@@ -322,19 +335,23 @@ export function createManagedSkillMount(ctx, config, callbacks) {
           publishMarker(config.projection_root, operation.candidate, operation.operationId);
           operation.publishedCommit = operation.candidate;
           state.revision = operation.candidate;
-          state.invalidate();
-          const reading = optionsFor(agent, AbortSignal.any([bounded, maintenanceSignal]));
-          const current = await ctx.get('skills').snapshot(reading);
-          const names = new Set(current.skills.filter(entry => entry.provider === name).map(entry => entry.name));
-          if (!current.complete || names.size !== prepared.length || prepared.some(entry => !names.has(entry.name))) {
-            callbacks.fail('unavailable', 'Native managed skill catalog could not be verified');
-          }
-          for (const entry of prepared) {
-            const skill = await ctx.get('skills').get(entry.name, reading);
-            const path = entry.locator.path;
-            if (skill?.provider !== name || skill.path !== path
-              || skill.resourceBase?.path !== entry.locator.directory) {
-              callbacks.fail('unavailable', 'Native managed skill body or resource origin could not be verified');
+          const activationSignal = AbortSignal.any([bounded, maintenanceSignal]);
+          if (adapter) await adapter.activate(state, agent, prepared, operation.candidate, activationSignal);
+          else {
+            state.invalidate();
+            const reading = optionsFor(agent, activationSignal);
+            const current = await ctx.get('skills').snapshot(reading);
+            const names = new Set(current.skills.filter(entry => entry.provider === name).map(entry => entry.name));
+            if (!current.complete || names.size !== prepared.length || prepared.some(entry => !names.has(entry.name))) {
+              callbacks.fail('unavailable', 'Native managed skill catalog could not be verified');
+            }
+            for (const entry of prepared) {
+              const skill = await ctx.get('skills').get(entry.name, reading);
+              const path = entry.locator.path;
+              if (skill?.provider !== name || skill.path !== path
+                || skill.resourceBase?.path !== entry.locator.directory) {
+                callbacks.fail('unavailable', 'Native managed skill body or resource origin could not be verified');
+              }
             }
           }
           operation.effectiveCommit = operation.candidate;
@@ -371,7 +388,7 @@ export function createManagedSkillMount(ctx, config, callbacks) {
   return {
     register,
     providerName: name,
-    managesFiber: (agent, fiber) => fiber.uid != null && states.get(agent)?.fiber.uid === fiber.uid,
+    managesFiber: (agent, fiber) => fiber.uid != null && states.get(agent)?.fiber?.uid === fiber.uid,
     observeCandidates: async (agent, signal) => {
       const state = states.get(agent);
       if (!state?.qualified) return null;
@@ -387,6 +404,11 @@ export function createManagedSkillMount(ctx, config, callbacks) {
     describe(agent) {
       const state = states.get(agent);
       return state?.qualified ? { mount_id: config.mount_id, preset: state.preset, build: QUALIFIED_VERSION } : null;
+    },
+    observeMcp(agent) {
+      const state = states.get(agent);
+      if (!adapter || !state?.qualified) return null;
+      return adapter.observe(state, agent, marker());
     },
     open,
     publish(agent, request, signal, peer) {

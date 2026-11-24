@@ -117,6 +117,8 @@ class FilePublication:
         policy: GatewayAccessPolicy,
         manifest_path: Path,
         target: GatewayTarget,
+        *,
+        listener_is_current: Callable[[], bool],
     ) -> None:
         """Bind the coordinator to the currently selected verified owner."""
 
@@ -124,6 +126,7 @@ class FilePublication:
         self.m_policy: GatewayAccessPolicy = policy
         self.m_manifest_path: Path = manifest_path
         self.m_target: GatewayTarget = target
+        self.m_listener_is_current: Callable[[], bool] = listener_is_current
         self.m_journal: PushJournal = PushJournal(mount.storage.root)
 
     def push(
@@ -131,16 +134,47 @@ class FilePublication:
     ) -> FilePushReceipt:
         """Dispatch at most one exact rendition of a push operation ID."""
 
+        if request.when_idle and decision.actor.kind != "self":
+            raise GatewayAccessError(403, "file_scheduling_requires_managed_self")
+        if request.when_idle:
+            candidate = self.m_mount.storage.candidate(request.commit_id)
+            if candidate.base_commit != request.expected_base:
+                raise GatewayAccessError(409, "published_base_changed")
         with self.m_journal.dispatch_guard() as held:
             record, created = self.m_journal.begin(request, decision, publisher)
             if not created:
                 receipt = self._recover(record) if held else record.receipt
+            elif request.when_idle:
+                receipt = record.receipt
             elif not held:
                 receipt = self._finish_without_handoff(record, "busy", "mount_publication_busy")
             else:
                 receipt = self._schedule(record)
             self._require_current(decision)
             return receipt
+
+    def dispatch_scheduled(self) -> None:
+        """Try the oldest admitted work without replaying any interrupted dispatch."""
+
+        with self.m_journal.dispatch_guard() as held:
+            if not held or not self.m_listener_is_current():
+                return
+            for record in self.m_journal.scheduled(self.m_target.incarnation):
+                if not self.m_listener_is_current():
+                    return
+                if record.receipt.outcome != "queued":
+                    self._recover(record)
+                    continue
+                if record.request.target != self.m_target:
+                    self._finish_without_handoff(record, "refused", "file_target_changed")
+                    continue
+                if not self.m_policy.revalidate(record.decision):
+                    self._finish_without_handoff(record, "refused", "insufficient_authority")
+                    continue
+                record = self.m_journal.start_scheduled(record)
+                if record.receipt.outcome == "pending":
+                    self._schedule(record)
+                return
 
     def status(self, operation_id: str, decision: AuthorizationDecision) -> FilePushReceipt:
         """Recover attributable evidence without issuing a publication request."""
@@ -194,6 +228,8 @@ class FilePublication:
                 transaction = active
                 self._verify_preconditions(record)
                 mount.projection.verify_revision(candidate.commit_id, candidate.files)
+                if request.when_idle and not self.m_listener_is_current():
+                    raise GatewayAccessError(403, "file_target_changed")
                 if not claim.active():
                     raise GatewayAccessError(409, "owner_maintenance_changed")
                 self.m_policy.handoff(record.decision, operation_id=record.handoff_id)
@@ -395,7 +431,7 @@ class FilePublication:
         """Keep admission closed if the earlier native attempt may still hold it."""
 
         if claim is None:
-            return self._finish_without_handoff(record, outcome, reason)
+            return self._finish_before_dispatch(record, outcome, reason)
         native = (transaction.settlement or {}) if transaction is not None else {}
         if reason == "file_native_admission_unconfirmed" or (
             transaction is not None
@@ -406,6 +442,15 @@ class FilePublication:
                 record, "unknown", "file_native_admission_unconfirmed"
             )
         claim.release_before_handoff(evidence="file_publication_refused")
+        return self._finish_before_dispatch(record, outcome, reason)
+
+    def _finish_before_dispatch(
+        self, record: PushRecord, outcome: str, reason: str
+    ) -> FilePushReceipt:
+        """Retain an idle retry only after establishing that native handoff did not occur."""
+
+        if outcome == "busy" and record.request.when_idle:
+            outcome = "queued"
         return self._finish_without_handoff(record, outcome, reason)
 
     @staticmethod

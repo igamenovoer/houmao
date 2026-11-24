@@ -91,6 +91,7 @@ from houmao.passive_server.models import (
     PassiveHeadlessTurnAcceptedResponse,
     PassiveHeadlessTurnEventsResponse,
     PassiveHeadlessTurnStatusResponse,
+    PassiveWorkRequestReceipt,
 )
 from houmao.server.managed_agents import (
     ManagedHeadlessActiveTurnRecord,
@@ -160,6 +161,19 @@ class _BackingDispatch:
     selection: HeadlessTurnSessionSelection | None
     execution: ModelConfig | None
     owner_claim: OwnerPromptClaim | None = None
+    refused_before_launch: threading.Event | None = None
+
+
+@dataclass(frozen=True)
+class _WorkRequestHandoff:
+    """Carry one detached request's proof fence and handoff evidence to its worker."""
+
+    request_id: str
+    deadline: float
+    authorize: Callable[[str | None], None]
+    settled: threading.Event
+    confirmed: threading.Event
+    refused: threading.Event
 
 
 def _controller_primary_tmux_window_id(controller: RuntimeSessionController) -> str | None:
@@ -464,6 +478,38 @@ class HeadlessAgentService:
                 authorize_effect=authorize_effect,
             )
 
+    def submit_work_request(
+        self,
+        tracked_agent_id: str,
+        prompt: str,
+        *,
+        authorize_handoff: Callable[[str | None], None],
+    ) -> PassiveWorkRequestReceipt | tuple[int, dict[str, Any]]:
+        """Dispatch once through the qualified detached DSH owner and wait for handoff."""
+
+        request = _WorkRequestHandoff(
+            request_id=uuid.uuid4().hex[:12],
+            deadline=time.monotonic() + _BACKING_HANDOFF_SECONDS,
+            authorize=authorize_handoff,
+            settled=threading.Event(),
+            confirmed=threading.Event(),
+            refused=threading.Event(),
+        )
+        with self.m_lock:
+            result = self._submit_turn_locked(tracked_agent_id, prompt, work_request=request)
+        if isinstance(result, tuple):
+            return result
+        request.settled.wait(timeout=max(0.0, request.deadline - time.monotonic()))
+        if request.confirmed.is_set():
+            return PassiveWorkRequestReceipt(request_id=request.request_id, outcome="handed_off")
+        if request.refused.is_set():
+            return PassiveWorkRequestReceipt(
+                request_id=request.request_id, outcome="not_sent", error_code="authority_changed"
+            )
+        return PassiveWorkRequestReceipt(
+            request_id=request.request_id, outcome="unknown", error_code="handoff_unconfirmed"
+        )
+
     def _submit_turn_locked(
         self,
         tracked_agent_id: str,
@@ -473,15 +519,22 @@ class HeadlessAgentService:
         chat_session: GatewayChatSessionSelectorV1 | None = None,
         execution: ModelConfig | None = None,
         authorize_effect: Callable[[], None] | None = None,
+        work_request: _WorkRequestHandoff | None = None,
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Reserve durable admission before another caller can start a worker."""
 
         self._refresh_recovered_active_turn(tracked_agent_id)
         handle = self._require_handle(tracked_agent_id)
         if handle is None:
+            if work_request is not None:
+                return (404, {"error_code": "target_unavailable"})
             return (404, {"detail": f"Managed headless agent not found: {tracked_agent_id}"})
+        if work_request is not None and handle.authority.backend != "dsh_headless":
+            return (501, {"error_code": "unsupported_backend"})
 
         if handle.controller is None:
+            if work_request is not None:
+                return (503, {"error_code": "target_unavailable"})
             return (
                 503,
                 {"detail": f"No live controller for agent {tracked_agent_id} (rebuild pending)"},
@@ -493,6 +546,8 @@ class HeadlessAgentService:
 
         existing_active = self.m_store.read_active_turn(tracked_agent_id=tracked_agent_id)
         if existing_active is not None:
+            if work_request is not None:
+                return (409, {"error_code": "not_ready"})
             return (
                 409,
                 {
@@ -505,7 +560,13 @@ class HeadlessAgentService:
 
         existing_turns = self.m_store.list_turn_records(tracked_agent_id=tracked_agent_id)
         turn_index = len(existing_turns) + 1
-        turn_id = backing.turn_id if backing is not None else uuid.uuid4().hex[:12]
+        turn_id = (
+            work_request.request_id
+            if work_request is not None
+            else backing.turn_id
+            if backing is not None
+            else uuid.uuid4().hex[:12]
+        )
         if any(record.turn_id == turn_id for record in existing_turns):
             return (409, {"detail": "The selected turn has already been admitted"})
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
@@ -534,16 +595,59 @@ class HeadlessAgentService:
             except OwnerAdmissionError as exc:
                 status = 409 if exc.code in {"not_ready", "uncertain", "duplicate_request"} else 503
                 return (status, {"detail": str(exc), "error_code": exc.code})
-            deadline = time.monotonic() + 300
+            deadline = work_request.deadline if work_request is not None else time.monotonic() + 300
+            authorization_claimed = False
+
+            def allowed() -> bool:
+                """Recheck the original detached selection at the native launch fence."""
+
+                nonlocal authorization_claimed
+                if not claim.active():
+                    if work_request is not None and control.m_permission_path is None:
+                        work_request.refused.set()
+                    return False
+                try:
+                    if work_request is not None:
+                        work_request.authorize(None if authorization_claimed else turn_id)
+                        authorization_claimed = True
+                    elif authorize_effect is not None:
+                        authorize_effect()
+                except GatewayAccessError:
+                    if work_request is not None and control.m_permission_path is None:
+                        work_request.refused.set()
+                    return False
+                return True
+
+            def confirm() -> None:
+                """Publish the durable owner receipt before waking the HTTP caller."""
+
+                claim.handoff()
+                if work_request is not None:
+                    work_request.confirmed.set()
+                    work_request.settled.set()
+
             control = HeadlessDispatchControl.from_callbacks(
-                allowed=claim.active,
-                confirmed=claim.handoff,
+                allowed=allowed,
+                confirmed=confirm,
                 deadline=deadline,
                 manifest_path=manifest_path,
                 generation_id=generation,
             )
+            if work_request is not None:
+                try:
+                    work_request.authorize(None)
+                except GatewayAccessError as exc:
+                    claim.finish("failed", evidence="detached_request_fence_refused")
+                    return (exc.status_code, {"error_code": exc.code})
             backing = _BackingDispatch(
-                turn_id, control, threading.Event(), deadline, None, execution, owner_claim=claim
+                turn_id,
+                control,
+                work_request.settled if work_request is not None else threading.Event(),
+                deadline,
+                None,
+                execution,
+                owner_claim=claim,
+                refused_before_launch=work_request.refused if work_request is not None else None,
             )
         if backing is not None and backing.owner_claim is not None:
             backing = replace(backing, selection=selection)
@@ -580,6 +684,8 @@ class HeadlessAgentService:
                 worker_options["selection"] = selection
             if execution is not None:
                 worker_options["execution"] = execution
+            if authorize_effect is not None:
+                worker_options["authorize_effect"] = authorize_effect
         worker = threading.Thread(
             target=self._run_turn_worker,
             args=worker_arguments,
@@ -1195,6 +1301,7 @@ class HeadlessAgentService:
         backing: _BackingDispatch | None = None,
         selection: HeadlessTurnSessionSelection | None = None,
         execution: ModelConfig | None = None,
+        authorize_effect: Callable[[], None] | None = None,
     ) -> None:
         """Worker thread: send prompt and finalize turn record."""
 
@@ -1202,6 +1309,8 @@ class HeadlessAgentService:
         record: ManagedHeadlessTurnRecord | None = None
         try:
             if backing is None:
+                if authorize_effect is not None:
+                    authorize_effect()
                 events = controller.send_prompt(
                     prompt=prompt,
                     turn_artifact_dir_name=turn_id,
@@ -1238,6 +1347,11 @@ class HeadlessAgentService:
                 turn_id=turn_id,
                 completion_events=None,
                 error_detail=str(exc),
+                refused_before_launch=(
+                    backing is not None
+                    and backing.refused_before_launch is not None
+                    and backing.refused_before_launch.is_set()
+                ),
             )
         finally:
             if backing is not None:
@@ -1246,18 +1360,30 @@ class HeadlessAgentService:
                     and backend.m_dispatch_control is backing.control
                 ):
                     backend.configure_request_dispatch(None)
-                backing.settled.set()
-                if backing.owner_claim is not None:
-                    status = (
-                        record.status
-                        if record is not None and record.returncode is not None
-                        else None
-                    )
-                    match status:
-                        case "completed" | "interrupted" | "failed":
-                            backing.owner_claim.finish(status, evidence="headless_artifacts")
-                        case _:
-                            backing.owner_claim.finish("uncertain")
+                try:
+                    if backing.owner_claim is not None:
+                        status = (
+                            record.status
+                            if record is not None and record.returncode is not None
+                            else None
+                        )
+                        if (
+                            backing.refused_before_launch is not None
+                            and backing.refused_before_launch.is_set()
+                        ):
+                            backing.owner_claim.finish(
+                                "failed", evidence="detached_request_fence_refused"
+                            )
+                        else:
+                            match status:
+                                case "completed" | "interrupted" | "failed":
+                                    backing.owner_claim.finish(
+                                        status, evidence="headless_artifacts"
+                                    )
+                                case _:
+                                    backing.owner_claim.finish("uncertain")
+                finally:
+                    backing.settled.set()
             authority = self.m_store.read_authority(tracked_agent_id=tracked_agent_id)
             if authority is not None:
                 self._reconcile_usage(authority)
@@ -1300,6 +1426,7 @@ class HeadlessAgentService:
         turn_id: str,
         completion_events: list[SessionEvent] | None,
         error_detail: str | None,
+        refused_before_launch: bool = False,
     ) -> ManagedHeadlessTurnRecord | None:
         """Serialize terminal status with pre-signal interruption persistence."""
 
@@ -1309,6 +1436,7 @@ class HeadlessAgentService:
                 turn_id=turn_id,
                 completion_events=completion_events,
                 error_detail=error_detail,
+                refused_before_launch=refused_before_launch,
             )
 
     def _refresh_turn_record_locked(
@@ -1318,6 +1446,7 @@ class HeadlessAgentService:
         turn_id: str,
         completion_events: list[SessionEvent] | None,
         error_detail: str | None,
+        refused_before_launch: bool = False,
     ) -> ManagedHeadlessTurnRecord | None:
         """Refresh one completed turn record from durable artifacts and final events."""
 
@@ -1353,7 +1482,10 @@ class HeadlessAgentService:
         handle = self._require_handle(tracked_agent_id)
         dsh_cli = handle is not None and handle.authority.backend == "dsh_headless"
 
-        if status_path.exists():
+        if refused_before_launch:
+            final_status = "failed"
+            error_detail = "Work request authority changed before native handoff."
+        elif status_path.exists():
             try:
                 returncode = read_headless_turn_return_code(status_path=status_path)
             except Exception as exc:
@@ -1425,7 +1557,7 @@ class HeadlessAgentService:
             }
         )
         self.m_store.write_turn_record(updated_record)
-        if final_status != "unknown":
+        if final_status != "unknown" and active_turn is not None:
             self.m_store.clear_active_turn(tracked_agent_id=tracked_agent_id)
         return updated_record
 

@@ -9,17 +9,21 @@ import json
 from houmao.agents.realm_controller.gateway_models import (
     GatewayPromptControlRequestV1,
     GatewayReminderCreateBatchV1,
+    GatewayReminderDefinitionV1,
     GatewayReminderPutV1,
     GatewayRequestCreateV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
 from houmao.gateway._access_storage import GatewayAccessError
-from houmao.gateway.access_models import parse_access_document
+from houmao.gateway.access_models import MANAGED_SELF_PATH, parse_access_document
+from houmao.gateway.authorization_catalog import DEFAULT_GROUP_SET, MAIL_DELIVER
 from houmao.gateway.authorization_models import Permission
 from houmao.gateway.file_edits.contracts import FILE_EDIT_PATH, FILE_REQUESTS
 
 WEB_ENTRY = Permission(resource="native:web", action="web.enter")
-PROMPT = Permission(resource="agent", action="agent.prompt")
+WORK_REQUEST = Permission(resource="agent", action="agent.request.submit")
+PROMPT = Permission(resource="agent", action="agent.prompt.direct")
+COMMAND_INVOKE = Permission(resource="agent", action="agent.command.invoke")
 INTERRUPT = Permission(resource="agent", action="agent.interrupt")
 RAW_INPUT = Permission(resource="agent", action="agent.input.raw")
 SELECT_SESSION = Permission(resource="native", action="native.session.select")
@@ -29,6 +33,7 @@ STATUS = Permission(resource="agent", action="agent.status.read")
 ATTACHMENT_ACTION = "mail.attachment.owner_file"
 ADMIN_ADD = Permission(resource="policy", action="admin.key.add")
 ADMIN_REMOVE = Permission(resource="policy", action="admin.key.remove")
+MANAGED_SELF_CHANGE = Permission(resource="policy", action="admin.self-key.manage")
 PUBLIC_NOTICE = Permission(resource="agent", action="public.message")
 PUBLIC_PROMPT = Permission(resource="agent", action="public.prompt")
 PUBLIC_INPUT_PERMISSIONS = frozenset({PUBLIC_NOTICE, PUBLIC_PROMPT})
@@ -95,6 +100,8 @@ class GatewayOperation:
             try:
                 if self.selector == "queue":
                     request = parse_access_document(GatewayRequestCreateV1, body)
+                    if request.kind == "submit_work_request":
+                        return (WORK_REQUEST,)
                     if not isinstance(request.payload, GatewayRequestPayloadSubmitPromptV1):
                         return (INTERRUPT,)
                     payload: GatewayRequestPayloadSubmitPromptV1 | GatewayPromptControlRequestV1 = (
@@ -140,8 +147,9 @@ class GatewayOperation:
                     (
                         self.permission,
                         *(
-                            RAW_INPUT if reminder.send_keys is not None else PROMPT
+                            permission
                             for reminder in reminders
+                            for permission in reminder_input_permissions(reminder)
                         ),
                     )
                 )
@@ -163,8 +171,8 @@ def prompt_permissions(
 ) -> tuple[Permission, ...]:
     """Authorize requested native session, model, and operator effects separately."""
 
-    permissions = [PROMPT]
-    if payload.chat_session is not None:
+    permissions = list(direct_text_permissions(payload.prompt))
+    if payload.chat_session is not None and SELECT_SESSION not in permissions:
         permissions.append(SELECT_SESSION)
     if payload.execution is not None:
         permissions.append(OVERRIDE_MODEL)
@@ -174,6 +182,37 @@ def prompt_permissions(
     ):
         permissions.append(OPERATOR_PROMPT)
     return tuple(permissions)
+
+
+def native_command_candidate(text: str) -> str | None:
+    """Select the first slash token before choosing native control effects."""
+
+    content = text.lstrip()
+    if content.startswith("/"):
+        return content.split(maxsplit=1)[0]
+    return None
+
+
+def direct_text_permissions(text: str) -> tuple[Permission, ...]:
+    """Require command and context effects for slash-like direct text."""
+
+    command = native_command_candidate(text)
+    if command in {"/clear", "/new"}:
+        return (PROMPT, COMMAND_INVOKE, SELECT_SESSION)
+    if command is not None:
+        return (PROMPT, COMMAND_INVOKE)
+    return (PROMPT,)
+
+
+def reminder_input_permissions(
+    reminder: GatewayReminderDefinitionV1,
+) -> tuple[Permission, ...]:
+    """Select the same exact effects as equivalent immediate input."""
+
+    if reminder.send_keys is not None:
+        return (RAW_INPUT,)
+    assert reminder.prompt is not None
+    return direct_text_permissions(reminder.prompt)
 
 
 def supports_mail_permission(permission: Permission) -> bool:
@@ -326,11 +365,20 @@ CORE_OPERATIONS = {
     ("DELETE", "/v1/admin/keys/{key_id}"): GatewayOperation(
         "/v1/admin/keys/{key_id}", ADMIN_REMOVE
     ),
+    ("PUT", MANAGED_SELF_PATH): GatewayOperation(
+        MANAGED_SELF_PATH, MANAGED_SELF_CHANGE, selector="self-registration"
+    ),
+    ("PUT", "/v1/admin/default-permission-group"): GatewayOperation(
+        "/v1/admin/default-permission-group", DEFAULT_GROUP_SET
+    ),
 }
 
 CORE_PERMISSIONS = frozenset(
     {
+        MAIL_DELIVER,
+        WORK_REQUEST,
         PROMPT,
+        COMMAND_INVOKE,
         INTERRUPT,
         SELECT_SESSION,
         OVERRIDE_MODEL,
@@ -342,18 +390,3 @@ CORE_PERMISSIONS = frozenset(
         ),
     }
 )
-
-SELF_PERMISSIONS = frozenset(
-    permission
-    for permission in CORE_PERMISSIONS
-    if permission.action.startswith(("agent.status.", "agent.usage.", "memory.", "mail.status."))
-)
-
-
-def supports_self_mail_permission(permission: Permission) -> bool:
-    """Preserve same-agent ordinary mail effects without file or operator authority."""
-
-    return supports_mail_permission(permission) and permission.action not in {
-        ATTACHMENT_ACTION,
-        "mail.post",
-    }

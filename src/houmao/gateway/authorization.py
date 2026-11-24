@@ -11,7 +11,14 @@ import casbin  # type: ignore[import-untyped]
 
 from houmao.gateway._access_storage import GatewayAccessError
 from houmao.gateway.access_models import GatewaySelfKey, GatewayTarget
+from houmao.gateway.authorization_catalog import (
+    MAIL_DELIVER,
+    RETIRED_PROMPT,
+    group_allows,
+    is_admin_exclusive,
+)
 from houmao.gateway.authorization_models import (
+    BUILTIN_PEER_ROLES,
     AuthorizationActor,
     AuthorizationBasis,
     AuthorizationDecision,
@@ -33,6 +40,7 @@ e = some(where (p.eft == allow))
 m = r.dom == p.dom && r.obj == p.obj && r.act == p.act && (r.sub == p.sub || g(r.sub, p.sub, r.dom))
 """
 _ADMIN = "builtin:gateway-admin"
+_DEFAULT = "builtin:default"
 _PUBLIC = "builtin:public"
 _SELF = "builtin:self"
 
@@ -62,6 +70,7 @@ class GatewayAuthorizer:
         self_permissions: Iterable[Permission] = (),
         supports: Callable[[Permission], bool] | None = None,
         supports_self: Callable[[Permission], bool] | None = None,
+        supports_common: Callable[[Permission], bool] | None = None,
     ) -> None:
         """Select supported client operations and host-controlled public and self access."""
 
@@ -73,6 +82,7 @@ class GatewayAuthorizer:
         self.m_self_permissions: frozenset[Permission] = frozenset(self_permissions)
         self.m_supports: Callable[[Permission], bool] | None = supports
         self.m_supports_self: Callable[[Permission], bool] | None = supports_self
+        self.m_supports_common: Callable[[Permission], bool] | None = supports_common
         self.m_domain: str = json.dumps([store.owner.agent_id, store.owner.context_id])
 
     def authorize(
@@ -110,7 +120,12 @@ class GatewayAuthorizer:
         self._require_owner(snapshot, target)
         credential = _require_actor(snapshot, actor, target, current_self)
         required = self._require_supported(permissions)
-        basis = self._admit_basis(snapshot, actor, credential, required)
+        if actor.kind == "mail" and required != (MAIL_DELIVER,):
+            raise GatewayAccessError(403, "insufficient_authority")
+        enforcer = self._enforcer(snapshot, required)
+        basis, default_permissions = self._admit_basis(
+            snapshot, actor, credential, required, enforcer
+        )
         return AuthorizationDecision(
             actor=actor,
             target=target,
@@ -121,6 +136,10 @@ class GatewayAuthorizer:
             policy_revision=snapshot.revision,
             open_epoch=snapshot.open_epoch if basis == "open" else None,
             admin_revision=credential.admin_revision if basis == "admin" and credential else None,
+            default_permission_revision=(
+                snapshot.default_permission_revision if basis == "default" else None
+            ),
+            default_permissions=default_permissions,
         )
 
     def revalidate(
@@ -169,8 +188,25 @@ class GatewayAuthorizer:
         actor = decision.actor
         credential = _require_actor(snapshot, actor, target, current_self)
         required = self._require_supported(decision.permissions)
-        subject = _admitted_subject(snapshot, decision, credential)
-        if not self._permits(snapshot, subject, required):
+        enforcer = self._enforcer(snapshot, required)
+        if decision.basis == "default":
+            if (
+                snapshot.default_permission_revision != decision.default_permission_revision
+                or not _default_eligible(snapshot, actor, credential)
+            ):
+                raise GatewayAccessError(403, "insufficient_authority")
+            allowed = all(
+                self._allows(
+                    enforcer,
+                    _DEFAULT if permission in decision.default_permissions else _scoped(actor),
+                    permission,
+                )
+                for permission in required
+            )
+        else:
+            subject = _admitted_subject(snapshot, decision, credential)
+            allowed = all(self._allows(enforcer, subject, permission) for permission in required)
+        if not allowed:
             raise GatewayAccessError(403, "insufficient_authority")
         return decision.model_copy(update={"policy_revision": snapshot.revision})
 
@@ -186,6 +222,9 @@ class GatewayAuthorizer:
         """Order one exact mutation admission against concurrent policy updates."""
 
         with self.m_store.transaction() as transaction:
+            if decision.actor.kind == "self":
+                if transaction.load_self(target.incarnation) != current_self:
+                    raise GatewayAccessError(401, "invalid_proof")
             current = self.require_current(
                 transaction.snapshot,
                 decision,
@@ -206,7 +245,7 @@ class GatewayAuthorizer:
         """Allow only declared exact operations or host-validated concrete resources."""
 
         required = tuple(dict.fromkeys(permissions))
-        if not 1 <= len(required) <= 64:
+        if not 1 <= len(required) <= 64 or RETIRED_PROMPT in required:
             raise GatewayAccessError(403, "insufficient_authority")
         try:
             catalog = set(self.m_catalog() if callable(self.m_catalog) else self.m_catalog)
@@ -229,36 +268,53 @@ class GatewayAuthorizer:
         actor: AuthorizationActor,
         credential: Credential | None,
         permissions: tuple[Permission, ...],
-    ) -> AuthorizationBasis:
+        enforcer: _Enforcer,
+    ) -> tuple[AuthorizationBasis, tuple[Permission, ...]]:
         """Choose an attributable basis and preserve it across subsequent checks."""
 
         if all(permission in self.m_public_permissions for permission in permissions):
-            basis: AuthorizationBasis = "public"
-            subject = _PUBLIC
-        elif snapshot.admin_mode == "open":
-            basis, subject = "open", _ADMIN
-        elif credential is not None and credential.admin_revision is not None:
-            basis, subject = "admin", _ADMIN
-        elif credential is not None:
-            basis, subject = "scoped", _principal_subject(credential.principal_id)
-        elif actor.kind == "self":
-            basis, subject = "self", _SELF
-        else:
-            raise GatewayAccessError(401, "proof_required")
-        if not self._permits(snapshot, subject, permissions):
+            return "public", ()
+        if snapshot.admin_mode == "open":
+            return "open", ()
+        if credential is not None and credential.admin_revision is not None:
+            return "admin", ()
+        if actor.kind == "self":
+            if all(self._allows(enforcer, _SELF, permission) for permission in permissions):
+                return "self", ()
             raise GatewayAccessError(403, "insufficient_authority")
-        return basis
+        remaining = tuple(
+            permission
+            for permission in permissions
+            if not self._allows(enforcer, _scoped(actor), permission)
+        )
+        if not remaining:
+            return "scoped", ()
+        if _default_eligible(snapshot, actor, credential) and all(
+            self._allows(enforcer, _DEFAULT, permission) for permission in remaining
+        ):
+            return "default", remaining
+        if actor.kind == "anonymous":
+            raise GatewayAccessError(401, "proof_required")
+        raise GatewayAccessError(403, "insufficient_authority")
 
-    def _permits(
-        self, snapshot: PolicySnapshot, subject: str, permissions: tuple[Permission, ...]
-    ) -> bool:
-        """Evaluate the compound request with fresh, unexpired exact policy rows."""
+    def _allows(self, enforcer: _Enforcer, subject: str, permission: Permission) -> bool:
+        """Evaluate one selected effect through the host's Casbin model."""
+
+        try:
+            return enforcer.enforce(subject, self.m_domain, permission.resource, permission.action)
+        except Exception:
+            raise GatewayAccessError(503, "policy_unavailable") from None
+
+    def _enforcer(self, snapshot: PolicySnapshot, permissions: tuple[Permission, ...]) -> _Enforcer:
+        """Build fresh, exact policy rows for all permission sources in one request."""
 
         try:
             model = casbin.model.Model()
             model.load_model_from_text(_MODEL)
             enforcer = cast(_Enforcer, casbin.Enforcer(model))
-            required = set(permissions)
+            required = {
+                permission for permission in permissions if not is_admin_exclusive(permission)
+            }
             now = time.time()
             domain = self.m_domain
             policies = [
@@ -270,11 +326,21 @@ class GatewayAuthorizer:
                 for permission in permissions
                 if permission in self.m_public_permissions
             )
+            groups = {
+                **BUILTIN_PEER_ROLES,
+                _SELF: "managed-self",
+                _DEFAULT: snapshot.default_permission_group,
+            }
             policies.extend(
-                [_SELF, domain, permission.resource, permission.action]
+                [subject, domain, permission.resource, permission.action]
+                for subject, group in groups.items()
                 for permission in permissions
-                if permission in self.m_self_permissions
-                or (self.m_supports_self is not None and self.m_supports_self(permission))
+                if group_allows(
+                    group,
+                    permission,
+                    supports_self=self._supports_self,
+                    supports_common=self.m_supports_common,
+                )
             )
             policies.extend(
                 [
@@ -301,7 +367,9 @@ class GatewayAuthorizer:
             grouping.extend(
                 [
                     _principal_subject(assignment.principal_id),
-                    _role_subject(assignment.role_id),
+                    assignment.role_id
+                    if assignment.builtin_version
+                    else _role_subject(assignment.role_id),
                     domain,
                 ]
                 for assignment in snapshot.role_assignments
@@ -309,14 +377,18 @@ class GatewayAuthorizer:
             )
             if not enforcer.add_policies(policies) or not enforcer.add_grouping_policies(grouping):
                 raise ValueError("invalid authorization policy rows")
-            return all(
-                enforcer.enforce(subject, domain, permission.resource, permission.action)
-                for permission in permissions
-            )
+            return enforcer
         except GatewayAccessError:
             raise
         except Exception:
             raise GatewayAccessError(503, "policy_unavailable") from None
+
+    def _supports_self(self, permission: Permission) -> bool:
+        """Check that the host classified this exact effect for managed-self."""
+
+        return permission in self.m_self_permissions or (
+            self.m_supports_self is not None and self.m_supports_self(permission)
+        )
 
 
 def _require_actor(
@@ -333,6 +405,11 @@ def _require_actor(
         if credential is None or AuthorizationActor.from_credential(credential) != actor:
             raise GatewayAccessError(401, "invalid_proof")
         return credential
+    if (
+        actor.kind == "mail"
+        and transport_principal(snapshot, actor.transport_member) != actor.principal_id
+    ):
+        raise GatewayAccessError(401, "invalid_proof")
     if actor.kind == "self" and (
         current_self is None
         or current_self.owner != target.owner
@@ -358,12 +435,48 @@ def _admitted_subject(
                 raise GatewayAccessError(403, "insufficient_authority")
             return _ADMIN
         case "scoped":
-            assert credential is not None
-            return _principal_subject(credential.principal_id)
+            return _scoped(decision.actor)
         case "self":
             return _SELF
         case "public":
             return _PUBLIC
+        case "default":
+            raise ValueError("default authority requires per-effect evaluation")
+
+
+def _scoped(actor: AuthorizationActor) -> str:
+    """Select an enrolled principal's scope or independent public effects."""
+
+    return _PUBLIC if actor.principal_id is None else _principal_subject(actor.principal_id)
+
+
+def _default_eligible(
+    snapshot: PolicySnapshot, actor: AuthorizationActor, credential: Credential | None
+) -> bool:
+    """A retained peer assignment suppresses fallback even after its expiry."""
+
+    return (
+        snapshot.admin_mode == "keyed"
+        and actor.kind != "self"
+        and (credential is None or credential.admin_revision is None)
+        and not any(
+            assignment.principal_id == actor.principal_id and assignment.builtin_version is not None
+            for assignment in snapshot.role_assignments
+        )
+    )
+
+
+def transport_principal(snapshot: PolicySnapshot, logical_agent_id: str | None) -> str | None:
+    """Resolve one transport-verified logical identity in the recipient's policy."""
+
+    principals = [
+        principal.principal_id
+        for principal in snapshot.principals
+        if principal.kind == "agent" and principal.logical_agent_id == logical_agent_id
+    ]
+    if len(principals) > 1:
+        raise GatewayAccessError(403, "ambiguous_sender_identity")
+    return principals[0] if principals else None
 
 
 def _principal_subject(principal_id: str) -> str:

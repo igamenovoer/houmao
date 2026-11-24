@@ -8,7 +8,9 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
+from contextlib import closing
 from types import SimpleNamespace
 
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
@@ -18,7 +20,6 @@ from houmao.gateway.access import (
     SSHSIG_NAMESPACE,
     GatewayAccessError,
     GatewayAccessPolicy,
-    GatewayAccessStore,
     GatewayAdminKey,
     GatewayChallenge,
     GatewayChallengeRequest,
@@ -37,6 +38,8 @@ from houmao.gateway.access import (
     sshsig_header,
 )
 from houmao.gateway._access_sshsig import PrivateKey, key_fingerprint, verify_sshsig
+from houmao.gateway.access_models import ManagedSelfChange
+from houmao.gateway.authorization_models import AuthorizationActor
 from houmao.gateway.authorization_models import Principal, seed_snapshot
 from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.gateway.operations import ADMIN_ADD, ADMIN_REMOVE, PROMPT, STATUS
@@ -52,7 +55,6 @@ class _Authority:
     """Fixture-owned state for one active generation and one retained admin list."""
 
     store: AuthorizationStore
-    self_store: GatewayAccessStore
     target: GatewayTarget
 
     def policy(self) -> GatewayAccessPolicy:
@@ -61,14 +63,14 @@ class _Authority:
         return GatewayAccessPolicy(
             store=self.store,
             target=lambda: self.target,
-            current_self=lambda: self.self_store.load_self(self.target.incarnation),
+            current_self=lambda: self.store.load_self(self.target.incarnation),
             listener_id="fixture-listener",
         )
 
     def self_signer(self) -> PrivateKey:
         """Select the current generation's explicit owner-local signing source."""
 
-        return load_gateway_signer(self.self_store.self_signer_path(self.target.incarnation))
+        return self.store.load_self_signer(self.target.incarnation)
 
 
 @pytest.fixture
@@ -78,10 +80,9 @@ def authority(tmp_path: Path) -> _Authority:
     owner = GatewayOwner(agent_id="agent", context_id="context")
     root = tmp_path / "access"
     store = AuthorizationStore(root, owner)
-    self_store = GatewayAccessStore.from_root(root, owner)
     store.initialize()
-    self_store.provision_self("first")
-    return _Authority(store, self_store, GatewayTarget(owner=owner, incarnation="first"))
+    store.provision_self("first")
+    return _Authority(store, GatewayTarget(owner=owner, incarnation="first"))
 
 
 def _admin(principal: str = "operator") -> tuple[GatewayAdminKey, PrivateKey]:
@@ -140,6 +141,157 @@ def _listed(
     )
     assert isinstance(grant, GatewayGrant)
     return grant
+
+
+def test_managed_self_registration_changes_are_atomic(authority: _Authority) -> None:
+    """Retain the committed key on failure and serialize conflicting replacements."""
+
+    current = authority.store.load_self("first")
+    assert current is not None
+    signer = ed25519.Ed25519PrivateKey.generate()
+    with pytest.raises(RuntimeError, match="interrupted"):
+        with authority.store.transaction() as transaction:
+            transaction.replace_self(
+                "unclaimed", expected_revision=None, signer=signer, actor="owner"
+            )
+            raise RuntimeError("interrupted")
+    assert authority.store.self_revision("unclaimed") is None
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        left, right = executor.map(authority.store.provision_self, ("unclaimed", "unclaimed"))
+    assert left == right and left.registration_revision == 1
+    with pytest.raises(RuntimeError, match="interrupted"):
+        with authority.store.transaction() as transaction:
+            transaction.replace_self("first", expected_revision=1, signer=signer, actor="owner")
+            raise RuntimeError("interrupted")
+    assert authority.store.load_self("first") == current
+    assert key_fingerprint(public_key_text(authority.self_signer().public_key())) == current.key_id
+
+    def rotate(_: int) -> str:
+        """Attempt the same exact revision from a fresh connection."""
+
+        try:
+            with authority.store.transaction() as transaction:
+                return transaction.replace_self(
+                    "first",
+                    expected_revision=1,
+                    signer=ed25519.Ed25519PrivateKey.generate(),
+                    actor="owner",
+                ).key_id
+        except GatewayAccessError as error:
+            return error.code
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(rotate, range(2)))
+    active = authority.store.load_self("first")
+    assert active is not None and active.registration_revision == 2
+    assert sorted(results) == sorted((active.key_id, "self_registration_conflict"))
+    assert key_fingerprint(public_key_text(authority.self_signer().public_key())) == active.key_id
+
+
+def test_managed_self_rotation_recovery_requires_distinct_authority(
+    authority: _Authority, tmp_path: Path
+) -> None:
+    """Invalidate the predecessor and allow only effective admin to recover unavailable self."""
+
+    policy = authority.policy()
+    self_proof = authority.self_signer()
+    collision = GatewayAdminKey(
+        principal="overlap", public_key=public_key_text(self_proof.public_key())
+    )
+    with pytest.raises(GatewayAccessError) as conflicting_enrollment:
+        policy.add_key(_registration(policy, collision, self_proof), collision)
+    assert conflicting_enrollment.value.code == "self_credential_conflict"
+    admin, admin_signer = _admin()
+    policy.add_key(_registration(policy, admin, admin_signer), admin)
+    assert isinstance(admin_signer, ed25519.Ed25519PrivateKey)
+    with pytest.raises(GatewayAccessError) as conflicting_registration:
+        with authority.store.transaction() as transaction:
+            transaction.replace_self(
+                "unclaimed", expected_revision=None, signer=admin_signer, actor="owner"
+            )
+    assert conflicting_registration.value.code == "self_credential_conflict"
+    authority.store.update(
+        lambda state: state.model_copy(update={"default_permission_group": "managed-self"}),
+        actor="owner",
+        action="admin.default-group.set",
+    )
+    first = authority.store.load_self("first")
+    assert first is not None
+    old = authority.self_signer()
+    challenge = policy.issue(
+        ISSUER, GatewayChallengeRequest(purpose="caller", request=REQUEST, key_id=first.key_id)
+    )
+    assert challenge.revision == first.registration_revision
+    pending = policy.issue(
+        ISSUER, GatewayChallengeRequest(purpose="caller", request=REQUEST, key_id=first.key_id)
+    )
+    actor = policy.authenticate(issuer=ISSUER, request=REQUEST, **_proof(old, challenge))
+    rotate = ManagedSelfChange(operation="rotate", generation_id="first", expected_revision=1)
+    with pytest.raises(GatewayAccessError):
+        policy.change_self_registration(
+            AuthorizationActor(kind="anonymous"), rotate, require_live_target=lambda: None
+        )
+    receipt = policy.change_self_registration(actor, rotate, require_live_target=lambda: None)
+    assert receipt.active and receipt.registration_revision == 2 and receipt.key_id != first.key_id
+    with pytest.raises(GatewayAccessError, match="Valid gateway proof"):
+        policy.authenticate(issuer=ISSUER, request=REQUEST, **_proof(old, pending))
+    operator = _listed(policy, admin, admin_signer).actor
+    revoke = ManagedSelfChange(operation="revoke", generation_id="first", expected_revision=2)
+    revoked = policy.change_self_registration(operator, revoke, require_live_target=lambda: None)
+    assert not revoked.active and revoked.registration_revision == 3
+    assert authority.store.load_self("first") is None
+    with pytest.raises(GatewayAccessError) as provision:
+        authority.store.provision_self("first")
+    assert provision.value.code == "self_registration_conflict"
+    policy.change_self_registration(
+        operator,
+        rotate.model_copy(update={"expected_revision": 3}),
+        require_live_target=lambda: None,
+    )
+    database = tmp_path / "access" / "authorization.sqlite3"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("DELETE FROM managed_self_keys WHERE generation_id = 'first'")
+    with pytest.raises(GatewayAccessError) as unavailable:
+        authority.store.provision_self("first")
+    assert unavailable.value.code == "self_authorization_unavailable"
+    recovered = policy.change_self_registration(
+        operator,
+        rotate.model_copy(update={"expected_revision": 4}),
+        require_live_target=lambda: None,
+    )
+    assert recovered.active and recovered.registration_revision == 5
+
+
+def test_managed_self_schema_migration_preserves_policy_and_rejects_unsafe_files(
+    tmp_path: Path,
+) -> None:
+    """Add SQLite key tables in place while preserving enrollment and authorization revisions."""
+
+    owner = GatewayOwner(agent_id="agent", context_id="context")
+    store = AuthorizationStore(tmp_path / "access", owner)
+    initial, _ = _admin()
+    store.initialize(seed_snapshot(owner, GatewayLaunchSeed(admin_keys=(initial,))))
+    expected = store.update(
+        lambda state: state.model_copy(update={"default_permission_group": "agent-observer"}),
+        actor="owner",
+        action="admin.default-group.set",
+    )
+    database = tmp_path / "access" / "authorization.sqlite3"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("DROP TABLE managed_self_keys")
+        connection.execute("DROP TABLE managed_self_registrations")
+        connection.execute("PRAGMA user_version = 1")
+    assert store.snapshot() == expected
+    assert store.audit_entries(limit=1)[0].policy_revision == expected.revision
+    registration = store.provision_self("first")
+    assert registration.registration_revision == 1
+    assert database.stat().st_mode & 0o777 == 0o600
+    sidecar = database.with_name("authorization.sqlite3-wal")
+    sidecar.touch(mode=0o644)
+    sidecar.chmod(0o644)
+    with pytest.raises(GatewayAccessError) as unsafe:
+        store.load_self_signer("first", expected=registration)
+    assert unsafe.value.code == "policy_unavailable"
 
 
 def test_seed_validates_canonical_keys_and_duplicate_fields() -> None:
@@ -281,9 +433,8 @@ def test_self_key_is_per_generation_and_has_owner_private_source(
     """Preserve same-generation keys and reject an earlier or foreign signer."""
 
     policy = authority.policy()
-    original = authority.self_store.load_self("first")
-    assert authority.self_store.self_signer_path("first").stat().st_mode & 0o777 == 0o600
-    assert authority.self_store.provision_self("first") == original
+    original = authority.store.load_self("first")
+    assert authority.store.provision_self("first") == original
     signer = authority.self_signer()
     challenge_request = GatewayChallengeRequest(
         purpose="caller",
@@ -291,7 +442,7 @@ def test_self_key_is_per_generation_and_has_owner_private_source(
         key_id=key_fingerprint(public_key_text(authority.self_signer().public_key())),
     )
     old_challenge = policy.issue(ISSUER, challenge_request)
-    second = authority.self_store.provision_self("replacement")
+    second = authority.store.provision_self("replacement")
     assert second.public_key != original.public_key
     authority.target = authority.target.model_copy(update={"incarnation": "replacement"})
     with pytest.raises(GatewayAccessError) as stale:
@@ -467,7 +618,7 @@ def test_proof_cannot_move_to_another_listener(authority: _Authority) -> None:
     replacement = GatewayAccessPolicy(
         store=authority.store,
         target=lambda: authority.target,
-        current_self=lambda: authority.self_store.load_self(authority.target.incarnation),
+        current_self=lambda: authority.store.load_self(authority.target.incarnation),
         listener_id="new-listener",
     )
     key, signer = _admin()
@@ -507,7 +658,7 @@ def test_self_challenge_checks_current_key_and_generation(authority: _Authority)
     policy = GatewayAccessPolicy(
         store=authority.store,
         target=lambda: authority.target,
-        current_self=lambda: authority.self_store.load_self(generation),
+        current_self=lambda: authority.store.load_self(generation),
         listener_id="custom-listener",
     )
     signer = authority.self_signer()
@@ -520,7 +671,7 @@ def test_self_challenge_checks_current_key_and_generation(authority: _Authority)
         ),
     )
     generation = "replacement"
-    authority.self_store.provision_self(generation)
+    authority.store.provision_self(generation)
     with pytest.raises(GatewayAccessError) as stale:
         policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
     assert stale.value.status_code == 401
@@ -621,8 +772,10 @@ def test_live_revocation_invalidates_only_affected_grants(authority: _Authority)
 
     policy.add_key(_registration(policy, first, first_signer), first)
     assert not policy.revalidate(open_grant)
+    anonymous = policy.admit((STATUS,), issuer=ISSUER, request=REQUEST)
+    assert isinstance(anonymous, GatewayGrant) and anonymous.basis == "default"
     with pytest.raises(GatewayAccessError) as private_denial:
-        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST)
+        policy.admit((PROMPT,), issuer=ISSUER, request=REQUEST)
     assert private_denial.value.status_code == 401
     first_grant = _listed(policy, first, first_signer)
     pending = policy.issue(

@@ -41,7 +41,7 @@ from houmao.agents.realm_controller.native_refresh_models import (
 from houmao.agents.realm_controller.headless_snapshots import latest_headless_turn
 from houmao.agents.realm_controller.manifest import require_registry_mode_authority
 from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
-from houmao.agents.realm_controller.runtime import resume_runtime_session
+from houmao.agents.realm_controller.runtime import _gateway_lifecycle_lock, resume_runtime_session
 from houmao.mailbox.models import MailChannel
 from houmao.agents.realm_controller.gateway_models import (
     GatewayAcceptedRequestV1,
@@ -72,6 +72,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayRequestCreateV1,
     GatewayRequestPayloadInterruptV1,
     GatewayRequestPayloadSubmitPromptV1,
+    GatewayRequestPayloadSubmitWorkRequestV1,
     GatewayStatusV1,
     GatewayWebControlStateV1,
     GatewayWebHistoryV1,
@@ -86,6 +87,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMemoryPageWriteRequestV1,
     GatewayMemorySummaryV1,
 )
+from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_manifest_path
 from houmao.agents.realm_controller.registry_storage import (
     remove_live_agent_record,
     resolve_known_managed_agent_records,
@@ -99,11 +101,18 @@ from houmao.gateway.access import (
     GatewaySelfKey,
     GatewayTarget,
 )
+from houmao.gateway.authorization_models import (
+    DefaultPermissionGroupReceipt,
+    DefaultPermissionGroupRequest,
+)
 from houmao.gateway.owner_authority import RELAY_HEADER, issue_gateway_relay
+from houmao.gateway.operations import WORK_REQUEST, native_command_candidate
+from houmao.gateway.work_requests import render_work_request
 from houmao.passive_server.admission import (
     CURRENT_ADMISSION,
     PASSIVE_PERMISSIONS,
     PassiveAccessTarget,
+    PassiveAdmission,
 )
 from houmao.agents.realm_controller.registry_models import (
     LiveAgentRegistryRecordV2,
@@ -154,6 +163,7 @@ from houmao.passive_server.models import (
     PassiveHealthResponse,
     PassivePromptRequest,
     PassiveRequestAcceptedResponse,
+    PassiveWorkRequestReceipt,
 )
 from houmao.passive_server.observation import AgentTuiObserver, TuiObservationService
 from houmao.server.models import (
@@ -452,7 +462,7 @@ class PassiveServerService:
                     tracked_id, manifest_path=manifest_path
                 ):
                     runtime.require_current()
-                    return runtime.self_store.load_self(target.incarnation)
+                    return runtime.store.load_self(target.incarnation)
                 return runtime.current_self()
 
             cache_key = (
@@ -498,10 +508,12 @@ class PassiveServerService:
         ):
             raise GatewayAccessError(503, "policy_unavailable")
 
-    def _require_direct_access(self, *, handoff: bool = False) -> None:
+    def _require_direct_access(
+        self, *, handoff: bool = False, admission: PassiveAdmission | None = None
+    ) -> None:
         """Recheck the caller before disclosure or claim one admitted direct effect."""
 
-        admission = CURRENT_ADMISSION.get()
+        admission = admission if admission is not None else CURRENT_ADMISSION.get()
         if admission is None or admission.grant is None:
             return
         selected = admission.target
@@ -523,6 +535,21 @@ class PassiveServerService:
             raise
         except (OSError, RuntimeError, ValueError):
             raise GatewayAccessError(503, "policy_unavailable") from None
+
+    def set_default_permission_group(
+        self, payload: DefaultPermissionGroupRequest
+    ) -> DefaultPermissionGroupReceipt:
+        """Commit the passive listener's admitted default-group mutation."""
+
+        admission = CURRENT_ADMISSION.get()
+        if admission is None or admission.grant is None:
+            raise GatewayAccessError(403, "insufficient_authority")
+        payload.require_expected(admission.grant)
+        return admission.target.policy.set_default_permission_group(
+            admission.grant,
+            payload.group,
+            require_current_target=lambda: self.require_access_target_current(admission.target),
+        )
 
     def _claim_direct_effect(self) -> None:
         """Claim the admitted decision at the direct mutation boundary."""
@@ -1480,6 +1507,66 @@ class PassiveServerService:
 
     # -- request submission (Tier 6) -------------------------------------------
 
+    def submit_work_request(
+        self, payload: GatewayRequestCreateV1
+    ) -> PassiveWorkRequestReceipt | tuple[int, dict[str, Any]]:
+        """Deliver an admitted work request on the verified detached owner route."""
+
+        admission = CURRENT_ADMISSION.get()
+        if (
+            admission is None
+            or admission.grant is None
+            or WORK_REQUEST not in admission.grant.permissions
+        ):
+            raise GatewayAccessError(403, "insufficient_authority")
+        if not isinstance(payload.payload, GatewayRequestPayloadSubmitWorkRequestV1):
+            return (422, {"error_code": "invalid_operation"})
+        target = admission.target
+        tracked_id = target.tracked_agent_id
+        if tracked_id is None:
+            return (501, {"error_code": "unsupported_backend"})
+        grant = admission.grant
+
+        def fence(operation_id: str | None = None) -> None:
+            """Verify detached selection, live generation, and current caller authority."""
+
+            try:
+                self.require_access_target_current(target)
+                paths = gateway_paths_from_manifest_path(target.manifest_path)
+                if paths is None:
+                    raise GatewayAccessError(503, "policy_unavailable")
+                try:
+                    paths.current_instance_path.stat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise GatewayAccessError(409, "gateway_attached")
+                if not self.m_headless.access_body_is_live(
+                    tracked_id, manifest_path=target.manifest_path
+                ):
+                    raise GatewayAccessError(503, "target_unavailable")
+                if operation_id is not None:
+                    target.policy.handoff(grant, operation_id=operation_id)
+                elif not target.policy.revalidate(grant):
+                    raise GatewayAccessError(409, "authorization_retired")
+            except GatewayAccessError:
+                raise
+            except (OSError, RuntimeError, ValueError):
+                raise GatewayAccessError(503, "policy_unavailable") from None
+
+        try:
+            with _gateway_lifecycle_lock(target.manifest_path, wait=False):
+                fence()
+                return self.m_headless.submit_work_request(
+                    tracked_id,
+                    render_work_request(payload.payload.text, actor=grant.actor),
+                    authorize_handoff=fence,
+                )
+        except BlockingIOError:
+            return (409, {"error_code": "gateway_transition"})
+        except OSError:
+            raise GatewayAccessError(503, "policy_unavailable") from None
+
     def submit_request(
         self, agent_ref: str, payload: PassivePromptRequest
     ) -> PassiveRequestAcceptedResponse | tuple[int, dict[str, Any]]:
@@ -1607,6 +1694,8 @@ class PassiveServerService:
     ) -> PassiveHeadlessTurnAcceptedResponse | tuple[int, dict[str, Any]]:
         """Submit a turn to a managed headless agent."""
 
+        if native_command_candidate(payload.prompt) is not None:
+            return (422, {"error_code": "unsupported_command"})
         managed_tracked_agent_id, _resolved, error = self._resolve_managed_headless_target(
             agent_ref
         )
@@ -1615,12 +1704,19 @@ class PassiveServerService:
         if managed_tracked_agent_id is None:
             return (400, {"detail": f"Agent {agent_ref} is not a managed headless agent"})
 
+        admitted = CURRENT_ADMISSION.get()
+
+        def authorize_effect() -> None:
+            """Carry the original direct prompt decision into the native worker."""
+
+            self._require_direct_access(handoff=True, admission=admitted)
+
         return self.m_headless.submit_turn(
             managed_tracked_agent_id,
             payload.prompt,
             chat_session=payload.chat_session,
             execution=payload.execution.to_model_config() if payload.execution else None,
-            authorize_effect=self._claim_direct_effect,
+            authorize_effect=authorize_effect,
         )
 
     def inspect_backing(

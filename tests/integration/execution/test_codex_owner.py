@@ -229,17 +229,22 @@ if mode == "remember-self":
     access = gateway_access_for_manifest(Path(selector))
     anchor = Path.home() / 'previous-self'
     anchor.touch(mode=0o600)
-    anchor.write_text(str(access.self_store.self_signer_path(access.target.incarnation)))
+    anchor.write_text(json.dumps([selector, access.target.incarnation]))
     sys.exit(0)
-if mode == "old-self":
-    selector = (Path.home() / 'previous-self').read_text()
 binding = None
-if mode != "unsigned":
+generation = None
+if mode == "old-self":
+    manifest, generation = json.loads((Path.home() / 'previous-self').read_text())
+    binding = GatewayClientBinding(
+        base_url=endpoint, owner=GatewayOwner(agent_id=agent_id, context_id=context_id),
+        purpose="caller", managed_self_manifest_path=manifest,
+    )
+elif mode != "unsigned":
     binding = GatewayClientBinding(
         base_url=endpoint, owner=GatewayOwner(agent_id=agent_id, context_id=context_id),
         purpose="caller", private_key_path=selector,
     )
-gateway = GatewayClient(base_url=endpoint, binding=binding)
+gateway = GatewayClient(base_url=endpoint, binding=binding, target_incarnation=generation)
 try:
     gateway.status()
 except GatewayHttpError as error:

@@ -93,6 +93,7 @@ class CallerProofs:
             else:
                 binding = self._self(target, key_id)
                 generation_id = binding.generation_id
+                revision = binding.registration_revision
         challenge = GatewayChallenge(
             challenge_id=secrets.token_urlsafe(32),
             issuer=issuer,
@@ -171,8 +172,10 @@ class CallerProofs:
 
         if challenge.generation_id is not None:
             binding = self._self(challenge.target, challenge.key_id)
-            if binding.generation_id != challenge.generation_id or not self._valid(
-                binding.public_key, challenge, signature
+            if (
+                binding.generation_id != challenge.generation_id
+                or binding.registration_revision != challenge.revision
+                or not self._valid(binding.public_key, challenge, signature)
             ):
                 raise GatewayAccessError(401, "invalid_proof")
             return AuthorizationActor.from_self(binding)

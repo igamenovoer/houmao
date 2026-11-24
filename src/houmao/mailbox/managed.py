@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import fcntl
@@ -29,7 +29,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from houmao.gateway._access_storage import GatewayAccessError
 from houmao.mailbox.authority_lock import offline_authority_lock
+from houmao.mailbox.delivery_policy import require_delivery_authority
+from houmao.mailbox.errors import GatewayMailboxRecipientPolicyError
 from houmao.mailbox.filesystem import (
     FilesystemMailboxPaths,
     MailboxRegistration,
@@ -81,6 +84,10 @@ class _LocalMessageStateRow(TypedDict):
 
 class ManagedMailboxOperationError(RuntimeError):
     """Raised when a managed mailbox script cannot complete safely."""
+
+
+class ManagedRecipientPolicyError(ManagedMailboxOperationError, GatewayMailboxRecipientPolicyError):
+    """Preserve a safe policy result across script and mailbox backend boundaries."""
 
 
 class _ManagedMailboxModel(BaseModel):
@@ -1717,6 +1724,8 @@ def deliver_message(
     request: DeliveryRequest,
     *,
     lock_timeout_seconds: float = 5.0,
+    registry_root: Path | None = None,
+    verified_sender_binding: str | None = None,
 ) -> dict[str, object]:
     """Commit a staged mailbox message into the filesystem transport."""
 
@@ -1730,8 +1739,11 @@ def deliver_message(
     )
     staged_message_path = request.staged_message_path.resolve()
 
-    with _acquired_lock_set(paths, affected_addresses, timeout_seconds=lock_timeout_seconds):
-        with sqlite3.connect(paths.sqlite_path) as connection:
+    with (
+        offline_authority_lock(paths.root),
+        _acquired_lock_set(paths, affected_addresses, timeout_seconds=lock_timeout_seconds),
+    ):
+        with sqlite3.connect(paths.sqlite_path) as connection, ExitStack() as authority:
             connection.execute("PRAGMA foreign_keys = ON")
             registrations = _load_active_registrations(connection, affected_addresses)
 
@@ -1759,6 +1771,30 @@ def deliver_message(
                         f"registered owner mismatch for recipient `{principal.address}`"
                     )
                 recipient_registrations[principal.address] = registration
+
+            sender_verified = verified_sender_binding == sender_registration.registration_id
+            if verified_sender_binding is not None and not sender_verified:
+                raise ManagedMailboxOperationError("verified offline sender binding changed")
+            try:
+                protected = authority.enter_context(
+                    require_delivery_authority(
+                        connection,
+                        mailbox_root=paths.root,
+                        registry_root=registry_root,
+                        sender=sender_registration,
+                        sender_verified=sender_verified,
+                        recipients=recipient_registrations,
+                        message_id=request.message_id,
+                    )
+                )
+                if protected:
+                    _require_matching_delivery_envelope(staged_message_path, request)
+            except GatewayAccessError as error:
+                raise ManagedRecipientPolicyError(
+                    unavailable=error.status_code not in {401, 403}
+                ) from None
+            except (OSError, ValueError):
+                raise ManagedRecipientPolicyError(unavailable=True) from None
 
             canonical_dir = paths.messages_dir / request.created_at_utc[:10]
             canonical_path = canonical_dir / f"{request.message_id}.md"
@@ -1822,6 +1858,7 @@ def deliver_message(
                     canonical_path.replace(staged_message_path)
                 raise
 
+            authority.close()
             try:
                 _insert_mailbox_state_records(
                     sender_registration=sender_registration,
@@ -1845,6 +1882,19 @@ def deliver_message(
         "canonical_path": str(canonical_path),
         "recipient_count": len(recipient_principals),
     }
+
+
+def _require_matching_delivery_envelope(path: Path, request: DeliveryRequest) -> None:
+    """Refuse a staged envelope that disagrees with the admitted sender or recipients."""
+
+    envelope = parse_message_document(path.read_text(encoding="utf-8"))
+    if (
+        envelope.message_id != request.message_id
+        or envelope.sender != request.sender.to_mailbox_principal()
+        or envelope.to != [principal.to_mailbox_principal() for principal in request.to]
+        or envelope.cc != [principal.to_mailbox_principal() for principal in request.cc]
+    ):
+        raise ManagedMailboxOperationError("staged mail envelope differs from admitted delivery")
 
 
 def update_mailbox_state(

@@ -17,13 +17,17 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, cast
+from typing import Any, Literal, cast
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 from houmao.execution.tmux import tmux_command as run_tmux
 
-from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
+from houmao.agents.dsh_configuration import (
+    DshEffectiveToolParams,
+    prepare_dsh_home,
+    read_dsh_mcp_environment,
+)
 from houmao.agents.launch_policy import LaunchPolicyError, validate_packaged_tool_version
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
 from houmao.agents.model_selection import ModelConfig
@@ -38,10 +42,11 @@ from houmao.agents.realm_controller.backends.dsh_diagnostics import (
     sanitize_dsh_diagnostic,
 )
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebClient, DshWebError
-from houmao.agents.realm_controller.backends.dsh_web_skill_mount import (
+from houmao.agents.realm_controller.backends.dsh_web_file_mount import (
     QUALIFIED_BUILD,
-    DshWebSkillMount,
-    skill_home_lineage,
+    DshWebFileMount,
+    file_home_lineage,
+    validate_mcp_tree,
     validate_skill_tree,
 )
 from houmao.agents.realm_controller.backends.dsh_web_supervisor import _signal_owned
@@ -68,7 +73,7 @@ from houmao.agents.realm_controller.models import (
 )
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.usage_support import UsageService, write_usage_json
-from houmao.agents.tool_params.dsh import DshPermissionParams
+from houmao.agents.tool_params.dsh import DshPermissionParams, DshToolParamsAdapter
 from houmao.gateway._access_storage import GatewayAccessError, _private_directory, _read_file
 from houmao.gateway.access import owner_handoff_id
 from houmao.gateway.access_models import GatewayOwner
@@ -132,6 +137,8 @@ class DshWebSessionState:
     native_pid: int | None = None
     native_birth_token: str | None = None
     managed_skill_lineage: str | None = None
+    managed_mcp_lineage: str | None = None
+    managed_mcp_connectors: tuple[str, ...] = ()
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> DshWebSessionState:
@@ -139,6 +146,12 @@ class DshWebSessionState:
 
         names = {entry.name for entry in fields(cls)}
         state = cls(**{key: value for key, value in payload.items() if key in names})
+        connectors = state.managed_mcp_connectors
+        if not isinstance(connectors, (list, tuple)) or any(
+            not isinstance(connector, str) for connector in connectors
+        ):
+            raise BackendExecutionError("DSH Web MCP connector identity is invalid")
+        state.managed_mcp_connectors = tuple(connectors)
         state.native_surface
         if (
             state.web_identity.get("protocol_version") != 1
@@ -176,7 +189,11 @@ class DshWebSessionState:
     def to_payload(self) -> dict[str, Any]:
         """Return JSON-safe ownership metadata containing references rather than credentials."""
 
-        return {**asdict(self), "browser_url": self.browser_url}
+        return {
+            **asdict(self),
+            "managed_mcp_connectors": list(self.managed_mcp_connectors),
+            "browser_url": self.browser_url,
+        }
 
     @property
     def browser_url(self) -> str:
@@ -370,12 +387,19 @@ class DshWebSession:
         ):
             raise BackendExecutionError("DSH Web requires an explicitly prepared tool setup")
         setup = DshEffectiveToolParams.from_file(Path(setup_metadata["setup_path"]))
+        DshToolParamsAdapter().prepare_launch(setup, backend="dsh_web")
         permissions = setup_metadata.get("permissions")
+        mcp_environment = (
+            read_dsh_mcp_environment(setup, self.plan.metadata.get("env_source_file"))
+            if setup.managed_web_mcp
+            else {}
+        )
         prepared = prepare_dsh_home(
             self.plan.home_path,
             setup,
             self.plan.env,
             self.plan.role_injection.prompt,
+            credential_environment=mcp_environment,
             selected_model=setup_metadata.get("model"),
             reasoning_level=setup_metadata.get("reasoning_level"),
             skill_roots=(self.plan.home_path / "skills",),
@@ -388,6 +412,7 @@ class DshWebSession:
         secret_values = (
             *self._diagnostic_secrets(),
             *dsh_diagnostic_secrets(environment, key_name=setup.api_key_env),
+            *mcp_environment.values(),
         )
         try:
             version = subprocess.run(
@@ -417,7 +442,32 @@ class DshWebSession:
         skill_lineage: str | None = None
         skill_control: dict[str, str] | None = None
         if setup.managed_web_skills and version == QUALIFIED_BUILD:
-            skill_lineage, skill_control = self._provision_skill_mount(identity["agent_id"])
+            skill_lineage, skill_control = self._provision_file_mount(identity["agent_id"])
+        mcp_lineage: str | None = None
+        mcp_connectors = frozenset(server.name for server in setup.mcp_servers)
+        mcp_control: dict[str, object] | None = None
+        if setup.managed_web_mcp and version == QUALIFIED_BUILD:
+            aliases = {
+                name: f"HOUMAO_DSH_MCP_CREDENTIAL_{index}"
+                for index, name in enumerate(sorted(mcp_environment))
+            }
+            mcp_lineage, mount = self._provision_file_mount(
+                identity["agent_id"], mcp_connectors=mcp_connectors
+            )
+            mcp_control = {
+                **mount,
+                "connectors": {
+                    server.name: {
+                        "url": server.url,
+                        "headers": {
+                            header.name: "${credential:" + aliases[header.env_ref] + "}"
+                            for header in server.headers or []
+                        },
+                    }
+                    for server in setup.mcp_servers
+                },
+            }
+            environment.update({aliases[name]: value for name, value in mcp_environment.items()})
         root = self.plan.home_path / "houmao-web" / uuid4().hex
         root.mkdir(parents=True, mode=0o700)
         bootstrap = root / "bootstrap.json"
@@ -443,6 +493,7 @@ class DshWebSession:
                 "native_version": version,
                 "permission_preset": prepared.metadata["permission_preset"],
                 **({"skill_mount": skill_control} if skill_control is not None else {}),
+                **({"mcp_mount": mcp_control} if mcp_control is not None else {}),
             },
         )
         patch = [
@@ -596,6 +647,8 @@ class DshWebSession:
                 native_pid=process["native_pid"],
                 native_birth_token=process["native_birth_token"],
                 managed_skill_lineage=skill_lineage,
+                managed_mcp_lineage=mcp_lineage,
+                managed_mcp_connectors=tuple(sorted(mcp_connectors)) if mcp_lineage else (),
             )
             self.state.native_surface
             self._bind_managed_accounting(new_session=existing is None or new_session)
@@ -753,30 +806,46 @@ class DshWebSession:
         with self._temporary_web_peer(state, token) as client:
             return client.state(identity)
 
-    def _skill_mount_home(self) -> Path:
+    def _file_mount_home(self, kind: Literal["skills", "mcp"]) -> Path:
         """Locate managed file state under the retained launch home."""
 
-        return self.plan.home_path / "houmao-versioned-skills"
+        return self.plan.home_path / f"houmao-versioned-{kind}"
 
-    def _skill_mount_storage(self, agent_id: str, lineage: str) -> MountStorage:
+    def _file_mount_storage(
+        self, agent_id: str, lineage: str, kind: Literal["skills", "mcp"]
+    ) -> MountStorage:
         """Bind the owner, context, and retained home before opening file state."""
 
         binding = self.plan.execution_binding
         if binding is None:
             raise GatewayAccessError(503, "file_native_unavailable")
         owner = GatewayOwner(agent_id=agent_id, context_id=binding.context_id)
-        return MountStorage(self._skill_mount_home(), owner, lineage=lineage)
+        return MountStorage(
+            self._file_mount_home(kind), owner, lineage=lineage, name=kind, kind=kind
+        )
 
-    def _provision_skill_mount(self, agent_id: str) -> tuple[str, dict[str, str]]:
+    def _provision_file_mount(
+        self, agent_id: str, *, mcp_connectors: frozenset[str] | None = None
+    ) -> tuple[str, dict[str, str]]:
         """Prepare the owner-selected native projection before the host is started."""
 
+        kind: Literal["skills", "mcp"] = "skills" if mcp_connectors is None else "mcp"
+
+        def validate(tree: dict[str, bytes]) -> None:
+            """Check retained content against this runtime's owner setup."""
+
+            if mcp_connectors is None:
+                validate_skill_tree(tree)
+            else:
+                validate_mcp_tree(tree, mcp_connectors)
+
         try:
-            lineage = skill_home_lineage(self._skill_mount_home(), create=True)
-            storage = self._skill_mount_storage(agent_id, lineage)
+            lineage = file_home_lineage(self._file_mount_home(kind), create=True)
+            storage = self._file_mount_storage(agent_id, lineage, kind)
             mount = storage.initialize()
             projection = FileProjection(storage.root / "projection")
             tree = storage.published_files(mount.published_commit)
-            validate_skill_tree(tree)
+            validate(tree)
             try:
                 projection.initialize(mount.mount_id, mount.published_commit, tree)
             except ProjectionConflict:
@@ -802,27 +871,45 @@ class DshWebSession:
                 )
                 revision = storage.published_commit()
                 tree = storage.published_files(revision)
-                validate_skill_tree(tree)
+                validate(tree)
                 projection.initialize(mount.mount_id, revision, tree)
         except (GatewayAccessError, OSError, SessionManifestError, ValueError):
-            raise BackendExecutionError("DSH Web versioned skill state is unavailable") from None
+            raise BackendExecutionError(f"DSH Web versioned {kind} state is unavailable") from None
         return lineage, {"mount_id": mount.mount_id, "projection_root": str(projection.root)}
 
-    def skill_file_mount(self) -> DshWebSkillMount | None:
+    def skill_file_mount(self) -> DshWebFileMount | None:
         """Select the provisioned mount only while the matching native provider is live."""
 
+        return self._file_mount("skills", self.state.managed_skill_lineage)
+
+    def mcp_file_mount(self) -> DshWebFileMount | None:
+        """Select the owner's current independently scoped MCP declarations."""
+
         state = self.state
-        selected = state.managed_skill_lineage
+        return self._file_mount(
+            "mcp", state.managed_mcp_lineage, mcp_connectors=frozenset(state.managed_mcp_connectors)
+        )
+
+    def _file_mount(
+        self,
+        kind: Literal["skills", "mcp"],
+        selected: str | None,
+        *,
+        mcp_connectors: frozenset[str] | None = None,
+    ) -> DshWebFileMount | None:
+        """Open a fresh native peer tied to the same verified mount inventory."""
+
+        state = self.state
         if selected is None:
             return None
         identity = dict(state.web_identity)
         try:
-            lineage = skill_home_lineage(self._skill_mount_home())
+            lineage = file_home_lineage(self._file_mount_home(kind))
             if lineage != selected or any(
                 identity.get(key) != value for key, value in self._managed_identity().items()
             ):
                 raise GatewayAccessError(503, "file_native_unavailable")
-            storage = self._skill_mount_storage(identity["agent_id"], lineage)
+            storage = self._file_mount_storage(identity["agent_id"], lineage, kind)
             projection = FileProjection(storage.root / "projection")
 
             def open_peer(timeout: float) -> AbstractContextManager[DshWebClient]:
@@ -834,10 +921,16 @@ class DshWebSession:
                     state, self._read_web_launch_token(state), timeout_seconds=timeout
                 )
 
-            mount = DshWebSkillMount(storage, projection, identity, open_peer)
+            mount = DshWebFileMount(
+                storage, projection, identity, open_peer, mcp_connectors=mcp_connectors
+            )
             with open_peer(3.0) as client:
                 mount.require_native_mount(client)
             return mount
+        except GatewayAccessError as error:
+            if kind == "mcp" and error.code == "file_native_unsupported":
+                return None
+            raise
         except (DshWebError, ProjectionConflict, OSError, ValueError):
             raise GatewayAccessError(503, "file_native_unavailable") from None
 

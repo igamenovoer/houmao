@@ -119,11 +119,12 @@ def test_gateway_usage_collection_follows_gateway_lifecycle(
         m_paths=SimpleNamespace(),
         m_host="127.0.0.1",
         m_port=19891,
-        m_attach_contract=SimpleNamespace(attach_identity="agent-a"),
+        m_attach_contract=SimpleNamespace(attach_identity="agent-a", backend="claude_headless"),
         m_adapter=Mock(),
         m_access_runtime=access,
         _current_access=lambda: access,
         m_usage_service=service,
+        m_file_edit_thread=None,
         m_stop_event=threading.Event(),
         m_tui_tracking=None,
         m_diagnostic_logger=Mock(),
@@ -146,6 +147,7 @@ def test_gateway_usage_collection_follows_gateway_lifecycle(
         "houmao.agents.realm_controller.gateway_service.delete_gateway_current_instance", Mock()
     )
     GatewayServiceRuntime.start(runtime)
+    access.require_self_signing_state.assert_called_once()
     service.start.assert_called_once()
     GatewayServiceRuntime.shutdown(runtime)
     service.stop.assert_called_once()

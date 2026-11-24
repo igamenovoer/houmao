@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
+import json
 from pathlib import Path
 import threading
 from types import SimpleNamespace
@@ -19,6 +20,7 @@ import pytest
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.registry_models import RegistryGatewayV1
+from houmao.agents.realm_controller.runtime import _gateway_lifecycle_lock
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.cao.rest_client import CaoApiError
 from houmao.execution.context import observed_local_binding
@@ -27,7 +29,6 @@ from houmao.gateway.access import (
     SIGNATURE_HEADER,
     GatewayAccessError,
     GatewayAccessPolicy,
-    GatewayAccessStore,
     GatewayAdminKey,
     GatewayChallenge,
     GatewayChallengeRequest,
@@ -35,12 +36,11 @@ from houmao.gateway.access import (
     GatewayOwner,
     GatewayRequestBinding,
     GatewayTarget,
-    load_gateway_signer,
     public_key_text,
     sign_sshsig,
     sshsig_header,
 )
-from houmao.gateway.authorization_models import AuthorizationDecision, Permission
+from houmao.gateway.authorization_models import AuthorizationDecision, Permission, RoleAssignment
 from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.gateway.operations import ADMIN_ADD, CORE_OPERATIONS, INTERRUPT, PROMPT, STATUS
@@ -59,7 +59,7 @@ from houmao.passive_server.app import create_app
 from houmao.passive_server.client import PassiveServerClient
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
-from houmao.passive_server.models import PassiveAgentActionResponse
+from houmao.passive_server.models import PassiveAgentActionResponse, PassiveWorkRequestReceipt
 from houmao.passive_server.service import PassiveServerService
 from houmao.server.managed_agents import ManagedHeadlessAuthorityRecord
 from houmao.server.models import HoumaoManagedAgentGatewayInternalHeadlessPromptRequest
@@ -105,9 +105,7 @@ class _Target:
 
         parsed = urlsplit(path)
         request = GatewayRequestBinding.from_request(method, parsed.path, parsed.query, body)
-        signer = admin or load_gateway_signer(
-            self.runtime.self_store.self_signer_path(self.runtime.target.incarnation)
-        )
+        signer = admin or self.runtime.store.load_self_signer(self.runtime.target.incarnation)
         source = GatewayChallengeRequest(
             purpose="caller", key_id=_admin_entry(signer).key_id, request=request
         )
@@ -197,13 +195,11 @@ def target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Target:
     root = tmp_path / "access"
     store = AuthorizationStore(root, owner)
     store.initialize()
-    self_store = GatewayAccessStore.from_root(root, owner=owner)
-    own_key = self_store.provision_self(binding.incarnation)
+    own_key = store.provision_self(binding.incarnation)
     runtime = SimpleNamespace(
         target=binding,
         private_root=root,
         store=store,
-        self_store=self_store,
         execution_binding=execution,
         require_current=lambda: None,
         current_self=lambda: own_key,
@@ -258,13 +254,13 @@ def test_retained_policy_survives_missing_discovery_and_checks_before_validation
     assert target.client.get(artifact).text == "artifact"
     signer = Ed25519PrivateKey.generate()
     _enroll(target, signer)
-    rejected = target.client.post(f"{target.base}/turns", content=b"{broken")
+    rejected = target.client.post(f"{target.base}/turns", json={"prompt": "private input"})
     assert rejected.status_code == 401
     assert f"{target.base}/auth/challenge" in rejected.headers["WWW-Authenticate"]
     assert target.client.get(artifact).status_code == 401
     assert len(calls) == 1
     assert target.client.get(f"{target.base}/usage").status_code == 401
-    assert target.client.get(artifact, headers=target.sign(artifact)).status_code == 403
+    assert target.client.get(artifact, headers=target.sign(artifact)).text == "artifact"
     assert (
         target.client.get(artifact, headers=target.sign(artifact, admin=signer)).text == "artifact"
     )
@@ -286,6 +282,35 @@ def test_missing_initialized_policy_remains_closed(target: _Target) -> None:
     documents[0].unlink()
     assert target.client.post(f"{target.base}/gateway/detach").status_code == 503
     assert target.client.get(f"{target.base}/usage").status_code == 503
+
+
+def test_direct_passive_default_update_while_detached(target: _Target) -> None:
+    """Update the retained setting through the tracked target, without a gateway relay."""
+
+    path = f"{target.base}/admin/default-permission-group"
+    before = target.store.snapshot()
+    assert before.admin_mode == "open"
+    body = b'{"group":"agent-observer"}'
+    opened = target.client.put(path, content=body)
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["default_permission_revision"] == 1
+
+    signer = Ed25519PrivateKey.generate()
+    _enroll(target, signer)
+    assert target.client.put(path, content=body).status_code == 401
+    body = b'{"group":"agent-admin"}'
+    proof = target.sign(path, method="PUT", body=body, admin=signer)
+    updated = target.client.put(path, content=body, headers=proof)
+    assert updated.status_code == 200, updated.text
+    assert target.client.put(path, content=body, headers=proof).status_code == 401
+    bad_target = target.client.put(
+        path, json={"group": "agent-requester", "expected_listener_id": "replaced"}
+    )
+    assert bad_target.status_code == 409
+    assert target.store.snapshot().default_permission_group == "agent-admin"
+    reset = target.client.put(path, json={"group": "agent-requester"})
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["default_permission_revision"] == 3
 
 
 def test_signed_proxy_relays_translated_operation_once(
@@ -488,6 +513,93 @@ def test_queue_proxy_distinguishes_prompt_and_interrupt_for_scoped_callers(
     assert reached == [(action,)]
 
 
+def test_detached_work_route_uses_retained_requester_and_refuses_transition(
+    target: _Target, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Keep one route and proof choice while accepting verified or unsigned tasks."""
+
+    _enroll(target, Ed25519PrivateKey.generate())
+    signer = Ed25519PrivateKey.generate()
+    peer = _admin_entry(signer).model_copy(update={"principal": "work-peer"})
+    enroll_fixture_caller(SimpleNamespace(m_access_runtime=target.runtime), peer, permissions=())
+    manifest_path = Path(target.record.record.runtime.manifest_path)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    instance = manifest_path.parent / "current-instance.json"
+    target.record.record.gateway = None
+    received: list[dict[str, object]] = []
+
+    def handoff(tracked: str, prompt: str, *, authorize_handoff) -> PassiveWorkRequestReceipt:
+        """Exercise the final retained-policy check before capturing literal input."""
+
+        assert tracked == target.tracked_ref
+        request_id = f"request-{len(received)}"
+        authorize_handoff(request_id)
+        received.append(json.loads(prompt.split("\n", 1)[1]))
+        return PassiveWorkRequestReceipt(request_id=request_id, outcome="handed_off")
+
+    monkeypatch.setattr(
+        "houmao.passive_server.service.gateway_paths_from_manifest_path",
+        lambda _manifest: SimpleNamespace(current_instance_path=instance),
+    )
+    monkeypatch.setattr(target.service.m_headless, "access_body_is_live", lambda *_a, **_k: True)
+    monkeypatch.setattr(target.service.m_headless, "submit_work_request", handoff)
+    path = f"{target.base}/work-requests"
+    body = b'{"kind":"submit_work_request","payload":{"text":"/compact"}}'
+
+    def send(*, signed: bool = False):
+        """Send the same typed payload with the selected proof only."""
+
+        headers = target.sign(path, method="POST", body=body, admin=signer) if signed else {}
+        return target.client.post(
+            path,
+            content=body,
+            headers={
+                **headers,
+                "Content-Type": "application/json",
+            },
+        )
+
+    assert send(signed=True).json()["outcome"] == "handed_off"
+    assert received[-1] == {
+        "requester": {"provenance": "verified", "principal_id": "work-peer"},
+        "text": "/compact",
+    }
+    assert send().json()["outcome"] == "handed_off"
+    assert received[-1]["requester"] == {"provenance": "anonymous"}
+    target.store.update(
+        lambda state: state.model_copy(
+            update={
+                "role_assignments": (
+                    RoleAssignment(
+                        principal_id="work-peer",
+                        role_id="builtin:agent-observer",
+                        builtin_version=1,
+                    ),
+                )
+            }
+        ),
+        actor="owner",
+        action="test.detached_observer",
+    )
+    assert send(signed=True).status_code == 403
+    assert target.client.post(f"{target.base}/turns", json={"prompt": "Direct"}).status_code == 401
+    assert (
+        target.client.post(
+            f"{target.admin_base}/gateway/requests",
+            content=body,
+            headers={"Content-Type": "application/json"},
+        ).status_code
+        == 502
+    )
+    with _gateway_lifecycle_lock(manifest_path):
+        refused = send()
+        assert refused.status_code == 409 and refused.json()["error_code"] == "gateway_transition"
+    instance.touch()
+    refused = send()
+    assert refused.status_code == 409 and refused.json()["code"] == "gateway_attached"
+    assert len(received) == 2
+
+
 @pytest.mark.parametrize(
     ("method", "route", "effect"),
     [("GET", "/usage", "get_usage"), ("POST", "/stop", "stop_managed")],
@@ -527,11 +639,7 @@ def test_relay_rejects_ended_generation_or_reenrolled_key(target: _Target, role:
     request = GatewayRequestBinding.from_request("GET", "/v1/status", "", b"")
     issuer = target.service.m_config.api_base_url
     signer = (
-        private
-        if key
-        else load_gateway_signer(
-            target.runtime.self_store.self_signer_path(target.runtime.target.incarnation)
-        )
+        private if key else target.runtime.store.load_self_signer(target.runtime.target.incarnation)
     )
     challenge = target.policy.issue(
         issuer,

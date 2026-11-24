@@ -23,12 +23,10 @@ from houmao.gateway.access import (
     SSHSIG_NAMESPACE,
     GatewayAccessError,
     GatewayAccessPolicy,
-    GatewayAccessStore,
     GatewayAdminKey,
     GatewayLaunchSeed,
     GatewayOwner,
     GatewayTarget,
-    load_gateway_signer,
     sign_sshsig,
 )
 from houmao.gateway.access_models import MAX_ADMIN_KEYS
@@ -67,7 +65,6 @@ def _policy(tmp_path: Path, public_key: str) -> GatewayAccessPolicy:
     owner = GatewayOwner(agent_id="agent", context_id="context")
     root = tmp_path / "access"
     store = AuthorizationStore(root, owner)
-    self_store = GatewayAccessStore.from_root(root, owner)
     store.initialize(
         seed_snapshot(
             owner,
@@ -76,11 +73,11 @@ def _policy(tmp_path: Path, public_key: str) -> GatewayAccessPolicy:
             ),
         )
     )
-    self_store.provision_self("generation")
+    store.provision_self("generation")
     return GatewayAccessPolicy(
         store=store,
         target=lambda: GatewayTarget(owner=owner, incarnation="generation"),
-        current_self=lambda: self_store.load_self("generation"),
+        current_self=lambda: store.load_self("generation"),
         listener_id="web-login",
     )
 
@@ -238,11 +235,7 @@ def test_approval_refuses_wrong_scope_target_self_and_oversized_batch(tmp_path: 
 
     admin = tmp_path / "admin"
     policy = _policy(tmp_path, _keygen(admin))
-    self_signer = load_gateway_signer(
-        GatewayAccessStore.from_root(tmp_path / "access", policy.store.owner).self_signer_path(
-            "generation"
-        )
-    )
+    self_signer = policy.store.load_self_signer("generation")
     signature = _stock_sign(admin)
     for proof, challenge, status in (
         (_stock_sign(admin, scope=SSHSIG_NAMESPACE), CHALLENGE, 401),

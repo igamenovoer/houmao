@@ -161,14 +161,23 @@ class GatewayPluginHost:
         """Return independent safe snapshots without invoking external code."""
 
         with self.m_lock:
-            return [entry.status.model_copy(deep=True) for entry in self.m_instances.values()]
+            return [self._declared_status(entry.status) for entry in self.m_instances.values()]
 
     def status_for(self, instance_id: str) -> PluginStatus | None:
         """Return a snapshot for a selected instance, or absence."""
 
         with self.m_lock:
             entry = self.m_instances.get(instance_id)
-            return entry.status.model_copy(deep=True) if entry is not None else None
+            return self._declared_status(entry.status) if entry is not None else None
+
+    def _declared_status(self, status: PluginStatus) -> PluginStatus:
+        """Report only host-qualified actions on the represented binding."""
+
+        resource = f"plugin:{status.instance_id}:{status.binding_id}"
+        actions = sorted(
+            {row.action for row in self.route_permissions() if row.resource == resource}
+        )
+        return status.model_copy(deep=True, update={"declared_actions": actions})
 
     def instance_resource(self, instance_id: str) -> str | None:
         """Return a selected instance's policy resource without resolving service credentials."""

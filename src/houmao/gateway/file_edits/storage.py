@@ -16,6 +16,7 @@ import secrets
 import sqlite3
 import tempfile
 import time
+from typing import Literal
 from uuid import uuid4
 
 from dulwich.errors import (
@@ -75,7 +76,7 @@ _REPOSITORY = "git"
 _LEASE_SECONDS = 300
 _MAX_CANDIDATES = 1024
 _APPLICATION_ID = 0x484D4645
-_VERSION = 1
+_VERSION = 2
 _STATE_ERRORS = (
     FileFormatException,
     KeyError,
@@ -114,6 +115,7 @@ CREATE TABLE lease (
     author TEXT NOT NULL,
     base_commit TEXT NOT NULL REFERENCES revision(commit_id),
     open_epoch INTEGER,
+    default_permission_revision INTEGER,
     capability_sha256 TEXT,
     expires_at REAL NOT NULL,
     epoch INTEGER NOT NULL,
@@ -142,7 +144,13 @@ class MountStorage:
     """Store one retained mount and generation-bound drafts below a private root."""
 
     def __init__(
-        self, root: Path, owner: GatewayOwner, *, lineage: str, name: str = "skills"
+        self,
+        root: Path,
+        owner: GatewayOwner,
+        *,
+        lineage: str,
+        name: str = "skills",
+        kind: Literal["skills", "mcp"] = "skills",
     ) -> None:
         """Scope the mount to an explicit owner, storage lineage, and mount name."""
 
@@ -155,6 +163,7 @@ class MountStorage:
         self.m_root: Path = root / "file-edits" / digest
         self.m_owner: GatewayOwner = owner
         self.m_name: str = name
+        self.m_kind: Literal["skills", "mcp"] = kind
         self.m_identity: str = identity
 
     @property
@@ -162,6 +171,12 @@ class MountStorage:
         """Return the owner-controlled mount directory for local services."""
 
         return self.m_root
+
+    @property
+    def kind(self) -> Literal["skills", "mcp"]:
+        """Return the owner-selected common-plugin mount kind."""
+
+        return self.m_kind
 
     @property
     def mount_id(self) -> str:
@@ -193,6 +208,7 @@ class MountStorage:
                             self._provision(source)
                             os.rename(source, self.m_root)
                             os.fsync(directory)
+                    self._upgrade_state()
                     descriptor = self.describe()
                     encoded_id = descriptor.mount_id.encode("ascii")
                     try:
@@ -215,6 +231,7 @@ class MountStorage:
             return FileMountDescriptor(
                 mount_id=mount_id,
                 name=self.m_name,
+                kind=self.kind,
                 resource=f"files:{mount_id}",
                 actions=sorted(FILE_ACTIONS),
                 published_commit=str(row["published_commit"]),
@@ -273,6 +290,7 @@ class MountStorage:
         decision: AuthorizationDecision,
         actor: FileActor,
         fence: EffectFence,
+        current_default_revision: int | None = None,
     ) -> FileDraftReceipt:
         """Open an exclusive draft based on the caller's observed revision."""
 
@@ -290,7 +308,9 @@ class MountStorage:
             if mount["published_commit"] != base:
                 raise GatewayAccessError(409, "revision_conflict")
             old = conn.execute("SELECT * FROM lease").fetchone()
-            if old is not None and self._lease_current(old, decision):
+            if old is not None and self._lease_current(
+                old, decision, default_revision=current_default_revision
+            ):
                 raise GatewayAccessError(409, "draft_busy")
             epoch = int(mount["lease_epoch"]) + 1
             expires = time.time() + _LEASE_SECONDS
@@ -299,7 +319,10 @@ class MountStorage:
             conn.execute("DELETE FROM entry")
             conn.execute("UPDATE mount SET lease_epoch = ?", (epoch,))
             conn.execute(
-                "INSERT INTO lease VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                "INSERT INTO lease (singleton, draft_id, target_generation, policy_id, "
+                "actor_kind, principal_id, author, base_commit, open_epoch, "
+                "default_permission_revision, capability_sha256, expires_at, epoch, "
+                "content_version) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
                 (
                     lease_id,
                     decision.target.incarnation,
@@ -309,6 +332,7 @@ class MountStorage:
                     actor.model_dump_json(),
                     base,
                     decision.open_epoch if lease_secret is not None else None,
+                    decision.default_permission_revision if lease_secret is not None else None,
                     _capability_digest(lease_secret) if lease_secret is not None else None,
                     expires,
                     epoch,
@@ -690,6 +714,21 @@ class MountStorage:
                 (self.m_identity, mount_id, initial),
             )
 
+    def _upgrade_state(self) -> None:
+        """Keep saved history and existing leases when adding the default admission fence."""
+
+        with _private_directory(self.m_root) as directory:
+            _check_sqlite_files(directory)
+            with closing(sqlite3.connect(self.m_root / _STATE, timeout=2.0)) as conn, conn:
+                conn.execute("PRAGMA trusted_schema = OFF")
+                conn.execute("PRAGMA synchronous = FULL")
+                conn.execute("BEGIN IMMEDIATE")
+                if conn.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID:
+                    raise ValueError("unexpected mount state schema")
+                if conn.execute("PRAGMA user_version").fetchone()[0] == 1:
+                    conn.execute("ALTER TABLE lease ADD COLUMN default_permission_revision INTEGER")
+                    conn.execute(f"PRAGMA user_version = {_VERSION}")
+
     def _mount(self, conn: sqlite3.Connection) -> sqlite3.Row:
         """Verify the scope stored in the retained mount record."""
 
@@ -732,21 +771,38 @@ class MountStorage:
         if expected_kind != verified.kind or actor.principal_id != verified.principal_id:
             raise GatewayAccessError(403, "invalid_file_actor")
         if actor.kind == "anonymous" and (
-            decision.basis != "open"
+            decision.basis not in {"open", "default"}
             or actor.logical_agent_id is not None
             or actor.label is not None
         ):
             raise GatewayAccessError(403, "invalid_file_actor")
 
     @staticmethod
-    def _lease_current(lease: sqlite3.Row, decision: AuthorizationDecision) -> bool:
+    def _lease_current(
+        lease: sqlite3.Row,
+        decision: AuthorizationDecision,
+        *,
+        default_revision: int | None = None,
+    ) -> bool:
         """Determine whether the row holds an exclusive lease for this target."""
 
-        return bool(
-            lease["expires_at"] > time.time()
-            and lease["target_generation"] == decision.target.incarnation
-            and lease["policy_id"] == decision.policy_id
-            and (lease["actor_kind"] != "anonymous" or lease["open_epoch"] == decision.open_epoch)
+        if (
+            lease["expires_at"] <= time.time()
+            or lease["target_generation"] != decision.target.incarnation
+            or lease["policy_id"] != decision.policy_id
+        ):
+            return False
+        if lease["actor_kind"] != "anonymous":
+            return True
+        if lease["open_epoch"] is not None:
+            return bool(lease["open_epoch"] == decision.open_epoch)
+        current_revision = (
+            decision.default_permission_revision if default_revision is None else default_revision
+        )
+        return (
+            decision.basis != "open"
+            and current_revision is not None
+            and lease["default_permission_revision"] == current_revision
         )
 
     @staticmethod

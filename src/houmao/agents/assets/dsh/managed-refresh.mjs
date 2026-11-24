@@ -247,6 +247,15 @@ export function createCommonRefresh(ctx, callbacks) {
     for (const [name, declaration] of Object.entries(selected)) {
       if (declaration.enabled && !states.some(state => state.name === name)) toolsFreshness = 'pending';
     }
+    const managed = callbacks.mcpMount?.observeMcp(agent);
+    if (managed) {
+      declarations.push(...managed.declarations);
+      for (const {name, health} of managed.instances) {
+        inventory.push({name, configured: true, health,
+          tools: commonTools.filter(tool => tool.startsWith(`mcp__${name}__`))});
+      }
+      if (!managed.current && toolsFreshness === 'current') toolsFreshness = 'unknown';
+    }
     const implementation = declarations.some(value => value.enabled) ? 'unknown' : 'current';
     const health = inventory.some(value => ['failed', 'waiting-credentials'].includes(value.health)) ? 'degraded' : inventory.some(value => ['connecting', 'reconnecting'].includes(value.health)) ? 'connecting' : 'available';
     return [resource('mcp', 'declarations', declarationFreshness, 'now', declarations, 'effective_native_declaration_comparison', complete), {...resource('mcp', 'tools', toolsFreshness, 'next_step', inventory, toolsFreshness === 'current' ? 'native_connection_generation_and_tools_confirmed' : 'connection_generation_or_tools_unverified', complete), health}, {...resource('mcp', 'implementation', implementation, 'now', [], implementation === 'current' ? 'no_enabled_external_implementation' : 'server_implementation_revision_not_exposed'), required: false}];

@@ -44,6 +44,12 @@ class FileMountRequest(FileTargetRequest):
     mount_id: MountId
 
 
+class FileMountsRequest(FileTargetRequest):
+    """Discover an optional exact provider kind."""
+
+    kind: Literal["skills", "mcp"] | None = None
+
+
 class FileRevisionRequest(FileMountRequest):
     """Select the current or an explicitly pinned published revision."""
 
@@ -120,6 +126,7 @@ class FilePushRequest(FileCandidateRequest):
 
     expected_base: ObjectId
     operation_id: ReferenceId
+    when_idle: bool = False
 
 
 class FileStatusRequest(FileMountRequest):
@@ -164,6 +171,7 @@ class FileMountDescriptor(FileEditModel):
 
     mount_id: MountId
     name: str
+    kind: Literal["skills", "mcp"] = "skills"
     resource: str
     actions: list[str]
     published_commit: ObjectId
@@ -270,7 +278,7 @@ class FilePushReceipt(FileEditModel):
     expected_base: ObjectId
     publisher: FileActor
     outcome: Literal[
-        "pending", "busy", "conflict", "refused", "published", "unavailable", "unknown"
+        "queued", "pending", "busy", "conflict", "refused", "published", "unavailable", "unknown"
     ]
     published_commit: ObjectId | None = None
     effective_commit: ObjectId | None = None
@@ -281,7 +289,7 @@ class FilePushReceipt(FileEditModel):
 
 
 FILE_REQUESTS: dict[str, tuple[type[FileTargetRequest], str | None]] = {
-    "mounts": (FileTargetRequest, None),
+    "mounts": (FileMountsRequest, None),
     "list": (FileListRequest, READ),
     "read": (FileReadRequest, READ),
     "diff": (FileDiffRequest, READ),

@@ -14,10 +14,10 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 
 import houmao.agents.realm_controller.backends.dsh_web as backend_module
-import houmao.agents.realm_controller.backends.dsh_web_skill_mount as skill_mount_module
+import houmao.agents.realm_controller.backends.dsh_web_file_mount as skill_mount_module
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWebSessionState
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
-from houmao.agents.realm_controller.backends.dsh_web_skill_mount import DshWebSkillMount
+from houmao.agents.realm_controller.backends.dsh_web_file_mount import DshWebFileMount
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
@@ -139,7 +139,7 @@ def test_skill_mount_preserves_uncertainty_after_open_dispatch(
     peer.call.return_value = reply
     if native_error is not None:
         peer.call.side_effect = DshWebError(native_error, "Synthetic failure")
-    mount = DshWebSkillMount(Mock(), Mock(), {}, lambda _timeout: nullcontext(peer))
+    mount = DshWebFileMount(Mock(), Mock(), {}, lambda _timeout: nullcontext(peer))
     with pytest.raises(GatewayAccessError) as raised:
         with mount.native_transaction(
             "operation", "2" * 40, "1" * 40, deadline_monotonic=time.monotonic() + 5
@@ -153,7 +153,7 @@ def test_skill_mount_no_peer_or_receipt_cannot_imply_native_admission() -> None:
     """Treat a failed connection as unavailability and empty status as no evidence."""
 
     open_peer = Mock(side_effect=DshWebError("outcome_uncertain", "Connection setup failed"))
-    mount = DshWebSkillMount(Mock(), Mock(), {}, open_peer)
+    mount = DshWebFileMount(Mock(), Mock(), {}, open_peer)
     with pytest.raises(GatewayAccessError) as raised:
         with mount.native_transaction(
             "operation", "2" * 40, "1" * 40, deadline_monotonic=time.monotonic() + 5
@@ -173,7 +173,7 @@ def test_skill_mount_checks_deadline_again_after_peer_authentication(
     """Leave native admission untouched when peer authentication spends the deadline."""
 
     peer = Mock()
-    mount = DshWebSkillMount(Mock(), Mock(), {}, lambda _timeout: nullcontext(peer))
+    mount = DshWebFileMount(Mock(), Mock(), {}, lambda _timeout: nullcontext(peer))
     clock = SimpleNamespace(monotonic=Mock(side_effect=[1.0, 3.0]))
     monkeypatch.setattr(skill_mount_module, "time", clock)
     with pytest.raises(GatewayAccessError) as raised:

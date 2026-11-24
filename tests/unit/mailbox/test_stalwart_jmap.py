@@ -11,10 +11,26 @@ from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from houmao.agents import mailbox_runtime_support
+from houmao.agents.mailbox_runtime_models import (
+    MailboxesResolvedConfig,
+    MailboxSlotConfig,
+    StalwartMailboxResolvedConfig,
+)
+from houmao.agents.realm_controller import gateway_access_runtime, gateway_service, manifest
+from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.mailbox.online_authority import OnlineConnectionAuthority
+from houmao.mailbox.online_binding import OnlineBindingService
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineAuthorityContext,
+    OnlineBindingError,
+)
 from houmao.mailbox.stalwart import (
     StalwartError,
     StalwartJmapClient,
@@ -23,10 +39,102 @@ from houmao.mailbox.stalwart import (
 )
 from houmao.mailbox.stalwart_models import JmapMetadataQuery
 from houmao.mailbox.sync import SyncBudget, SyncObserver, SyncScope
+from houmao.srv_ctrl.commands import managed_agents
 
 CORE = "urn:ietf:params:jmap:core"
 MAIL = "urn:ietf:params:jmap:mail"
 SUBMISSION = "urn:ietf:params:jmap:submission"
+
+
+@pytest.mark.parametrize(
+    ("policy_available", "expected_code"),
+    [(True, "provider_delivery_unqualified"), (False, "recipient_policy_unavailable")],
+)
+def test_managed_stalwart_refuses_before_provider_access(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy_available: bool, expected_code: str
+) -> None:
+    """Refuse keyed or unavailable recipient authority before credentials or provider I/O."""
+
+    context = OnlineAuthorityContext(tmp_path / "manifest.json", "bob", "runtime")
+    monkeypatch.setattr(
+        manifest,
+        "load_session_manifest",
+        lambda _path: SimpleNamespace(payload={"registry_generation_id": "g"}),
+    )
+
+    def resolve(_path: Path) -> SimpleNamespace:
+        if not policy_available:
+            raise SessionManifestError("private owner state unavailable")
+        return SimpleNamespace(
+            store=SimpleNamespace(snapshot=lambda: SimpleNamespace(admin_mode="keyed")),
+            require_current=lambda: None,
+        )
+
+    monkeypatch.setattr(gateway_access_runtime, "gateway_access_for_manifest", resolve)
+    authority = OnlineConnectionAuthority.from_context(context)
+    with pytest.raises(OnlineBindingError) as operation:
+        with authority.operation(expected_binding_id="stale-provider"):
+            pytest.fail("Provider operation was admitted")
+    assert operation.value.code == expected_code
+
+    service = OnlineBindingService.from_context(context)
+    with pytest.raises(OnlineBindingError) as attached:
+        service.attach(
+            OnlineAttachRequest(
+                expected_revision="initial",
+                address="bob@example.test",
+                login_identity="bob",
+                jmap_url="https://provider.example.test/jmap",
+                credential_source_ref=str(tmp_path / "absent-secret"),
+            )
+        )
+    assert attached.value.code == expected_code
+
+    configured = StalwartMailboxResolvedConfig(
+        transport="stalwart",
+        principal_id="bob",
+        address="bob@example.test",
+        jmap_url="https://provider.example.test/jmap",
+        management_url=None,
+        login_identity="bob",
+        credential_ref="absent-secret",
+        bindings_version="initial",
+        agent_id="bob",
+        binding_id="stale-provider",
+    )
+    mailboxes = MailboxesResolvedConfig(online=MailboxSlotConfig(binding=configured))
+    selected_manifest = SimpleNamespace(
+        agent_id="bob",
+        launch_plan=SimpleNamespace(mailboxes=SimpleNamespace(model_dump=lambda **_: {})),
+    )
+
+    def unexpected_provider(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Status probed a protected provider binding")
+
+    monkeypatch.setattr(
+        mailbox_runtime_support,
+        "mailboxes_resolved_config_from_payload",
+        lambda *_args, **_kwargs: mailboxes,
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "mailboxes_resolved_config_from_payload",
+        lambda *_args, **_kwargs: mailboxes,
+    )
+    monkeypatch.setattr(
+        managed_agents, "_read_running_agent_manifest", lambda _authority: selected_manifest
+    )
+    monkeypatch.setattr(managed_agents, "build_gateway_mailbox_adapter", unexpected_provider)
+    monkeypatch.setattr(gateway_service, "build_gateway_mailbox_adapter", unexpected_provider)
+    local = managed_agents._local_manager_mail_status(context)
+    remote = gateway_service.GatewayServiceRuntime.get_mail_status(
+        SimpleNamespace(
+            m_manifest_path=context.manifest_path,
+            _load_manifest_payload_for_mailbox_support=lambda: selected_manifest,
+        )
+    )
+    for status in (local, remote):
+        assert status.online is not None and status.online.available is False
 
 
 def _email(
