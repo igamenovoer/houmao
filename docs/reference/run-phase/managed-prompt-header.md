@@ -1,32 +1,44 @@
 # Managed Launch Prompt Header
 
-The **managed launch prompt header** is a deterministic Houmao-owned prompt region that is rendered into every managed launch's effective prompt by default. For launches that use the current structured prompt contract, the effective prompt is rooted at `<houmao_system_prompt>` and the header lives inside a top-level `<managed_header>` section with individually controlled child sections. By default it identifies the agent as Houmao-managed, points it at its fixed `houmao-memo.md` file, tells it to read and apply relevant memo facts and constraints before planning or acting, names `houmao-mgr` as the canonical interface, tells the model to prefer Houmao-supported workflows when the task touches managed runtime, gateway, mailbox, or lifecycle behavior, and records that the launch is running in automated mode.
+The **managed launch prompt header** is a deterministic Houmao-owned prompt region that is rendered into every managed launch's effective prompt by default. For launches that use the current structured prompt contract, the effective prompt is rooted at `<houmao_system_prompt>` and the header lives inside a top-level `<managed_header>` section with individually controlled child sections separated by blank lines. By default it identifies the agent as Houmao-managed with key-value fields, points it at its fixed `houmao-memo.md` file with separated read and write rules, directs Houmao-related actions to look for installed `houmao-*` skills (particularly entrypoint skills) for guidance first before using `houmao-mgr`, and records that the launch is running in unattended mode.
 
 This page documents what the header is, when it is added, how it composes with the rest of the launch prompt, and how to opt out per launch or via stored launch profiles.
 
 ## What the Header Contains
 
-The header text is rendered by `render_managed_prompt_header()` in [`src/houmao/agents/managed_prompt_header.py`](../../../src/houmao/agents/managed_prompt_header.py) and is stable across launches. `compose_managed_launch_prompt_payload()` wraps that text into the shared `<houmao_system_prompt>` layout, for example:
+The header text is rendered by `render_managed_prompt_header()` in [`src/houmao/agents/managed_prompt_header.py`](../../../src/houmao/agents/managed_prompt_header.py) and is stable across launches. `compose_managed_launch_prompt_payload()` wraps that text into the shared `<houmao_system_prompt>` layout with blank-line separation between container tags and sibling sections, for example:
 
 ```xml
 <houmao_system_prompt version="1">
+
 <managed_header>
+
 <identity>
 ...
 </identity>
+
 <memo_cue>
 ...
 </memo_cue>
+
 <houmao_runtime_guidance>
 ...
 </houmao_runtime_guidance>
+
 <automation_notice>
 ...
 </automation_notice>
+
 </managed_header>
+
 <prompt_body>
+
+<role_prompt>
 ...
+</role_prompt>
+
 </prompt_body>
+
 </houmao_system_prompt>
 ```
 
@@ -34,16 +46,16 @@ The header has six stable policy sections. CLI and stored-profile policy use the
 
 | Policy section | Rendered tag | Default | Content |
 |---|---|---|---|
-| `identity` | `<identity>` | enabled | States that the agent is Houmao-managed and includes the resolved managed-agent name and id. |
-| `memo-cue` | `<memo_cue>` | enabled | Tells the agent to read the memo before planning or acting; treats applicable memo entries as standing task context and working constraints unless higher-priority instructions conflict; tells the agent not to merely acknowledge the memo; limits the memo to current facts, standing rules, and links to longer `pages/` notes; and allows updates only on explicit memo prompts or clearly stale memo content. |
-| `houmao-runtime-guidance` | `<houmao_runtime_guidance>` | enabled | Tells the agent to prefer bundled Houmao workflows, `houmao-mgr`, Houmao-owned manifests, runtime metadata, and supported service interfaces for Houmao-managed work. |
-| `automation-notice` | `<automation_notice>` | enabled | States that the agent is in fully automated mode, prohibits interactive user-question tools, and directs mailbox-driven clarification to reply-enabled mailbox threads when available. |
-| `task-reminder` | `<task_reminder>` | disabled | Reserves reminders for explicit self-reminding requests or concrete supervision/finalization checks, and tells the agent to keep using local working state when no such reminder target exists. |
-| `mail-ack` | `<mail_ack>` | disabled | Instructs mailbox-driven work to send a concise acknowledgement to the reply-enabled address before substantive work. |
+| `identity` | `<identity>` | enabled | States that the agent is Houmao-managed and records the resolved managed-agent name and ID as explicit `Key: value` lines. |
+| `memo-cue` | `<memo_cue>` | enabled | Includes the resolved absolute `houmao-memo.md` path and separates read rules from write rules: read every turn before planning or acting, follow its facts and rules unless higher-priority instructions override them, open linked `pages/` notes when relevant, apply the memo directly without merely stating that it was read, keep entries brief (current facts, standing rules, and links to `pages/` notes), and update only when asked or when an entry is clearly outdated. |
+| `houmao-runtime-guidance` | `<houmao_runtime_guidance>` | enabled | Preserves normal execution for ordinary project tasks, and for Houmao-related actions instructs the agent in order: look for installed `houmao-*` skills (especially entrypoint skills) for guidance first, use `houmao-mgr` as the canonical CLI alongside Houmao manifests and service APIs, and avoid probing raw `tmux` sessions or internal runtime files. |
+| `automation-notice` | `<automation_notice>` | enabled | States that execution is unattended (no human at the terminal), prohibits Claude's `AskUserQuestion` tool or equivalent interactive question tools that block waiting for user input, and structures ambiguity handling into explicit branches for normal tasks, reply-enabled mailbox threads, and non-reply-enabled mailbox threads. |
+| `task-reminder` | `<task_reminder>` | disabled | Reserves reminders for explicit self-reminding requests or concrete supervision/finalization checks (such as sending a required reply, writing a required file, or verifying agent or loop health), requires naming and deleting the check once satisfied, and keeps local working state when no concrete reminder target exists. |
+| `mail-ack` | `<mail_ack>` | disabled | Instructs reply-enabled mailbox tasks to send a concise acknowledgement reply before starting substantive work. |
 
 The structured prompt is part of the prompt body delivered to the underlying CLI tool. It is not a separate transport channel, RPC, or out-of-band signal. The model sees it the same way it would see any other system prompt content.
 
-The header is versioned. The current header version is `MANAGED_PROMPT_HEADER_VERSION = 1`, and the current structured prompt-layout version is `HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1`. Both are recorded through secret-free manifest metadata so future prompt changes can be tracked through build provenance.
+The header is versioned. The current header version is `MANAGED_PROMPT_HEADER_VERSION = 2`, and the current structured prompt-layout version is `HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1`. Both are recorded through secret-free manifest metadata so prompt-prose changes and layout changes are tracked independently through build provenance.
 
 ## Why the Header Exists
 
@@ -88,7 +100,7 @@ Managed-header sections have their own policy resolution through `resolve_manage
 2. **Stored launch-profile section policy** — the selected launch profile's `managed_header_section_policy` mapping.
 3. **Section default** — `identity`, `memo-cue`, `houmao-runtime-guidance`, and `automation-notice` default enabled; `task-reminder` and `mail-ack` default disabled.
 
-The `memo-cue` section is rendered from the resolved managed-agent memory path for the launch. It includes the absolute `houmao-memo.md` path, for example `/repo/.houmao/memory/agents/<agent-id>/houmao-memo.md`, and a compact rule set: read it before planning or acting; treat applicable memo entries as standing task context and working constraints unless system, developer, or user instructions conflict; apply relevant facts and constraints in the next actions instead of merely acknowledging the memo; keep it concise with current facts, standing rules, and links to longer `pages/` notes; and update only when explicitly asked or when existing memo content is clearly stale. Disable it with `--managed-header-section memo-cue=disabled` only when that durable context should not be injected.
+The `memo-cue` section is rendered from the resolved managed-agent memory path for the launch. It includes the absolute `houmao-memo.md` path, for example `/repo/.houmao/memory/agents/<agent-id>/houmao-memo.md`, and splits reading from writing: read every turn before planning or acting; follow its facts and rules unless system, developer, or user instructions override them; open linked `pages/` notes when relevant and apply the memo directly without merely stating that it was read; keep entries brief with current facts, standing rules, and links to `pages/` notes; and update only when asked or when an entry is clearly outdated. Disable it with `--managed-header-section memo-cue=disabled` only when that durable context should not be injected.
 
 The whole-header decision remains the outer render gate. If `--no-managed-header` disables the whole header, enabled section policy is still recorded in metadata but none of those sections render into the prompt for that launch.
 

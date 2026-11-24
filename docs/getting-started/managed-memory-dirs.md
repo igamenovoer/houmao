@@ -25,7 +25,7 @@ For example, managed agent `researcher` in `/repo` gets:
 
 Houmao creates the memory root, memo file, and `pages/` directory for every managed agent. The runtime manifest stores `memory_root`, `memo_file`, and `pages_dir`.
 
-Managed launches also render a default `memo-cue` section in the managed prompt header. That cue contains the resolved absolute `houmao-memo.md` path, tells agents to read it before planning or acting, and requires relevant memo facts and constraints to be applied in the agent's next actions unless higher-priority system, developer, or user instructions conflict. It tells agents not to merely acknowledge the memo, to keep it limited to current facts, standing rules, and links to longer `pages/` notes, and to update it only when explicitly asked or when existing memo content is clearly stale. Disable only that cue with `--managed-header-section memo-cue=disabled`, or disable the whole managed header with `--no-managed-header`.
+Managed launches also render a default `memo-cue` section in the managed prompt header. That cue contains the resolved absolute `houmao-memo.md` path and separates reading from writing: read the file on every turn before planning or acting, follow its facts and rules unless higher-priority system, developer, or user instructions override them, open linked `pages/` notes when relevant, apply the memo directly without merely stating that you read it, keep entries brief (current facts, standing rules, and links to `pages/` notes), and update the file only when asked or when an entry is clearly outdated. Disable only that cue with `--managed-header-section memo-cue=disabled`, or disable the whole managed header with `--no-managed-header`.
 
 ## Environment Variables
 

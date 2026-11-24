@@ -808,7 +808,7 @@ def test_launch_managed_agent_locally_forwards_launch_profile_inputs_to_builder(
         memo_file=str(expected_memo_file),
     )
     assert build_request.managed_prompt_header == {
-        "version": 1,
+        "version": 2,
         "enabled": True,
         "resolution_source": "default",
         "stored_policy": None,
@@ -1250,7 +1250,7 @@ def test_launch_managed_agent_locally_can_disable_default_managed_header(
     build_request = captured["build_request"]
     assert build_request.role_prompt_override == ""
     assert build_request.managed_prompt_header == {
-        "version": 1,
+        "version": 2,
         "enabled": False,
         "resolution_source": "launch_override",
         "stored_policy": None,

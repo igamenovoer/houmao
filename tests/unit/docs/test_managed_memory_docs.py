@@ -40,11 +40,13 @@ def test_managed_header_and_system_skill_docs_describe_memory_cue_and_skill() ->
 
     assert "`memo-cue`" in header
     assert "<memo_cue>" in header
+    assert "MANAGED_PROMPT_HEADER_VERSION = 2" in header
+    assert "HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1" in header
     assert "absolute `houmao-memo.md` path" in header
-    assert "apply relevant memo facts and constraints" in header
-    assert "not to merely acknowledge the memo" in header
-    assert "links to longer `pages/` notes" in header
-    assert "existing memo content is clearly stale" in header
+    assert "apply the memo directly without merely stating" in header
+    assert "links to `pages/` notes" in header
+    assert "clearly outdated" in header
+    assert "installed `houmao-*` skills (especially entrypoint skills) for guidance first" in header
     assert "`memory-mgr`" in system_skills
     assert "managed `agent` default" in system_skills
     assert "`recover_and_continue`" in system_skills

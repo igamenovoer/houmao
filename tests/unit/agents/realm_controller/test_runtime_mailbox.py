@@ -1063,7 +1063,7 @@ def test_relaunch_of_older_manifest_recomputes_default_managed_header(
         '<houmao_system_prompt version="1">'
     )
     assert "<managed_header>" in controller.launch_plan.role_injection.prompt
-    assert "Managed agent name: alice" in controller.launch_plan.role_injection.prompt
+    assert "Agent name: alice" in controller.launch_plan.role_injection.prompt
     assert (
         "<role_prompt>\nRole prompt\n</role_prompt>" in controller.launch_plan.role_injection.prompt
     )

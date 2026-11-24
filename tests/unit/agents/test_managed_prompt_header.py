@@ -3,8 +3,13 @@ from __future__ import annotations
 import pytest
 
 from houmao.agents.managed_prompt_header import (
+    MANAGED_PROMPT_HEADER_VERSION,
+    ResolvedManagedLaunchIdentity,
     compose_managed_launch_prompt,
     compose_managed_launch_prompt_payload,
+    managed_prompt_header_metadata,
+    render_managed_prompt_header,
+    resolve_managed_prompt_header_decision,
     resolve_managed_prompt_header_section_decisions,
 )
 
@@ -23,32 +28,77 @@ def test_compose_managed_launch_prompt_payload_renders_structured_sections_in_or
         memo_file=_MEMO_FILE,
     )
 
-    assert payload.prompt.startswith('<houmao_system_prompt version="1">')
+    assert payload.prompt.startswith('<houmao_system_prompt version="1">\n\n<managed_header>\n\n')
+    assert payload.prompt.endswith(
+        "</launch_appendix>\n\n</prompt_body>\n\n</houmao_system_prompt>"
+    )
     assert payload.prompt.index("<managed_header>") < payload.prompt.index("<prompt_body>")
     assert payload.prompt.index("<identity>") < payload.prompt.index("<memo_cue>")
     assert payload.prompt.index("<memo_cue>") < payload.prompt.index("<houmao_runtime_guidance>")
     assert payload.prompt.index("<houmao_runtime_guidance>") < payload.prompt.index(
         "<automation_notice>"
     )
-    assert "<task_reminder>" not in payload.prompt
-    assert "<mail_ack>" not in payload.prompt
-    assert _MEMO_FILE in payload.prompt
-    assert "Before planning or acting, read the Houmao-managed memo" in payload.prompt
-    assert "Treat applicable memo entries as standing task context" in payload.prompt
-    assert "Follow them unless they conflict with system, developer, or user instructions" in (
+    assert "</identity>\n\n<memo_cue>" in payload.prompt
+    assert "</memo_cue>\n\n<houmao_runtime_guidance>" in payload.prompt
+    assert "</houmao_runtime_guidance>\n\n<automation_notice>" in payload.prompt
+    assert "</automation_notice>\n\n</managed_header>\n\n<prompt_body>\n\n<role_prompt>" in (
         payload.prompt
     )
-    assert "Do not merely acknowledge the memo" in payload.prompt
-    assert "apply relevant facts and constraints in your next actions" in payload.prompt
-    assert "Keep the memo concise: current facts, standing rules" in payload.prompt
-    assert "longer `pages/` notes only" in payload.prompt
-    assert "existing memo content is clearly stale" in payload.prompt
-    assert "DO NOT call Claude's AskUserQuestion tool" in payload.prompt
-    assert "reply-enabled, reply to that thread" in payload.prompt
+    assert '</role_prompt>\n\n<launch_profile_overlay mode="append">' in payload.prompt
+    assert '</launch_profile_overlay>\n\n<launch_appendix source="launch_option">' in payload.prompt
+    assert "<task_reminder>" not in payload.prompt
+    assert "<mail_ack>" not in payload.prompt
+    assert "Agent type: Houmao-managed agent" in payload.prompt
+    assert "Agent name: alice" in payload.prompt
+    assert "Agent ID: agent-alice" in payload.prompt
+    assert f"Memo file: {_MEMO_FILE}" in payload.prompt
+    assert "- Read every turn: Read this file before planning or acting." in payload.prompt
+    assert "unless system, developer, or user instructions override them" in payload.prompt
+    assert "Open linked `pages/` notes when relevant" in payload.prompt
+    assert "without merely stating that you read it" in payload.prompt
+    assert (
+        "- Write sparingly: Update this file only when asked or when an entry is clearly outdated."
+        in payload.prompt
+    )
+    assert "current facts, standing rules, and links to `pages/` notes" in payload.prompt
+    assert (
+        "1. Look for installed `houmao-*` skills (especially entrypoint skills) for guidance first."
+        in payload.prompt
+    )
+    assert (
+        "2. Use `houmao-mgr` as the canonical CLI, and rely on Houmao manifests and service APIs."
+        in payload.prompt
+    )
+    assert (
+        "3. Do not probe raw `tmux` sessions or internal runtime files when a supported Houmao "
+        "skill or command exists." in payload.prompt
+    )
+    assert payload.prompt.index("houmao-*") < payload.prompt.index("houmao-mgr")
+    assert "houmao-agent-entrypoint" not in payload.prompt
+    assert "houmao-admin-entrypoint" not in payload.prompt
+    assert "Execution mode: Unattended (no human at the terminal)." in payload.prompt
+    assert "DO NOT call Claude's `AskUserQuestion`" in payload.prompt
+    assert "- Normal tasks: Decide on your own using available context." in payload.prompt
+    assert "- Mailbox tasks (reply-enabled thread): Reply to that thread" in payload.prompt
+    assert "- Mailbox tasks (no-reply thread): Decide on your own using available context." in (
+        payload.prompt
+    )
     assert payload.prompt.index("<role_prompt>") < payload.prompt.index("<launch_profile_overlay")
     assert payload.prompt.index("<launch_profile_overlay") < payload.prompt.index(
         "<launch_appendix"
     )
+    header_only = render_managed_prompt_header(
+        agent_name="alice",
+        agent_id="agent-alice",
+        memo_file=_MEMO_FILE,
+    )
+    assert "</identity>\n\n<memo_cue>" in header_only
+    header_metadata = managed_prompt_header_metadata(
+        decision=resolve_managed_prompt_header_decision(launch_override=None, stored_policy=None),
+        identity=ResolvedManagedLaunchIdentity(agent_name="alice", agent_id="agent-alice"),
+    )
+    assert MANAGED_PROMPT_HEADER_VERSION == 2
+    assert header_metadata["version"] == 2
     assert payload.layout == {
         "version": 1,
         "root_tag": "houmao_system_prompt",
@@ -178,16 +228,19 @@ def test_compose_managed_launch_prompt_can_enable_default_off_sections() -> None
         "<task_reminder>"
     )
     assert payload.prompt.index("<task_reminder>") < payload.prompt.index("<mail_ack>")
-    assert "explicitly asked for a later self-reminder" in payload.prompt
+    assert "explicitly asked for a self-reminder" in payload.prompt
     assert "concrete supervision or finalization check" in payload.prompt
     assert (
         "sending a required reply, writing a required file, or verifying agent or loop health"
-        in (payload.prompt)
+        in payload.prompt
     )
-    assert "keep using local todo, memo, or other working state" in payload.prompt
+    assert "Name the exact check the reminder guards, and delete the reminder once satisfied." in (
+        payload.prompt
+    )
+    assert "keep using your local todo list, memo, or working state" in payload.prompt
     assert "10 seconds" not in payload.prompt
     assert "potentially long-running work" not in payload.prompt
-    assert "send a concise acknowledgement" in payload.prompt
+    assert "send a concise acknowledgement reply" in payload.prompt
     assert payload.layout["managed_header"]["sections"]["automation-notice"] == {
         "tag": "automation_notice",
         "enabled": False,

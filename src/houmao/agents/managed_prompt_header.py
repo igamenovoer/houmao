@@ -25,7 +25,7 @@ ManagedHeaderSectionName = Literal[
 ]
 ManagedHeaderSectionPolicy = Literal["enabled", "disabled"]
 ManagedHeaderSectionResolutionSource = Literal["default", "launch_profile", "launch_override"]
-MANAGED_PROMPT_HEADER_VERSION = 1
+MANAGED_PROMPT_HEADER_VERSION = 2
 HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1
 MANAGED_HEADER_SECTION_ORDER: tuple[ManagedHeaderSectionName, ...] = (
     "identity",
@@ -386,9 +386,9 @@ def _render_prompt_section(section: ManagedLaunchPromptSection) -> str:
     )
     opening_tag = f"<{section.tag}{attributes}>"
     if section.children:
-        content = "\n".join(_render_prompt_section(child) for child in section.children)
-    else:
-        content = section.text.rstrip()
+        content = "\n\n".join(_render_prompt_section(child) for child in section.children)
+        return f"{opening_tag}\n\n{content}\n\n</{section.tag}>"
+    content = section.text.rstrip()
     return f"{opening_tag}\n{content}\n</{section.tag}>"
 
 
@@ -421,11 +421,7 @@ def _identity_section(*, agent_name: str, agent_id: str) -> ManagedLaunchPromptS
 
     return ManagedLaunchPromptSection(
         tag="identity",
-        text=(
-            "You are running as a Houmao-managed agent.\n"
-            f"Managed agent name: {agent_name}\n"
-            f"Managed agent id: {agent_id}"
-        ),
+        text=(f"Agent type: Houmao-managed agent\nAgent name: {agent_name}\nAgent ID: {agent_id}"),
     )
 
 
@@ -438,14 +434,14 @@ def _memo_cue_section(*, memo_file: str) -> ManagedLaunchPromptSection:
     return ManagedLaunchPromptSection(
         tag="memo_cue",
         text=(
-            "Before planning or acting, read the Houmao-managed memo:\n"
-            f"{normalized_memo_file}\n\n"
-            "Treat applicable memo entries as standing task context and working constraints. "
-            "Follow them unless they conflict with system, developer, or user instructions. "
-            "Do not merely acknowledge the memo; apply relevant facts and constraints in your "
-            "next actions. Keep the memo concise: current facts, standing rules, and links to "
-            "longer `pages/` notes only. Update it only when explicitly asked or when existing "
-            "memo content is clearly stale."
+            f"Memo file: {normalized_memo_file}\n\n"
+            "- Read every turn: Read this file before planning or acting. Follow its facts "
+            "and rules unless system, developer, or user instructions override them. Open "
+            "linked `pages/` notes when relevant, and apply the memo directly without merely "
+            "stating that you read it.\n"
+            "- Write sparingly: Update this file only when asked or when an entry is clearly "
+            "outdated. Keep it brief: current facts, standing rules, and links to `pages/` "
+            "notes."
         ),
     )
 
@@ -456,16 +452,14 @@ def _houmao_runtime_guidance_section() -> ManagedLaunchPromptSection:
     return ManagedLaunchPromptSection(
         tag="houmao_runtime_guidance",
         text=(
-            "When work involves Houmao-managed runtime behavior, managed services, agent "
-            "coordination, lifecycle control, mailbox or gateway access, reminders, or system "
-            "state discovery:\n"
-            "- prefer bundled Houmao guidance for the workflow\n"
-            "- use `houmao-mgr` as the canonical direct interface for interacting with the Houmao system\n"
-            "- treat Houmao-managed manifests, runtime metadata, and supported service interfaces as authoritative\n"
-            "- avoid relying on ad hoc probing of tmux state, random files, or unsupported internal "
-            "paths when a supported Houmao interface exists\n\n"
-            "For ordinary domain work, follow the task normally. Use Houmao-specific guidance and "
-            "interfaces when the task is actually about Houmao-managed capabilities."
+            "For ordinary project tasks, work normally. For any Houmao-related action "
+            "(agents, services, lifecycle, mailboxes, gateway, reminders, or loops):\n"
+            "1. Look for installed `houmao-*` skills (especially entrypoint skills) for "
+            "guidance first.\n"
+            "2. Use `houmao-mgr` as the canonical CLI, and rely on Houmao manifests and "
+            "service APIs.\n"
+            "3. Do not probe raw `tmux` sessions or internal runtime files when a supported "
+            "Houmao skill or command exists."
         ),
     )
 
@@ -476,16 +470,14 @@ def _automation_notice_section() -> ManagedLaunchPromptSection:
     return ManagedLaunchPromptSection(
         tag="automation_notice",
         text=(
-            "You are running in fully automated mode.\n\n"
-            "DO NOT call Claude's AskUserQuestion tool. DO NOT use any equivalent interactive "
-            "user-question tool that would open or focus an operator TUI panel.\n\n"
-            "Make decisions on your own with available context, including when clarification is unavailable.\n\n"
-            "For mailbox-driven work, DO NOT ask the interactive operator for clarification. If "
-            "the relevant mailbox thread is reply-enabled, reply to that thread with a focused "
-            "clarification question. If the thread is not reply-enabled, decide on your own with "
-            "available context. This applies both when the ambiguity is in the message itself and "
-            "when it appears while carrying out work requested by that message. Treat the mailbox "
-            "sender as the likely upstream coordinator, often another agent."
+            "Execution mode: Unattended (no human at the terminal).\n\n"
+            "- DO NOT call Claude's `AskUserQuestion` or any interactive question tool that "
+            "blocks waiting for user input.\n"
+            "- When instructions or mid-task findings are ambiguous:\n"
+            "  - Normal tasks: Decide on your own using available context.\n"
+            "  - Mailbox tasks (reply-enabled thread): Reply to that thread (typically an "
+            "upstream agent or coordinator) with a focused clarification question.\n"
+            "  - Mailbox tasks (no-reply thread): Decide on your own using available context."
         ),
     )
 
@@ -496,14 +488,14 @@ def _task_reminder_section() -> ManagedLaunchPromptSection:
     return ManagedLaunchPromptSection(
         tag="task_reminder",
         text=(
-            "Use a live gateway reminder only when the operator explicitly asked for a later "
-            "self-reminder or when you need one concrete supervision or finalization check "
-            "that would otherwise be easy to miss. Acceptable reminder targets include "
-            "sending a required reply, writing a required file, or verifying agent or loop "
-            "health. Name the concrete obligation the reminder is guarding, and delete or "
-            "otherwise turn off that reminder when the obligation is satisfied. When no "
-            "explicit or concrete reminder target exists, keep using local todo, memo, or "
-            "other working state instead of creating a ceremonial self-ping."
+            "Create a live gateway reminder only when explicitly asked for a self-reminder "
+            "or when guarding a concrete supervision or finalization check that is easy to "
+            "miss (such as sending a required reply, writing a required file, or verifying "
+            "agent or loop health).\n"
+            "- Name the exact check the reminder guards, and delete the reminder once "
+            "satisfied.\n"
+            "- When no concrete reminder target exists, keep using your local todo list, "
+            "memo, or working state instead of a reminder."
         ),
     )
 
@@ -514,8 +506,8 @@ def _mail_ack_section() -> ManagedLaunchPromptSection:
     return ManagedLaunchPromptSection(
         tag="mail_ack",
         text=(
-            "For mailbox-driven work, always send a concise acknowledgement to the "
-            "reply-enabled address before doing substantive work."
+            "For reply-enabled mailbox tasks, always send a concise acknowledgement reply "
+            "before starting substantive work."
         ),
     )
 
@@ -580,7 +572,7 @@ def render_managed_prompt_header(
 ) -> str:
     """Render the Houmao-managed prompt header for one managed launch."""
 
-    return "\n".join(
+    return "\n\n".join(
         _render_prompt_section(section)
         for section in _managed_prompt_header_sections(
             agent_name=agent_name,
