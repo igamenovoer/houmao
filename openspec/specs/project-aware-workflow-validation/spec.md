@@ -1,7 +1,7 @@
 # project-aware-workflow-validation Specification
 
 ## Purpose
-TBD - created by archiving change verify-project-aware-operations. Update Purpose after archive.
+Define the workflow evidence required to close out the project-aware operations change. Run representative operator workflows with overlay defaults, record repeatable commands and outcomes, and recheck the parent change's readiness.
 ## Requirements
 ### Requirement: Representative project-aware workflows are validated before archive
 Before `make-operations-project-aware` is archived, maintainers SHALL run representative maintained workflows that demonstrate the project-aware contract works with overlay-local defaults and fewer explicit root overrides.

@@ -1,7 +1,7 @@
 # houmao-ext-graphing-skill Specification
 
 ## Purpose
-TBD - created by archiving change rename-graphing-extension-skill. Update Purpose after archive.
+`houmao-ext-graphing` guides agents through schema discovery and authoring for templated Plotly.js charts and freeform Vega-Lite graphics. It describes allowed payload content and requires validation and rendering before delivery.
 ## Requirements
 ### Requirement: Houmao packages a graphing extension system skill
 The system SHALL package a Houmao-owned system skill named `houmao-ext-graphing` under the maintained system-skill asset root.
@@ -9,6 +9,11 @@ The system SHALL package a Houmao-owned system skill named `houmao-ext-graphing`
 The skill SHALL teach agents how to author built-in Houmao graphing payloads carried over AG-UI implementation events.
 
 The skill SHALL identify `templated-graphics` as the built-in Layer 1 graphing category and SHALL identify its current concrete implementation as Plotly.js-backed `houmao.graphic.template`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL identify `freeform-graphics` as the built-in higher-freedom graphing category and SHALL identify its current concrete implementation as Vega-Lite-backed `houmao.graphic.vegalite`.
 
@@ -31,6 +36,11 @@ The `houmao-ext-graphing` skill SHALL instruct agents to discover supported buil
 The skill SHALL instruct agents to use `houmao-mgr ag-ui impl templated-graphics list` to list supported `templated-graphics` schemas.
 
 The skill SHALL instruct agents to use `houmao-mgr ag-ui impl freeform-graphics list` to list supported `freeform-graphics` schemas.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL instruct agents to use `houmao-mgr ag-ui impl schema houmao.graphic.template` and `houmao-mgr ag-ui impl schema houmao.graphic.vegalite` before authoring unfamiliar graphing payloads.
 
@@ -56,6 +66,11 @@ The skill SHALL teach agents that `houmao.graphic.template` uses schema version 
 
 The skill SHALL tell agents that the current Layer 1 renderer is Plotly.js and that agents do not need to choose among Layer 1 renderers.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL tell agents to use inline `traces[].data` for visible one-off charts unless capabilities explicitly advertise datasource materialization support.
 
 The skill SHALL tell agents that datasource bindings use catalog field paths such as `data.x`, `data.y`, `data.open`, `data.high`, `data.low`, `data.close`, `data.node.label`, `data.link.value`, `data.header.values`, and `data.cells.values`.
@@ -76,6 +91,11 @@ The skill SHALL state that Layer 1 does not accept Vega-Lite renderer ids, fallb
 The `houmao-ext-graphing` skill SHALL teach agents that `houmao.graphic.vegalite` is the built-in `freeform-graphics` path for custom declarative Vega-Lite graphics.
 
 The skill SHALL explain that agents may hand-author Vega-Lite JSON or optionally use Python Altair to generate the Vega-Lite `spec` with `chart.to_dict()` or `chart.to_json()`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL state that agents send the resulting JSON object in a `houmao.graphic.vegalite` payload and SHALL NOT send Python source code, notebook state, pandas objects, Altair objects, or code that expects the gateway or workbench to execute Python.
 
@@ -98,6 +118,11 @@ The skill SHALL instruct agents to render validated graphing payloads with `houm
 
 The skill SHALL instruct agents to validate rendered event batches with `houmao-mgr ag-ui protocol events validate --input <events>`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL tell agents that delivery to the Houmao gateway belongs to the AG-UI interop or gateway workflow after events have been rendered and validated.
 
 The skill SHALL NOT instruct agents to publish raw graphing payloads directly to the gateway.
@@ -117,6 +142,11 @@ The skill SHALL NOT instruct agents to publish raw graphing payloads directly to
 The `houmao-ext-graphing` skill SHALL warn agents that graphing payloads must avoid unsafe executable, remote-loading, or credential-bearing content.
 
 For Plotly.js templated graphics, the skill SHALL tell agents not to use raw replacement Plotly `data`, raw `traces`, frames, transforms, templates, JavaScript, HTML, iframes, SVG, remote URLs, credential-bearing map settings, Vega-Lite fields, Vega fields, or true 3D scene traces.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For Vega-Lite freeform graphics, the skill SHALL tell agents to use inline data unless a future capability explicitly advertises a safe reference mechanism.
 

@@ -8,6 +8,11 @@ The AG-UI workbench browser runtime SHALL own long-lived browser lifecycle workf
 
 Runtime-owned browser workflows SHALL include pane view-state updates, watched-target presentation state, browser subscriptions to local server streams, browser WebSocket lifecycle, browser-side stream cancellation, watched-target cache writes, runtime teardown, tmux terminal sink registration, and active-thread view-model updates.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The local Fastify server SHALL own host-side workflows, including Houmao AG-UI gateway HTTP/SSE clients, target-policy checks, Debug Agent fixture behavior, tmux host bridge processes, and presentation-session lifecycle.
 
 React components SHALL dispatch typed runtime actions for browser workflows and SHALL render runtime-derived view models through selectors.
@@ -34,6 +39,11 @@ The runtime SHALL keep reducer state limited to serializable or view-oriented st
 
 The runtime SHALL NOT store `AbortController` instances, timer handles, `WebSocket` instances, xterm `Terminal` objects, `FitAddon` objects, DOM refs, raw terminal bytes, credentials, authorization headers, AG-UI request bodies, forwarded props, or unbounded replay buffers in reduced runtime state.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Runtime effects MAY hold non-serializable resource handles in effect-private maps when those handles are cleaned up through deterministic teardown.
 
 #### Scenario: Tmux output is not replayed from runtime state
@@ -48,6 +58,11 @@ Runtime effects MAY hold non-serializable resource handles in effect-private map
 
 ### Requirement: Runtime exposes typed actions, selectors, and services
 The browser runtime SHALL define typed actions for pane lifecycle, target changes, watched-target storage snapshots, watched-target cache clear requests, AG-UI connect requests, AG-UI run requests, AG-UI stream cancellation, tmux refresh requests, tmux attach requests, tmux input, tmux resize, tmux detach, active-thread requests, and runtime disposal.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The runtime SHALL expose selectors for panes, watched targets, AG-UI stream status, reduced AG-UI event state, tmux status, tmux sessions, tmux attachment state, active-thread state, and runtime errors.
 
@@ -74,6 +89,11 @@ Services that previously contacted Houmao gateways or host tmux resources direct
 The runtime SHALL reconcile watched targets from durable storage snapshots and SHALL maintain at most one background connect stream per watched target in a browser workbench instance.
 
 For watched targets, runtime effects SHALL load cached events, reduce cached and live events through the same reducer path, append received live AG-UI events to the client event cache, retry passive resolution and stream connection with bounded backoff, and stop the watcher when the target is unwatched.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Background watcher startup and reconnect SHALL NOT set or clear gateway active-thread.
 
@@ -103,6 +123,11 @@ The runtime SHALL own browser-side tmux status presentation, tmux session select
 
 The local Fastify server SHALL own host-side tmux inventory lookup, tmux process attachment, read-only enforcement at the host bridge boundary, and tmux bridge teardown.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 React tmux panes SHALL keep xterm `Terminal`, `FitAddon`, and DOM refs outside runtime state and SHALL register an ephemeral output sink for the active attachment.
 
 The runtime SHALL drop or report terminal output when no matching sink is registered, but SHALL NOT persist or replay raw terminal bytes.
@@ -128,6 +153,11 @@ The runtime SHALL drop or report terminal output when no matching sink is regist
 The workbench runtime SHALL maintain tmux status, session list, and tmux-related discovered-agent data as a shared runtime-owned inventory for tmux panes.
 
 Runtime effects SHALL refresh tmux inventory when one or more tmux panes explicitly need current inventory, including when the user opens a tmux session combobox, when the user requests refresh, and when a tmux attachment exits, closes, or errors.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Runtime effects SHALL NOT keep a recurring tmux inventory poller active solely because a tmux pane is open.
 
@@ -158,6 +188,11 @@ When a tmux attach WebSocket reports terminal process exit, closes, or errors, r
 
 The runtime SHALL NOT send tmux kill-session, Houmao stop, restart, shutdown, interrupt, launch, registry cleanup, or prompt-control requests as part of attach-exit handling.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Raw terminal output SHALL continue to flow only through the registered ephemeral terminal sink and SHALL NOT be persisted in reduced runtime state.
 
 #### Scenario: Attach exit removes dead session through inventory refresh
@@ -177,6 +212,11 @@ The workbench runtime SHALL distinguish unsupported active-thread gateways from 
 When an active-thread read returns a deterministic unsupported-route response such as `404` or `405`, the runtime SHALL mark that gateway active-thread state as unsupported.
 
 Unsupported active-thread state SHALL stop further active-thread polling for the affected gateway until the target or normalized gateway key changes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Runtime selectors SHALL expose unsupported active-thread state separately from inactive, active, polling, and transient error states.
 

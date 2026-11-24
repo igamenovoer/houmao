@@ -6,7 +6,14 @@ Defines the reproducible long-horizon workflow used to qualify TUI state trackin
 ## Requirements
 
 ### Requirement: Fixed Provider and Procedure Matrix
-The qualification workflow SHALL derive its session catalog from UC-02 and SHALL execute Claude on ST-01 through ST-04, Codex on ST-01 through ST-05, and Kimi on ST-03 through ST-05. A complete qualification run SHALL therefore contain 12 distinct provider/procedure cells and 242 recorded user operations: 20 operations for every ST-01 through ST-04 cell and 21 operations for every ST-05 cell. Gemini CLI MUST NOT appear in the catalog, launch adapters, credential resolution, artifacts, or reports.
+The qualification workflow SHALL derive its session catalog from UC-02 and SHALL execute Claude on ST-01 through ST-04, Codex on ST-01 through ST-05, and Kimi on ST-03 through ST-05. A complete qualification run SHALL therefore contain 12 distinct provider/procedure cells and 242 recorded user operations: 20 operations for every ST-01 through ST-04 cell and 21 operations for every ST-05 cell.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Gemini CLI MUST NOT appear in the catalog, launch adapters, credential resolution, artifacts, or reports.
 
 #### Scenario: Planner expands the complete matrix
 - **WHEN** the operator asks the workflow to plan a complete UC-02 qualification run
@@ -30,7 +37,14 @@ The workflow SHALL require one run root that resolves beneath the repository-loc
 - **THEN** the workflow stops before launch with `unsafe_mutation_scope` and does not create, mutate, or delete the target
 
 ### Requirement: Immutable Boltons Session Projects
-The workflow SHALL treat `tests/fixtures/test-projects/boltons` as immutable input and SHALL prepare a fresh copied project for every provider/procedure cell. Preparation MUST verify upstream revision `979fa9b613fa8c0a455ae16ea6f2ec91c11ecafe`, record a cache-excluding SHA-256 tree digest, remove generated caches only from the copy, initialize a fresh Git repository with run-local identity, create a `houmao-baseline` commit, and confirm that the managed Python environment collects exactly 437 tests without network access or package installation.
+The workflow SHALL treat `tests/fixtures/test-projects/boltons` as immutable input and SHALL prepare a fresh copied project for every provider/procedure cell.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Preparation MUST verify upstream revision `979fa9b613fa8c0a455ae16ea6f2ec91c11ecafe`, record a cache-excluding SHA-256 tree digest, remove generated caches only from the copy, initialize a fresh Git repository with run-local identity, create a `houmao-baseline` commit, and confirm that the managed Python environment collects exactly 437 tests without network access or package installation.
 
 #### Scenario: Session project passes preflight
 - **WHEN** the source revision, source digest, copied tree, baseline commit, initial clean status, and 437-test collection check all succeed
@@ -45,7 +59,14 @@ The workflow SHALL treat `tests/fixtures/test-projects/boltons` as immutable inp
 - **THEN** the aggregate run fails `unsafe_mutation_scope` even if every tracker comparison passed
 
 ### Requirement: Exact Operation Expansion and Authoritative Input Log
-The workflow SHALL load checked-in, machine-readable ST-01 through ST-05 definitions that retain a verifiable link and content digest for the UC-02 source document. It SHALL expand only `{{SAFE}}`, `{{PLACEHOLDER_LITERAL}}`, `{{PANE}}`, and `{{LAUNCH_COMMAND}}`, validate provider-specific values before capture, and persist every fully expanded prompt or exact key/control sequence as one uniquely identified semantic input event with timestamps and checkpoint references. It MUST NOT improvise recovery prompts, navigation actions, exit actions, or substitutions during a recorded attempt.
+The workflow SHALL load checked-in, machine-readable ST-01 through ST-05 definitions that retain a verifiable link and content digest for the UC-02 source document. It SHALL expand only `{{SAFE}}`, `{{PLACEHOLDER_LITERAL}}`, `{{PANE}}`, and `{{LAUNCH_COMMAND}}`, validate provider-specific values before capture, and persist every fully expanded prompt or exact key/control sequence as one uniquely identified semantic input event with timestamps and checkpoint references.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+It MUST NOT improvise recovery prompts, navigation actions, exit actions, or substitutions during a recorded attempt.
 
 #### Scenario: Exact prompt is submitted
 - **WHEN** an operation declares a submitted prompt containing `{{SAFE}}`
@@ -61,7 +82,14 @@ The workflow SHALL load checked-in, machine-readable ST-01 through ST-05 definit
 - **THEN** the attempt receives `scenario_task_divergence`, no corrective prompt is sent, and the attempt is excluded from tracker qualification
 
 ### Requirement: Maintained Unattended Provider Launch
-Every live session SHALL use the maintained `unattended` launch-policy strategy for its declared Claude, Codex, or Kimi version and SHALL start in the run-local copied project with an isolated provider home. The preflight SHALL reject confirmation, approval, permission, trust, login, update, session-picker, browser, or model-generated user-question surfaces unless a version-scoped allowlist proves an unavoidable hard-coded intervention with no supported bypass. Codex sessions SHALL project the required proxy through `127.0.0.1:7990` and SHALL fail preflight rather than silently launching without a reachable proxy.
+Every live session SHALL use the maintained `unattended` launch-policy strategy for its declared Claude, Codex, or Kimi version and SHALL start in the run-local copied project with an isolated provider home. The preflight SHALL reject confirmation, approval, permission, trust, login, update, session-picker, browser, or model-generated user-question surfaces unless a version-scoped allowlist proves an unavoidable hard-coded intervention with no supported bypass.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Codex sessions SHALL project the required proxy through `127.0.0.1:7990` and SHALL fail preflight rather than silently launching without a reachable proxy.
 
 #### Scenario: Provider is ready without intervention
 - **WHEN** a maintained provider version resolves an unattended strategy, its credentials are ready, required provider-specific probes pass, and the TUI reaches prompt-free readiness
@@ -121,7 +149,14 @@ The workflow SHALL validate every labeled recording using strict sample-aligned 
 - **THEN** the tracker verdict fails and preserves the smallest mapped source-sample evidence slice
 
 ### Requirement: Separate Engineering and Tracker Verdicts
-The workflow SHALL produce independent engineering and tracker verdicts for every attempt. Engineering evaluation SHALL cover exact prompts, project checkpoints, mutation scope, command results, provider behavior, and procedure completeness. Tracker evaluation SHALL cover label comparison, public-state transitions, state authority, liveness, downstream schema admission, transition-index monotonicity, and terminal-outcome uniqueness. A failure in one verdict MUST NOT be relabeled as a failure in the other.
+The workflow SHALL produce independent engineering and tracker verdicts for every attempt. Engineering evaluation SHALL cover exact prompts, project checkpoints, mutation scope, command results, provider behavior, and procedure completeness. Tracker evaluation SHALL cover label comparison, public-state transitions, state authority, liveness, downstream schema admission, transition-index monotonicity, and terminal-outcome uniqueness.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+A failure in one verdict MUST NOT be relabeled as a failure in the other.
 
 #### Scenario: Provider completes the wrong task safely
 - **WHEN** visible state tracking remains coherent but a required project or response checkpoint fails
@@ -147,7 +182,14 @@ The workflow SHALL compare every copied project with `houmao-baseline` after cap
 - **THEN** the workflow stops with `unsafe_mutation_scope` and retains the causal operation and project evidence
 
 ### Requirement: Aggregate Qualification Report
-The workflow SHALL produce machine-readable and Markdown aggregate reports containing matrix completeness, provider and strategy versions, operation counts, fixture and prompt digests, engineering verdicts, tracker verdicts, transition-family coverage, cadence results, intervention results, resource use, artifact inventory, and retained issue slices. The suite SHALL pass only when all 12 cells qualify, all 242 operations complete, every declared transition family is covered, every canonical replay has zero unexplained mismatch, every fixed replay at 2 Hz or faster has zero safety violation, and all unattended, source-integrity, mutation, cleanup, and downstream-consumer invariants pass.
+The workflow SHALL produce machine-readable and Markdown aggregate reports containing matrix completeness, provider and strategy versions, operation counts, fixture and prompt digests, engineering verdicts, tracker verdicts, transition-family coverage, cadence results, intervention results, resource use, artifact inventory, and retained issue slices.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+The suite SHALL pass only when all 12 cells qualify, all 242 operations complete, every declared transition family is covered, every canonical replay has zero unexplained mismatch, every fixed replay at 2 Hz or faster has zero safety violation, and all unattended, source-integrity, mutation, cleanup, and downstream-consumer invariants pass.
 
 #### Scenario: Full matrix passes
 - **WHEN** every required cell and operation satisfies all engineering, tracker, cadence, safety, and integrity gates

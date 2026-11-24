@@ -9,6 +9,11 @@ Define the documentation requirements for Houmao build-phase reference content.
 
 The build-phase reference SHALL include a page documenting the launch overrides system: `LaunchDefaults`, `LaunchOverrides`, and how recipes and reusable launch profiles can request secret-free overrides. Content SHALL be derived from `agents/launch_overrides/` module docstrings.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The page SHALL describe the effective-launch precedence pipeline as:
 
 1. tool-adapter `LaunchDefaults`
@@ -51,6 +56,11 @@ The page SHALL link to `docs/getting-started/launch-profiles.md` for the shared 
 
 ### Requirement: Build-phase Kimi references document the native system-prompt contract
 Build-phase reference pages that describe Kimi launch policy SHALL name Kimi Code 2.1.1 as the minimum maintained release and SHALL state that earlier versions are unsupported and later versions have no upper support limit.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The launch-policy reference SHALL explain that Houmao writes the complete effective role prompt to the managed `$KIMI_CODE_HOME/SYSTEM.md`, preserves Kimi's built-in instructions through `${base_prompt}`, uses the v2 engine, and rejects higher-priority agent overrides that would bypass the file.
 

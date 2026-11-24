@@ -8,6 +8,11 @@ The command SHALL require `--agent-name <name>` and MAY accept `--agent-id <id>`
 
 The command SHALL NOT expose `--working-directory` as part of the current public join surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The command SHALL resolve its adoption target from the caller's current tmux session and SHALL treat tmux window `0`, pane `0` as the canonical adopted agent surface in v1.
 
 When `--provider` is omitted, the command SHALL inspect the process tree rooted at that pane and SHALL auto-detect exactly one supported provider (`claude_code`, `codex`, or `gemini_cli`) before continuing.
@@ -47,6 +52,11 @@ After a successful TUI join, later local `houmao-mgr agents state` commands SHAL
 
 The headless join form SHALL require `--headless`, `--agent-name <name>`, `--provider <claude_code|codex|gemini_cli>`, and at least one `--launch-args <arg>`. It MAY accept `--agent-id <id>`, repeatable `--launch-env <env-spec>`, optional `--resume-id <provider-resume-selector>`, and `--workdir <path>`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For headless join, `--resume-id` SHALL use the following semantics:
 
 - omitted means later runtime-controlled headless work does not resume a known provider chat and instead starts from a fresh provider session,
@@ -79,6 +89,11 @@ A successful headless join SHALL adopt the logical session using the provider-sp
 
 ### Requirement: `houmao-mgr agents join` fails closed when adoption authority is incomplete or inconsistent
 When required adoption authority is missing or inconsistent, `houmao-mgr agents join` SHALL fail before publishing a shared-registry record or stable tmux-session discovery pointers.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 This failure-closed posture SHALL cover at minimum:
 

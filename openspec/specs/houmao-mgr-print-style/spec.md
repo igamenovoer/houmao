@@ -76,6 +76,11 @@ The `json` fallback SHALL serialize the payload with `json.dumps(indent=2, sort_
 
 The `plain` fallback SHALL render flat dicts as aligned `key: value` lines and list-bearing dicts as a header line followed by column-aligned rows.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `fancy` fallback SHALL render flat dicts as a `rich.Table` with key-value columns and list-bearing dicts as a `rich.Table` with auto-detected column headers.
 
 Pydantic `BaseModel` instances SHALL be normalized via `.model_dump(mode="json")` before rendering in all modes.
@@ -100,6 +105,11 @@ When the active print style is `plain`, the output engine SHALL NOT import the `
 
 ### Requirement: `emit()` is the central output function
 `emit()` SHALL be the primary output dispatch point. `emit()` SHALL accept a payload and optional `plain_renderer` and `fancy_renderer` callables for curated output.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Before `emit()` dispatches to a generic renderer or a curated renderer, it SHALL normalize the payload to the renderer contract. When the payload is a Pydantic `BaseModel`, `emit()` SHALL serialize it via `.model_dump(mode="json")` and SHALL pass the normalized mapping or sequence payload to the selected renderer instead of the raw model instance.
 

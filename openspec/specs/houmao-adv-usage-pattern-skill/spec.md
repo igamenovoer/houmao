@@ -8,6 +8,11 @@ The top-level `SKILL.md` for that packaged skill SHALL serve as an entry index f
 
 That skill SHALL organize its guidance through local pattern pages beneath the same packaged skill directory.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That skill SHALL remain distinct from the direct-operation skills that own the supported mailbox, gateway, messaging, and lifecycle surfaces.
 
 #### Scenario: Installed advanced skill exposes an index and local pattern pages
@@ -20,6 +25,11 @@ The packaged `houmao-adv-usage-pattern` skill SHALL include a self-notification 
 
 - live gateway reminders through `/v1/reminders`,
 - self-mail reminders that re-enter through unread mailbox work.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That pattern family SHALL describe self-notification as a composition over the maintained direct-operation skills:
 
@@ -50,6 +60,11 @@ For multi-step work, the pattern family SHALL direct the agent to keep the detai
 
 ### Requirement: `houmao-adv-usage-pattern` states self-wakeup durability boundaries honestly
 The self-notification pattern family in `houmao-adv-usage-pattern` SHALL describe the focus, scheduling, and durability boundaries of gateway reminders and self-mail honestly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For live gateway reminders, the pattern family SHALL state that:
 
@@ -90,6 +105,11 @@ That pairwise edge-loop pattern SHALL describe the workflow through explicit rol
 
 - driver,
 - worker.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That pairwise edge-loop pattern SHALL describe the pairwise topology as one two-node protocol round rather than a recursive tree, arbitrary graph, or master-owned multi-edge run plan.
 
@@ -143,6 +163,11 @@ That local edge-loop state SHALL include explicit workflow identifiers and retry
 - current phase,
 - due time or next review time,
 - retry or attempt count.
+
+#### Scenario: Pairwise driver records an edge and follows up using worker status
+
+- **GIVEN** a driver sends work to one worker in a pairwise edge loop
+- **THEN** the guidance uses durable edge state to schedule follow-up and make retries idempotent
 
 The pairwise edge-loop pattern SHALL NOT require or present `parent_edge_loop_id` as part of the elemental pairwise pattern.
 
@@ -226,6 +251,11 @@ The pairwise edge-loop pattern SHALL NOT teach downstream child-loop dispatch, r
 ### Requirement: `houmao-adv-usage-pattern` documents a supported multi-agent relay-loop composition
 The packaged `houmao-adv-usage-pattern` skill SHALL include a supported elemental relay-loop pattern for workflows where one managed agent is the master/loop origin, work follows one ordered relay lane through one or more downstream managed agents, and a designated loop egress agent returns the final information to the master/loop origin through mailbox email.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That relay-loop pattern SHALL describe the workflow through explicit roles:
 
 - master or loop origin,
@@ -286,6 +316,11 @@ That local loop state SHALL include explicit workflow identifiers and retry book
 - current phase,
 - due time or next review time,
 - retry or attempt count.
+
+#### Scenario: Relay sender records a handoff and checks recipient status before retry
+
+- **GIVEN** an agent sends the next handoff in an ordered relay lane
+- **THEN** the guidance uses local loop state and recipient status to follow up and resend idempotently
 
 The relay-loop pattern SHALL direct agents to store mutable relay-loop ledgers in mailbox records, reminder state, runtime-visible state, or an operator-designated work artifact path rather than in managed memory by default.
 
@@ -367,6 +402,11 @@ The relay-loop pattern SHALL NOT present many outbound loops, fan-out, or a grap
 ### Requirement: Advanced-usage chooser guidance distinguishes pairwise edge-loops from forward relay loops
 The packaged `houmao-adv-usage-pattern` skill SHALL explain that the pairwise driver-worker edge-loop pattern and the forward relay-loop pattern are sibling elemental advanced-usage patterns with different routing behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That chooser guidance SHALL state that the pairwise edge-loop pattern is the better fit when:
 
 - exactly one driver sends one worker request for one edge-loop round,
@@ -405,6 +445,11 @@ When a packaged `houmao-adv-usage-pattern` page mentions gateway attach or gatew
 
 Composition guidance SHALL NOT present background gateway execution as implicit setup for advanced usage patterns.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If an advanced usage pattern requires or recommends that a live gateway already be attached, the pattern guidance SHALL treat foreground same-session auxiliary-window attach as the default for tmux-backed managed sessions and detached background gateway execution as explicit user intent governed by `houmao-agent-gateway`.
 
 #### Scenario: Self-wakeup pattern delegates gateway attach posture
@@ -439,6 +484,11 @@ The packaged `houmao-adv-usage-pattern` skill SHALL use `local-close edge loop` 
 
 The skill SHALL preserve `pairwise edge-loop` as an alias where existing pattern filenames, links, or older pairwise loop guidance refer to that protocol.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The advanced-usage chooser SHALL describe tree loop planners as the owners of composed local-close tree topology and generic loop planners as the owners of directed graph loop topology.
 
 #### Scenario: Chooser names elemental protocol clearly
@@ -463,6 +513,11 @@ It SHALL NOT route current composed loop planning to retired pairwise or generic
 
 ### Requirement: Advanced-usage guidance recognizes lite as a lightweight loop path
 The `houmao-adv-usage-pattern` skill SHALL recognize `houmao-agent-loop-lite` as the current lightweight generated-skill loop path when the user explicitly wants Markdown contracts, typed Markdown communication templates, direct SQLite state, and no generated harness.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL continue to route topology-rich generated execplans, rendered graphs, graph policy, complex multi-edge tree loops, multi-lane relay routes, schema/harness validation, and generated loop run-control actions to `houmao-agent-loop-pro`.
 

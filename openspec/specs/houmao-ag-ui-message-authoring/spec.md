@@ -10,6 +10,11 @@ The implementation schema namespace SHALL include `houmao.graphic.template`, `ho
 
 The implementation schema namespace SHALL NOT include the retired fixed chart APIs `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Each implementation schema SHALL include a stable tool name, `schemaVersion`, description, JSON Schema-compatible payload shape, and at least one valid example payload.
 
 Each typed implementation payload SHALL validate without requiring a live gateway or frontend process.
@@ -35,6 +40,11 @@ Implementation names and payload schemas SHALL be documented as Houmao applicati
 `houmao-mgr` SHALL expose AG-UI authoring utilities through separate `houmao-mgr ag-ui protocol` and `houmao-mgr ag-ui impl` command surfaces.
 
 The `protocol` surface SHALL support validating a standard AG-UI event sequence, framing a standard AG-UI event sequence as JSON, JSON Lines, or SSE, and rendering a generic standard AG-UI tool-call event sequence for any valid caller-provided tool name and JSON arguments.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `impl` surface SHALL support listing Houmao implementation schemas, listing supported `templated-graphics` schemas, listing supported `freeform-graphics` schemas, rendering a schema-agnostic `new-component` payload into AG-UI protocol events, returning one implementation schema, validating one Houmao implementation payload, rendering one validated Houmao implementation payload into AG-UI protocol events, and returning implementation-specific catalogs.
 
@@ -74,6 +84,11 @@ The canonical render form SHALL be a complete AG-UI tool-call sequence whose `to
 
 The generated sequence SHALL include `TOOL_CALL_START`, one or more `TOOL_CALL_ARGS`, and `TOOL_CALL_END`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The generated tool-call arguments SHALL contain the validated implementation payload using stable JSON field names and SHALL preserve `schemaVersion`.
 
 The implementation render command SHALL support deterministic output formats for machine use, including JSON array, JSON Lines, and SSE frame output, either directly or by composing with `houmao-mgr ag-ui protocol events frame`.
@@ -102,6 +117,11 @@ The render command SHALL be able to generate stable message and tool-call identi
 The publish helper SHALL validate the event sequence before sending it.
 
 The publish helper SHALL NOT send Houmao typed component payloads directly unless they have first been rendered into standard AG-UI events.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The publish helper SHALL target Houmao gateway AG-UI ingestion semantics and SHALL NOT accept arbitrary third-party endpoint URLs, HTTP methods, content types, or endpoint-specific request policies.
 
@@ -149,6 +169,11 @@ The Houmao AG-UI publish helper SHALL allow callers to omit explicit AG-UI routi
 When explicit routing is omitted, the publish helper SHALL submit the validated AG-UI event batch to the Houmao gateway in a form that allows active-thread fallback routing.
 
 Explicit `connectionId`, `threadId`, or `runId` options SHALL remain available and SHALL take priority over active-thread and default sink fallback.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the gateway routes through active-thread, the publish helper SHALL report the gateway publish result, including accepted and delivered counts.
 
@@ -236,6 +261,11 @@ The `templated-graphics` list SHALL include `houmao.graphic.template` when that 
 
 The `templated-graphics` list SHALL identify `houmao.graphic.template` as a Layer 1 Plotly-backed schema with schema version `3`, backend `plotly`, renderer `plotly.js`, template kind, and available catalog names.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `freeform-graphics` list SHALL include `houmao.graphic.vegalite` when that implementation is supported.
 
 The `freeform-graphics` list SHALL identify `houmao.graphic.vegalite` as a Layer 2 Vega-Lite schema with schema version `1`, backend `vega-lite`, renderer `vega-embed`, freeform graphics kind, and available catalog names.
@@ -269,6 +299,11 @@ Houmao SHALL provide an implementation-layer `new-component` command that render
 The `new-component` renderer SHALL compose with the same schema-agnostic AG-UI protocol tool-call renderer used by `houmao-mgr ag-ui protocol tool-call render`.
 
 The schema-agnostic renderer SHALL NOT require the tool name to appear in the Houmao implementation registry.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The schema-agnostic renderer SHALL validate only standard AG-UI protocol properties, including safe non-empty tool-call name, valid JSON arguments, deterministic tool-call ordering, event batch count limits, and encoded byte limits.
 

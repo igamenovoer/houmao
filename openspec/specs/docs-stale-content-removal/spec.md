@@ -123,6 +123,11 @@ All files under `docs/` SHALL be swept for stale "agentsys" references. Any occu
 
 All files under `docs/` SHALL be swept for stale `--yolo` references. The `--yolo` option was removed in `2026-04-06-remove-launch-yolo-cli-option` and SHALL NOT appear as a supported launch flag anywhere in the docs tree.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Any `--yolo` occurrence SHALL either be removed or rewritten as an explicit "removed in 0.3.x" historical note. The sweep SHALL cover `docs/reference/cli/`, `docs/getting-started/`, and `docs/reference/run-phase/`. Each replacement SHALL be reviewed for surrounding-prose accuracy — not a blind find-and-replace.
 
 #### Scenario: No `--yolo` option references in docs
@@ -139,6 +144,11 @@ Any `--yolo` occurrence SHALL either be removed or rewritten as an explicit "rem
 ### Requirement: No stale `specialist` skill identifier references remain
 
 All files under `docs/` SHALL be swept for occurrences of the bare skill identifier `specialist` used as if it were the current packaged Houmao-owned skill name. The current name is `houmao-specialist-mgr`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The sweep SHALL distinguish:
 

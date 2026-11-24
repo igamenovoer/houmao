@@ -11,6 +11,11 @@ The primary error message SHALL identify the failed operation and the root cause
 
 When available, the diagnostic SHALL include the affected target and concise evidence such as agent name, agent id, lifecycle state, tmux session, manifest path, session root, selected project root, mailbox root, or pair authority URL.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a clear recovery exists, the diagnostic SHALL include a next action using maintained `houmao-mgr` command surfaces.
 
 The primary error message MUST NOT be only a Python implementation exception class name such as `AssertionError`, `KeyError`, `RuntimeError`, or `ValueError`.
@@ -33,6 +38,11 @@ The primary error message MUST NOT be only a Python implementation exception cla
 
 ### Requirement: Live-controller operations reject stale and degraded local targets explicitly
 Managed-agent operations that require a live local runtime controller SHALL reject `local_stale` and `local_degraded` targets with an explicit `click.ClickException` before dereferencing `target.controller`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The diagnostic SHALL distinguish operations that can mutate lifecycle recovery, such as `stop` and `relaunch`, from read/control operations that require an already-live authority, such as gateway status, gateway TUI state, gateway reminders, gateway mail-notifier status, managed-agent state, prompt, interrupt, mail status, and workspace operations.
 
@@ -61,6 +71,11 @@ For an uncaught exception with an empty message, the fallback diagnostic SHALL i
 
 For an uncaught exception with a non-empty message, the fallback diagnostic SHALL include the stable internal-error phrase and the exception detail.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The fallback SHALL continue to suppress Python tracebacks in normal operator output.
 
 #### Scenario: Empty AssertionError is not the whole message
@@ -80,6 +95,11 @@ The fallback SHALL continue to suppress Python tracebacks in normal operator out
 The change SHALL include a focused scan of maintained `houmao-mgr` public command paths for implementation-level error rendering patterns.
 
 The scan SHALL cover generic `except Exception` handlers, `str(exc) or exc.__class__.__name__` renderers, `raise click.ClickException(str(exc))` conversions on public command boundaries, and assertion-backed access to `ManagedAgentTarget.client`, `ManagedAgentTarget.controller`, or `ManagedAgentTarget.record`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Issues found by the scan SHALL be fixed in this change when they affect maintained public command output and have enough local context to produce an actionable diagnostic.
 

@@ -1,7 +1,7 @@
 # houmao-loop-terminology Specification
 
 ## Purpose
-TBD - created by archiving change rename-pairwise-loop-to-tree-loop. Update Purpose after archive.
+Houmao guidance names tree loops, generic loops, and local-close edge loops consistently across prose and generated topology values. It distinguishes pro and lite execution plans and maps historical terms to their current meanings.
 ## Requirements
 ### Requirement: Houmao loop terminology uses tree loop and generic loop as canonical names
 Houmao system-skill guidance SHALL use `tree loop` as the canonical user-facing name for tree-shaped or forest-shaped local-close loop execution.
@@ -9,6 +9,11 @@ Houmao system-skill guidance SHALL use `tree loop` as the canonical user-facing 
 Houmao system-skill guidance SHALL use `generic loop` as the canonical user-facing name for directed graph loop execution that can include non-tree routes or cycles.
 
 Houmao system-skill guidance SHALL preserve `pairwise loop`, `pairwise-tree`, `pairwise-only`, and pairwise-named skill identifiers as aliases for tree loop concepts.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Houmao system-skill guidance SHALL preserve `generic graph` and `generic-graph` as aliases for generic loop concepts.
 
@@ -28,6 +33,11 @@ The system SHALL NOT rename existing pairwise-named skill directories, frontmatt
 Generated `houmao-agent-loop-pro` execplan guidance SHALL prefer `tree-loop` as the machine-readable topology mode for tree-loop execution.
 
 Generated `houmao-agent-loop-pro` execplan guidance SHALL prefer `generic-loop` as the machine-readable topology mode for generic-loop execution.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The pro guidance SHALL accept legacy generated topology values `pairwise-tree`, `pairwise-loop`, `pairwise`, `generic-graph`, and `generic graph` as aliases when validating, clarifying, or updating existing generated material.
 
@@ -74,6 +84,11 @@ Current Houmao loop terminology SHALL distinguish `pro loop` or `pro execplan` f
 `pro` terminology SHALL refer to schema-rich generated execplans with generated contracts, harnesses, generated skills, agent bindings, and validation-heavy operation.
 
 `lite` terminology SHALL refer to Markdown/direct-SQL generated loop packages with required typed Markdown communication templates, required generated skills, and direct SQLite state access.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Retired pairwise and generic loop package names SHALL remain historical or legacy terms and SHALL NOT become current package choices through lite terminology.
 

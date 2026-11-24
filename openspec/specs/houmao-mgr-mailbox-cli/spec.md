@@ -60,6 +60,11 @@ At minimum, `messages` SHALL expose:
 
 `messages get --address <full-address> --message-id <message-id>` SHALL return the content and metadata for one selected message visible to that mailbox address.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The summary payload for `messages list` SHALL include enough metadata to select one message for `messages get`, including `message_id`.
 
 #### Scenario: Messages list returns mailbox-visible summaries for one address
@@ -84,6 +89,11 @@ The effective mailbox root SHALL resolve from:
 2. `HOUMAO_GLOBAL_MAILBOX_DIR`,
 3. the active project overlay mailbox root,
 4. bootstrap `<cwd>/.houmao/mailbox` when no overlay exists and no stronger override applies.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 A successful bootstrap SHALL create or validate the current-format filesystem mailbox layout, including protocol version, shared SQLite catalog, rules assets, mailbox directories root, locks root, and staging root. Initialization SHALL explicitly associate an unconfigured selected registry with that store or verify an existing matching association; it SHALL NOT silently replace the association.
 
@@ -147,6 +157,11 @@ The effective mailbox root SHALL resolve from:
 
 The command SHALL operate only on registrations whose status is `inactive` or `stashed`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The command SHALL preserve:
 
 - active mailbox registrations,
@@ -177,6 +192,11 @@ The command SHALL accept `--dry-run`. In dry-run mode, it SHALL report matching 
 `houmao-mgr mailbox clear-messages` SHALL clear delivered filesystem mailbox message content under one resolved mailbox root without requiring `houmao-server`.
 
 The effective mailbox root SHALL resolve using the same project-aware root-selection contract as the generic `houmao-mgr mailbox` family.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The command SHALL preserve:
 
@@ -245,6 +265,11 @@ The command SHALL accept:
 - `--symlink-mode materialize|preserve`.
 
 The default `--symlink-mode` value SHALL be `materialize`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The effective mailbox root SHALL resolve using the same project-aware root-selection contract as the generic `houmao-mgr mailbox` family.
 
@@ -319,6 +344,11 @@ Maintained `houmao-mgr mailbox ...` help text and rootless result wording SHALL 
 
 When no explicit mailbox-root override wins and project context is active, operator-facing wording SHALL describe the resolved mailbox scope as the active project mailbox root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When `--mailbox-root` or `HOUMAO_GLOBAL_MAILBOX_DIR` wins, operator-facing wording SHALL describe that scope as an explicit mailbox-root selection or shared mailbox-root override rather than as the active project mailbox root.
 
 #### Scenario: Mailbox help text describes the active project mailbox root fallback
@@ -339,6 +369,11 @@ The generic filesystem mailbox CLI SHALL reflect the reserved operator mailbox a
 
 `houmao-mgr mailbox accounts list|get` SHALL expose that reserved account as mailbox registration state instead of hiding it.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generic destructive lifecycle commands SHALL protect that reserved account:
 
 - `unregister` SHALL reject destructive removal of the reserved operator account by default,
@@ -357,6 +392,11 @@ Generic destructive lifecycle commands SHALL protect that reserved account:
 ### Requirement: `houmao-mgr mailbox` renders expected mailbox-root state failures as actionable CLI errors
 
 When a maintained `houmao-mgr mailbox ...` command that expects an existing supported filesystem mailbox root encounters an expected mailbox-root state failure, the command SHALL fail as explicit CLI error output rather than leaking a Python traceback.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 This SHALL apply at minimum to mailbox commands that inspect or mutate existing mailbox-root state, including:
 
@@ -399,6 +439,11 @@ houmao-mgr mailbox messages clear --address <full-address> [--mailbox-root <path
 The command SHALL resolve the effective mailbox root using the same project-aware root-selection contract as the rest of the generic `houmao-mgr mailbox` family.
 
 The command SHALL require `--address` to identify one active mailbox registration under the resolved mailbox root. If the address does not resolve to an active registration, the command SHALL fail before mutating filesystem or SQLite state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The command SHALL preserve:
 

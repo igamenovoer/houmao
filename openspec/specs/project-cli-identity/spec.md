@@ -1,7 +1,7 @@
 # project-cli-identity Specification
 
 ## Purpose
-TBD - created by archiving change rename-project-cli-and-runtime-to-houmao. Update Purpose after archive.
+Define Houmao's identity across packaging, repository guidance, and the runtime environment namespace. Establish `houmao-mgr` and `houmao-passive-server` as the supported operator entry points.
 ## Requirements
 
 ### Requirement: Repository-facing project identity uses Houmao
@@ -17,6 +17,11 @@ Active repository guidance includes README and docs content, contributor guidanc
 The repository SHALL preserve the `Houmao` project and distribution identity and SHALL standardize the active runtime identity and environment namespace on `HOUMAO_*`.
 
 Legacy standalone CLI retirement or other operator-surface cleanup SHALL NOT require another package-namespace rename after this change, because the supported live runtime namespace is already unified on `HOUMAO_*`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The repository MAY continue to retire deprecated surfaces without redefining the `houmao` package identity away from `Houmao`.
 

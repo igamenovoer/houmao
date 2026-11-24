@@ -1,12 +1,17 @@
 # houmao-mgr-cleanup-cli Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-mgr-cleanup-commands. Update Purpose after archive.
+`houmao-mgr` cleanup commands plan and remove eligible artifacts under the effective runtime root or a resolved local managed session. Dry-run results list affected artifacts, and ownership and lifecycle checks govern removal.
 ## Requirements
 ### Requirement: Cleanup commands support structured dry-run planning
 Every `houmao-mgr` cleanup command introduced by this capability SHALL accept `--dry-run`.
 
 When `--dry-run` is present, the command SHALL classify candidate artifacts, preserved artifacts, and blocked deletions using the same resolution and safety rules as ordinary execution, but it SHALL NOT delete or mutate any filesystem state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Cleanup results for both dry-run and execute modes SHALL be structured and SHALL identify the resolved cleanup scope plus the reason for each planned, applied, blocked, or preserved action.
 
@@ -26,6 +31,11 @@ At minimum, that family SHALL include:
 - `mailbox-credentials`
 
 These commands SHALL operate on local Houmao-owned runtime state and SHALL NOT require a running pair authority.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When no stronger explicit runtime-root override exists and the command runs in project context, the effective runtime root SHALL default to `<active-overlay>/runtime`.
 Each cleanup invocation SHALL target exactly one effective runtime root.
@@ -58,6 +68,11 @@ Each `agents cleanup` command SHALL accept one cleanup authority from:
 - `--agent-name <name>`
 - `--manifest-path <path>`
 - `--session-root <path>`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When none of those are provided and the command is run inside the owning tmux session, the command SHALL resolve the target through current-session metadata by:
 
@@ -102,6 +117,11 @@ These commands SHALL remain local-only maintenance commands and SHALL NOT accept
 For `houmao-mgr agents cleanup session|logs|mailbox`, when the selected authority resolves one runtime-owned session root explicitly or through fresh shared-registry fallback, already-absent candidate artifacts SHALL be treated as no-op cleanup work rather than as command-failing errors.
 
 If `manifest.json` is missing or malformed for that resolved session root, the command SHALL continue evaluating cleanup actions that depend only on the session root and current local live-session evidence.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Cleanup actions whose required metadata cannot be recovered without a valid manifest SHALL be skipped rather than converting the whole cleanup result into a failure.
 
@@ -152,6 +172,11 @@ At minimum, runtime log cleanup MAY target:
 - gateway run-directory live-instance files,
 - inactive server-root log files,
 - inactive server-root run-instance files.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Runtime log cleanup SHALL NOT treat these artifacts as disposable log output in this change:
 
@@ -219,6 +244,11 @@ This requirement applies to cleanup command families that share the normalized c
 - `houmao-mgr mailbox cleanup`
 - `houmao-mgr project mailbox cleanup`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For `plain` and `fancy` print styles, each rendered action entry SHALL identify the artifact path and the cleanup reason, and it SHALL preserve enough context to distinguish artifact kind and any compact action details when present.
 
 Human-oriented cleanup output SHALL NOT collapse populated action buckets into count-only placeholders when detailed action records are available.
@@ -245,6 +275,11 @@ Maintained `houmao-mgr admin cleanup runtime ...` help text and structured clean
 
 When no explicit runtime-root override wins and project context is active, help text SHALL describe the default cleanup scope as the active project runtime root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When an explicit runtime-root override or global runtime-root env override wins, help text and cleanup results SHALL describe that scope as an explicit runtime-root selection rather than as an active project runtime root.
 
 #### Scenario: Help text describes project-aware runtime cleanup defaults
@@ -263,6 +298,11 @@ For one resolved local managed session, `houmao-mgr agents cleanup session` SHAL
 The command SHALL NOT accept `--include-job-dir`.
 
 The command SHALL NOT remove the managed-agent memory root, memo file, or pages directory as an incidental effect of session-envelope cleanup.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the session root is resolved but the manifest is missing or malformed, the command SHALL still classify the session root itself for removal when no available local evidence shows that session as still live.
 
@@ -284,6 +324,11 @@ The command SHALL block removal when the resolved session still appears live rat
 `houmao-mgr agents cleanup session|logs|mailbox` SHALL resolve stopped lifecycle-aware registry records by `--agent-id` and `--agent-name` when those records preserve runtime manifest or session-root authority.
 
 When a stopped lifecycle registry record resolves to a valid runtime-owned session root, cleanup SHALL use that registry record as the cleanup authority rather than requiring a runtime-root scan.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When both a lifecycle registry record and a stopped runtime-root scan candidate match the same selector, the lifecycle registry record SHALL be preferred as the authoritative target.
 
@@ -311,6 +356,11 @@ When multiple stopped lifecycle records match a friendly name, cleanup SHALL fai
 ### Requirement: Managed-session cleanup retires or purges stopped registry records
 When `houmao-mgr agents cleanup session` removes or validates removal of a stopped managed-agent session root, the command SHALL update the corresponding lifecycle-aware registry record so that future relaunch does not target deleted runtime artifacts.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 By default, cleanup SHOULD mark the registry record as `retired` when the registry record remains useful for audit and diagnostics. The cleanup surface SHALL provide an explicit purge mode to delete the registry record entirely when the operator wants to remove the lifecycle index entry.
 
 Retired registry records SHALL NOT be considered relaunchable and SHALL NOT be included in active list output. Lifecycle-inclusive listing MAY show retired records only when explicitly requested.
@@ -337,6 +387,11 @@ Retired registry records SHALL NOT be considered relaunchable and SHALL NOT be i
 `houmao-mgr agents cleanup session` SHALL continue treating stopped-session cleanup as the default contract.
 
 However, when the operator explicitly passes `--purge-registry`, the command SHALL allow cleanup of a resolved local managed-agent record that still claims lifecycle state `active` when local tmux-authority inspection proves that the selected session no longer has a usable contractual primary surface.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For this explicit purge path:
 
@@ -382,6 +437,11 @@ When cleanup resolves an active record, it SHALL apply the existing live-session
 
 ### Requirement: Agent cleanup selectors recover stopped sessions from the runtime root
 When `houmao-mgr agents cleanup session|logs|mailbox` is invoked with `--agent-id` or `--agent-name` and no fresh shared-registry record exists for that selector, the command SHALL attempt a cleanup-only fallback scan of the effective local runtime root for runtime-owned session envelopes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The fallback scan SHALL match only persisted session manifests whose `agent_id` or `agent_name` equals the selected cleanup identity. The fallback SHALL NOT make stopped sessions visible to live-control commands such as prompt, interrupt, state, gateway, or mail operations.
 

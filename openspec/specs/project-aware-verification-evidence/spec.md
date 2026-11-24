@@ -1,7 +1,7 @@
 # project-aware-verification-evidence Specification
 
 ## Purpose
-TBD - created by archiving change verify-project-aware-operations. Update Purpose after archive.
+Define the automated evidence for project-aware operation across overlay selection, local state placement, cleanup overrides, and server startup. Exercise the command and demo surfaces that operators use.
 ## Requirements
 ### Requirement: Project-aware contract has automated verification coverage
 The repository SHALL include automated verification for the maintained project-aware contract across overlay selection, non-creating resolution, overlay-local placement, cleanup override behavior, and maintained server-start behavior.

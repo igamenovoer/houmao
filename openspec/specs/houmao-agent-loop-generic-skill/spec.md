@@ -1,10 +1,15 @@
 # houmao-agent-loop-generic-skill Specification
 
 ## Purpose
-TBD - created by archiving change replace-relay-loop-with-generic-loop-planner. Update Purpose after archive.
+Record the retired generic-loop skill contract for typed graph plans, structural validation, and delegated run control. Direct current generic-loop work to pro topology modes and generated execution plans.
 ## Requirements
 ### Requirement: Generic loop authoring decomposes user intent into typed loop components
 The authoring guidance in `houmao-agent-loop-generic` SHALL turn natural-language user intent into one explicit generic loop plan before run start.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Every authored generic loop plan SHALL identify at minimum:
 
@@ -51,6 +56,11 @@ The authoring guidance SHALL ask for missing materially important graph, policy,
 ### Requirement: Generic loop plans render typed protocol graphs
 Every finalized generic loop plan produced by `houmao-agent-loop-generic` SHALL include a Mermaid fenced diagram that visualizes the final loop graph.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That diagram SHALL show at minimum:
 
 - the user agent outside the execution loop,
@@ -81,6 +91,11 @@ The graph guidance SHALL NOT require or imply an arbitrary cyclic worker-to-work
 The operating guidance in `houmao-agent-loop-generic` SHALL define `start`, `status`, and `stop` as control-plane interactions between the user agent and the designated master or root run owner.
 
 The operating guidance SHALL state that the user agent is not itself a participant in pairwise receipts, relay receipts, final results, or final-result acknowledgements unless the authored plan explicitly makes a managed user-controlled agent an execution participant.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `start` guidance SHALL send a normalized run charter to the designated master or root run owner. That charter SHALL include the plan reference, typed component summary, graph policy summary, result-routing contract, completion condition, default stop mode, and reporting contract.
 
@@ -114,6 +129,11 @@ The operating guidance SHALL route component execution to the maintained element
 
 ### Requirement: Generic loop authoring uses internal graph tools for structural preflight
 The packaged `houmao-agent-loop-generic` guidance SHALL treat `houmao-mgr internals graph high` as the first-class deterministic structural helper surface when a NetworkX node-link graph representation is available for an authored generic loop plan.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For generic loop authoring, the guidance SHALL direct agents to use `houmao-mgr internals graph high analyze` when a graph artifact is available to check structural facts including reachability, leaves, non-leaf participants, cycle posture, branch points, and dependency posture.
 
@@ -149,6 +169,11 @@ The generic loop guidance SHALL keep routine loop-skill authoring on `graph high
 The packaged `houmao-agent-loop-generic` skill SHALL use `generic loop` as the canonical user-facing name for directed graph loop planning and run control.
 
 The skill MAY use `generic graph` or `generic loop graph` as compatibility wording when referring to rendered graph artifacts, graph helper commands, or older plans, but it SHALL not present that wording as a separate loop family.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL describe local-close tree-shaped components as tree-loop or local-close components in explanatory text while preserving existing `pairwise` component type values where templates or contracts already require them.
 

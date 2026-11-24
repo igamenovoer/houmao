@@ -8,6 +8,11 @@ The AG-UI workbench browser frontend SHALL use RxJS as the primary browser runti
 
 The browser runtime SHALL expose a typed action dispatch surface, a shared observable state surface, runtime effects, and React selector hooks.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The browser runtime SHALL own browser workflows, including local-server stream subscriptions, pane state reduction, active-thread view-state polling through local-server services, watched-target presentation state, tmux browser attachment lifecycle, storage side effects, and browser teardown.
 
 The Fastify backend SHALL own host-side workflows, including Houmao AG-UI gateway streams, target-policy enforcement, Debug Agent fixture behavior, tmux host bridge behavior, and presentation-session state.
@@ -36,6 +41,11 @@ Runtime effects SHALL stop their timers, local-server HTTP streams, browser WebS
 
 Runtime effects SHALL use deterministic teardown boundaries rather than relying on orphaned component-local refs.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Server-owned workflows SHALL receive cancellation or close signals through the private workbench protocol when browser ownership ends.
 
 #### Scenario: Pane close cancels pane-owned effects
@@ -54,6 +64,11 @@ The RxJS runtime SHALL maintain at most one active-thread polling effect per nor
 The active-thread polling effect SHALL start when at least one eligible pane is interested in that gateway and SHALL stop when no pane remains interested, when the runtime is disposed, or when the gateway is classified as active-thread unsupported.
 
 The default active-thread polling interval SHALL be 1 second.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The active-thread polling effect SHALL avoid overlapping requests for the same gateway key.
 

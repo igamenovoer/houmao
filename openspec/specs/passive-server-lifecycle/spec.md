@@ -59,6 +59,11 @@ The passive server SHALL accept configuration through a `PassiveServerConfig` Py
 
 `runtime_root` SHALL be expanded and resolved to an absolute path.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `registry_root` SHALL be expanded and resolved to an absolute path.
 
 The server root SHALL be derived as `{runtime_root}/houmao_servers/{host}-{port}` from the parsed `api_base_url`, following the same convention as the existing server.

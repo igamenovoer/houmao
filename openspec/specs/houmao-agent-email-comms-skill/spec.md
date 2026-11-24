@@ -1,10 +1,15 @@
 # houmao-agent-email-comms-skill Specification
 
 ## Purpose
-TBD - created by archiving change unify-agent-email-comms-skill. Update Purpose after archive.
+Give managed agents one skill for ordinary mailbox work. Route actions through the gateway or a supported fallback, and provide filesystem and Stalwart guidance where the selected transport requires it.
 ## Requirements
 ### Requirement: `houmao-agent-email-comms` is the ordinary mailbox entrypoint
 The system SHALL provide a projected runtime-owned Houmao skill named `houmao-agent-email-comms` as the single installed entrypoint for ordinary mailbox communication work.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That skill SHALL cover ordinary mailbox operations across supported mailbox transports, including:
 
@@ -46,6 +51,11 @@ At minimum, the unified skill SHALL provide internal guidance for:
 - `move`
 - `archive`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When current prompt or recent mailbox context already provides the exact current `gateway.base_url`, the skill SHALL use that value directly for shared `/v1/mail/*` operations.
 
 When current prompt or recent mailbox context does not provide the exact live gateway endpoint, the skill SHALL direct the agent to `houmao-mgr agents self mail resolve-live` for the current managed session or `houmao-mgr agents single --agent-name|--agent-id ... mail resolve-live` for a selected managed agent.
@@ -76,6 +86,11 @@ The skill SHALL continue to treat `message_ref` and `thread_ref` as opaque share
 
 The runtime SHALL NOT require separate top-level installed skill names for filesystem or Stalwart ordinary mailbox guidance once `houmao-agent-email-comms` is projected.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Filesystem-specific guidance within the unified skill SHALL cover mailbox-local rules, on-disk layout, and mailbox-view validation only when those details are relevant to the current task.
 
 Stalwart-specific guidance within the unified skill SHALL cover current `mailbox.stalwart.*` resolver fields, credential-handling limits, and direct-access constraints only when those details are relevant to the current task.
@@ -99,6 +114,11 @@ That skill SHALL explain that callers may omit reply-policy input for the defaul
 
 The skill SHALL NOT describe default operator-origin post behavior as one-way or no-reply.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When showing gateway-backed post examples, the skill SHALL either omit `reply_policy` or set it to `operator_mailbox` for the default case.
 
 When showing manager CLI post examples, the skill SHALL either omit `--reply-policy` or use `--reply-policy operator_mailbox` for the default case, and SHALL reserve `--reply-policy none` for explicit no-reply examples.
@@ -118,6 +138,11 @@ The skill SHALL document fallback mail move with the current destination option:
 ```bash
 houmao-mgr agents self mail move --message-ref <message_ref> --destination-box <box>
 ```
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining managed-agent mail fallback commands.
 

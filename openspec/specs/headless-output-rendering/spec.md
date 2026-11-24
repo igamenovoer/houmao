@@ -1,5 +1,5 @@
 ## Purpose
-TBD - synced from change refine-headless-output-rendering. Update Purpose after archive.
+Preserve raw provider output while normalizing supported headless streams into shared turn events. Use those events to render live and replayed output with the configured style and detail.
 ## Requirements
 ### Requirement: Managed headless output preserves raw provider artifacts and emits canonical semantic events
 For supported managed headless tools, the runtime SHALL preserve raw provider stdout and stderr as durable artifacts while also emitting a separate canonical normalized event artifact for the same turn.
@@ -7,6 +7,11 @@ For supported managed headless tools, the runtime SHALL preserve raw provider st
 The raw stdout artifact SHALL contain the upstream provider output as emitted by the CLI rather than Houmao-rendered text.
 
 The canonical event artifact SHALL contain Houmao semantic events derived from that provider output so later readers do not need to parse provider-specific JSON directly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Unknown or unsupported provider event shapes SHALL be preserved as canonical passthrough events rather than causing the turn to fail solely because one event could not be classified.
 
@@ -32,6 +37,11 @@ The default live rendering SHALL be `plain` and `concise`.
 
 `detail` mode SHALL expose additional canonical event detail such as provider provenance, normalized session identity, and other structured diagnostic context defined by the canonical event model.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Live managed headless rendering SHALL be performed by the Houmao-owned bridge process running on the tmux pane rather than by whichever control-plane caller initiated the turn.
 
 #### Scenario: Default live rendering is plain and concise
@@ -56,6 +66,11 @@ Live managed headless rendering SHALL be performed by the Houmao-owned bridge pr
 
 ### Requirement: Concise managed headless rendering shows answer text, action lifecycle, and available accounting
 For `detail=concise`, managed headless rendering SHALL present a stable semantic summary rather than a reduced dump of raw provider events.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, concise rendering SHALL include:
 
@@ -119,6 +134,11 @@ For Codex, provider-owned thread identity SHALL map into the same canonical sess
 For managed Kimi headless turns, the runtime SHALL preserve raw Kimi stdout and stderr artifacts while also emitting canonical Houmao semantic events derived from Kimi `stream-json` output.
 
 The canonical Kimi parser SHALL normalize Kimi assistant content, tool calls, tool results, and session resume metadata without requiring downstream consumers to parse Kimi-specific JSONL directly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Unknown Kimi event shapes SHALL be preserved as canonical passthrough or diagnostic events rather than causing the turn to fail solely because one event could not be classified.
 

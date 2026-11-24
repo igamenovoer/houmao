@@ -6,6 +6,11 @@ Define the higher-level `houmao-mgr project` workflow for compiling reusable spe
 ### Requirement: Public project easy prefix is retired
 The public `houmao-mgr project easy` command family SHALL be retired.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 All maintained higher-level project workflows previously exposed under `project easy` SHALL be promoted to ordinary `project` command groups:
 
 - `project easy specialist ...` -> `project specialist ...`
@@ -39,6 +44,11 @@ Internal persisted lane names MAY remain stable during migration when changing t
 
 When no active project overlay exists for the caller and no stronger overlay selection override is supplied, the command SHALL ensure `<cwd>/.houmao` exists before persisting that specialist state.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The rest of the specialist-create contract remains unchanged, including unattended defaults, persistent env records, and shared-content preservation rules.
 
 #### Scenario: Specialist create bootstraps the missing overlay on demand
@@ -54,6 +64,11 @@ The rest of the specialist-create contract remains unchanged, including unattend
 `houmao-mgr project specialist get --name <specialist>` SHALL report one specialist's high-level semantic metadata plus the managed content or derived artifact references relevant to that specialist.
 
 When a specialist has stored launch posture, `specialist get` SHALL report that launch payload as part of the specialist's semantic metadata.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `houmao-mgr project specialist remove --name <specialist>` SHALL remove the persisted specialist definition from the project-local catalog and SHALL remove any specialist-owned derived projection state that exists only for that specialist.
 
@@ -104,6 +119,11 @@ Project profiles SHALL be specialist-backed birth-time launch configuration owne
 
 `project profile create` SHALL accept `--gateway-mail-notifier-appendix-text <text>` to store a reusable notifier appendix default on that project profile.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When no active project overlay exists for the caller and no stronger overlay selection override is supplied, `project profile create` SHALL ensure `<cwd>/.houmao` exists before persisting profile state.
 
 `project profile list`, `get`, and `remove` SHALL resolve the active overlay through the shared non-creating project-aware resolver and SHALL fail clearly when no active overlay exists.
@@ -133,6 +153,11 @@ When no active project overlay exists for the caller and no stronger overlay sel
 `houmao-mgr project specialist create` SHALL accept optional `--model <name>` as a launch-owned default model selection for the created specialist.
 
 `houmao-mgr project specialist create` SHALL accept optional `--reasoning-level <integer>=non-negative` as a launch-owned default reasoning preset index for the created specialist.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When supplied, those values SHALL be persisted in the specialist's launch metadata and in the generated compatibility preset as launch configuration rather than as auth-bundle content.
 
@@ -176,6 +201,11 @@ Direct easy-instance override SHALL NOT rewrite the stored specialist or project
 ### Requirement: Project-backed Kimi unattended launch delegates to maintained automatic posture
 When a selected Kimi specialist or Kimi-backed project profile resolves `launch.prompt_mode: unattended`, `houmao-mgr project agents launch` SHALL delegate to the managed native launch path in a way that lets downstream Kimi launch policy and runtime force Kimi auto permission mode.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For Kimi specialists and profiles, unattended prompt mode SHALL NOT imply headless launch. Kimi project launch SHALL apply unattended policy to the selected run mode. With no selected mode, the maintained TUI remains the project default.
 
 When a selected Kimi specialist or Kimi-backed project profile resolves `launch.prompt_mode: as_is`, project launch SHALL preserve as-is behavior and SHALL NOT inject a separate provider auto, yolo, or unattended override.
@@ -204,6 +234,11 @@ When a selected Kimi specialist or Kimi-backed project profile resolves `launch.
 The command MAY accept `--workdir <path>` as an explicit runtime working directory for the launched agent session.
 
 When `--workdir` is omitted, the launched runtime workdir SHALL default to the invocation cwd.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When no active project overlay exists for the caller and no stronger overlay selection override is supplied, the command SHALL ensure `<cwd>/.houmao` exists before launch preparation begins.
 
@@ -268,6 +303,11 @@ Easy instance launch SHALL delegate the resolved prompt mode and authored tool s
 
 When `--profile` is used, the command SHALL derive the source specialist from the stored profile, SHALL apply project-profile defaults before direct CLI overrides, and SHALL still use the selected project overlay as the authoritative source context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a selected profile stores a default managed-agent name, the command MAY omit `--name` and SHALL use the profile-owned default identity.
 
 When a selected profile stores workdir, auth override, mailbox config, or launch posture, those values SHALL apply unless the operator supplies a direct launch-time override.
@@ -291,6 +331,11 @@ If the selected profile resolves to a Gemini specialist, the existing headless-o
 `houmao-mgr project agents launch` SHALL request launch-time gateway attach by default unless the operator explicitly passes `--no-gateway`.
 
 For that default attached path, the easy launch surface SHALL use an opinionated gateway listener request of loopback host plus system-assigned port rather than requiring persisted specialist gateway config.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For tmux-backed managed sessions on that default attached path, the easy launch surface SHALL default the launch-time gateway execution mode to same-session foreground auxiliary-window execution.
 
@@ -347,6 +392,11 @@ If launch-time gateway attach fails after the managed session has already starte
 `houmao-mgr project agents list` SHALL present launched managed agents as instances, annotated by their originating specialist when that specialist can be resolved.
 
 `houmao-mgr project agents get --name <instance>` SHALL report the current managed-agent runtime summary plus the originating specialist metadata when available.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `houmao-mgr project agents stop --name <instance>` SHALL stop one managed-agent instance after verifying that the resolved runtime session belongs to the current project overlay.
 
@@ -432,6 +482,11 @@ The command SHALL persist the selected setup consistently into:
 - the generated compatibility preset for that specialist,
 - later project-aware launch inputs derived from that specialist definition.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The command SHALL NOT infer the selected setup from credential bundle names, auth payload shape, or API endpoint values.
 
 This requirement SHALL apply to any project-specialist tool that uses setup bundles today or in the future.
@@ -452,6 +507,11 @@ This requirement SHALL apply to any project-specialist tool that uses setup bund
 Maintained `houmao-mgr project ...` help text, failures, and ownership-mismatch errors SHALL use the same selected-overlay and non-creating terminology as the broader project-aware contract.
 
 Inspection, removal, and stop commands that resolve without creating an overlay SHALL say so explicitly when no project overlay is available for the current invocation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Ownership-mismatch failures for project-easy runtime instances SHALL describe the selected project overlay rather than a generically discovered overlay.
 
@@ -474,6 +534,11 @@ Ownership-mismatch failures for project-easy runtime instances SHALL describe th
 - imported Claude login state from a Claude config root
 
 When provided, the command SHALL persist those inputs into the selected or derived Claude credential bundle using the same Claude auth-bundle contract as `houmao-mgr internals native-agent tools claude auth`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 These Claude vendor-auth lanes SHALL remain valid even when `--api-key`, `--claude-auth-token`, and `--claude-state-template-file` are omitted.
 
@@ -552,6 +617,11 @@ Bare `--force` SHALL default to mode `keep-stale`.
 
 The only supported explicit force mode values SHALL be `keep-stale` and `clean`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The selected force mode SHALL be forwarded to the delegated native managed launch for the current invocation only and SHALL NOT be persisted into the stored specialist or project profile.
 
 When no force mode is supplied and the delegated native launch resolves a fresh existing owner for the target managed identity, easy instance launch SHALL fail rather than replacing it.
@@ -586,6 +656,11 @@ Those options SHALL be mutually exclusive.
 
 When either option is supplied, the provided appendix SHALL affect only the current easy-instance launch and SHALL NOT rewrite the stored specialist or project profile.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the selected project profile already contributes a launch-profile prompt overlay, the appendix SHALL be appended after overlay resolution within the delegated native managed launch.
 
 #### Scenario: Easy-profile-backed launch appends one-shot prompt text without rewriting the profile
@@ -611,6 +686,11 @@ When the selected project profile already contributes a launch-profile prompt ov
 
 When `--credential` is omitted, the existing `<specialist-name>-creds` behavior SHALL remain as a display-name default only.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Easy-specialist inspection and project-profile-backed launch SHALL render or accept current auth display names while preserving the underlying auth-profile relationship across auth rename.
 
 #### Scenario: Specialist get renders the current auth display name after rename
@@ -630,6 +710,11 @@ Easy-specialist inspection and project-profile-backed launch SHALL render or acc
 `houmao-mgr project profile set --name <profile>` SHALL patch one existing specialist-backed project profile in the active project overlay.
 
 The command SHALL preserve the profile source specialist and SHALL preserve unspecified stored launch defaults.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, `project profile set` SHALL support the same stored launch-default field families as `internals native-agent launch-dossiers set`, including managed-agent identity defaults, workdir, auth, memory binding, model, reasoning level, prompt mode, env records, mailbox config, launch posture, managed-header policy, prompt overlay, and gateway mail-notifier appendix default.
 
@@ -665,6 +750,11 @@ When no requested update or clear flag is supplied, the command SHALL fail clear
 `houmao-mgr project profile create --name <profile> --specialist <specialist> --yes` SHALL replace an existing same-name project profile in the active project overlay.
 
 Replacement SHALL use create semantics: omitted optional launch defaults SHALL be cleared rather than preserved from the old profile.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the same-name project profile already exists and replacement confirmation is not supplied, the command SHALL prompt on interactive terminals or fail in non-interactive contexts with guidance to rerun using `--yes`.
 
@@ -717,6 +807,11 @@ Supported `STATE` values SHALL include:
 
 The stored section policy SHALL apply only to the named section. Omitted sections SHALL inherit the section default.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `houmao-mgr project profile set` SHALL also accept:
 
 - `--clear-managed-header-section SECTION` to remove one stored section policy entry,
@@ -763,6 +858,11 @@ Supported `STATE` values SHALL include:
 - `enabled`
 - `disabled`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When neither `--managed-header-section` nor whole-header `--managed-header` / `--no-managed-header` is supplied, easy-instance launch SHALL inherit managed-header section policy from the selected project profile when one is present, otherwise from the section default.
 
 Direct one-shot managed-header section overrides SHALL influence only the current launch and SHALL NOT rewrite stored project-profile state.
@@ -801,6 +901,11 @@ The command SHALL preserve unspecified stored specialist fields by default.
 
 At minimum, `project specialist set` SHALL support mutation of specialist prompt content, skill bindings, setup selection, credential display-name selection, launch prompt mode, launch-owned model name, launch-owned reasoning level, and persistent specialist env records.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The command SHALL expose clear flags for nullable or collection fields, including prompt content, skill bindings, prompt mode, model name, reasoning level, and persistent env records.
 
 When no requested update or clear flag is supplied, the command SHALL fail clearly without rewriting the specialist.
@@ -831,6 +936,11 @@ The command SHALL NOT accept specialist rename or tool-lane mutation in this ini
 Repeatable `--add-skill <name>` SHALL bind an existing registered project skill by name.
 
 Repeatable `--with-skill <dir>` SHALL register or update one canonical project skill entry using the provided skill directory and SHALL bind that registered skill to the specialist.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For `--with-skill <dir>`, the provided directory SHALL be treated as caller-owned input rather than Houmao-managed content.
 
@@ -870,6 +980,11 @@ Removing or clearing skill bindings SHALL NOT delete shared skill content only b
 
 `--clear-prompt-mode` SHALL remove the stored specialist launch prompt mode so downstream build and launch policy can resolve its default behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `--model <name>` and `--reasoning-level <integer>=non-negative` SHALL update the stored launch-owned model configuration using the same partial merge semantics as reusable profile patch commands.
 
 `--clear-model` and `--clear-reasoning-level` SHALL clear the corresponding stored launch-owned model configuration fields.
@@ -897,6 +1012,11 @@ The projected role prompt and specialist-backed preset under `.houmao/agents/` S
 
 If a specialist setup change changes the generated preset name, the command SHALL remove the previous specialist-owned projected preset file when no longer referenced by the updated specialist.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `project specialist set` SHALL NOT mutate running managed-agent sessions, runtime homes, or already-written launch manifests in place.
 
 #### Scenario: Specialist set updates projected preset skills
@@ -922,6 +1042,11 @@ The launch surface SHALL expose the timing overrides as:
 - `--gateway-tui-unknown-to-stalled-timeout-seconds`
 - `--gateway-tui-stale-active-recovery-seconds`
 - `--gateway-tui-final-stable-active-recovery-seconds`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When launch-time gateway auto-attach is enabled, the command SHALL pass any supplied gateway TUI timing overrides to the delegated managed-agent launch and gateway attach path.
 
@@ -983,6 +1108,11 @@ Supplying gateway TUI timing overrides SHALL NOT rewrite the stored specialist o
 
 `--clear-memo-seed` SHALL NOT be combined with a memo seed source.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `project profile get --name <profile>` SHALL report memo seed presence, source kind, and managed content reference metadata without printing full memo or page contents by default.
 
 `project agents launch --profile <profile>` SHALL apply the selected project profile's memo seed during managed launch when the profile stores one, using source-scoped replacement semantics from managed launch runtime.
@@ -1028,6 +1158,11 @@ At minimum, the successful easy-instance stop output SHALL include:
 - `manifest_path`
 - `session_root`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The command SHALL continue validating that the target belongs to the selected project overlay before stopping it. After stop, the emitted locator fields SHALL let the operator run `houmao-mgr agents cleanup session|logs|mailbox --manifest-path <path>` or `--session-root <path>` without relying on a live shared-registry record.
 
 #### Scenario: Easy instance stop returns cleanup locators
@@ -1060,6 +1195,11 @@ When the selected project overlay still depends on legacy easy-specialist metada
 Repeatable `--skill <name>` SHALL bind one existing registered project skill to the created specialist.
 
 Repeatable `--with-skill <dir>` MAY remain as a convenience path, but its maintained meaning SHALL be to register or update one canonical project skill entry and then bind that registered skill to the created specialist.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For `--with-skill <dir>`, the provided directory SHALL be treated as caller-owned input rather than specialist-owned or Houmao-managed content.
 
@@ -1094,6 +1234,11 @@ When the bound project skill is registered in `copy` or `symlink` mode, `special
 
 ### Requirement: `project profile` enforces project-profile lane ownership
 `houmao-mgr project profile list|get|set|remove` SHALL operate only on stored `easy_profile` entries even though native launch dossiers share the same catalog-backed launch-profile family and compatibility projection path.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When `project profile get --name <profile>`, `set --name <profile>`, or `remove --name <profile>` targets a stored profile whose `profile_lane` is `launch_profile`, the command SHALL fail clearly instead of reading, mutating, or deleting that explicit launch profile through the easy lane.
 
@@ -1137,6 +1282,11 @@ That wrong-lane failure SHALL identify that the named resource belongs to the ex
 `--reuse-home` SHALL be launch-owned only and SHALL NOT be persisted into the stored specialist or project profile.
 
 When `--reuse-home` is supplied, easy instance launch SHALL treat the request as restart of one stopped logical managed agent on one compatible preserved home for the resolved managed identity instead of allocating a new home.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The command SHALL support `--reuse-home` for both specialist-backed launch and project-profile-backed launch.
 
@@ -1187,6 +1337,11 @@ If no compatible stopped preserved home can be resolved, the command SHALL fail 
 
 The project-profile surface SHALL accept repeatable `--add-registered-skill <name>` options. Each registered skill name SHALL reference an existing project skill registration by name and SHALL NOT create, import, copy, or symlink a new project skill registration.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The project-profile surface SHALL accept repeatable `--remove-registered-skill <name>` options on `set`. Removing a registered skill SHALL remove only that project-profile-owned reference and SHALL NOT remove the project skill registration.
 
 The project-profile surface SHALL accept repeatable `--add-private-skill <path>` options. Each private skill path SHALL identify a directory containing `SKILL.md`, SHALL derive its installed skill name from that directory name, and SHALL be stored with copy mode.
@@ -1225,6 +1380,11 @@ Adding the same private installed skill name more than once in a single project 
 
 `houmao-mgr project profile list` SHALL include enough structured skill-overlay summary data for operators to see that a profile contributes additional skills.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The projected `.houmao/agents/launch-profiles/<profile>.yaml` file for an project profile SHALL render registered skill refs separately from private skill refs. Private skill refs SHALL include installed name, source path, and mode.
 
 #### Scenario: Project profile get reports registered and private skill overlays
@@ -1242,6 +1402,11 @@ The projected `.houmao/agents/launch-profiles/<profile>.yaml` file for an projec
 
 ### Requirement: Project profile env records are regression-tested through Codex TUI launch
 The test suite SHALL include coverage for a profile-backed Codex TUI launch where durable env records are created through the public project-profile CLI surface and then observed inside the launched tmux-backed runtime.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The test SHALL create an project profile with repeatable `project profile create --env-set NAME=value` inputs, launch a managed agent from that profile with `project agents launch --profile <name>` using the Codex local interactive lane, and verify the profile env records reach the launched tmux session or provider process environment.
 
@@ -1263,6 +1428,11 @@ The test SHALL use non-secret env names and values. It SHALL include lowercase p
 `houmao-mgr project specialist create` and `houmao-mgr project specialist set` SHALL accept options for configuring managed system-skill policy on the specialist's generated recipe launch payload.
 
 `houmao-mgr project profile create` and `houmao-mgr project profile set` SHALL accept options for configuring managed system-skill policy on specialist-backed project profiles.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The accepted options SHALL include repeatable `--system-skill-set <set>`, repeatable `--system-skill <skill>`, `--system-skills-mode <mode>`, `--no-system-skills`, and the patch-only clear option `--clear-system-skills`.
 
@@ -1314,6 +1484,11 @@ Project specialist, profile, and agent commands SHALL NOT accept Gemini as a too
 ### Requirement: Maintained tests target promoted project commands
 
 Maintained tests for specialist, profile, and project-managed-agent behavior SHALL describe and exercise the supported `project specialist`, `project profile`, and `project agents` command groups. A maintained test SHALL NOT assert that a `project easy ...` command succeeds or is the expected command shape.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Tests MAY name or inspect internal implementation modules that retain `easy` terminology when isolation requires an implementation-targeted patch, but they SHALL NOT present those module names as public CLI paths.
 

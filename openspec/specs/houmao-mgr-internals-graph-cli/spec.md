@@ -1,7 +1,7 @@
 # houmao-mgr-internals-graph-cli Specification
 
 ## Purpose
-TBD - created by archiving change add-internals-graph-tools. Update Purpose after archive.
+`houmao-mgr internals graph` uses NetworkX node-link JSON for graph interchange. It offers loop-authoring and routing-packet validation commands alongside a bounded set of NetworkX construction, transformation, and analysis operations.
 ## Requirements
 ### Requirement: `houmao-mgr internals graph` uses NetworkX node-link JSON
 `houmao-mgr` SHALL expose a top-level `internals` command family with a nested `graph` command family for internal graph tooling.
@@ -9,6 +9,11 @@ TBD - created by archiving change add-internals-graph-tools. Update Purpose afte
 The `internals graph` command family SHALL use NetworkX node-link JSON as its only graph interchange format.
 
 The graph reader SHALL accept node-link JSON objects with `nodes`, `edges`, and `graph` fields following the NetworkX node-link convention.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The graph reader SHALL normalize graph input to a NetworkX `MultiDiGraph` unless a low-level command explicitly constructs a different supported graph type.
 
@@ -40,6 +45,11 @@ At minimum, `graph high` SHALL include:
 - `validate-packets`,
 - `slice`,
 - `render-mermaid`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `analyze` command SHALL report structural facts that are useful to loop authoring, including at minimum:
 
@@ -79,6 +89,11 @@ High-level commands SHALL remain structural helpers. They SHALL NOT infer free d
 
 ### Requirement: `graph high` validates pairwise-v2 routing-packet structure
 `houmao-mgr internals graph high packet-expectations` SHALL derive expected pairwise-v2 routing-packet coverage from a node-link graph topology.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For a pairwise-v2 graph, `packet-expectations` SHALL report at minimum:
 
@@ -130,6 +145,11 @@ At minimum, `graph low` SHALL include graph construction or mutation support for
 - removing nodes,
 - removing edges,
 - setting graph metadata attributes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, `graph low` SHALL include graph transformation support for:
 
@@ -183,6 +203,11 @@ When a command's primary output is a graph, the JSON output SHALL use node-link 
 
 When a command's primary output is an analysis, validation, or algorithm result, the JSON output SHALL include stable top-level keys describing the operation and result.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Plain output MAY use compact human-readable summaries for analysis and validation commands, but it SHALL NOT drop machine-critical result fields from JSON output.
 
 #### Scenario: Graph analysis emits JSON under print-json
@@ -199,6 +224,11 @@ Plain output MAY use compact human-readable summaries for analysis and validatio
 Every individual command under `houmao-mgr internals graph high`, `houmao-mgr internals graph low`, and `houmao-mgr internals graph low alg` SHALL include help text with at least one concrete example invocation.
 
 For commands that read non-graph JSON documents, the command help SHALL describe the expected document role or shape, such as mutation ops JSON, node selection JSON, relabel mapping JSON, or pairwise-v2 packet JSON.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 These examples SHALL be intended for agent consumption so that an agent can infer what file or stdin payload to feed to the command without consulting source code.
 

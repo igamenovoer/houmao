@@ -30,6 +30,11 @@ The system SHALL support an unattended startup path for orchestrated Claude Code
 
 When that unattended path is requested, the system SHALL detect the actual Claude Code version, resolve a compatible Claude launch policy strategy from the maintained Claude registry, and apply that strategy before starting Claude Code.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For each maintained unattended backend, the Claude registry SHALL declare an inclusive minimum that admits eligible later releases. The maintained unattended floor SHALL track the qualified tracked-TUI floor, currently `>=2.1.296`. Strategies qualified against older releases SHALL be realigned or removed when the floor moves.
 
 The unattended contract SHALL be validated against the current default permission behavior of the floor version. Claude 2.1.296 defaults to auto permission mode and renders the workspace trust dialog even under `--dangerously-skip-permissions` for an untrusted workdir. Trust seeding and startup-prompt assumptions SHALL be re-probed live whenever the floor moves.
@@ -113,6 +118,11 @@ The system SHALL let the selected Claude unattended strategy create or update st
 
 Strategy-owned runtime state SHALL continue to enforce onboarding and API-key approval invariants required for unattended startup without leaking full secret values into persisted runtime state.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The set of strategy-owned paths SHALL come from the selected strategy entry rather than from one global Claude-owned field list.
 
 #### Scenario: Strategy creates Claude runtime state from template when missing
@@ -176,6 +186,11 @@ stabilize what an alias (for example `opus`) resolves to:
 - `ANTHROPIC_DEFAULT_SONNET_MODEL`
 - `ANTHROPIC_DEFAULT_HAIKU_MODEL`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system SHALL additionally support:
 
 - `CLAUDE_CODE_SUBAGENT_MODEL`
@@ -207,6 +222,11 @@ The Claude auth bundle SHALL support optional vendor login-state files for the i
 - `.claude.json`
 
 When those files are present in the selected Claude auth bundle, auth projection SHALL place them at the runtime Claude config root under the same filenames.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Launch preparation SHALL treat a projected `.claude.json` as existing Claude runtime state, SHALL NOT require `claude_state.template.json` solely because that projected runtime state came from imported vendor login state, and SHALL preserve projected `.credentials.json` without rewriting it.
 

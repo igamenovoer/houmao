@@ -82,6 +82,11 @@ The Debug Agent sender SHALL provide a typed component lane for Houmao component
 
 The Debug Agent sender SHALL NOT provide retired fixed chart presets for `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The typed component lane SHALL render or wrap valid component payloads into standard AG-UI `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END` events before delivering them to the display.
 
 #### Scenario: Sender publishes a Plotly template chart payload

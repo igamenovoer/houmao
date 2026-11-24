@@ -25,6 +25,11 @@ At minimum, each supported tool family SHALL expose:
 
 The help text for this subtree SHALL present it as management for project-local tool content under `.houmao/agents/tools/<tool>/`.
 
+#### Scenario: Native-agent tool administration exposes the project tool command tree
+
+- **GIVEN** an operator administers tool configuration through `houmao-mgr`
+- **THEN** the native-agent and project tool trees expose the maintained families and corresponding operations
+
 This subtree SHALL NOT own credential CRUD, which SHALL route through `houmao-mgr project credentials <tool> ...`.
 
 #### Scenario: Operator sees the internals native-agent tools tree

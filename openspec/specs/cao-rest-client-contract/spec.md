@@ -6,6 +6,11 @@ The system SHALL implement a CAO-compatible REST client whose request parameter 
 
 For supported loopback compatibility base URLs, the CAO-compatible REST client SHALL bypass ambient proxy environment variables by default by ensuring loopback entries exist in `NO_PROXY` and `no_proxy`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the CAO-compatible REST client SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
 #### Scenario: Loopback compatibility requests bypass ambient proxy env on a non-default port
@@ -19,6 +24,11 @@ The system SHALL parse CAO REST JSON responses into typed models (Pydantic) for 
 The terminal `status` field SHALL remain validated against CAO's known terminal status values.
 
 The terminal `provider` field SHALL be treated as a non-empty provider identifier string returned by CAO rather than a repo-owned closed enum. New upstream provider identifiers SHALL parse successfully without requiring a local model update before unrelated fields can be consumed.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `CaoProvider` enum type SHALL NOT remain the Pydantic response-model field type or public typed response contract for terminal `provider`.
 
@@ -36,6 +46,11 @@ The `CaoProvider` enum type SHALL NOT remain the Pydantic response-model field t
 When using the CAO backend, the system SHALL apply allowlisted credential environment variables by configuring a unique tmux session environment before spawning the CAO terminal into that session.
 
 For supported loopback CAO base URLs, the tmux session environment SHALL preserve proxy variables for agent egress and SHALL include loopback entries in `NO_PROXY` and `no_proxy` by default.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When `HOUMAO_PRESERVE_NO_PROXY_ENV=1`, the system SHALL NOT modify `NO_PROXY` or `no_proxy` and will respect caller-provided values.
 
@@ -90,6 +105,11 @@ At minimum, the client contract SHALL distinguish between:
 The default general request timeout SHALL be 15 seconds.
 
 The default create-operation timeout SHALL be 75 seconds.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The create-operation timeout SHALL apply to:
 

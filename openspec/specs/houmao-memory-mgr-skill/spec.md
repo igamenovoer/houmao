@@ -1,7 +1,7 @@
 # houmao-memory-mgr-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-managed-agent-memo-cue. Update Purpose after archive.
+`houmao-memory-mgr` guides agents to the managed memo and supporting pages for the current or selected agent. It routes edits through supported memory operations and explains how launch-profile seeds affect those files.
 ## Requirements
 ### Requirement: Houmao provides a packaged `houmao-memory-mgr` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-memory-mgr` under the maintained system-skill asset root.
@@ -13,6 +13,11 @@ That packaged skill SHALL be triggered for user requests that ask to read, edit,
 - `houmao-memo.md`,
 - `managed memory`,
 - memory `pages/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL remain concise enough for ordinary per-turn loading and SHALL NOT flatten unrelated runtime, mailbox, gateway, or lifecycle guidance into the memory-management entrypoint.
 
@@ -29,6 +34,11 @@ The packaged `houmao-memory-mgr` skill SHALL teach the agent how to find the man
 - `HOUMAO_AGENT_PAGES_DIR`.
 
 For the current managed agent when environment paths are unavailable, the skill MAY route path discovery through `houmao-mgr agents self memory path` when the caller is inside the owning managed session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For a selected managed agent other than the current one, the skill SHALL route path discovery through `houmao-mgr agents single --agent-name <name> memory path` or `houmao-mgr agents single --agent-id <id> memory path`, or through the equivalent supported managed-agent memory service surface when the caller is already operating through pair-managed HTTP or a live gateway.
 
@@ -59,6 +69,11 @@ For current-session CLI work, the skill SHALL describe memo operations through:
 - `houmao-mgr agents self memory memo show`,
 - `houmao-mgr agents self memory memo set`,
 - `houmao-mgr agents self memory memo append`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For selected-agent CLI work, the skill SHALL describe the same operations under `houmao-mgr agents single --agent-name <name> memory memo ...` or `houmao-mgr agents single --agent-id <id> memory memo ...`.
 
@@ -99,6 +114,11 @@ The skill SHALL state that references from `houmao-memo.md` to files under `page
 
 The skill SHALL NOT instruct the agent to create generated page indexes, marker comments, automatic link refreshes, or page taxonomies inside `houmao-memo.md`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL warn that short-lived retry counters, dedupe databases, mailbox receipts, gateway reminder state, and live supervision state belong in the relevant Houmao runtime, mailbox, gateway, or workflow mechanism rather than in managed memory pages.
 
 #### Scenario: Skill preserves authored page-link model
@@ -110,6 +130,11 @@ The skill SHALL warn that short-lived retry counters, dedupe databases, mailbox 
 When the packaged `houmao-memory-mgr` skill guides launch-profile or project-profile memo seed edits, it SHALL explain that memo seed sources define which managed-memory components are replaced.
 
 The skill SHALL guide memo-only seed requests through `--memo-seed-text` or `--memo-seed-file` without suggesting or requiring a memo seed policy.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL distinguish `--clear-memo-seed`, which removes stored profile seed configuration, from an empty memo seed, which stores empty memo content for future profile-backed launches.
 
@@ -130,6 +155,11 @@ The packaged `houmao-memory-mgr` skill SHALL treat memo seed options that are pa
 The skill SHALL NOT duplicate profile YAML skeletons or full profile command skeletons only to explain memo seed flags.
 
 The skill SHALL NOT pass memo seed fields to `houmao-mgr internals config-drafts generate`, because initial config drafts accept only minimal name/source/credential holes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Live memory commands such as memo show/set/append and memory page read/write operations SHALL remain direct skill guidance unless a future change adds a matching maintained config surface for those live commands.
 

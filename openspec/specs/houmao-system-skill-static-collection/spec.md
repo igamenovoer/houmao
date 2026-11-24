@@ -1,10 +1,15 @@
 # houmao-system-skill-static-collection Specification
 
 ## Purpose
-TBD - created by archiving change replace-runtime-skill-composition-with-static-collection. Update Purpose after archive.
+Publish six standalone system skills as static, host-discoverable assets. Shared routines own sixteen parent-scoped children, and installation projects the existing trees intact.
 ## Requirements
 ### Requirement: System skills are distributed as six static standalone roots
 Houmao SHALL package exactly these current host-discoverable system-skill roots beneath `src/houmao/agents/assets/system_skills/public/`: `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each root SHALL contain `SKILL.md` and all locally owned runtime resources. The checked-in directory SHALL be the same instruction tree installed into a tool home, apart from the projection mechanism itself.
 
@@ -15,6 +20,11 @@ Each root SHALL contain `SKILL.md` and all locally owned runtime resources. The 
 
 ### Requirement: Shared routines own sixteen parent-scoped children
 `houmao-shared-routines` SHALL own exactly sixteen parent-scoped routine directories beneath `subskills/`, for advanced usage, agent definition, agent email communication, agent gateway, agent inspection, agent instances, agent messaging, credentials, graphing, AG-UI interop, mailbox administration, memory, operator messaging, gateway email rounds, project management, and workspace management.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each direct child SHALL contain `SKILL-MAIN.md` and SHALL NOT contain a sibling `SKILL.md`. Pro and lite loop skills SHALL NOT appear as shared children.
 

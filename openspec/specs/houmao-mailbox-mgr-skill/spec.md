@@ -6,6 +6,11 @@ Define the packaged Houmao-owned mailbox-administration skill for filesystem mai
 ### Requirement: Houmao provides a packaged `houmao-mailbox-mgr` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-mailbox-mgr` under the maintained system-skill asset root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That skill SHALL instruct agents and operators to handle mailbox-administration work through these maintained command surfaces:
 
 - `houmao-mgr mailbox init|status|register|unregister|repair|cleanup|clear-messages|export`
@@ -43,6 +48,11 @@ When the task targets an arbitrary filesystem mailbox root, the skill SHALL use 
 
 When the task targets the selected project overlay mailbox root, the skill SHALL use `houmao-mgr project mailbox clear-messages`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL distinguish `clear-messages` from `cleanup`: `cleanup` remains for inactive or stashed registration cleanup, while `clear-messages` is the destructive delivered-message reset.
 
 The skill SHALL NOT instruct callers to hand-edit mailbox-root files for message clearing when the maintained `clear-messages` command covers the request.
@@ -63,6 +73,11 @@ The packaged `houmao-mailbox-mgr` skill SHALL route requests to archive or expor
 When the task targets an arbitrary filesystem mailbox root, the skill SHALL use `houmao-mgr mailbox export`.
 
 When the task targets the selected project overlay mailbox root, the skill SHALL use `houmao-mgr project mailbox export`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL explain that default mailbox export materializes symlinks so the archive can be used on filesystems that do not support symlinks.
 
@@ -86,6 +101,13 @@ The skill SHALL NOT recommend ad hoc recursive mailbox-root copying when the mai
 - **AND THEN** it does not replace the selected-account request with an all-account export
 
 ### Requirement: `houmao-mailbox-mgr` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-mailbox-mgr` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-mailbox-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
@@ -129,6 +151,11 @@ The packaged `houmao-mailbox-mgr` skill SHALL tell the agent to recover omitted 
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL select mailbox-admin commands by mailbox scope:
 
 - use `houmao-mgr mailbox ...` for arbitrary filesystem mailbox roots,
@@ -164,6 +191,11 @@ The skill SHALL direct ordinary mailbox participation work to `houmao-agent-emai
 ### Requirement: `houmao-mailbox-mgr` explains the ordinary mailbox-address pattern and the reserved Houmao mailbox namespace
 When the packaged `houmao-mailbox-mgr` skill guides ordinary mailbox account creation or late filesystem mailbox binding, it SHALL explain the split between canonical mailbox principal id and ordinary mailbox address.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, that guidance SHALL explain:
 
 - ordinary managed-agent principal ids use the canonical `HOUMAO-<agentname>` form,
@@ -189,6 +221,11 @@ The skill SHALL NOT suggest `HOUMAO-<agentname>@houmao.localhost` as the ordinar
 
 ### Requirement: `houmao-mailbox-mgr` distinguishes manual registration from launch-owned and late-binding mailbox association
 The packaged `houmao-mailbox-mgr` skill SHALL describe `mailbox register` and `project mailbox register` as manual filesystem mailbox-account administration rather than as the default preparation step for every mailbox-enabled managed-agent launch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the user is preparing a new specialist-backed easy instance whose filesystem mailbox identity will be derived from the managed-agent instance name under the same shared mailbox root, the skill SHALL explain that launch-time mailbox bootstrap may own registration for that address and SHALL NOT present manual preregistration of the same address as the default lane.
 
@@ -228,6 +265,11 @@ When the task targets one account under the selected project overlay mailbox roo
 houmao-mgr project mailbox messages clear --address <full-address> [--dry-run] [--yes]
 ```
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL continue to route all-account delivered-message resets to `houmao-mgr mailbox clear-messages` or `houmao-mgr project mailbox clear-messages`.
 
 The skill SHALL distinguish account-scoped message clearing from `cleanup`: `cleanup` remains for inactive or stashed registration cleanup, while `messages clear --address` removes delivered message visibility for one active account.
@@ -255,6 +297,11 @@ The packaged `houmao-mailbox-mgr` skill SHALL document supported mailbox adminis
 Covered command families SHALL include shared mailbox commands, project mailbox commands, project mailbox account/message commands, and managed-agent mailbox binding commands.
 
 The skill SHALL keep transport explanation and mailbox workflow guidance in skill text, but executable command shapes SHALL be shown directly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining mailbox administration commands.
 

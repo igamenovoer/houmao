@@ -8,6 +8,11 @@ Define the archive boundary for the former CAO interactive demo operator workflo
 
 The active system contract SHALL NOT require maintainers to keep archived CAO interactive demo wrappers, README walkthroughs, or `run_demo.sh` call shapes under `scripts/demo/legacy/` runnable or synchronized with current runtime behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Archived materials MAY preserve historical recipe-first terms, wrapper names, session-control examples, or debugging notes for reference, but supported operator guidance SHALL come from live CLI, runtime, fixture, and explore surfaces rather than from the archived demo pack.
 
 #### Scenario: Archived demo drift does not block the live contract

@@ -13,6 +13,11 @@ In `parsing_mode=shadow_only`, the system SHALL NOT rely on:
 - CAO `GET /terminals/{terminal_id}` `status` for turn gating, or
 - CAO `mode=last` output for dialog projection.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 In `parsing_mode=shadow_only`, the core Claude shadow parser SHALL NOT promise prompt-associated final answer extraction from `mode=full`.
 
 In `parsing_mode=cao_only`, the runtime SHALL NOT invoke Claude shadow parsing for turn gating or projection.
@@ -39,6 +44,11 @@ For Claude CAO-backed turns in `parsing_mode=shadow_only`, the runtime SHALL NOT
 
 ### Requirement: Claude Code shadow parsing fails explicitly on unsupported output formats
 For CAO provider `claude_code`, when a session runs in `parsing_mode=shadow_only`, the runtime-owned Claude Code shadow parser SHALL explicitly detect when `output?mode=full` does not match any supported output format variant for the selected preset family.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If no supported variant matches, the system SHALL fail the turn with an explicit `unsupported_output_format`-class error and include an ANSI-stripped tail excerpt for diagnostics. The system SHALL NOT treat this condition as normal `processing` indefinitely.
 
@@ -73,6 +83,11 @@ When resolving a Claude Code parsing preset based on a detected version signatur
 
 ### Requirement: Shadow status classification is output-driven and bounded
 The system SHALL compute Claude Code shadow surface assessment from a bounded tail window of the `mode=full` output, and SHALL default to the last 100 lines from the end of the output.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Before classifying state, the system SHALL partition the bounded tail window into a historical zone and an active zone using cursor-anchored prompt boundary detection. State classification SHALL operate on the active zone only. Historical signals above the prompt boundary SHALL NOT contribute to `business_state`, `input_mode`, or `ui_context` classification.
 When a visible Claude prompt owns spinner/progress evidence below it, the prompt line SHALL remain inside the active zone so `working + freeform` remains representable.

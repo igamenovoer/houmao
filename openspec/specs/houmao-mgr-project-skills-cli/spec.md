@@ -1,7 +1,7 @@
 # houmao-mgr-project-skills-cli Specification
 
 ## Purpose
-TBD - created by archiving change source-aware-project-assets. Update Purpose after archive.
+`houmao-mgr project skills` manages copy-backed and symlink-backed skill registrations in the active project overlay. Removal protects skills that persisted specialists or launch profiles still reference.
 ## Requirements
 ### Requirement: `houmao-mgr project skills` manages canonical project-local skill registrations
 `houmao-mgr` SHALL expose a `project skills` command family for canonical project-local skill registration under the active project overlay.
@@ -15,6 +15,11 @@ At minimum, that family SHALL include:
 - `remove`
 
 `project skills` SHALL resolve the active project overlay and SHALL manage skill registrations under `.houmao/content/skills/` rather than through `.houmao/agents/skills/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `project skills list` and `get` SHALL report each registered skill's canonical project path and storage mode.
 
@@ -39,6 +44,11 @@ When `--mode copy` is used, the command SHALL copy the source directory into `.h
 When `--mode symlink` is used, the command SHALL create `.houmao/content/skills/<name>` as a symlink to the provided source directory.
 
 When `--mode` is omitted, the default mode SHALL be `copy`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The source directory SHALL contain `SKILL.md`.
 
@@ -80,6 +90,11 @@ If registration or update fails after Houmao-managed paths were prepared or refr
 `houmao-mgr project skills remove --name <name>` SHALL refuse to remove a registered project skill while that skill is still referenced by one or more persisted specialist definitions or by one or more stored launch-profile registered skill refs.
 
 Launch-profile private path-backed skills SHALL NOT count as project skill registry references because they are not project skill registrations.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Once no persisted specialist and no stored launch profile references that registered project skill by name, `project skills remove` SHALL remove the canonical project skill entry from `.houmao/content/skills/`.
 

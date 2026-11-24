@@ -11,6 +11,11 @@ The passive server SHALL maintain a `TuiObservationService` that reconciles acti
 
 When a newly discovered agent appears in the index and declares `tui` mode and a terminal native surface with a tmux-based terminal (`terminal.session_name` is present), the service SHALL create an `AgentTuiObserver` for that agent. When an agent disappears from the index, the service SHALL remove and clean up its observer.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The observation service SHALL start during server startup (after discovery) and stop during server shutdown.
 
 An interactive Web agent SHALL use structured native observation instead of an `AgentTuiObserver`, even when registry metadata includes its supervisory tmux session. Disappearance SHALL clean up that agent's Web observation independently of terminal observers.
@@ -40,6 +45,13 @@ An interactive Web agent SHALL use structured native observation instead of an `
 - **THEN** it reads verified native service observation and never installs a TUI parser for the owner pane
 
 ### Requirement: Each agent observer polls the tmux pane and produces tracked state
+Each `AgentTuiObserver` SHALL poll its tmux pane on every observation cycle and use the captured text to update tracked state. It SHALL record diagnostics and continue polling after a failure.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Each `AgentTuiObserver` SHALL execute a polling pipeline on each observation cycle that:
 1. Resolves the tmux target (session, pane) using `TmuxTransportResolver`.
 2. Inspects the pane's process tree using `PaneProcessInspector` to determine TUI process liveness.
@@ -91,6 +103,11 @@ Each iteration SHALL:
 - `turn` state (phase)
 - `last_turn` state (result, source, updated_at_utc)
 - `stability` metadata (stable, stable_for_seconds, stable_since_utc)
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The compact endpoint SHALL NOT include `probe_snapshot` or `parsed_surface`.
 

@@ -27,6 +27,11 @@ The file SHALL describe the Houmao run phase using the current `BrainManifest` p
 
 The repo-root `CLAUDE.md` file Source Layout section SHALL include bullets for each current top-level subsystem under `src/houmao/` that is load-bearing for build, run, project, server, or subsystem behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the Source Layout section SHALL reference:
 
 - `src/houmao/agents/brain_builder.py` for the build phase,

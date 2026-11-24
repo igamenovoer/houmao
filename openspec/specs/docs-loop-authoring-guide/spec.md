@@ -7,6 +7,11 @@ Define the documentation requirements for the Houmao loop authoring getting-star
 
 The docs site SHALL include a getting-started guide at `docs/getting-started/loop-authoring.md` that helps readers choose a loop skill and understand the current loop authoring models.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guide SHALL include a skill-selection table that lists the current packaged loop skills — `houmao-agent-loop-pairwise`, `houmao-agent-loop-pairwise-v2`, `houmao-agent-loop-pairwise-v3`, `houmao-agent-loop-pairwise-v4`, and `houmao-agent-loop-generic` — with at minimum: the lifecycle verbs each skill supports, the prestart model it uses, and the topology it targets.
 
 The guide SHALL explain that `houmao-agent-loop-pairwise-v3` is the workspace-aware extension of pairwise-v2.
@@ -83,6 +88,11 @@ The loop authoring guide SHALL continue to mention `houmao-mgr internals graph h
 The loop authoring guide SHALL present both `houmao-agent-loop-pro` and `houmao-agent-loop-lite` as current maintained Houmao loop skills.
 
 The guide SHALL describe pro as the schema-rich generated-execplan path with generated contracts, harnesses, generated skills, agent bindings, workspace readiness, validation, launch, and run control.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The guide SHALL describe lite as the Markdown/direct-SQL path with required communication templates, required generated skills, direct SQLite state, no JSON schemas, no Jinja2, no generated harness, and no generated docs layer.
 

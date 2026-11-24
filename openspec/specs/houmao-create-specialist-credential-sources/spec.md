@@ -12,6 +12,11 @@ The create action within the packaged `houmao-specialist-mgr` system skill SHALL
 
 The create action SHALL treat those as distinct credential-source modes unless the user explicitly asks to combine them.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If the selected action is not `create`, the packaged `houmao-specialist-mgr` skill SHALL NOT enter any credential-source mode.
 
 Before any credential-source mode is selected, the create action SHALL recover the selected tool and credential from the current prompt, nearby context, or the registered Houmao credential defaulting strategy.
@@ -81,6 +86,11 @@ The packaged `houmao-specialist-mgr` system skill SHALL keep create-action tool-
 
 The top-level skill SHALL route into the create action first, and the create action SHALL load only the reference page for the currently selected tool and only when the active credential-source mode requires tool-specific lookup guidance.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Each tool-specific reference page SHALL describe deployment-realistic credential lookup surfaces for that tool, including maintained tool-home selectors, relevant stored auth files, relevant config files, and relevant environment variables.
 
 Each tool-specific reference page SHALL be authored from:
@@ -118,6 +128,11 @@ The create action within the packaged `houmao-specialist-mgr` system skill SHALL
 
 The create action SHALL map discovered auth only into the selected tool’s supported create inputs.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If the current auth shape is discovered but cannot be faithfully represented by current create-command inputs, the skill SHALL report that limitation and ask the user for a supported explicit input instead of guessing.
 
 This importability rule SHALL apply to both user-directed discovery and automatic discovery for the create action.
@@ -148,6 +163,11 @@ When the selected tool is Claude and the create action’s active credential-sou
 
 - `CLAUDE_CODE_OAUTH_TOKEN`
 - Claude login state rooted at `CLAUDE_CONFIG_DIR` or the maintained default Claude config root when that root contains the vendor files needed for the Claude login-state lane
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The create action SHALL map those discovered Claude auth shapes only into supported create-command inputs for the Claude lane, including the Claude OAuth-token input and the Claude config-dir import input.
 
@@ -188,6 +208,11 @@ The existing credential-source modes SHALL remain available under the unified `s
 2. user-directed environment lookup;
 3. user-directed directory scan;
 4. tool-specific automatic credential discovery.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Credential-source handling SHALL remain scoped to specialist creation or fast-forward flows that create a specialist. Non-create actions SHALL NOT enter credential discovery.
 

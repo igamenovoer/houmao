@@ -1,7 +1,7 @@
 # agent-definition-authoring-workspaces Specification
 
 ## Purpose
-TBD - created by archiving change deploy-predefined-agent-blueprints. Update Purpose after archive.
+Separate human-authored intent, validated interpretation, and immutable Agent Definition output. Bind materialization approval to the exact derived content and invalidate it when referenced source changes.
 ## Requirements
 ### Requirement: Agent Definition authoring separates source, interpretation, and materialization
 An Agent Definition Workspace SHALL keep human-owned source intent, operator-derived interpretation, and immutable materialized output in distinct directories.

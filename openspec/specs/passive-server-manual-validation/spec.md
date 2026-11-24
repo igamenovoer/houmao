@@ -1,10 +1,15 @@
 # passive-server-manual-validation Specification
 
 ## Purpose
-TBD - created by archiving change add-passive-server-manual-tests. Update Purpose after archive.
+Provide isolated manual checks for the passive server's lifecycle, registry discovery, and gateway proxying. The checks exercise subprocesses, tmux, and gateway routes while cleaning up the resources each run creates.
 ## Requirements
 ### Requirement: Manual lifecycle validation script
 Houmao SHALL provide a manual passive-server lifecycle validation script under `tests/manual/` that starts `houmao-passive-server serve` as a subprocess on a free local port with isolated Houmao roots.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The script SHALL verify the real HTTP service identity and current-instance metadata, including `GET /health`, `GET /houmao/server/current-instance`, and an empty `GET /houmao/agents` response before any records are seeded. The script SHALL request graceful shutdown through `POST /houmao/server/shutdown` or otherwise terminate the subprocess cleanly during cleanup.
 
@@ -15,6 +20,11 @@ The script SHALL verify the real HTTP service identity and current-instance meta
 ### Requirement: Manual registry discovery validation script
 Houmao SHALL provide a manual passive-server registry discovery validation script under `tests/manual/` that uses isolated Houmao roots, at least one real tmux session, and strict managed-agent registry records.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The script SHALL publish at least one fresh active registry record whose tmux session exists and at least one record that must not be listed because its session is absent or stale. The script SHALL query `GET /houmao/agents` and `GET /houmao/agents/{agent_ref}` to verify list, resolve-by-id, resolve-by-name, and not-found behavior using the passive server's real HTTP surface.
 
 #### Scenario: Discovery lists only live registry-backed agents
@@ -23,6 +33,11 @@ The script SHALL publish at least one fresh active registry record whose tmux se
 
 ### Requirement: Manual gateway proxy validation script
 Houmao SHALL provide a manual passive-server gateway proxy validation script under `tests/manual/` that uses an isolated registry record with live gateway coordinates and a fake local gateway implementing the route shapes under test.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The script SHALL verify that passive-server discovery reports `has_gateway` for the seeded agent. The script SHALL verify that `GET /houmao/agents/{agent_ref}/gateway` proxies the fake gateway status response and that `POST /houmao/agents/{agent_ref}/gateway/requests` forwards a `submit_prompt` payload to the fake gateway.
 

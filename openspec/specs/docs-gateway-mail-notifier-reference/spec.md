@@ -4,6 +4,13 @@
 Define the documentation requirements for the gateway mail-notifier reference page.
 ## Requirements
 ### Requirement: Gateway mail-notifier reference page exists
+The gateway reference SHALL include `docs/reference/gateway/operations/mail-notifier.md` to document the gateway mail-notifier subsystem.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway reference SHALL include a page at `docs/reference/gateway/operations/mail-notifier.md` documenting the gateway mail-notifier subsystem. The page SHALL explain:
 
 - What the mail-notifier is: a gateway-owned background loop that periodically checks the agent's mailbox and notifies the agent of open inbox work by injecting a prompt through the gateway request queue.
@@ -64,6 +71,11 @@ The gateway reference index at `docs/reference/gateway/index.md` SHALL include a
 
 ### Requirement: Gateway mail-notifier reference documents notification mode
 The gateway mail-notifier reference page SHALL document notifier notification mode as part of notifier configuration and behavior.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The page SHALL explain:
 

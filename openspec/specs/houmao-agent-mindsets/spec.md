@@ -1,7 +1,7 @@
 # houmao-agent-mindsets Specification
 
 ## Purpose
-TBD - created by archiving change add-managed-agent-instance-state. Update Purpose after archive.
+Agent definitions declare named mindsets as revisioned data that bound skills read through verified-self snapshots. Administrators revise an explicit named mindset, and compatible preserved instances retain their revisions across relaunch.
 ## Requirements
 ### Requirement: Definitions declare named mindsets and skill bindings
 The instance contract SHALL declare stable mindset names, ordered stable question ids, default question text, bounded record fields, and static skills that require each mindset.

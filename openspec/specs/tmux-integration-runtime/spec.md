@@ -54,6 +54,11 @@ Current-focus heuristics MAY be used only when the workflow contract explicitly 
 ### Requirement: Operator-facing tmux handoff is interactivity-aware and libtmux-backed
 When repo-owned Houmao code needs to hand an operator terminal off to a tmux session after a successful managed launch, it SHALL resolve the session through the repo-owned libtmux-backed tmux integration layer rather than composing an ad hoc raw `tmux attach-session` subprocess call.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If libtmux does not expose a first-class attach helper for the needed session handoff, the implementation SHALL use libtmux-owned command dispatch bound to the resolved tmux server or session object rather than introducing a separate unrelated raw tmux subprocess path.
 
 Before attempting tmux attach, the handoff flow SHALL determine whether the caller provides a usable interactive terminal. When the caller is non-interactive, the handoff flow SHALL skip the attach attempt and return or report tmux session coordinates for manual follow-up instead of surfacing raw tmux `not a terminal` output as a launch failure.
@@ -135,6 +140,11 @@ Houmao-created tmux sessions SHALL apply a Houmao-owned configuration overlay by
 The overlay SHALL enable mouse mode for the launched session and SHALL configure rich color support for the launched tmux surface.
 
 The overlay SHALL only set the tmux options and session environment values Houmao explicitly owns for this behavior, and SHALL leave unrelated user tmux configuration values unchanged.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The overlay SHALL be disabled when `HOUMAO_ENABLE_TMUX_CONFIG_INJECTION=0` is present in the launching environment.
 

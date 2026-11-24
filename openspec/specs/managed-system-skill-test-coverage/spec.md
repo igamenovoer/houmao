@@ -1,10 +1,15 @@
 # managed-system-skill-test-coverage Specification
 
 ## Purpose
-TBD - created by archiving change deduplicate-system-skill-unit-tests. Update Purpose after archive.
+Assign distinct system-skill contracts to content, policy, filesystem, CLI, and managed-runtime tests. Exercise pack lifecycle and deployment through representative CLI and runtime integration cases.
 ## Requirements
 ### Requirement: Layered managed system-skill coverage
 Managed system-skill tests SHALL assign distinct contracts to v4 manifest and schema parsing, pure pack and policy resolution, static source content validation, filesystem staging, receipt ownership transactions, CLI rendering, and runtime integration.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Pure tests SHALL own exact public inventory, pack membership, shared-owner deduplication, child actor eligibility, dependency closure, policy modes, and selector rejection. Filesystem tests SHALL own byte-identical copy, direct symlink targets, atomic commit and rollback, receipt persistence, mode changes, v3 drift classification, conflict preservation, and last-owner removal.
 
@@ -38,6 +43,11 @@ Pure tests SHALL own exact public inventory, pack membership, shared-owner dedup
 
 ### Requirement: Runtime integration coverage remains representative
 Brain-builder, launch, rebuild, relaunch, and join tests SHALL prove that managed defaults install the complete four-member static agent pack in copy mode and do not install admin public skills by default.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Representative integration coverage SHALL include policy override or disable behavior, reused-home synchronization, tool-native top-level siblings, shared child completeness, generated prompt route availability, auto-skill separation, collision rejection, and secret-free provenance without duplicating the low-level transaction matrix.
 
@@ -94,6 +104,11 @@ Shared validation such as unknown packs, obsolete composition selectors, untrack
 
 ### Requirement: Refactor preserves verification confidence
 The refactor SHALL add content and behavior tests for all six standalone skills, sixteen shared children, both actor route indexes, direct shared and loop posture, welcome mutation boundaries, Imsight format rules, source-derived semantic preservation, exact Skills CLI discovery, static pack lifecycle, supported tool roots, generated prompt sibling checks, documentation examples, and safe v3 migration.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Focused tests for changed modules and content SHALL pass, followed by `pixi run lint`, `pixi run typecheck`, `pixi run test`, relevant runtime-focused suites, package build, and strict OpenSpec validation. Any removed composer test SHALL map to retained static staging, identity, or receipt coverage.
 

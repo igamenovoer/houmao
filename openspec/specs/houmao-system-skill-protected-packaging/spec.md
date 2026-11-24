@@ -1,12 +1,17 @@
 # houmao-system-skill-protected-packaging Specification
 
 ## Purpose
-TBD - created by archiving change refactor-system-skills-by-actor. Update Purpose after archive.
+Define how audience-specific system-skill packs declare and compose public entrypoints with protected routines. Recursive validation and receipt-owned transactions govern pack installation, upgrade, and removal.
 ## Requirements
 ### Requirement: System-skill manifest separates packs, public skills, and protected routines
 Houmao SHALL package one schema-validated system-skill manifest that declares audience packs, public skills, protected mounts, and protected routine capabilities as distinct record types.
 
 The manifest SHALL assign stable ids to packs and protected routines, stable public names to public skills, source paths contained under the packaged system-skill root, public roles, eligible audiences, route member names, dependencies, and default installation lanes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Manifest loading SHALL validate the normalized payload against the packaged schema before resolving a pack or mutating a target home.
 
@@ -75,6 +80,11 @@ Validation SHALL reject a protected directory represented as a subskill when it 
 Install, upgrade, and uninstall SHALL treat every selected pack as a transaction and SHALL treat the two admin public skills as indivisible members of one pack.
 
 The installer SHALL stage and validate all selected public trees, preflight every destination, back up receipt-owned destinations, commit all selected public paths, and write one versioned receipt containing pack ids, public paths, protected logical ids, projection mode, content digests, and materialization paths.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If commit or receipt persistence fails, Houmao SHALL restore the prior public paths and receipt. Uninstall SHALL remove only paths and materializations owned by the receipt.
 

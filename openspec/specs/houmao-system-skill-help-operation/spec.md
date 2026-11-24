@@ -1,10 +1,15 @@
 # houmao-system-skill-help-operation Specification
 
 ## Purpose
-TBD - created by archiving change add-system-skill-help-operation. Update Purpose after archive.
+Let users inspect available system-skill operations and eligible routes through read-only help before operational checks. Cover both public invocation examples and help supplied by protected routers.
 ## Requirements
 ### Requirement: Public system skills handle help before operational routing
 Each current public Houmao system skill SHALL expose read-only help from its top-level `SKILL.md` and SHALL answer explicit help intent before identity verification, target collection, protected routing, command execution, or mutation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `houmao-admin-welcome` SHALL own first-use and route-comparison help. `houmao-admin-entrypoint` SHALL delegate empty and welcome-oriented help to that public sibling. `houmao-agent-entrypoint` SHALL provide concise help for its eligible managed-agent routes without claiming an agent welcome.
 
@@ -50,6 +55,11 @@ The validator SHALL check public command-map completeness, eligible-actor wordin
 
 ### Requirement: Current system skills expose a read-only help operation
 Every current standalone Houmao system skill declared in the v4 manifest SHALL expose a `help` meta operation from its `SKILL.md`. Every parent-scoped child owned by `houmao-shared-routines` SHALL expose equivalent help from its `SKILL-MAIN.md` or from an explicitly declared parent help route that preserves the child's scope.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Help SHALL be read-only and SHALL be handled before normal operation routing, child loading, missing-input collection, command execution, filesystem mutation, mailbox mutation, gateway mutation, or managed-agent lifecycle mutation.
 

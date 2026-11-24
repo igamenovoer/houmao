@@ -6,6 +6,11 @@ Define the real email-backed `stalwart` mailbox transport contract, including pr
 ### Requirement: Stalwart-backed mailbox transport provisions mailbox principals through server-owned management surfaces
 The online Stalwart backend SHALL support attachment of an existing account with mailbox-level credentials. This path SHALL NOT call management APIs, create a domain/account, require a management URL or administrative credential, or rotate an externally supplied password.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When an operator explicitly selects account provisioning, the separate provisioning workflow SHALL create or confirm its domain, individual account, access credential reference, and idempotent re-entry through management surfaces. Provisioning SHALL not be an implicit side effect of normal attachment, reconnect, resume, or gateway adapter construction.
 
 Persisted bindings SHALL contain only selected protected credential references; actual credentials SHALL remain private and outside manifest/discovery payloads. Private runtime materialization SHALL be scoped to its owner and binding revision. Stalwart SHALL not require filesystem registration or force/stash/deactivate/purge workflows.
@@ -37,6 +42,11 @@ For the `stalwart` transport, the system SHALL treat the Stalwart server as the 
 - reply ancestry and transport-level threading metadata used by shared mailbox `reply` behavior,
 - transport-level delivery integrity.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `stalwart` transport SHALL NOT require Houmao to materialize a filesystem mailbox root with `rules/`, mailbox projection symlinks, mailbox lock files, or mailbox-local SQLite state in order to maintain mailbox correctness.
 
 #### Scenario: Stalwart-backed mailbox operation does not require filesystem mailbox artifacts
@@ -52,6 +62,11 @@ At minimum, the `stalwart` transport SHALL support:
 - discovering mailbox messages for `mail list`,
 - composing and delivering a new message for `mail send`,
 - replying to an existing message for `mail reply`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 SMTP submission and IMAP access MAY be supported for compatibility or debugging, but they SHALL NOT be the normative mailbox automation contract for Houmao mailbox operations in this change.
 
@@ -77,6 +92,11 @@ For the `stalwart` transport, the system SHALL support the shared mailbox lifecy
 - manual mark for supported lifecycle state,
 - move among supported mailbox boxes,
 - archive selected messages.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The transport SHALL map shared read state to server-backed seen state, answered state to server-backed answered state or equivalent durable metadata, and archive/move behavior to server-backed mailbox membership.
 

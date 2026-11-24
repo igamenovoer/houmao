@@ -6,6 +6,11 @@ The filesystem mailbox transport SHALL persist mailbox artifacts under a mailbox
 
 When no explicit mailbox content root is configured, the filesystem mailbox transport SHALL default that content root to the Houmao mailbox root `<platformdirs user config>/mailbox` rather than deriving it from the runtime root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When no explicit mailbox content root is configured and `HOUMAO_GLOBAL_MAILBOX_DIR` is set to an absolute directory path, the effective Houmao mailbox root SHALL be derived from that env-var override before runtime persists or resolves filesystem mailbox state for the session.
 
 The filesystem mailbox transport SHALL require a symlink-capable local filesystem for address-based mailbox registration and mailbox projection writes.
@@ -27,6 +32,11 @@ That bootstrap path SHALL create or validate at minimum:
 - the locks area
 - the staging area
 - any in-root address-based mailbox directories and mailbox-registration entries being initialized
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The runtime MAY also publish compatibility or diagnostic helper assets under `rules/scripts/`, but ordinary mailbox operation SHALL NOT depend on those assets being the public execution contract.
 
@@ -62,6 +72,11 @@ That guidance MAY cover:
 - mailbox-local etiquette,
 - other workflow hints specific to that mailbox.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The filesystem mailbox public contract SHALL NOT require `rules/` to carry the canonical execution protocol for ordinary list, peek, read, send, post, reply, mark, move, or archive operations.
 
 The transport MAY publish compatibility or diagnostic assets under `rules/scripts/`, but it SHALL NOT require a stable public `rules/scripts/` filename set for ordinary agent or operator mailbox work.
@@ -80,6 +95,11 @@ The transport MAY publish compatibility or diagnostic assets under `rules/script
 The filesystem mailbox transport SHALL allow each full-address entry under `mailboxes/` to be either a concrete mailbox directory inside the mail-group root or a symlink to that address's private mailbox directory outside the root.
 
 A symlink-registered private mailbox directory SHALL expose the same mailbox substructure expected from an in-root mailbox directory.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `archive/` directory in that substructure SHALL be an active mailbox box. The `drafts/` directory MAY remain reserved until a later draft workflow defines it.
 
@@ -130,6 +150,11 @@ The filesystem mailbox transport SHALL NOT require a background process for deli
 The transport SHALL coordinate concurrent filesystem writers using deterministic `.lock` files and SHALL combine multi-file delivery changes with transactional SQLite index updates.
 
 Standardized filesystem write flows executed by Houmao-owned code SHALL acquire all affected address locks in ascending lexicographic full-address order before acquiring `locks/index.lock`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Ordinary agent-facing filesystem mailbox workflows SHALL reach those writes through gateway HTTP or `houmao-mgr agents mail ...` rather than through mailbox-owned scripts. When a manager fallback command returns `authoritative: false`, the caller SHALL verify outcome through manager-owned or transport-owned state instead of treating that submission result as the write itself.
 
@@ -183,6 +208,11 @@ The shared mailbox-root SQLite index SHALL record at minimum:
 - message-to-attachment associations
 - mailbox folder projections
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The shared mailbox-root SQLite index SHALL NOT be the authoritative store for per-mailbox read, starred, archived, deleted, or unread thread-summary state once mailbox-local SQLite is available.
 
 If the shared mailbox-root SQLite index retains thread-summary rows for structural query support, those rows SHALL be structural-only and SHALL NOT remain authoritative for per-mailbox `unread_count` once mailbox-local SQLite is available.
@@ -215,6 +245,11 @@ The filesystem mailbox transport SHALL treat canonical Markdown message files as
 
 Interrupted deliveries SHALL leave only staging artifacts that can be cleaned or quarantined without treating them as committed mail.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Recovery from canonical Markdown files SHALL rebuild supported current-format structural state. It SHALL NOT migrate unsupported old mutable mailbox-state schemas into current mailbox-local SQLite state.
 
 #### Scenario: Reindex rebuilds structural message catalog
@@ -242,6 +277,11 @@ That local mailbox-state database SHALL be stored at a stable path under the res
 - archived,
 - deleted,
 - mailbox-local unread thread summaries.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For an in-root mailbox directory, the local mailbox-state database SHALL live under `mailboxes/<address>/...`. For a symlink-registered mailbox, the local mailbox-state database SHALL live under the symlink-resolved mailbox directory rather than under the shared root entry path only.
 
@@ -281,6 +321,11 @@ That reserved registration SHALL use the Houmao-owned principal id `HOUMAO-opera
 
 When an otherwise valid filesystem mailbox root lacks that reserved registration later, operator-origin delivery flows MAY self-heal by recreating or confirming it before delivery.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generic filesystem mailbox lifecycle operations SHALL protect the reserved operator registration:
 
 - cleanup SHALL preserve it while it is active,
@@ -299,6 +344,11 @@ Generic filesystem mailbox lifecycle operations SHALL protect the reserved opera
 
 ### Requirement: Filesystem self-addressed delivery starts unread for the recipient mailbox
 When the filesystem mailbox transport delivers a message to one or more recipient mailboxes, initial mailbox-local unread or read state SHALL be determined by recipient membership for each mailbox rather than by sender role alone.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For one mailbox registration:
 
@@ -322,6 +372,11 @@ Structural mailbox projections MAY still include both `sent/` and `inbox/` entri
 ### Requirement: Filesystem mailbox state reconstruction preserves self-addressed unread defaults
 Whenever the filesystem mailbox transport reconstructs, repairs, or lazily initializes mailbox-local message state for an already projected message, it SHALL preserve the same self-addressed unread semantics as fresh delivery.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That rule SHALL apply at minimum to:
 
 - index or mailbox-local state repair from canonical message files,
@@ -340,6 +395,11 @@ The filesystem mailbox transport SHALL treat each account's `archive/` directory
 
 Archiving a message SHALL remove or deactivate that recipient's inbox projection for the message, SHALL materialize the recipient's archive projection, and SHALL update mailbox-local state so the message is no longer open inbox work.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The filesystem transport SHALL continue to preserve canonical message Markdown content as immutable delivered-message content during archive, move, read, answered, and manual mark operations.
 
 #### Scenario: Archive creates an archive projection without rewriting canonical content
@@ -352,6 +412,11 @@ The filesystem transport SHALL continue to preserve canonical message Markdown c
 The filesystem mailbox transport SHALL store recipient-local lifecycle state in mailbox-local durable state rather than in canonical message Markdown.
 
 That recipient-local lifecycle state SHALL include at minimum `read`, `answered`, `archived`, and the message's active mailbox box membership for the recipient.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Filesystem mailbox state updates for read, answered, move, and archive operations SHALL be serialized with the same address-lock and index-lock discipline used by existing filesystem mailbox mutations.
 
@@ -384,6 +449,11 @@ When an existing mailbox root uses an unsupported protocol version or obsolete p
 The filesystem mailbox transport SHALL support mailbox roots and affected-account operation sets larger than the SQLite attached-database capacity available in the running environment.
 
 Houmao-owned filesystem mailbox operations SHALL NOT enforce an account-count, recipient-count, fanout-count, initialization-count, or repair-count ceiling derived from SQLite `ATTACH DATABASE` limits.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When a filesystem mailbox operation needs to mutate or inspect mailbox-local SQLite state for multiple accounts, it SHALL access each affected account's mailbox-local state without requiring all affected mailbox-local databases to be attached to one SQLite connection at the same time.
 

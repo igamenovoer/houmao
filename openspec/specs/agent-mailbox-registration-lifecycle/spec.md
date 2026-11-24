@@ -5,6 +5,11 @@ Define the address-routed mailbox registration lifecycle, conflict handling, der
 ### Requirement: Filesystem mailbox delivery routes through active mailbox registrations keyed by full address
 Filesystem offline delivery SHALL resolve a full address through an active registration in the selected registry's mail store. Each registration SHALL bind the address, persisted owner `agent_id`, registration identity, mailbox kind, concrete path, and lifecycle status. At most one active owner SHALL exist per address within that authority.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Mutable state and projections SHALL belong to the concrete registration. Historical registrations SHALL remain distinct from later owners. Canonical recipient history SHALL preserve delivered address snapshots without depending on a live registration row. Delivery SHALL validate both sender and recipient membership before committing.
 
 #### Scenario: Delivery resolves recipient through active mailbox address
@@ -27,6 +32,11 @@ Mutable state and projections SHALL belong to the concrete registration. Histori
 When a filesystem mailbox registration request uses `mailbox_kind = symlink`, the filesystem mailbox transport SHALL treat the requested `mailbox_path` as the concrete mailbox directory for that full mailbox address and SHALL resolve that path before registration mutates shared mailbox state.
 
 The filesystem mailbox transport SHALL reject a symlink-backed registration request when the resolved concrete mailbox directory is inside the resolved shared mailbox root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The filesystem mailbox transport SHALL reject a symlink-backed registration request when the shared-root mailbox entry for the requested address already exists as:
 
@@ -128,6 +138,11 @@ In the current-format surface, the managed lifecycle helper set SHALL include:
 - `deregister_mailbox.py`
 
 If those helpers are Python-based, `rules/scripts/requirements.txt` SHALL declare the dependencies needed to run them.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each managed lifecycle helper SHALL follow the same structural contract as the existing mailbox-local managed helpers:
 

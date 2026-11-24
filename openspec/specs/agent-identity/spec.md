@@ -1,12 +1,17 @@
 # agent-identity Specification
 
 ## Purpose
-TBD - created by archiving change agent-identity-tmux-manifest-path. Update Purpose after archive.
+Define stable logical agent IDs and the session selectors that runtime commands accept. Specify how tmux-backed sessions publish manifest pointers for name-based resolution and optional gateway pointers for gateway-aware tools.
 ## Requirements
 ### Requirement: `--agent-identity` accepts either an agent name or a session manifest path
 The system SHALL accept `--agent-identity` values that address a session using either:
 - a session manifest JSON file path, or
 - an agent name (tmux-backed sessions only).
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The system SHALL deterministically treat an identity value as a file path when it is path-like (for example contains `/` or `\\` or ends with `.json`).
 If a path-like identity value does not resolve to an existing file, the system SHALL fail with an explicit "manifest not found" error and SHALL NOT interpret it as an agent name.
@@ -34,6 +39,11 @@ Normalization rules:
 - If the caller provides an identity that starts with exact `HOUMAO-`, the canonical agent name SHALL be exactly that value.
 - Otherwise, the canonical agent name SHALL be `HOUMAO-<identity>`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Canonical agent names SHALL remain distinct from live tmux session handles. The system SHALL NOT require the canonical agent name to equal the actual tmux session name.
 
 #### Scenario: Name without prefix is normalized
@@ -59,6 +69,11 @@ The system SHALL validate the user-provided agent name portion for tmux-backed m
 
 Allowed characters for the user-provided agent name portion are ASCII letters, ASCII digits, underscore (`_`), and hyphen (`-`). The user-provided agent name portion MUST start with an ASCII letter or digit.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Additionally, the user-provided agent name portion MUST NOT begin with a case-insensitive `HOUMAO` token immediately followed by a non-alphanumeric separator.
 
 This validation SHALL be applied before the runtime canonicalizes the managed-agent name into `HOUMAO-<name>` form.
@@ -79,6 +94,11 @@ For tmux-backed sessions, the system SHALL set tmux session environment variable
 `HOUMAO_MANIFEST_PATH` SHALL be the absolute path of the persisted session manifest JSON for that session.
 
 `HOUMAO_NATIVE_AGENT_ROOT` SHALL be the absolute path of the agent-definition root used for that session launch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When tmux-backed backend code later resumes control of the same live session with an effective agent-definition root available, it SHALL re-publish the same two pointers into the tmux session environment.
 
@@ -109,6 +129,13 @@ The persisted tmux session name SHALL be stored in a deterministic field that ca
 - **AND THEN** it does not persist `agent_name="AGENTSYS-gpu-270b87"`
 
 ### Requirement: Name-based agent identities resolve to a session manifest and agent-definition root via tmux environment
+For a non-path-like `--agent-identity` value, Houmao SHALL resolve a unique live tmux session and validate its session manifest. Resume and control SHALL use that manifest and the effective agent-definition root.
+
+#### Scenario: A non-path agent identity resolves through a unique live tmux session
+
+- **GIVEN** a caller provides a non-path-like `--agent-identity` value
+- **THEN** the resolver uses the matched tmux session's manifest pointer and validates the manifest against that session
+
 When a caller provides a non-path-like `--agent-identity` value, the system SHALL:
 1) normalize it to a canonical agent name,
 2) resolve a unique live tmux session associated with that canonical agent name,
@@ -227,6 +254,11 @@ When a caller resolves a non-path-like `--agent-identity` value to a live tmux-b
 
 Missing gateway pointers SHALL NOT make legacy non-gateway session resolution fail by themselves.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a caller uses a gateway-aware lifecycle or control path that requires attachability or a live gateway instance and the required gateway pointers are missing or invalid, the system SHALL fail with an explicit gateway-discovery error rather than silently bypassing gateway discovery.
 
 #### Scenario: Legacy session still resolves without gateway pointers
@@ -251,6 +283,11 @@ When the runtime derives a default tmux session name for a managed session, it S
 
 ### Requirement: Repository documentation SHALL reflect the implemented tmux naming contract
 Once this change is implemented, repository documentation under `docs/` that describes runtime agent identity, tmux attach targets, or tmux-oriented troubleshooting SHALL reflect the implemented tmux naming contract.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That documentation SHALL:
 

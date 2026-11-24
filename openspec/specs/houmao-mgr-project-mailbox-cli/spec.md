@@ -15,6 +15,11 @@ At minimum, `project mailbox` SHALL expose the same verbs supported by the gener
 - direct mailbox message listing and retrieval
 - repair, cleanup, delivered-message clearing, and export
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The help text SHALL present `project mailbox` as mailbox-root operations for the current repo-local project rather than as a managed-agent mailbox-binding surface.
 
 #### Scenario: Project mailbox help mirrors the generic mailbox command model
@@ -30,6 +35,11 @@ The command SHALL resolve the project mailbox root using the same selected-overl
 ```text
 <overlay-root>/mailbox
 ```
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The command SHALL preserve project mailbox account registrations and mailbox account directories while removing delivered message content and derived message state from the selected project mailbox root.
 
@@ -70,6 +80,11 @@ The command SHALL apply the export operation against:
 <overlay-root>/mailbox
 ```
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The command SHALL include selected overlay details in the structured result using the same project mailbox result wording as the rest of the `houmao-mgr project mailbox` family.
 
 #### Scenario: Project mailbox export writes an all-account archive
@@ -107,6 +122,11 @@ After resolving the active overlay root, `houmao-mgr project mailbox ...` SHALL 
 <overlay-root>/mailbox
 ```
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The operator SHALL NOT need to pass `--mailbox-root` for ordinary project-scoped mailbox work.
 
 If no project overlay is discovered under the selected overlay root, `project mailbox ...` SHALL fail explicitly rather than silently falling back to the shared global mailbox root.
@@ -143,6 +163,11 @@ If no project overlay is discovered under the selected overlay root, `project ma
 
 The native `houmao-mgr project mailbox messages list` and `houmao-mgr project mailbox messages get` commands SHALL expose structural inspection over the current project's mailbox root for one explicitly selected mailbox address.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Those commands MAY return canonical message metadata and address-scoped projection metadata for the selected address, including message identity, thread identity, projection folder, projection path, canonical path, sender metadata, recipient metadata, body content, headers, and attachments.
 
 Those commands SHALL NOT report participant-local mutable mailbox view-state fields such as `read`, `starred`, `archived`, or `deleted`, even though the command is scoped to one explicit address.
@@ -174,6 +199,11 @@ Maintained `houmao-mgr project mailbox ...` help text, failures, and operator-fa
 
 When `project mailbox init` or another stateful project-mailbox command bootstraps the selected overlay implicitly, the operator-facing result SHALL surface that bootstrap outcome explicitly.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a non-creating project-mailbox command cannot resolve an active overlay, the failure SHALL describe the selected overlay root for that invocation and that the command did not fall back to the generic shared mailbox root.
 
 #### Scenario: Help text describes the selected overlay mailbox root
@@ -194,6 +224,11 @@ The project-scoped mailbox CLI SHALL mirror the reserved operator mailbox-accoun
 `houmao-mgr project mailbox init` SHALL provision or confirm `HOUMAO-operator@houmao.localhost` under the selected overlay mailbox root.
 
 `houmao-mgr project mailbox accounts list|get` SHALL expose that reserved account as project-local mailbox registration state instead of hiding it.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Project-scoped destructive lifecycle commands SHALL protect that reserved account in the same way as the generic mailbox CLI.
 
@@ -221,6 +256,11 @@ This SHALL apply at minimum to project mailbox commands that inspect or mutate e
 - `cleanup`
 - `clear-messages`
 - `export`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the selected overlay mailbox root is missing its shared mailbox index or other required bootstrap state, the error text SHALL preserve selected-overlay mailbox wording and SHALL recommend `houmao-mgr project mailbox init` rather than the generic `houmao-mgr mailbox init` recovery path.
 
@@ -251,6 +291,11 @@ The command SHALL resolve the selected project overlay mailbox root using the sa
 ```text
 <overlay-root>/mailbox
 ```
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The command SHALL mirror the generic `houmao-mgr mailbox messages clear` behavior after resolving the selected project mailbox root. It SHALL preserve project mailbox registrations and other project mailbox accounts' message visibility while clearing only the selected address.
 

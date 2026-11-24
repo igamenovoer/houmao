@@ -9,6 +9,11 @@ The system SHALL persist one durable pairwise-v2 recovery record under the effec
 
 That recovery record SHALL remain outside the authored plan bundle and outside participant-local memo or page files.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The recovery record SHALL identify at minimum:
 
 - `run_id`,
@@ -35,6 +40,11 @@ The system SHALL resolve `recover_and_continue` by `run_id` against the durable 
 
 The system SHALL preserve the same user-visible `run_id` during `recover_and_continue` and SHALL fail closed rather than silently minting a replacement run when continuity under that `run_id` is unsafe.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When one or more stored participants are no longer backed by the original live runtime session, the system SHALL require rebinding through stable managed-agent identity or explicit operator-confirmed mapping before continuation can proceed.
 
 The recovered run SHALL enter `recovering` while participant rebinding, continuation-material refresh, or wakeup restoration is still in progress.
@@ -60,6 +70,11 @@ For each rebound participant whose managed memory is being used, `recover_and_co
 
 For each rebound participant whose managed memory is being used, `recover_and_continue` SHALL write or refresh one exact-sentinel memo reference block keyed by `run_id` and slot `recover-and-continue`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The continuation material SHALL state that the run is resumed after restart and SHALL require inspection of leftover mailbox state, memo or page state, workspace or branch state, notes or logs or tmp outputs, and incomplete downstream obligations before fresh work begins.
 
 For the designated master, `recover_and_continue` SHALL send a compact control-plane trigger that points at the durable continuation page and requires explicit `accepted` or `rejected`.
@@ -79,6 +94,11 @@ For the designated master, `recover_and_continue` SHALL send a compact control-p
 Before the designated master re-accepts continuation, `recover_and_continue` SHALL restore the stored declarative wakeup posture needed for that accepted run, including persisted mail-notifier enablement, polling interval, and stored notifier appendix text when those were part of the accepted run.
 
 `recover_and_continue` SHALL NOT blindly replay raw live gateway reminder identifiers as if they were durable recovery state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When prior live reminder timing cannot be durably recovered, the continuation material SHALL tell the designated master to re-arm the needed live reminder posture after continuation is accepted.
 

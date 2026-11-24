@@ -8,6 +8,11 @@ Define expected runtime behaviors for projecting normalized dialog from shadow-m
 ### Requirement: Dialog projection uses frozen value objects with shared fields and provider-specific extensions
 For shadow-mode sessions, dialog projection SHALL be represented by frozen value objects rather than ad hoc dictionaries or raw strings.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the shared base `DialogProjection` contract SHALL provide:
 
 - `raw_text`, which carries the original snapshot text before runtime normalization,
@@ -32,6 +37,11 @@ Provider implementations MAY refine projection metadata and evidence through pro
 
 ### Requirement: Shadow-mode sessions expose normalized dialog projection
 For CAO-backed sessions running in `parsing_mode=shadow_only`, the system SHALL expose a caller-facing dialog projection derived from provider TUI snapshots rather than raw tmux scrollback.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Dialog projection SHALL:
 
@@ -73,6 +83,11 @@ The system SHALL NOT represent projected dialog content as the authoritative fin
 
 Projected dialog MAY include historical dialog content, turn-local UI remnants, or other visible text that is not uniquely attributable to the most recent prompt submission.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Reliable downstream machine use SHALL depend on a separate caller-owned or protocol-owned extraction contract, such as schema-shaped prompting plus explicit pattern or sentinel extraction over available text surfaces, rather than on `dialog_projection.dialog_text` alone.
 
 #### Scenario: Projected dialog remains valid without answer association
@@ -86,6 +101,13 @@ Reliable downstream machine use SHALL depend on a separate caller-owned or proto
 - **AND THEN** it does not treat `dialog_projection.dialog_text` by itself as an exact-text guarantee
 
 ### Requirement: Shadow-mode text surfaces have explicit reliability tiers
+The system SHALL classify repo-owned shadow-mode text uses into three reliability tiers for lifecycle and runtime monitoring, operator diagnostics, and machine-critical consumers.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system SHALL classify repo-owned shadow-mode text uses into three reliability tiers:
 
 - lifecycle/runtime, where best-effort projected dialog is acceptable only for coarse change detection or readiness/completion monitoring,

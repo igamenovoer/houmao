@@ -1,7 +1,7 @@
 # system-files-reference-docs Specification
 
 ## Purpose
-TBD - created by archiving change add-system-files-reference-docs. Update Purpose after archive.
+Give operators and maintainers a central filesystem reference for Houmao root selection, ownership, and lifecycle artifacts. Cover filesystem preparation, references to Stalwart secrets, and the files that hold per-agent memory.
 ## Requirements
 ### Requirement: System-files reference documentation is organized under a dedicated subtree
 The repository SHALL publish a centralized system-files reference under `docs/reference/system-files/` with an `index.md` entrypoint instead of leaving the full Houmao filesystem story distributed only across subsystem pages.
@@ -9,6 +9,11 @@ The repository SHALL publish a centralized system-files reference under `docs/re
 That subtree SHALL be discoverable from the top-level reference navigation.
 
 The system-files reference SHALL organize detailed filesystem documentation into topic pages rather than one undifferentiated catch-all page.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The centralized subtree SHALL become the primary operator-facing filesystem inventory for broader runtime and launcher reference pages, which may keep brief local artifact context but SHALL point readers to `docs/reference/system-files/` for the canonical cross-subsystem filesystem map.
 
@@ -38,6 +43,11 @@ At minimum, the subtree SHALL include coverage for:
 ### Requirement: System-files reference documentation explains Houmao root resolution and ownership boundaries
 The centralized system-files reference SHALL explain how Houmao resolves its important filesystem roots and how ownership differs across those roots.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, that coverage SHALL explain:
 
 - the default roots for the Houmao runtime root and shared-registry root,
@@ -66,6 +76,11 @@ The system-files reference SHALL explicitly state that mailbox filesystem state 
 ### Requirement: System-files reference documentation inventories important lifecycle artifacts with concrete filesystem representations
 The centralized system-files reference SHALL document the important files and directories that Houmao creates or manages during build, launch, session, registry-publication, gateway-capability, and CAO-launcher lifecycles.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, that artifact inventory SHALL cover:
 
 - generated homes under the runtime root,
@@ -93,6 +108,11 @@ For each important artifact or path family, the docs SHALL explain its purpose, 
 ### Requirement: System-files reference documentation provides operator filesystem-preparation guidance
 The centralized system-files reference SHALL explain how operators can prepare filesystems for Houmao before running the system.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, that guidance SHALL cover:
 
 - which roots or parent directories may reasonably be pre-created,
@@ -115,6 +135,11 @@ That guidance SHALL be written as operator-facing preparation advice rather than
 
 ### Requirement: System-files reference documentation explains Stalwart mailbox secret lifecycle boundaries
 The system-files reference documentation SHALL explain how runtime-managed filesystem artifacts represent Stalwart-backed mailbox bindings without persisting inline secrets.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the system-files reference SHALL explain:
 
@@ -140,6 +165,11 @@ That explanation SHALL keep the broader mailbox semantics in the mailbox subtree
 System-files reference documentation SHALL describe the per-agent memory root, its free-form `houmao-memo.md` file, and its contained `pages/` directory.
 
 The documentation SHALL explain that `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` are the current managed memory environment variables.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The documentation SHALL explain that `houmao-memo.md` is edited by users or LLMs as ordinary Markdown, and that links to `pages/<path>` are authored references rather than managed metadata.
 

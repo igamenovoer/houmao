@@ -13,6 +13,11 @@ The workspace contract SHALL declare one mode:
 
 When the workspace contract uses `standard`, the plan SHALL identify the selected standard posture and any required values such as `task-name` for in-repo mode.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the workspace contract uses `custom`, the plan SHALL identify explicit operator-owned paths and rules for the run, including launch cwd, writable source paths, shared writable paths when applicable, bookkeeping paths, and ad hoc worktree posture.
 
 #### Scenario: Standard workspace contract is recorded in v3 plan
@@ -74,6 +79,11 @@ The guidance MAY point participants at declared workspace or bookkeeping paths, 
 The `initialize` guidance in `houmao-agent-loop-pairwise-v3` SHALL be the canonical prestart step that materializes run-owned guidance into the related agents' memo surfaces.
 
 When the pairwise-v3 plan provides launch-profile references for required participants, `initialize` SHALL inspect the launch profile's mailbox association before launching that participant.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the pairwise-v3 plan provides launch-profile references for required participants, `initialize` SHALL use those launch profiles to launch missing participants before email/mailbox verification and memo materialization continue.
 
@@ -168,6 +178,11 @@ That kickoff trigger SHALL target the designated master and SHALL instruct the m
 
 Pairwise-v3 ordinary `start` SHALL send that kickoff through the run's mail-capable communication posture by default.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Pairwise-v3 ordinary `start` SHALL use direct prompt delivery only when the user explicitly requests that transport.
 
 Pairwise-v3 ordinary `start` SHALL NOT require writing or refreshing a durable `start-charter` page.
@@ -210,6 +225,11 @@ The generated template bundle SHALL remain part of the authored plan output dire
 ### Requirement: Pairwise-v3 generated templates align with reporting and bookkeeping contracts
 When `houmao-agent-loop-pairwise-v3` generates reporting templates, those templates SHALL reflect the authored reporting contract for the relevant run surfaces, including the applicable fields for peek, completion, recovery, stop, or hard-kill summaries when those surfaces are part of the run.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When `houmao-agent-loop-pairwise-v3` generates bookkeeping templates, those templates SHALL be derived from the task objective, topology, participant responsibilities, and declared bookkeeping paths for that run.
 
 The guidance SHALL NOT impose one fixed bookkeeping subtree or one universal bookkeeping template set for all runs.
@@ -232,6 +252,11 @@ The packaged `houmao-agent-loop-pairwise-v3` skill SHALL keep its skill name, pa
 The skill SHALL describe its workspace-aware authored topology as a tree loop or local-close tree loop in user-facing explanatory text.
 
 The skill SHALL present `pairwise loop` as a legacy alias for tree loop behavior rather than as the primary concept name.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL not rename existing v3 runtime paths, recovery names, generated field names, or pairwise-named compatibility references as part of this terminology change.
 

@@ -1,7 +1,7 @@
 # managed-launch-prompt-header Specification
 
 ## Purpose
-TBD - created by archiving change add-managed-prompt-header. Update Purpose after archive.
+Include the Houmao-managed prompt header in the effective launch prompt by default, including in provider-facing compatibility output. Use per-launch overrides and stored profile policy to control the header and its sections.
 ## Requirements
 ### Requirement: Managed launches prepend a Houmao-owned prompt header by default
 Houmao-managed launch surfaces SHALL render the managed prompt header as a Houmao-owned section of the effective launch prompt by default.
@@ -9,6 +9,11 @@ Houmao-managed launch surfaces SHALL render the managed prompt header as a Houma
 That effective launch prompt SHALL be rooted at `<houmao_system_prompt>`.
 
 When managed-header policy resolves to enabled, the rendered prompt SHALL place the managed header in a `<managed_header>` section ahead of `<prompt_body>`.
+
+#### Scenario: Managed launch renders header sections according to prompt policy
+
+- **GIVEN** a managed launch builds its effective system prompt
+- **THEN** the resolved header policy determines section placement, order, and content
 
 That managed prompt header SHALL render deterministic named subsections in this order when the corresponding section policy resolves to enabled:
 
@@ -148,6 +153,11 @@ Prompt composition order SHALL be:
 4. structured prompt rendering into `<houmao_system_prompt>`,
 5. backend-specific prompt injection.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Within `<houmao_system_prompt>`, section order SHALL be:
 
 1. `<managed_header>` when enabled and at least one managed-header subsection is enabled,
@@ -218,6 +228,11 @@ The system default for each defined managed-header section SHALL be:
 - `automation-notice`: enabled
 - `task-reminder`: disabled
 - `mail-ack`: disabled
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Stored and one-shot section policy SHALL support the states:
 

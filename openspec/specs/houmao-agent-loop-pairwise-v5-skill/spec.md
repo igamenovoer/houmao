@@ -1,12 +1,17 @@
 # houmao-agent-loop-pairwise-v5-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-general-pairwise-v5-loop-skill. Update Purpose after archive.
+The retired pairwise-v5 skill turned editable intent into a staged execution plan with workspace preparation, readiness checks, and operator controls. Houmao continues that generated-plan workflow through `houmao-agent-loop-pro`.
 ## Requirements
 ### Requirement: V5 skill creation invokes skill-creator guidance
 When creating or substantially updating the packaged `houmao-agent-loop-pairwise-v5` skill assets, the implementation agent SHALL invoke `$skill-creator` before authoring the skill files.
 
 The implementation SHALL apply skill-creator guidance for skill anatomy, concise instructions, progressive disclosure, bundled resource placement, `agents/openai.yaml` metadata, and validation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If a generic skill initialization helper is unsuitable for the packaged system-skill asset location, the implementation SHALL still follow the skill-creator workflow principles and report why the helper was not used.
 
@@ -27,6 +32,11 @@ The skill SHALL treat `<loop-dir>` as the root for v5 loop source and generated 
 
 The skill SHALL NOT invent a default loop directory when the user has not provided one.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL keep v5-owned authoring and generated artifacts under the selected `<loop-dir>` unless the user explicitly asks for inspection of external references.
 
 #### Scenario: Missing loop directory blocks file creation
@@ -46,6 +56,11 @@ The packaged `houmao-agent-loop-pairwise-v5` skill SHALL include bundled scaffol
 
 The scaffold generator SHALL use the bundled template assets as the authoritative source for starter scaffold content instead of requiring routed pages to synthesize those file bodies independently.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The scaffold generator SHALL use Python stdlib only unless a later change explicitly approves an additional dependency.
 
 #### Scenario: Packaged skill includes generator resources
@@ -64,6 +79,11 @@ The scaffold-producing routes in `houmao-agent-loop-pairwise-v5` SHALL use the s
 The `init` and `create-intention` routes SHALL use a shared profile for `intention/` scaffold creation.
 
 The `execplan-fast-forward` route SHALL use a shared profile for non-interactive `execplan/` shell creation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `execplan-step-by-step` route SHALL use the same execplan shell scaffold surface, with an explicit option or profile that includes `execplan/adrs/`.
 
@@ -85,6 +105,11 @@ The v5 authoring workflow SHALL create or maintain `<loop-dir>/intention/` as th
 The intention source area SHALL be created through the packaged shared scaffold generator and bundled template assets rather than by repeated page-local starter-file prose.
 
 The intention source area SHALL include `<loop-dir>/intention/README.md` describing the purpose and conventions of the area.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The intention source area SHALL include `<loop-dir>/intention/loop-overview.md` as the human entrypoint for the loop intention.
 
@@ -112,6 +137,11 @@ The v5 authoring workflow SHALL generate `<loop-dir>/execplan/` as the generated
 The v5 scaffold-producing execplan routes SHALL create the initial `execplan/` shell through the packaged shared scaffold generator and bundled template assets.
 
 The generated execplan package SHALL include `manifest.toml` at its root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The generated execplan package SHALL use the top-level generated layout:
 
@@ -147,6 +177,11 @@ The top-level `houmao-agent-loop-pairwise-v5` skill SHALL act as an index and ro
 
 The packaged v5 skill SHALL include authoring subskills for creating intention material, refining intention material, generating execplans, validating execplans, and updating generated execplans.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged v5 skill SHALL include execution subskills for preparing agents, preparing workspaces or accepting equivalent manual workspace readiness evidence, validating loop readiness, launching agents, starting a loop, checking status, pausing, resuming, recovering, and stopping.
 
 Each subskill SHALL define its trigger, inputs, outputs, and boundaries.
@@ -165,6 +200,11 @@ Each subskill SHALL define its trigger, inputs, outputs, and boundaries.
 The v5 execution workflow SHALL operate from the generated `<loop-dir>/execplan/` package.
 
 When execution needs platform operations such as managed-agent launch, prompt delivery, mailbox work, gateway work, memory work, lifecycle control, or inspection, the v5 execution subskills SHALL route through maintained Houmao operation skills or CLI surfaces rather than duplicating those contracts locally.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When execution needs loop-local state or generated role behavior, the v5 execution subskills SHALL use the generated execplan contracts, generated skills, generated agent bindings, generated docs, or generated harness surfaces.
 
@@ -208,6 +248,11 @@ The packaged v5 skill SHALL NOT encode domain-specific objectives, toolchains, t
 
 Domain-specific objectives, participants, policies, tools, evidence gates, or generated role behavior SHALL come from the user-provided intention source and generated per-loop execplan material.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Existing loop-plan directories MAY be referenced as examples or fixtures, but they SHALL NOT define mandatory behavior for all v5 loops.
 
 #### Scenario: Intention defines domain behavior
@@ -224,6 +269,11 @@ Existing loop-plan directories MAY be referenced as examples or fixtures, but th
 The packaged skill SHALL treat a reusable generated execplan scaffold as the default target when generating `<loop-dir>/execplan/` from intention source.
 
 The default scaffold SHALL include generated artifact metadata and a manifest-indexed package with the existing top-level areas `specs/`, `skills/`, `agents/`, `harness/`, and `docs/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The default `specs/` area SHALL provide places for objective contracts, collaboration contracts, communication contracts, runtime state contracts, workspace contracts, and participant contracts when the loop needs those concerns.
 
@@ -244,6 +294,11 @@ The packaged skill SHALL guide generated execplans to separate participant role 
 
 Generated participant contracts SHALL define stable loop participant identities and responsibilities without requiring a fixed topology or fixed role names.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated agent bindings SHALL bind concrete Houmao agents to participant instances and identify prompt source, installed generated skills, maintained support skills, skill installation mode, memo seed policy, and workspace policy when those facts apply.
 
 #### Scenario: Participant identity is not the concrete process
@@ -261,6 +316,11 @@ When a generated loop needs durable runtime state, the packaged skill SHALL guid
 
 The default bookkeeping kernel SHALL cover plan metadata, process state, handoffs or exchanges, structured communication payload lifecycle, operator intent events, and generic events.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Task-specific records, evidence models, scoring models, and domain tables SHALL be generated only from intention source or clarification decisions.
 
 #### Scenario: Stateful loop gets generic bookkeeping
@@ -277,6 +337,11 @@ Task-specific records, evidence models, scoring models, and domain tables SHALL 
 The packaged skill SHALL guide generated execplans to include a plan-local harness when the loop needs validation, dynamic lookup, rendering, record application, or state queries.
 
 The generated harness SHALL be scoped to loop-local contracts such as objective rendering, policy explanation, communication payload schema inspection, payload validation, Markdown rendering, state query, invariant validation, completion checks, and controlled record application.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated harness command registries SHALL reference generated package artifacts by relative path when reading specs, schemas, renderers, agent bindings, or other files in the same loop-definition package.
 
@@ -302,6 +367,11 @@ Harness command output intended for agent use SHALL default to a structured enve
 The packaged v5 skill SHALL teach generated harnesses to use `click`, `jinja2`, and `jsonschema` as normal Python dependencies when generated harness features need modular command routing, Markdown template rendering, or JSON Schema validation.
 
 The Houmao project SHALL declare `jinja2` and `jsonschema` as runtime dependencies so the uv-installed Houmao environment provides them. The existing `click` runtime dependency SHALL continue to satisfy modular CLI command-routing support.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated harnesses SHALL import only the non-stdlib libraries required by the features they implement.
 
@@ -353,6 +423,11 @@ The packaged skill SHALL guide generated execplans to create generated role skil
 
 Generated on-event skills SHALL define their trigger, owning participant role, required context lookup, role-owned action, outgoing communication behavior, record effects, archive behavior when mail is involved, and stopping point.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated on-tick skills SHALL be used for scheduling, reconciliation, timeout, completion, or "what happens next" behavior that does not belong to one incoming event.
 
 Generated tick skills SHALL inspect current dynamic state, perform one bounded applicable action or report no action, and stop.
@@ -371,6 +446,11 @@ Generated tick skills SHALL inspect current dynamic state, perform one bounded a
 The packaged skill SHALL guide generated mail-driven loops to model Houmao agents as notifier-prompt-driven rather than as agents waiting inside a chat turn.
 
 The skill SHALL explain that Houmao email/notifier support runs separately from target agents, detects open mail, and sends the target agent a prompt that guides mail processing.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated mail-driven execplans SHALL allow loop-specific notification prompt instructions, including instructions to invoke the matching mail-received on-event skill and to call an on-tick skill after mail processing when the loop requires follow-up scheduling, reconciliation, timeout, or completion work.
 
@@ -398,6 +478,11 @@ When a generated loop needs agent workspaces, the packaged skill SHALL guide the
 
 The default workspace contract SHALL identify launch cwd, per-agent work roots, per-agent note or knowledge paths, writable temporary artifact paths, shared resources, and read/write rules when those facts apply.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a generated loop executes with durable artifacts, the packaged skill SHALL guide the runtime layout to preserve run-local payloads, rendered outputs, send or reply responses, record files, state files, logs, and evidence under a run directory such as `<loop-dir>/runs/<run-id>/` or an explicitly generated equivalent.
 
 #### Scenario: Workspace defaults become manager input
@@ -421,6 +506,11 @@ The packaged v5 skill SHALL expose these staged execplan generation subcommands:
 - `execplan-finalize`.
 
 The staged subcommands SHALL be authoring operations under the selected `<loop-dir>` and SHALL NOT perform Houmao platform launch, mailbox delivery, gateway, memory, lifecycle, or workspace creation side effects.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each staged subcommand SHALL state its inputs, outputs, prerequisites, downstream invalidation effects, and boundaries.
 
@@ -447,6 +537,11 @@ The staged execplan generation order SHALL be:
 The `execplan-specs-process` stage SHALL generate or update the canonical loop process model before other execplan stages.
 
 The canonical generated process model SHALL live at `<loop-dir>/execplan/specs/collab/collab-overview.md`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The packaged skill SHALL NOT guide generated v5 execplans to use `<loop-dir>/execplan/specs/process.md` as the primary process model.
 
@@ -498,6 +593,11 @@ Generated harnesses SHALL include an explicit command registry at `execplan/harn
 The `execplan-fast-forward` operation SHALL scaffold `execplan/` and orchestrate the staged execplan subcommands in dependency order without optional generation questions unless the user explicitly asks for one staged subcommand.
 
 The `execplan-fast-forward` scaffold step SHALL use the packaged shared scaffold generator and bundled execplan shell templates.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `execplan-step-by-step` operation SHALL scaffold `execplan/`, then orchestrate the same staged execplan subcommands in dependency order while asking at most one unresolved generation-decision question at a time.
 
@@ -551,6 +651,11 @@ Generated artifact directory README files SHALL use this minimal section shape:
 
 The `Purpose` section SHALL explain why the directory exists.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `Contents` section SHALL list the generated files or child directories in that directory and briefly state what each one is.
 
 Generated README files SHALL NOT duplicate contract details from specs, schemas, command registries, skill bodies, agent bindings, or manifests.
@@ -590,6 +695,11 @@ Generated sqlite-backed state SHALL include an explicit SQL schema artifact in t
 
 Generated harness code SHALL treat the SQL schema artifact as the authoritative state contract for sqlite-backed bookkeeping.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated execplans MAY use JSONL plus explicit schemas as an alternate bookkeeping representation when state records are append-only, intentionally denormalized, schema-light, or too small to justify sqlite.
 
 Generated execplans SHALL NOT use unstructured ad hoc state files for loop bookkeeping when either sqlite or JSONL plus schema is feasible.
@@ -612,6 +722,11 @@ The packaged v5 skill SHALL teach skill-invoked agents that generated bookkeepin
 Generated bookkeeping state SHALL store compact facts and references needed for scheduling, ownership, validation, recovery, transition audit, and completion checks.
 
 Generated bookkeeping state SHALL NOT duplicate full mail bodies, rendered Markdown, rich request/reply prose, long rationale, pseudocode, detailed analysis, or documentation content.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated bookkeeping state SHALL reference mail, artifacts, docs, commits, evidence files, or external results by durable IDs or paths when those sources hold the detailed content.
 
@@ -640,6 +755,11 @@ The packaged v5 skill SHALL guide generated execplans with runtime bookkeeping t
 Generated `execplan/specs/state/` packages SHALL include a concise `README.md` and a `state-overview.md`.
 
 Generated `state-overview.md` files SHALL describe state authority, state boundaries, minimal entity families, allowed transitions, invariants, scheduling queries, and content that state must not store.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Sqlite-backed generated state SHALL include `schema.sql` under `execplan/specs/state/`.
 
@@ -682,6 +802,11 @@ Generated harness guidance SHALL tell participant agents to avoid raw SQL or ad 
 
 Generated harnesses for stateful loops SHALL provide commands or command groups for state initialization, state validation, read-only state query, record validation, and record application.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated harness state initialization SHALL create runtime state from generated state contracts and seed data.
 
 Generated harness state validation SHALL check schema availability, referential integrity, allowed states, transition invariants, active ownership invariants, mail/artifact references, and policy-derived gates when those concepts exist in the loop.
@@ -710,6 +835,11 @@ The packaged v5 skill SHALL guide generated TOML contract files to include expli
 Generated TOML descriptions SHALL be concise human-readable explanations of what the record, section, or non-obvious field means.
 
 Generated TOML descriptions SHALL be normal TOML data fields, not structured comments.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated TOML files SHALL include plain human-readable comments above each generated section header or table-array header.
 
@@ -748,6 +878,11 @@ Generated validation guidance SHALL NOT require `description` fields for private
 
 ### Requirement: V5 top-level skill entrypoint uses progressive-disclosure reference pages
 The packaged `houmao-agent-loop-pairwise-v5` skill SHALL keep its top-level `SKILL.md` focused on activation, required loop root, source/generated-output invariants, supported operations, routing, and global constraints.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The top-level `SKILL.md` SHALL NOT carry the full detailed generated-contract defaults, bookkeeping model, TOML conventions, mail runtime model, scaffold profile details, generation-stage dependency model, or maintained-platform boundary guidance when that guidance can live in routed runtime reference pages.
 
@@ -792,6 +927,11 @@ The `clarify-execplan` operation SHALL focus on generated execplan implementatio
 
 The top-level skill routing SHALL distinguish these two operations and route each one to its own authoring page.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The top-level skill MAY treat the natural phrase `clarify intent` as an unambiguous alias for `clarify-intent`, but canonical operation listings and routed pages SHALL use `clarify-intent`.
 
 #### Scenario: Intent clarification routes to intent page
@@ -812,6 +952,11 @@ Clarification operation pages SHALL read the shared clarification protocol befor
 Clarification operation pages SHALL read `runtime-mail-model.md` before clarifying any mail-driven loop behavior.
 
 The shared clarification protocol SHALL require the invoking agent to read relevant source artifacts before asking questions.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The shared clarification protocol SHALL require an internal coverage scan before asking questions.
 
@@ -849,6 +994,11 @@ The shared clarification protocol SHALL require a final coverage summary with cl
 ### Requirement: V5 intent clarification scans loop intent coverage before questioning
 The `clarify-intent` operation SHALL read current intention source, project context when present, and existing intent ADRs when present before asking questions.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `clarify-intent` operation SHALL scan intent coverage categories for at least:
 
 - objective, non-goals, and completion signals;
@@ -885,6 +1035,11 @@ The `clarify-intent` operation SHALL NOT directly edit generated `execplan/` art
 The `clarify-execplan` operation SHALL require an existing generated `<loop-dir>/execplan/` package.
 
 The `clarify-execplan` operation SHALL read relevant generated execplan artifacts before asking questions, including process specs, derived contracts, harness surfaces, generated skills, agent bindings, manifest, docs, and prior execplan ADRs when present.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `clarify-execplan` operation SHALL scan generated implementation coverage categories for at least:
 
@@ -925,6 +1080,11 @@ The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `prepare-workspa
 
 The `prepare-workspace` stage SHALL be separate from `prepare-agents`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL document the normal ordered execution sequence as `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence when required, `validate-loop`, `launch-agents`, then `start`.
 
 The `prepare-agents` stage SHALL run before `prepare-workspace` when managed workspace setup needs concrete agent or launch-profile names.
@@ -956,6 +1116,11 @@ The `prepare-workspace` stage SHALL NOT call, route to, or perform `prepare-agen
 ### Requirement: V5 generated workspace contracts provide workspace-manager inputs
 When a generated loop needs managed agent workspaces, the packaged skill SHALL guide execplan generation to emit workspace contracts that provide enough structured information for `houmao-utils-workspace-mgr` planning and execution.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated workspace contracts SHALL identify the workspace flavor, task name, workspace root or repo root policy, concrete agent workspace names, launch profile names, launch cwd policy, required per-agent work roots, required per-agent note or knowledge paths, shared resources, loop-requested bookkeeping directories, ignored transient paths, and memo-seed posture when those facts apply.
 
 Generated agent bindings SHALL keep concrete participant-to-agent/profile mapping under the agent binding area and SHALL reference the applicable workspace policy instead of replacing the workspace contract.
@@ -974,6 +1139,11 @@ Generated agent bindings SHALL keep concrete participant-to-agent/profile mappin
 The `prepare-workspace` execution subskill SHALL route supported Houmao workspace planning and execution through `houmao-utils-workspace-mgr`.
 
 The `prepare-workspace` execution subskill SHALL adapt generated workspace contracts, generated agent bindings, and prepared concrete agent/profile facts into workspace-manager inputs.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `prepare-workspace` execution subskill SHALL default to workspace-manager `plan` mode unless the user explicitly requests execution or has approved a current workspace plan.
 
@@ -996,6 +1166,11 @@ The `prepare-workspace` execution subskill SHALL NOT implement ad hoc worktree, 
 
 ### Requirement: V5 prepare-workspace verifies workspace postconditions
 After workspace planning or execution, the `prepare-workspace` execution subskill SHALL report workspace readiness facts and blockers relative to the generated execplan and prepared concrete agent/profile facts.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For executed standard workspace layouts, the subskill SHALL verify expected workspace contract docs, per-agent worktree paths, per-agent knowledge paths, shared knowledge paths, loop-requested bookkeeping directories, ignored transient paths, launch cwd posture, memo-seed files, and uniqueness of mutable per-agent workspace targets when those facts apply.
 
@@ -1020,6 +1195,11 @@ Equivalent manual workspace evidence SHALL distinguish the same ready, missing, 
 
 ### Requirement: V5 validation checks workspace stage separation
 The `validate-execplan` guidance SHALL check that generated workspace contracts route supported workspace setup through `houmao-utils-workspace-mgr` or an explicit operator-owned custom workspace contract.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `validate-execplan` guidance SHALL check that generated lifecycle docs or generated operator guidance represent `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence when required, `validate-loop`, `launch-agents`, and `start` as separate ordered stages.
 
@@ -1059,6 +1239,11 @@ The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `validate-loop` 
 
 `validate-loop` SHALL be distinct from `validate-execplan`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `validate-loop` SHALL check concrete runtime preparation state, including prepared agent/profile identities, generated and maintained skill binding posture, prepared workspace facts, launch cwd and memo posture, mailbox/gateway/notifier readiness for mail-driven loops, harness availability, run artifact readiness, state initialization readiness, and no in-chat waiting posture when those facts apply.
 
 `validate-loop` SHALL report blockers and warnings without mutating agent profiles, workspaces, mailboxes, gateways, harness state, or run artifacts as its normal behavior.
@@ -1084,6 +1269,11 @@ The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `validate-loop` 
 The packaged `houmao-agent-loop-pairwise-v5` skill SHALL expose `launch-agents` as an execution subcommand for launching prepared loop participants before loop start.
 
 The normal execution sequence SHALL be `prepare-agents`, workspace readiness through `prepare-workspace` or equivalent manual evidence when required, `validate-loop`, `launch-agents`, then `start`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `launch-agents` subcommand SHALL read generated agent bindings, prepared agent/profile facts, workspace readiness facts or accepted manual equivalents, launch cwd posture, memo posture, notifier prompt posture, and generated run contracts when those facts apply.
 
@@ -1115,6 +1305,11 @@ The `start` subcommand SHALL require a current `launch-agents` report or equival
 
 The `start` subcommand SHALL perform only a final lightweight liveness and start-trigger readiness check before initializing start-time runtime state and delivering the first generated trigger.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `start` subcommand SHALL NOT launch agents, create or repair profiles, install skills, prepare workspaces, or perform full readiness validation as its normal behavior.
 
 #### Scenario: Start sends first trigger after launch
@@ -1133,6 +1328,11 @@ The packaged v5 skill SHALL guide generated execplans with lifecycle control nee
 The generated operator control skill SHALL live directly under `<loop-dir>/execplan/skills/<loop-slug>-operator-control/`.
 
 The generated operator control skill SHALL identify the concrete loop slug, loop directory, manifest path, harness path, agent binding path, and supported run lifecycle operations for that generated loop.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The generated operator control skill SHALL provide loop-local guidance for lifecycle operations such as status, start, pause, resume, stop, recover, mode switching, and manual stepping when those operations apply.
 
@@ -1159,6 +1359,11 @@ The generated operator control skill SHALL route platform mechanics through main
 The packaged v5 skill SHALL guide generated execplans with lifecycle control needs to define loop-local control state that distinguishes run lifecycle state from execution mode.
 
 Generated control state SHALL model run lifecycle state with values such as `not_started`, `running`, `paused`, `recovering`, `stopped`, and `completed`, or an explicitly documented equivalent state set.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated control state SHALL model execution mode with at least `auto` and `manual`, unless the generated execplan explicitly records that one of those modes is not applicable.
 
@@ -1199,6 +1404,11 @@ Generated harness control commands SHALL support read-only status and execution-
 
 Generated harness control commands SHALL support controlled mode changes when the generated loop supports `auto` and `manual` mode.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated harness control commands SHALL expose participant-specific manual context when manual operation is supported.
 
 Generated participant context output SHALL include enough structured information for generated skills to decide one bounded pass, including run identity, run state, execution mode, participant identity, relevant pending mail refs or active handoff refs, allowed actions, and whether the participant must stop after one pass.
@@ -1227,6 +1437,11 @@ Generated on-tick skills SHALL branch between `auto` mode and `manual` mode beha
 
 In `auto` mode, generated on-tick skills SHALL perform the bounded post-mail, scheduling, reconciliation, timeout, completion, or "what now" work defined by notifier-prompt-driven loop semantics.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 In `manual` mode, generated on-tick skills SHALL perform one operator-prompted bounded pass that may include checking relevant mail, processing one relevant mail or bounded mail batch, querying current state, acting from current context when no mail is pending, applying generated records through the harness, sending downstream mail, replying upstream mail, or reporting no actionable work.
 
 Generated on-tick skills SHALL finish the chat turn after their bounded pass in both modes.
@@ -1252,6 +1467,11 @@ Generated on-tick skills SHALL NOT sleep, poll, tail logs, wait in-chat for mail
 The packaged v5 skill SHALL guide generated agent bindings for mail-driven controllable loops to document auto-mode notifier behavior and manual-mode operator-prompted behavior.
 
 Generated notifier prompt material SHALL describe auto-mode behavior: the notifier wakes the agent for mail processing, the agent uses generated on-event skills for matching message families, and the agent runs any required follow-up tick before ending the turn.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated operator control material SHALL describe manual-mode behavior: notifier wakeups are suspended or disabled for the generated loop, and the operator prompts one bounded participant step at a time.
 
@@ -1281,6 +1501,11 @@ The skill SHALL describe tree-loop behavior as the canonical local-close tree or
 
 The skill SHALL present `pairwise loop` as a legacy alias only where useful for compatibility with the package name or older user language.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill body SHALL not introduce extra "v5" branding outside the skill name or package identity.
 
 #### Scenario: V5 remains explicitly invokable
@@ -1297,6 +1522,11 @@ The skill body SHALL not introduce extra "v5" branding outside the skill name or
 The packaged `houmao-agent-loop-pairwise-v5` skill SHALL use required/optional input labels when asking users for Houmao loop system-operation values.
 
 Those labeled questions SHALL apply to loop directory selection, project context roots, generated artifact locations, workspace preparation targets, agent-definition preparation inputs, validation targets, launch targets, operator-control targets, mail-notifier posture, lifecycle mode, and other Houmao runtime mechanics.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL NOT mention version lineage outside the skill name while implementing this guidance.
 

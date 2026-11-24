@@ -1,7 +1,7 @@
 # ag-ui-copilotkit-graphics Specification
 
 ## Purpose
-TBD - created by archiving change add-ag-ui-run-streaming-graphics. Update Purpose after archive.
+Give CopilotKit clients a discoverable format for rendering Houmao graphics. Validate explicit graphics artifacts before streaming them in a complete AG-UI tool call.
 ## Requirements
 ### Requirement: Graphics artifacts are explicit and validated
 
@@ -10,6 +10,11 @@ Houmao SHALL define a typed AG-UI graphics artifact payload for CopilotKit rende
 The graphics payload SHALL include `title`, `description`, `format`, `content`, `contentUrl`, `altText`, and `metadata` fields, with nullable fields allowed only where the schema permits them.
 
 The supported initial formats SHALL be `svg`, `html_fragment`, `image_url`, `image_data_uri`, and `chart_json`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The graphics validator SHALL reject unsupported formats and unsafe inline content before emitting AG-UI tool-call events.
 
@@ -45,6 +50,11 @@ The tool-call sequence SHALL include `TOOL_CALL_START`, one or more `TOOL_CALL_A
 The tool-call sequence SHALL include `TOOL_CALL_RESULT` with a compact normalized artifact summary when a result message is configured or available.
 
 The `TOOL_CALL_START` event SHALL include `parentMessageId` for an assistant message.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When no assistant message is currently open, the mapper SHALL create an assistant text message context before emitting the graphics tool call.
 

@@ -1,7 +1,7 @@
 # houmao-system-skill-semantic-preservation Specification
 
 ## Purpose
-TBD - created by archiving change replace-runtime-skill-composition-with-static-collection. Update Purpose after archive.
+Preserve the operations, defaults, and guardrails of prior system skills as their instructions move into a static collection. Use the recorded Git baseline and executable checks to verify behavior and activation.
 ## Requirements
 ### Requirement: Pre-compaction Git tree is the semantic baseline
 The implementation SHALL use Git commit `8f377c468bc7f87ff40dbf40c0a68327616112bd` as the authoritative pre-compaction source for the twenty original current system skills.
@@ -16,6 +16,11 @@ Before rewriting a target, the implementation SHALL inventory the source entrypo
 ### Requirement: Structural migration preserves operational meaning
 The migration SHALL preserve each original skill's domain behavior. Permitted changes are limited to static ownership paths, standalone versus parent-scoped entrypoint roles, actor-frame intake, actor eligibility, sibling-qualified routing, and Imsight structural normalization.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Any additional intentional semantic change SHALL be recorded explicitly with its source evidence, target behavior, and rationale. Formatting alone SHALL NOT broaden triggers, rename public operations or aliases, change output paths, remove gates, weaken blockers, alter side effects, or remove stop conditions.
 
 #### Scenario: Formatting moves an action page to commands
@@ -26,6 +31,11 @@ Any additional intentional semantic change SHALL be recorded explicitly with its
 ### Requirement: Original sources map to the fixed target owners
 The sixteen ordinary source skills SHALL map to the sixteen children of `houmao-shared-routines`. `houmao-agent-loop-pro` and `houmao-agent-loop-lite` SHALL map to top-level standalone skills. `houmao-touring` SHALL map to `houmao-admin-welcome`. `houmao-specialist-mgr` SHALL map to an admin/shared compatibility alias that delegates to agent-definition.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The specialist alias SHALL preserve the original wrapper's read-only explanation and no-independent-command ownership. It SHALL NOT become a separate top-level root or an independent shared child.
 
 #### Scenario: Old specialist route is requested
@@ -35,6 +45,11 @@ The specialist alias SHALL preserve the original wrapper's read-only explanation
 
 ### Requirement: Every runtime instruction page follows current Imsight format
 Every standalone `SKILL.md`, parent-scoped `SKILL-MAIN.md`, and executable subcommand page SHALL contain a concise numbered `## Workflow` near the top. The workflow SHALL reference detailed sections for complex logic and SHALL end with the native-planning fallback for tasks that do not map cleanly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each skill SHALL use the collection-of-routines or complex-procedure subcommand flavor that matches its behavior. Pro and lite loops SHALL use the complex-procedure flavor; peer routine routers SHALL use the collection flavor.
 

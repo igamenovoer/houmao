@@ -7,6 +7,11 @@ Defines how the passive server discovers running agents by scanning the shared r
 ### Requirement: Passive server discovers agents by scanning the shared registry with tmux liveness verification
 The passive server SHALL maintain a `RegistryDiscoveryService` that periodically scans the shared managed-agent registry under the configured `PassiveServerConfig.registry_root`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 On each scan cycle, the discovery service SHALL:
 1. Enumerate all `record.json` files under `{registry_root}/live_agents/*/`.
 2. Load and validate each record against the managed-agent registry record schema.
@@ -73,6 +78,11 @@ Registry publication and cleanup remain the responsibility of the launching auth
 ### Requirement: Passive server provides an agent listing endpoint
 The passive server SHALL expose `GET /houmao/agents` returning a JSON payload with a list of discovered agents.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Each agent entry SHALL include at minimum:
 - `agent_id` — the authoritative agent identity
 - `agent_name` — the canonical agent name
@@ -105,6 +115,11 @@ The list SHALL be sorted by `agent_name` (ascending).
 
 ### Requirement: Passive server provides a single-agent resolution endpoint
 The passive server SHALL expose `GET /houmao/agents/{agent_ref}` that resolves one agent by `agent_id` or `agent_name`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `{agent_ref}` path parameter SHALL be interpreted as follows:
 1. First, attempt direct lookup by `agent_id` in the discovery index.
@@ -161,6 +176,11 @@ The discovery service SHALL log a warning when the tmux server is unreachable ra
 ### Requirement: Passive server resolves agent-address AG-UI attachment state
 The passive server SHALL expose a read-only agent-address resolution surface for GUI clients that target an agent by `agent_id` or friendly `agent_name`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The resolution surface SHALL return a deterministic state for each request:
 
 - `unknown` when no known agent matches the reference;
@@ -195,6 +215,11 @@ The resolution surface SHALL NOT start, stop, launch, restart, interrupt, shut d
 If the passive server exposes browser-friendly AG-UI proxy routes by resolved agent address, those routes SHALL accept an `agent_ref`, resolve the current gateway, and forward AG-UI requests to that gateway.
 
 When such proxy routes are present, they SHALL resolve the gateway on each new connection or request rather than caching a stale gateway URL as the durable target.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When no current gateway is available, proxy routes SHALL return a deterministic offline or gateway-unavailable response and SHALL NOT wait forever inside a request unless the route explicitly documents streaming wait semantics.
 

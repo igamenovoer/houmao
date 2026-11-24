@@ -1,7 +1,7 @@
 # houmao-dev-behavior-testing-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-dev-behavior-testing. Update Purpose after archive.
+Developers use the behavior-testing skill to qualify system-skill activation, routing, actor boundaries, and effects against a committed case catalog. Isolated runs preserve evidence and report repeated outcomes by verdict dimension.
 ## Requirements
 
 ### Requirement: Behavior qualification is a manual development skill
@@ -23,6 +23,11 @@ The skill SHALL use a concise router with a numbered `## Workflow`, a freeform p
 
 It SHALL expose procedural subcommands `plan-run`, `execute-case`, `adjudicate-case`, and `report-run`; helper subcommands `snapshot-context` and `collect-evidence`; and misc subcommands `list-cases`, `run-case`, `run-suite`, and `help`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Detailed command pages SHALL contain their own numbered workflow. Case families SHALL remain reference resources owned by the top-level skill and SHALL NOT be represented as parent-scoped subskills.
 
 #### Scenario: Agent selects one full case workflow
@@ -36,6 +41,11 @@ Detailed command pages SHALL contain their own numbered workflow. Case families 
 
 ### Requirement: The case catalog is committed and reviewable
 The skill SHALL include a committed `references/case-catalog.md` and family pages for activation and native prompt delivery, admin routing, managed-agent routing, shared routines, loops, and generated prompts.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Every catalog case SHALL declare a stable id, revision, applicable providers, context type, required pack, native system-prompt posture when applicable, activation mode, exact stimulus, expected root and route, required observables, forbidden observables, permitted effects, evidence requirements, repetitions, timeout, and cleanup.
 
@@ -53,6 +63,11 @@ The skill MUST NOT generate or rewrite its case oracle dynamically from the curr
 
 ### Requirement: The initial catalog covers critical system-skill behavior
 The activation and native-prompt family SHALL cover narrow implicit welcome activation, unrelated-task non-activation, explicit-only root non-activation, explicit root selection, native managed role-prompt delivery before the first turn, rejection of every `${identifier}` placeholder, stale projection removal, and role-prompt persistence across supported rebuild and relaunch flows.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The admin family SHALL cover help, empty invocation delegation, ordinary shared routing, target ambiguity, agent-only route rejection, welcome handoff, actor-spoof rejection, and joined-session adoption.
 
@@ -75,6 +90,11 @@ The generated-prompt family SHALL cover notifier mail rounds, ordinary mailbox p
 
 ### Requirement: Every run uses isolated and frozen context
 Each run SHALL use a fresh root below `tmp/houmao-dev-behavior-testing/<run-id>/` and SHALL freeze a run manifest before the first stimulus.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The context snapshot SHALL record Git revision and dirty posture, Houmao release, skill installation method, pinned `houmao-skills` source and tag when applicable, public skill version and digests, selected pack or explicit sibling set, native provider system-prompt method and digests when applicable, provider executable and version, model when observable, context type, fixture identifiers, generated prompt digest when applicable, and allowed mutation roots. It MUST NOT record credential values or hidden reasoning.
 
@@ -100,6 +120,11 @@ Raw admin cases SHALL use an isolated skill projection and SHALL delegate provid
 ### Requirement: Evidence remains observable and immutable
 Each attempt SHALL preserve the exact stimulus, context snapshot, provider-native skill events when available, transcript or terminal evidence, observed commands, bounded filesystem and runtime before-and-after evidence, final response, and adjudication record.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Provider-native skill events SHALL be the strongest activation evidence. Commands, file access, state changes, and visible response semantics MAY support routing and behavior verdicts but MUST NOT be described as hidden chain-of-thought. Raw evidence SHALL remain unchanged after adjudication.
 
 #### Scenario: Provider exposes native skill selection
@@ -113,6 +138,11 @@ Provider-native skill events SHALL be the strongest activation evidence. Command
 
 ### Requirement: Verdicts are dimensional and repeated
 Each attempt SHALL record `pass`, `fail`, `incomplete`, or `unobservable` independently for activation, routing, actor, gates, effects, and outcome. A forbidden actor transition, skipped required identity check, forbidden mutation, or forbidden implicit loop activation SHALL fail the corresponding dimension regardless of final answer quality.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Unless a case declares a stronger policy, each `(case, provider)` qualification SHALL use three fresh-session attempts. Aggregate status SHALL be one of `stable-pass`, `flaky`, `stable-fail`, `inconclusive`, or `behavior-pass-activation-unobserved`.
 

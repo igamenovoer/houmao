@@ -1,10 +1,15 @@
 # houmao-system-skill-entrypoint-activation Specification
 
 ## Purpose
-TBD - created by archiving change enable-entrypoint-implicit-invocation. Update Purpose after archive.
+Define which Houmao skill a host selects for explicit handles and actor-scoped implicit requests. Classify intent after selection and before loading routines or resolving operational targets.
 ## Requirements
 ### Requirement: Explicit skill handles take precedence over implicit discovery
 When a prompt contains an explicit installed `$houmao-*` skill handle, the host SHALL select that named skill rather than substituting an actor entrypoint through implicit discovery.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Without an explicit skill handle, a request SHALL be Houmao-related when its subject or requested outcome requires Houmao domain knowledge, explanation, state, routing, or action. Houmao-related requests SHALL include informational questions, command or route learning, incomplete tasks, and executable operations. An incidental occurrence of the word `Houmao` in otherwise unrelated material MUST NOT by itself satisfy this trigger.
 
@@ -21,6 +26,11 @@ Without an explicit skill handle, a request SHALL be Houmao-related when its sub
 The packaged `houmao-admin-entrypoint` and `houmao-agent-entrypoint` skills SHALL declare narrow implicit activation in the system-skill manifest and SHALL expose synchronized host metadata that permits implicit invocation.
 
 Within that activation posture, each entrypoint SHALL match any Houmao-related request in its actor context rather than only fully specified or executable operations. Missing targets or inputs SHALL remain post-trigger gates.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The admin entrypoint SHALL apply when the assistant acts for a human operator. The agent entrypoint SHALL apply only in a genuine Houmao-managed agent context. Both entrypoints SHALL remain directly invokable by their exact handles.
 
@@ -48,6 +58,11 @@ After invocation, each actor entrypoint SHALL classify the request as informatio
 
 Informational requests SHALL be answered locally and read-only. They SHALL NOT perform target discovery or load shared routines or a loop sibling. Agent informational requests SHALL NOT run managed-self identity verification.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For operational requests, the admin entrypoint SHALL establish its immutable admin frame before substantive routing. The agent entrypoint SHALL run exactly `houmao-mgr --print-json agents self identity`, validate fresh context-matching evidence, and fail closed before selecting or delegating a substantive route when verification fails.
 
 After the actor gate, the entrypoint SHALL select exactly one eligible route, resolve required inputs and targets, delegate with the immutable handoff frame when needed, honor the supported admin join transition, and report the outcome.
@@ -73,6 +88,11 @@ After the actor gate, the entrypoint SHALL select exactly one eligible route, re
 
 ### Requirement: Admin welcome is strictly manual
 `houmao-admin-welcome` SHALL declare explicit activation in the system-skill manifest and SHALL expose synchronized host metadata with implicit invocation disabled.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Only an explicit `$houmao-admin-welcome ...` prompt SHALL select welcome. Natural first-contact, route-comparison, command-learning, reorientation, or guided-tour requests SHALL select the admin entrypoint, which SHALL return concise local read-only guidance and MAY recommend the exact manual welcome command but MUST NOT invoke welcome.
 
@@ -103,6 +123,11 @@ Empty admin-entrypoint invocation and retained welcome-style compatibility comma
 
 An implicitly selected actor entrypoint MAY delegate ordinary work to shared routines and MAY delegate loop work when the user explicitly distinguishes pro or lite. Such downstream routing SHALL NOT change the delegated skill's explicit initial-root policy.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generic loop wording SHALL NOT select pro or lite automatically.
 
 #### Scenario: Natural ordinary task delegates through an entrypoint
@@ -126,6 +151,11 @@ Generic loop wording SHALL NOT select pro or lite automatically.
 Explicit operator installation without a pack override SHALL continue to select the admin pack. Managed launch and managed join SHALL continue to select the agent pack by default.
 
 The admin pack SHALL contain admin welcome, admin entrypoint, shared routines, and both loop siblings. The agent pack SHALL contain agent entrypoint, shared routines, and both loop siblings, and SHALL NOT contain admin welcome or admin entrypoint.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Changing activation posture MUST NOT dynamically compose skill content, alter static copy or symlink projection, or inject the admin entrypoint into a managed-agent home.
 

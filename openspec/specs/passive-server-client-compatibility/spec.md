@@ -8,6 +8,11 @@ The system SHALL provide a pair-authority client factory that probes `GET /healt
 
 The factory SHALL return a passive-server-aware managed client for `houmao-passive-server` and SHALL reject raw CAO, standalone `houmao-server`, or unknown service identities with an explicit unsupported-pair error for maintained manager/API operations.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Retained old-server client classes MAY remain importable as internal compatibility helpers while maintained callers are migrated, but factory selection for current user-facing flows SHALL NOT treat standalone `houmao-server` as a supported authority.
 
 #### Scenario: Passive server health selects the passive client
@@ -33,6 +38,11 @@ Retained old-server client classes MAY remain importable as internal compatibili
 
 These routes SHALL return `HoumaoManagedAgentStateResponse`, `HoumaoManagedAgentDetailResponse`, and `HoumaoManagedAgentHistoryResponse` payloads from `houmao.server.models`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For TUI-backed agents, the compatibility routes SHALL project the passive server's observation state into the managed-agent summary/detail/history models without removing or redefining the existing observation routes.
 
 For headless agents managed by the passive server instance, the compatibility routes SHALL project managed headless summary/detail/history from the live authority handle and persisted turn metadata so pair consumers can inspect current status without first knowing a turn id.
@@ -54,6 +64,11 @@ For headless agents managed by the passive server instance, the compatibility ro
 - **AND THEN** the server does not return a success-shaped compatibility payload
 ### Requirement: Passive-server-aware managed clients normalize passive routes into pair-managed operations
 The passive-server-aware managed client SHALL expose the pair-managed operations consumed by `houmao-mgr` and gateway-managed headless adapters.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that client SHALL provide:
 
@@ -78,6 +93,11 @@ Where the passive server returns passive-specific payloads, the client SHALL nor
 - **AND THEN** the caller does not need to inspect passive-server-specific response types directly
 ### Requirement: Managed-api-base-url consumers support passive server managed authorities
 Any runtime component that uses `managed_api_base_url` metadata to create a managed client SHALL resolve that client through the pair-authority client factory and SHALL support `houmao-passive-server` as the maintained managed authority.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Runtime components SHALL NOT require standalone `houmao-server` support for new or current `managed_api_base_url` metadata. Legacy metadata that points at `houmao-server` MAY fail with explicit retirement guidance rather than silently falling back to old server clients.
 

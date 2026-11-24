@@ -1,7 +1,7 @@
 # houmao-agent-instance-runtime-variables Specification
 
 ## Purpose
-TBD - created by archiving change add-managed-agent-instance-state. Update Purpose after archive.
+Define typed, non-secret behavior values for individual managed agents. Make launch use one revision, let static skills read live values through verified self, and require an explicit instance and prior revision for operator updates.
 ## Requirements
 ### Requirement: Definitions declare typed runtime variables
 The Agent Definition instance contract SHALL declare each runtime variable's stable key, scalar type or maintained enum, required posture, optional default, validation bounds, and consumers.

@@ -1,12 +1,17 @@
 # ag-ui-workbench-agent-picker Specification
 
 ## Purpose
-TBD - created by archiving change add-ag-ui-workbench-agent-picker. Update Purpose after archive.
+Let workbench users discover managed agents through the passive server, resolve them to AG-UI targets, and open, retarget, or watch them. Preserve manual targeting and persist only safe target metadata.
 ## Requirements
 ### Requirement: Workbench configures passive-server discovery
 The AG-UI workbench SHALL allow a tester to configure a Houmao passive-server base URL for discovered-agent lookup without requiring changes to individual AG-UI pane URLs.
 
 The workbench SHALL fetch `GET /houmao/agents` from that configured passive server and display the returned discovered-agent summaries.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The displayed summary for each agent SHALL include, when present in the response, agent ID, agent name, generation ID, tool, backend, tmux session name, gateway availability, mailbox availability, published timestamp, and lease expiry timestamp.
 
@@ -47,6 +52,11 @@ When opened from a pane, the picker SHALL default to retargeting that pane. When
 ### Requirement: Picker resolves selected agents to direct AG-UI targets
 For a selected discovered or resolved agent, the workbench SHALL create target metadata whose durable address is the authoritative `agent_id` when available, or an unambiguous `agent_name` before canonical id resolution is known.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the passive server reports current gateway host and port, the workbench MAY cache a latest observed AG-UI target URL in the form `http://{gateway_host}:{gateway_port}/v1/ag-ui`, with wildcard gateway hosts normalized to a browser-reachable host derived from the passive-server URL.
 
 The cached gateway URL SHALL be treated as volatile. A discovered-agent pane SHALL resolve the agent address again before reconnecting after gateway failure, browser reload, or explicit reconnect.
@@ -75,6 +85,11 @@ When the selected agent is unknown, ambiguous, rejected by proxy policy, or cann
 When an existing pane is retargeted to a selected discovered agent, the workbench SHALL abort that pane's active browser stream, perform AG-UI detach when a connection ID is known, clear the pane's capabilities, run status, transcript, raw event timeline, state snapshot, activity records, tool-call records, and errors, and then apply the new target metadata.
 
 Retargeting SHALL keep the Dockview panel ID, group, and split position unchanged.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Retargeting SHALL NOT send Houmao lifecycle stop, restart, shutdown, interrupt, launch, registry cleanup, or prompt-control requests.
 
@@ -114,6 +129,11 @@ The workbench SHALL keep the manual label, AG-UI URL, and thread ID fields avail
 
 Manual AG-UI URL entry SHALL work without configuring passive-server discovery. Editing a discovered target's AG-UI URL manually SHALL switch that target to manual source metadata while preserving the typed URL and thread ID.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Manual non-loopback AG-UI or passive-server URLs SHALL use the existing workbench proxy allowlist behavior and SHALL surface deterministic policy errors when rejected.
 
 #### Scenario: Tester uses explicit gateway address without discovery
@@ -129,6 +149,11 @@ Manual non-loopback AG-UI or passive-server URLs SHALL use the existing workbenc
 
 ### Requirement: Workbench persists only safe discovery and target metadata
 The workbench SHALL persist the configured passive-server base URL and pane target metadata needed to restore labels, URLs, thread IDs, and selected discovered-agent identity.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workbench SHALL NOT persist discovered-agent list responses, gateway-status response bodies, prompt text, streamed transcript content, raw AG-UI events, state snapshots, activity records, tool-call payloads, mailbox content, memory content, raw terminal content, credentials, cookies, bearer tokens, or authorization headers by default.
 
@@ -190,6 +215,11 @@ The tests SHALL run with the existing Bun-global Playwright workflow documented 
 For discovered-agent targets, the workbench SHALL persist the passive-server base URL, durable agent address, canonical `agent_id` when known, canonical `agent_name` when known, thread id, target label, and safe display metadata.
 
 The workbench SHALL NOT rely on a persisted gateway URL as the durable target for discovered-agent panes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Persisted discovered-agent metadata SHALL NOT include gateway status bodies, streamed AG-UI events, transcript content, component payloads, mailbox content, memory content, raw terminal content, credentials, cookies, bearer tokens, or authorization headers.
 
@@ -256,6 +286,11 @@ The workbench SHALL persist watched target metadata needed to restore background
 
 Persisted watched metadata SHALL include passive-server base URL when needed, durable agent address, canonical `agent_id` when known, canonical `agent_name` when known, thread id, target label, and safe display metadata.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Persisted watched metadata SHALL NOT include gateway status bodies, discovered-agent list responses, streamed AG-UI events, transcript content, component payloads, mailbox content, memory content, raw terminal content, credentials, cookies, bearer tokens, or authorization headers.
 
 #### Scenario: Browser reload restores watched target
@@ -276,6 +311,11 @@ The workbench agent picker SHALL request the current discovered-agent list from 
 The picker SHALL show loading and error states for the open-triggered refresh using the same visible discovery state as manual refresh.
 
 The picker SHALL ignore stale auto-refresh responses after the picker closes, the passive-server base URL changes, or a newer discovery request supersedes the earlier one.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Manual refresh SHALL remain available after automatic refresh is added.
 
@@ -317,6 +357,11 @@ When the picker is opened from an existing pane for retargeting, the New action 
 When a tester selects a discovered agent from the agent picker to create a new agent pane, the workbench SHALL automatically connect the created pane to the selected target.
 
 When a tester selects a discovered agent from the agent picker to retarget an existing agent pane, the workbench SHALL automatically connect the retargeted pane to the selected target after clearing obsolete pane state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Auto-connect SHALL reuse the same watched-target registration and active-thread mutation semantics as the pane's explicit Connect action.
 

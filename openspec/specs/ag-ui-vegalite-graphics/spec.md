@@ -1,7 +1,7 @@
 # ag-ui-vegalite-graphics Specification
 
 ## Purpose
-TBD - created by archiving change add-ag-ui-vegalite-graphics. Update Purpose after archive.
+Let agents send raw Vega-Lite specifications through a dedicated Layer 2 AG-UI component. Define payload size limits, inline data support, and safe browser rendering in the workbench.
 ## Requirements
 ### Requirement: Houmao defines Layer 2 Vega-Lite graphics
 Houmao SHALL define a Layer 2 AG-UI implementation named `houmao.graphic.vegalite`.
@@ -9,6 +9,11 @@ Houmao SHALL define a Layer 2 AG-UI implementation named `houmao.graphic.vegalit
 The payload SHALL contain `schemaVersion`, `library`, `specVersion`, `title`, optional `description`, a raw Vega-Lite JSON object under `spec`, and optional display metadata.
 
 The payload SHALL require `schemaVersion` equal to `1`, `library` equal to `vega-lite`, and `specVersion` equal to the supported Vega-Lite major version.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The implementation SHALL be separate from Layer 1 `houmao.graphic.template`; Layer 1 SHALL NOT use `renderer.preferred`, `renderer.fallback`, or `extra` fields to carry raw Vega-Lite specs.
 
@@ -67,6 +72,11 @@ The workbench SHALL render completed `houmao.graphic.vegalite` tool calls using 
 
 The renderer SHALL mount the Vega-Lite view in a bounded component frame, apply workbench display defaults, disable external data loading by default, and clean up the mounted Vega view when the component rerenders, unmounts, or the pane is cleared.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Malformed specs, compile errors, runtime errors, unsupported versions, and rejected remote data SHALL produce deterministic visible fallbacks without crashing the pane or removing unrelated content.
 
 #### Scenario: Valid Vega-Lite chart renders visibly
@@ -88,6 +98,11 @@ Malformed specs, compile errors, runtime errors, unsupported versions, and rejec
 The AG-UI capabilities response SHALL advertise Layer 2 Vega DSL support in Houmao custom AG-UI implementation metadata when the GUI target supports `houmao.graphic.vegalite`.
 
 The metadata SHALL identify `houmao.graphic.vegalite`, implementation category `freeform-graphics`, supported Vega-Lite major versions, `vega-embed` as the browser renderer, disabled remote data policy, inline data support, optional Altair authoring, and whether Python preflight compilation is enabled.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Layer 1 template graphics implementation metadata SHALL continue to report that raw Vega-Lite DSL specs are not part of `houmao.graphic.template`.
 

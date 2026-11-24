@@ -8,6 +8,11 @@ When the filesystem mailbox transport publishes compatibility Python helper scri
 
 When a published compatibility helper uses `pydantic` for request validation, that dependency manifest SHALL declare a `pydantic` requirement using a minimum-version specifier rather than an exact or upper-bounded pin.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The dependency manifest SHALL stay aligned with the imports used by the published compatibility helper set so maintainers can determine the exact Python dependencies required to invoke those helpers safely.
 
 Ordinary agent mailbox workflows SHALL NOT require the agent to inspect that dependency manifest before checking, sending, replying to, or marking mail read.
@@ -27,6 +32,11 @@ When Python managed mailbox helpers are published under `rules/scripts/`, those 
 
 At minimum, this requirement applies to published compatibility flows for delivery, mailbox-state mutation, repair, mailbox registration, and mailbox deregistration.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Those schemas SHALL validate constrained scalar fields such as mailbox addresses, canonical message ids, and UTC timestamps, and SHALL also validate nested structured payloads such as principals and attachments when those payloads are present.
 
 If validation fails, the helper SHALL emit one structured JSON error result and SHALL NOT partially mutate mailbox state, mailbox artifacts, or canonical message files.
@@ -43,6 +53,11 @@ If validation fails, the helper SHALL emit one structured JSON error result and 
 
 ### Requirement: Managed mailbox helper CLI surfaces remain stable while schema validation is simplified
 When runtime-managed compatibility helpers are published under `rules/scripts/`, each Python helper SHALL preserve the existing invocation pattern of `--mailbox-root` plus `--payload-file` and SHALL emit exactly one JSON object to stdout for both success and failure outcomes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Simplifying helper implementation with shared schema-backed parsing SHALL NOT require maintainers who still invoke those compatibility helpers to adopt a different script name, different flags, or an interactive prompt flow.
 
@@ -66,6 +81,11 @@ Delivery helpers SHALL:
 - update shared-root structural mailbox catalog data,
 - initialize sender mailbox-local state deterministically,
 - initialize recipient mailbox-local state deterministically.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Those mailbox-local writes SHALL use mailbox-scoped identities keyed by `message_id`, and any mailbox-local thread summary caches maintained by the helpers SHALL be keyed by `thread_id`.
 
@@ -95,6 +115,11 @@ When repair rebuilds mailbox-local summary caches, it SHALL derive unread thread
 The managed filesystem mailbox layer SHALL provide an account-scoped delivered-message clear operation for one active mailbox registration under a filesystem mailbox root.
 
 The operation SHALL validate the requested address before mutation and SHALL fail before mutation if no active registration exists for that address.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The operation SHALL plan account-scoped clear targets before applying mutations. The plan SHALL distinguish:
 

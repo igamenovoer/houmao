@@ -1,12 +1,17 @@
 # tui-parsing-docs Specification
 
 ## Purpose
-TBD - created by archiving change document-rx-shadow-monitor-docs. Update Purpose after archive.
+Document the CAO shadow-mode TUI monitor and how it derives readiness, turn completion, and stalls. Explain the distinct text projections, runtime-owned policy, and diagnostics operators can use to investigate parsing behavior.
 
 ## Requirements
 
 ### Requirement: TUI parsing docs describe the shipped runtime monitor architecture
 The repository SHALL publish TUI parsing documentation that describes the current CAO `shadow_only` runtime monitor architecture as implemented after `rx-shadow-turn-monitor`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the maintained explanation SHALL make clear that:
 
@@ -22,6 +27,11 @@ At minimum, the maintained explanation SHALL make clear that:
 
 ### Requirement: TUI parsing lifecycle docs explain current completion and stall semantics
 The TUI parsing docs SHALL explain the shipped readiness and completion semantics introduced by the Rx monitor rewrite.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the maintained explanation SHALL cover:
 
@@ -45,6 +55,11 @@ At minimum, the maintained explanation SHALL cover:
 ### Requirement: TUI parsing docs use the correct shadow text-surface boundaries
 The maintained TUI parsing docs SHALL preserve the current boundary between `DialogProjection.normalized_text` and `DialogProjection.dialog_text`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the docs SHALL state that:
 
 - `normalized_text` remains the closer-to-source normalized snapshot surface,
@@ -59,6 +74,11 @@ At minimum, the docs SHALL state that:
 
 ### Requirement: Shadow parsing reference docs expose the current shadow policy and diagnostics
 The reference and troubleshooting docs for CAO shadow parsing SHALL document the current runtime-owned shadow policy and the user-visible diagnostics surfaces that accompany it.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that coverage SHALL include:
 

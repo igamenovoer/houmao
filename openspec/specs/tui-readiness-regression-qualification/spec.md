@@ -1,7 +1,7 @@
 # TUI Readiness Regression Qualification Specification
 
 ## Purpose
-TBD - created by archiving change fix-codex-kimi-readiness-classification. Update Purpose after archive.
+Qualify Codex and Kimi readiness tracking against frozen recordings so sustained false-ready classifications can be detected. Require a visible turn lifecycle in prompt capture and distinguish directly reviewed labels from generated references in replay.
 
 ## Requirements
 
@@ -25,6 +25,11 @@ The readiness regression comparator SHALL map tracker output independently from 
 
 Diagnostic unavailability SHALL map to `indeterminate` before activity, draft, overlay, or ready classification. `busy_overlay` SHALL require explicit overlay evidence rather than being inferred from every unknown or non-accepting surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Legacy generated tracker-shaped labels MAY be used for trend comparison, but reports SHALL identify them as legacy references and SHALL NOT describe them as independent human ground truth without auditable review evidence.
 
 #### Scenario: TUI-down sample is indeterminate
@@ -42,6 +47,11 @@ Legacy generated tracker-shaped labels MAY be used for trend comparison, but rep
 
 ### Requirement: Recorded replay rejects sustained false-ready classification
 The implementation SHALL replay the frozen Codex and Kimi readiness recordings at canonical cadence and at derived 10 Hz, 5 Hz, and 2 Hz cadences.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The replay verdict SHALL reject any sustained interval in which the tracker reports ready while source-backed current busy evidence remains represented. Residual mismatches MAY remain at short sampled transition boundaries only when the report identifies their sample range and explains why they are cadence or label noise rather than sustained state inversion.
 

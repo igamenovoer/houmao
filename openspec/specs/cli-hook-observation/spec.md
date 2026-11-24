@@ -272,7 +272,14 @@ The Codex adapter SHALL define its subscribed event set per supported provider f
 
 ### Requirement: Managed Kimi launches inject a validated hook observer configuration
 
-For managed Kimi `local_interactive` launches with the channel enabled, the system SHALL merge a Houmao-owned observer block into the launch-owned runtime Kimi home's `config.toml` as `[[hooks]]` entries covering the full subscribed event set, with one entry per event, no matchers, and a bounded per-hook timeout. The merged file SHALL be validated by strict read-back (every hooks entry carries only the provider's allowed keys, a known event name, and a valid timeout) before the session is allowed to rely on the channel, because the provider silently voids the entire hooks section on any malformed entry. Installation SHALL require no operator action — the provider has no hook trust mechanism — and unsafe installation SHALL degrade the channel to `unavailable` without failing the launch. The observer block SHALL be idempotently rewritten per launch generation and removed on channel cleanup, leaving pre-existing `config.toml` content unmodified.
+For managed Kimi `local_interactive` launches with the channel enabled, the system SHALL merge a Houmao-owned observer block into the launch-owned runtime Kimi home's `config.toml` as `[[hooks]]` entries covering the full subscribed event set, with one entry per event, no matchers, and a bounded per-hook timeout.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+The merged file SHALL be validated by strict read-back (every hooks entry carries only the provider's allowed keys, a known event name, and a valid timeout) before the session is allowed to rely on the channel, because the provider silently voids the entire hooks section on any malformed entry. Installation SHALL require no operator action — the provider has no hook trust mechanism — and unsafe installation SHALL degrade the channel to `unavailable` without failing the launch. The observer block SHALL be idempotently rewritten per launch generation and removed on channel cleanup, leaving pre-existing `config.toml` content unmodified.
 
 #### Scenario: Fresh managed Kimi launch installs validated hooks without operator action
 
@@ -294,7 +301,14 @@ For managed Kimi `local_interactive` launches with the channel enabled, the syst
 
 ### Requirement: Kimi hook events normalize into the provider-neutral observation model
 
-The system SHALL normalize each raw Kimi hook event into the provider-neutral observation model. Prompt-submit payloads carry the prompt as a structured content-part array and SHALL be collapsed to text. Tool events SHALL be paired by the payload's tool-call identifier; because Kimi tool events carry no turn identifier, turn correlation for tool events SHALL follow stream ordering within the armed turn. The Kimi turn identifier is an integer, session-scoped counter that continues across resume relaunches of the same session. A queued-input event SHALL be recorded as queue evidence without arming a new turn. Subagent start/stop events and nested turn-started events SHALL open and close nested scopes rather than new top-level turns, since subagent and parent turn identifiers are not distinct. Unknown or never-dispatched event families SHALL be tolerated and counted in diagnostics.
+The system SHALL normalize each raw Kimi hook event into the provider-neutral observation model. Prompt-submit payloads carry the prompt as a structured content-part array and SHALL be collapsed to text. Tool events SHALL be paired by the payload's tool-call identifier; because Kimi tool events carry no turn identifier, turn correlation for tool events SHALL follow stream ordering within the armed turn.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+The Kimi turn identifier is an integer, session-scoped counter that continues across resume relaunches of the same session. A queued-input event SHALL be recorded as queue evidence without arming a new turn. Subagent start/stop events and nested turn-started events SHALL open and close nested scopes rather than new top-level turns, since subagent and parent turn identifiers are not distinct. Unknown or never-dispatched event families SHALL be tolerated and counted in diagnostics.
 
 #### Scenario: Prompt payload collapses from content parts to text
 
@@ -322,7 +336,14 @@ The system SHALL normalize each raw Kimi hook event into the provider-neutral ob
 
 ### Requirement: Kimi hook terminal events settle tracked turns per Kimi semantics
 
-For sessions observed through the Kimi adapter, a stop event SHALL latch turn success, and an interrupt event SHALL settle the interrupted outcome in place of a stop event. A provider stream ending without terminal events for an open turn, or a session-end event arriving with an open turn, SHALL leave the turn truthfully unknown and SHALL NOT record success. A clean headless run that ends without a session-end event after a latched stop SHALL be treated as terminal-settled with the missing session-end named as a diagnostic gap.
+For sessions observed through the Kimi adapter, a stop event SHALL latch turn success, and an interrupt event SHALL settle the interrupted outcome in place of a stop event. A provider stream ending without terminal events for an open turn, or a session-end event arriving with an open turn, SHALL leave the turn truthfully unknown and SHALL NOT record success.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+A clean headless run that ends without a session-end event after a latched stop SHALL be treated as terminal-settled with the missing session-end named as a diagnostic gap.
 
 #### Scenario: Esc interrupt settles interrupted from hook evidence
 
@@ -338,7 +359,14 @@ For sessions observed through the Kimi adapter, a stop event SHALL latch turn su
 
 ### Requirement: Kimi permission and compaction events shape turn posture
 
-For sessions observed through the Kimi adapter, a permission-request event SHALL mark the tracked turn blocked until the permission-result event settles it, for both approval and denial. After a denial, the provider emits a post-tool-failure event and the turn continues to a normal stop; denial SHALL NOT settle the turn as interrupted. Permission events fire only when the provider's permission policy resolves to asking the operator; sessions running under a never-ask policy produce no permission events, which SHALL be normal absence, not a channel fault. Compaction events SHALL delimit a maintenance window that preserves posture across the window, and the post-compaction turn SHALL start a new turn epoch; Kimi emits no compaction-sourced session-start event.
+For sessions observed through the Kimi adapter, a permission-request event SHALL mark the tracked turn blocked until the permission-result event settles it, for both approval and denial. After a denial, the provider emits a post-tool-failure event and the turn continues to a normal stop; denial SHALL NOT settle the turn as interrupted.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Permission events fire only when the provider's permission policy resolves to asking the operator; sessions running under a never-ask policy produce no permission events, which SHALL be normal absence, not a channel fault. Compaction events SHALL delimit a maintenance window that preserves posture across the window, and the post-compaction turn SHALL start a new turn epoch; Kimi emits no compaction-sourced session-start event.
 
 #### Scenario: Approval allow and deny both settle at the permission result
 
@@ -361,7 +389,14 @@ For sessions observed through the Kimi adapter, a permission-request event SHALL
 
 ### Requirement: The Kimi adapter tolerates unexercised event families
 
-The Kimi adapter subscribes the provider's full 20-event set and SHALL tolerate event families that a session never dispatches — including failure, background-task, notification, and cancellation-variant families that require conditions the session never produced — counting them in diagnostics as silent families rather than failing the channel. The adapter SHALL NOT rely on token-usage payloads or background-work mirrors for the tracked `work` axis, because Kimi stop events carry no background-task payload.
+The Kimi adapter subscribes the provider's full 20-event set and SHALL tolerate event families that a session never dispatches — including failure, background-task, notification, and cancellation-variant families that require conditions the session never produced — counting them in diagnostics as silent families rather than failing the channel.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+The adapter SHALL NOT rely on token-usage payloads or background-work mirrors for the tracked `work` axis, because Kimi stop events carry no background-task payload.
 
 #### Scenario: Silent families degrade to diagnostics, not failure
 

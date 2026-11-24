@@ -8,6 +8,11 @@ Define the documentation requirements for Houmao run-phase reference content.
 
 The run-phase reference SHALL include a page documenting `LaunchPlan` composition: how `build_launch_plan()` takes a `LaunchPlanRequest` (brain_manifest + role_package + backend + working_directory) and produces a `LaunchPlan` with backend-specific launch arguments. Content SHALL be derived from `launch_plan.py` docstrings.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The page SHALL state that the brain manifest carries launch-profile-derived inputs into runtime launch resolution when the launch originated from a reusable launch profile, including:
 
 - effective auth selection,
@@ -37,6 +42,11 @@ The page SHALL link to `docs/getting-started/launch-profiles.md` for the shared 
 ### Requirement: Session lifecycle documented
 
 The run-phase reference SHALL include a page documenting `RuntimeSessionController` and the session lifecycle using the current `start_runtime_session()` and `resume_runtime_session()` behavior derived from `runtime.py`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That page SHALL describe:
 
@@ -76,6 +86,11 @@ The session-lifecycle reference page SHALL include a subsection covering degrade
 
 The run-phase reference SHALL include a page documenting the `BackendKind` type and each backend implementation with the current public posture: `local_interactive` as primary, native headless backends as direct CLI alternatives, and `cao_rest` plus `houmao_server_rest` as legacy or compatibility paths. Content SHALL be derived from `models.py` and per-backend module docstrings.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The backend reference SHALL explicitly distinguish between implemented backend existence and recommended operator usage.
 
 When the launch policy reference mentions launch surfaces, it SHALL clarify the relationship between `LaunchSurface` (build-phase type that includes `raw_launch`) and `BackendKind` (run-phase type that uses `local_interactive`). The docs SHALL note that `raw_launch` in the build-phase surface maps to `local_interactive` at runtime.
@@ -105,6 +120,11 @@ When the launch policy reference mentions launch surfaces, it SHALL clarify the 
 ### Requirement: Role injection documented per backend
 The run-phase reference SHALL document how `plan_role_injection()` produces a `RoleInjectionPlan` with backend-specific strategies and SHALL explain why each backend uses its selected native surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The documented `RoleInjectionMethod` values SHALL match the code type and SHALL include the managed-home native system-prompt method used by Kimi 2.1.1 and later. The per-backend strategy table and Mermaid diagram SHALL map Kimi headless and local-interactive launches to native managed-home `SYSTEM.md` projection, and SHALL use `cao_profile` for the legacy `cao_rest` and `houmao_server_rest` backends.
 
 The reference SHALL state that the complete effective launch prompt, not the raw role source alone, is projected before Kimi starts. It SHALL explain built-in prompt preservation, rejection of every `${identifier}` placeholder in Houmao prompt text, v2-engine enforcement, precedence conflicts, and manifest provenance.
@@ -127,6 +147,11 @@ The reference SHALL state that the complete effective launch prompt, not the raw
 ### Requirement: Legacy backend documentation carries an unmaintained deprecation banner
 
 Any run-phase reference page that describes the `cao_rest` or `houmao_server_rest` backends SHALL open the relevant section with a prominent, bold-prefixed deprecation banner identifying the content as unmaintained and possibly incorrect.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, `docs/reference/realm_controller.md` SHALL include such a banner immediately before the descriptive content for `cao_rest` and immediately before the descriptive content for `houmao_server_rest`. The same banner SHALL appear on `docs/reference/codex-cao-approval-prompt-troubleshooting.md` after it is moved out of the retired agents subtree.
 
@@ -162,6 +187,11 @@ The run-phase reference SHALL document provider-native chat continuation during 
 
 The session-lifecycle reference SHALL explain that relaunch reuses the managed session home and tmux window `0`, while the optional relaunch chat-session selector controls whether the provider starts fresh or resumes provider-native history.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The backend reference SHALL include provider-native startup mappings for every maintained local-interactive and native headless relaunch path. For Kimi 2.1.1 and later, it SHALL show `--auto` combined with `--continue` or `--session <session_id>` for unattended TUI relaunch, preserve `--model <alias>`, and explain that the native `SYSTEM.md` contract is validated before respawn.
 
 The backend or launch reference SHALL document managed Kimi skill projection and `KIMI_CODE_NO_AUTO_UPDATE=1` accurately for each backend. Kimi role-injection guidance SHALL state that Houmao projects the complete role prompt natively before startup and SHALL contain no manual auto-skill or role-bootstrap instruction.
@@ -195,6 +225,11 @@ The launch-profile guide or linked run-phase documentation SHALL explain that la
 
 ### Requirement: Run-phase reference documents Kimi unattended TUI startup and relaunch
 The run-phase backend and lifecycle references SHALL document that maintained Kimi Code 2.1.1-or-later local-interactive sessions can run with `operator_prompt_mode = unattended` while remaining visible TUI sessions.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The reference SHALL explain that `--auto` supplies the Kimi TUI unattended default when permission mode is omitted. It SHALL document supported authored modes and applicable continuation limits. It SHALL describe native managed-home role projection before startup, support for `--auto` with `--continue` or `--session <session_id>`, and policy setup outside the conversation.
 

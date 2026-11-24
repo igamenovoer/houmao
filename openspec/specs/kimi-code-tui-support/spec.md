@@ -1,7 +1,7 @@
 # kimi-code-tui-support Specification
 
 ## Purpose
-TBD - created by archiving change add-kimi-tui-support. Update Purpose after archive.
+Define how Houmao starts, controls, relaunches, and observes managed interactive Kimi Code sessions. Cover native role and permission setup, session selection, prompt submission, interruption, and tracking that accounts for queued work and approval dialogs.
 ## Requirements
 
 ### Requirement: Kimi Code TUI launch does not project prompt-mode-only skills-dir arguments
@@ -23,6 +23,11 @@ Kimi headless prompt-mode behavior SHALL remain free to use its existing managed
 For live Kimi Code `local_interactive` sessions, semantic prompt submission SHALL insert the prompt through the existing submit-aware tmux paste path and send the final submit action separately.
 
 The semantic prompt path SHALL treat the whole prompt body as literal text and SHALL NOT interpret raw control-input key tokens inside the prompt body.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For Kimi Code TUI interruption, the runtime SHALL use Escape as the primary interrupt key for active streaming, selection, and approval-modal cancellation.
 
@@ -49,6 +54,11 @@ The Kimi TUI relaunch translation SHALL be:
 - `new`: no Kimi session-selection arguments
 - `tool_last_or_new`: `kimi --continue`
 - `exact`: `kimi --session <session_id>`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 An exact Kimi relaunch selector SHALL require a non-empty provider-native session id. The runtime SHALL NOT use bare `kimi --session` because that starts Kimi's interactive session picker.
 
@@ -86,6 +96,11 @@ The Kimi TUI support SHALL expose operator-facing state for prompt-ready surface
 
 The system SHALL treat the visible Kimi editor prompt as ready only when no current approval dialog, session picker, login/update prompt, or active response/tool surface blocks normal prompt submission.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system SHALL treat Kimi approval dialogs containing command approval choices as operator-blocked surfaces and SHALL include the relevant approval text in detailed parser evidence.
 
 The system SHALL NOT treat footer model metadata such as a model name followed by `thinking` as sufficient evidence that a turn is active.
@@ -114,6 +129,11 @@ The system SHALL NOT treat footer model metadata such as a model name followed b
 
 Maintained Kimi 2.1.1-or-later TUI startup SHALL apply the resolved native permission mode after role projection and before managed input. Houmao SHALL use `--auto` for the omitted unattended permission mode and a qualified native startup surface for a supported authored value. Launch SHALL establish policy and role outside the conversation.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Under the unattended default, normal startup and work SHALL proceed without approval, answer, or confirmation states. A deliberate approval-setting override SHALL retain its native behavior. If a provider-required intervention remains, Houmao SHALL preserve the evidence and report the intervention.
 
 #### Scenario: Fresh unattended Kimi starts without policy or role chat
@@ -138,6 +158,11 @@ Under the unattended default, normal startup and work SHALL proceed without appr
 
 ### Requirement: Kimi queued-message surfaces remain busy until retained work is released
 The maintained Kimi Code TUI tracker SHALL treat a current source-backed queue pane as evidence that a new independent turn cannot start immediately.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The current Kimi queue-pane evidence SHALL include the bounded hints `ctrl-s to steer immediately`, `will send after current task`, and `will send after compaction` when they occur in the current queue region. A current queue pane SHALL produce active evidence, SHALL set `surface.ready_posture=no`, and SHALL block ready-return success even when the empty editor remains visible and the spinner row falls outside the narrow activity window.
 

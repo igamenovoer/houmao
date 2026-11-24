@@ -1,7 +1,7 @@
 # loop-mail-communication-defaults Specification
 
 ## Purpose
-TBD - created by archiving change add-loop-mail-communication-defaults. Update Purpose after archive.
+Default loop participant handoffs to Houmao mail. Generated plans specify message families, validated payloads, rendering, and event handling, while maintained Houmao skills handle delivery and mailbox operations.
 ## Requirements
 ### Requirement: Loop skill defaults cross-agent communication to Houmao mail
 The packaged loop skill SHALL state that cross-agent participant communication defaults to Houmao mail unless the intention source explicitly requests a non-mail communication mechanism.
@@ -24,6 +24,11 @@ Generated execplans SHALL define loop-specific communication semantics when the 
 
 Those semantics SHALL include the applicable participant routes, message families, payload fields or schemas, render templates, reply expectations, and any state or record effects caused by receiving or sending mail.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated execplans SHALL place those semantics under generated communication, collaboration, state, skill, agent, or harness surfaces rather than inside maintained Houmao mail-platform skill prose.
 
 #### Scenario: Mail-driven execplan contains communication contracts
@@ -38,6 +43,11 @@ Generated execplans SHALL place those semantics under generated communication, c
 
 ### Requirement: Houmao platform skills own mail mechanics
 The packaged loop skill SHALL route mail transport, mailbox administration, ordinary mail operations, gateway-notified open-mail rounds, managed-agent message routing, and gateway lifecycle work through maintained Houmao skills.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL identify the maintained Houmao skill owners for these mechanics:
 - `houmao-mailbox-mgr` for mailbox setup, inspection, repair, cleanup, export, registration, and late mailbox binding;
@@ -62,6 +72,11 @@ Generated loop skills SHALL NOT implement custom mailbox storage, custom mailbox
 For ordinary generated mail families, the execplan SHALL use the structured payload, schema validation, Markdown rendering, and Houmao mail send or reply pattern unless the intention source explicitly chooses another representation.
 
 The default structured payload representation SHALL be TOML.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The generated rendered Markdown SHALL be the human-readable mail surface for agents, while the structured payload and schema SHALL remain available for validation, audit, and harness-controlled record application.
 
@@ -89,6 +104,11 @@ Mail-driven execplans SHALL include a generated communication registry that maps
 The default registry path SHALL be `<loop-dir>/execplan/specs/comms/templates.toml`.
 
 The default generated comms package SHALL include JSON Schema files under `specs/comms/schemas/` and Markdown renderer templates under `specs/comms/renderers/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The generated harness or generated docs SHALL make the registry discoverable by short template name and by full schema id when the loop exposes harness email commands.
 
@@ -153,6 +173,11 @@ The default lifecycle record SHALL include payload id, schema id, kind, exchange
 
 The generated harness MAY expose email commands for schema inspection, payload validation, Markdown rendering, lifecycle apply, and lifecycle query.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The generated harness SHALL NOT be treated as the owner of mailbox delivery. Sending, reading, replying, and archiving mail SHALL remain delegated to maintained Houmao mail support.
 
 #### Scenario: Payload lifecycle is recorded after validation
@@ -169,6 +194,11 @@ The generated harness SHALL NOT be treated as the owner of mailbox delivery. Sen
 Generated mail-driven loops SHALL include generic `freeform-notice` and `ack` mail families by default unless the intention source explicitly forbids them or defines equivalent families.
 
 The `freeform-notice` family SHALL cover participant-facing or operator-origin information that does not fit a task-specific request/reply template but still needs validated context, action, and reply expectation fields.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `ack` family SHALL cover acknowledgement of a handoff or mail without changing substantive loop state.
 
@@ -188,6 +218,11 @@ Generated mail-driven role skills SHALL use on-event handlers for concrete recei
 A generated mail-received skill SHALL define its trigger, owning participant role, required context lookup, payload validation needs, role-owned action, reply behavior, archive behavior, and stopping point.
 
 The trigger SHOULD identify the received generated schema id or message family when the loop uses templated participant mail.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated mail-received skills SHALL archive processed mail only after required work and required replies have succeeded.
 

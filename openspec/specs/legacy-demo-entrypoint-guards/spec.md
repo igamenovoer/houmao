@@ -10,6 +10,11 @@ Archived demo entry points that still depend on project-local runtime-owned mail
 
 The refusal SHALL happen before the demo launches agents, creates demo-owned run state, or performs mailbox side effects.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The failure message SHALL:
 
 - state that the demo is archived or legacy-only,

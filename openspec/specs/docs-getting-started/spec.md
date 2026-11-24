@@ -35,6 +35,13 @@ The loop authoring guide SHALL cross-reference the `examples/writer-team/` templ
 
 ### Requirement: Agent definition directory layout documented
 
+The getting-started section SHALL include a page documenting the configuration and agent-definition layout of the default `.houmao/` project overlay beneath the working directory.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The getting-started section SHALL include a page documenting the default Houmao project overlay rooted at `.houmao/` beneath the working directory, including:
 
 - `.houmao/houmao-config.toml`
@@ -90,6 +97,11 @@ Repo-owned onboarding docs that explain local build and launch workflows SHALL d
 4. ambient project-overlay discovery controlled by `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`,
 5. default fallback `<cwd>/.houmao/agents`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Those docs SHALL describe `HOUMAO_PROJECT_OVERLAY_DIR` as an absolute-path env override for selecting the overlay directory directly, and SHALL describe `houmao-config.toml` as the discovery anchor within the selected overlay directory.
 Those docs SHALL describe `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` as the ambient project-overlay discovery selector, where `ancestor` remains the default and `cwd_only` limits lookup to `<cwd>/.houmao/houmao-config.toml`.
 Those docs SHALL describe `agents/` as the compatibility projection used when file-tree consumers need a local agent-definition root.
@@ -116,6 +128,11 @@ At minimum, this requirement SHALL apply to:
 
 ### Requirement: Quickstart guide covers build and launch
 The getting-started section SHALL include a quickstart page that teaches the current recommended first-run Houmao workflow as agent-driven use through installed Houmao system skills. The page SHALL help a reader start from their existing CLI-agent surface, install or project Houmao system skills, invoke `houmao-touring`, and ask that agent for a useful managed-agent outcome.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The quickstart SHALL:
 
@@ -169,6 +186,13 @@ The overview and quickstart SHALL present Kimi Code 2.1.1 or later as a primary 
 
 ### Requirement: Quickstart covers both workflows end-to-end without truncation
 
+`docs/getting-started/quickstart.md` SHALL present the complete agent-driven first-run and provider-session adoption workflows.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The quickstart page at `docs/getting-started/quickstart.md` SHALL present the primary agent-driven workflow and the secondary provider-session adoption workflow completely:
 
 - **Primary workflow (Agent-driven first run)**: from installing Houmao and system skills through invoking `houmao-touring`, requesting a first managed-agent outcome, understanding created project/runtime concepts, and choosing stop or follow-up.
@@ -196,6 +220,11 @@ Manual fallback command sections SHALL be complete enough for a reader to unders
 
 The project `README.md` SHALL describe `houmao-mgr agents join` as a working, first-class adoption path for bringing an already-running provider TUI into Houmao control. The README SHALL NOT describe bring-your-own-process adoption as a future design goal or claim that management commands assume the session was launched by `houmao-mgr`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The README SHALL include at minimum:
 
 - a "Quick Start: Adopt an Existing Session" section before the build-based workflow,
@@ -217,6 +246,11 @@ The README SHALL include at minimum:
 
 ### Requirement: Getting-started docs use tool-oriented project auth commands
 Repo-owned getting-started guidance for the repo-local `.houmao/` project overlay SHALL describe project-local auth management through `houmao-mgr internals native-agent tools <tool> auth ...` rather than through `project credential ...`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the agent-definition layout guide SHALL explain that the CLI mirrors `.houmao/agents/tools/<tool>/auth/<name>/`, and quickstart-style examples SHALL use the supported `internals native-agent tools` command family when showing local auth-bundle creation or inspection.
 
@@ -278,6 +312,11 @@ Getting-started documentation SHALL explain the default managed-agent memory lay
 
 The docs SHALL describe `houmao-memo.md` as free-form Markdown edited by users or LLMs, and SHALL state that Houmao does not generate or refresh a page index inside that memo.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The docs SHALL direct durable work artifacts to the launched workdir or explicit operator-designated project paths rather than to managed scratch or persist lanes.
 
 The docs SHALL explain that memory pages live under `HOUMAO_AGENT_PAGES_DIR`, and that interesting pages may be linked from `houmao-memo.md` with authored relative links such as `pages/notes/run.md`.
@@ -304,6 +343,11 @@ The getting-started managed-memory documentation SHALL explain that managed laun
 
 That documentation SHALL state that the memo cue includes the resolved absolute path to `houmao-memo.md` and instructs the agent to read that memo at the start of each prompt turn before planning or acting.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That documentation SHALL explain that `houmao-memory-mgr` is the packaged system skill for agent-facing requests to read, edit, add to, remove from, or organize the managed memo and contained pages.
 
 That documentation SHALL preserve the existing memory model:
@@ -329,6 +373,11 @@ The getting-started documentation SHALL explain that canonical project-local cus
 That guidance SHALL explain that `.houmao/agents/skills/` is a derived compatibility projection rather than the source of truth for project-local skill authoring.
 
 The docs SHALL introduce `houmao-mgr project skills ...` as the maintained surface for registering or updating project-local custom skills.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The docs SHALL introduce `houmao-mgr project migrate` as the supported command for existing users who need to convert one known older project structure into the current `houmao-mgr project` layout.
 

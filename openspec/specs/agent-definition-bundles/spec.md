@@ -1,7 +1,7 @@
 # agent-definition-bundles Specification
 
 ## Purpose
-TBD - created by archiving change deploy-predefined-agent-blueprints. Update Purpose after archive.
+Make Agent Definition Revisions portable and immutable through versioned assets and typed deployment bindings. Preserve static skills and instance declarations for deployment and launch while keeping credential secrets and mutable instance state external.
 ## Requirements
 ### Requirement: Agent Definition Revisions use a portable versioned contract
 A materialized Agent Definition Revision SHALL contain `definition.toml`, `deploy-contract.toml`, `instance-contract.toml`, `assets/`, and `provenance/materialization.json`. Its identity and digest SHALL be immutable.

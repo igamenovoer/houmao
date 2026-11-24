@@ -31,6 +31,11 @@ For the `universal` target, the visible projected paths SHALL use the cross-clie
 
 - Universal: `skills/<houmao-skill>/` under the resolved universal home root, which defaults to `~/.agents` for the operator CLI.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The shared installer SHALL apply the same current-skill selection, retired-skill cleanup, status discovery, uninstall, copied projection, and symlink projection behavior to the `universal` target that it applies to existing `skills/`-root targets.
 
 The `universal` target SHALL NOT imply a runtime tool adapter, credential home, launch backend, or managed-agent provider.
@@ -61,6 +66,11 @@ Houmao-managed launch and managed join flows SHALL continue installing managed s
 The shared system-skill target `kimi` SHALL refer to Kimi Code CLI.
 
 For the `kimi` target, the visible projected paths SHALL use `skills/<houmao-skill>/` under the resolved Kimi Code home, including `$KIMI_CODE_HOME/skills/<houmao-skill>/` when Kimi Code is launched with that home and the project default `.kimi-code/skills/<houmao-skill>/` when Houmao resolves a project-scoped Kimi Code home.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `kimi` target SHALL NOT represent the legacy MoonshotAI `kimi-cli` project as a separate installation profile.
 
@@ -133,6 +143,11 @@ Doctor SHALL read each installed root's frontmatter directly and SHALL NOT migra
 ### Requirement: Houmao stores minimal system-skill ownership configuration
 The system SHALL store manager-owned system-skill lifecycle state at `<tool-home>/.houmao/system-skills/<tool>/houmao-skill-config.json` using schema `houmao-skill-config.v1`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The top-level payload SHALL contain exactly `schema_version`, `houmao_version`, `projection_mode`, and `skills`. Each installed-skill record SHALL contain exactly `name`, `relative_path`, `content_digest`, and `owning_pack_ids`. The configuration SHALL NOT duplicate its tool, home path, manifest schema, selected pack set, timestamps, operation history, skill role, activation posture, per-skill projection mode, per-skill release version, or source path.
 
 The selected installed pack set SHALL be derived from the manifest-ordered union of per-skill `owning_pack_ids`. The parser SHALL reject malformed, unknown, duplicate, unsafe, empty, or internally inconsistent state.
@@ -151,6 +166,11 @@ The selected installed pack set SHALL be derived from the manifest-ordered union
 
 ### Requirement: Skill config is the sole source of manager ownership
 Install, sync, status, upgrade, and uninstall SHALL treat only a valid `houmao-skill-config.json` as persisted manager ownership evidence. A same-name destination without that config ownership SHALL remain an unowned collision and SHALL NOT be overwritten or deleted implicitly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Lifecycle mutations SHALL commit and validate affected projections before atomically writing the config. Rollback SHALL restore the preceding new-format config and affected projection state. Partial uninstall SHALL subtract the requested pack owner and retain roots that have another owner; final uninstall SHALL remove the config rather than persist an empty skill list.
 
@@ -200,6 +220,11 @@ CLI-default external-home installation SHALL resolve the five-member `admin` pac
 ### Requirement: Shared installer projects complete public skills into supported tool homes
 The shared installer SHALL project complete standalone public skill directories at the tool-native top-level skill root for Claude, Codex, Copilot, Kimi, and the universal Agent Skills target.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Shared routines and both loop skills SHALL remain top-level siblings of the selected actor entrypoint. The sixteen shared children SHALL remain parent-scoped below `houmao-shared-routines/subskills/`. Copy SHALL remain the default mode, managed homes SHALL use copy, and explicit symlink mode SHALL link each complete standalone source directory.
 
 #### Scenario: Codex admin pack uses static top-level paths
@@ -214,6 +239,11 @@ Shared routines and both loop skills SHALL remain top-level siblings of the sele
 
 ### Requirement: Managed system-skill policy selects packs
 Stored source and launch-profile system-skill policy SHALL retain the supported policy modes `default`, `inherit`, `extend`, `replace`, and `none` where each lane permits them, but SHALL store and resolve `packs` rather than `sets` and `skills`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The policy resolver SHALL reject unknown pack ids, invalid mode and selector combinations, and any attempt to select a protected logical id as an install unit. System-skill policy SHALL govern only catalog-backed system-skill packs; provider-native role-prompt files are brain construction outputs rather than skill install units.
 

@@ -52,6 +52,11 @@ When the runtime creates or rewrites shared-registry `record.json`, it SHALL val
 
 This requirement SHALL apply to both first publication and later refresh-driven rewrites of the same record.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 This packaged-schema validation supplements, and SHALL NOT replace, the existing strict `LiveAgentRegistryRecordV2` Pydantic boundary for semantic invariants that the lightweight runtime schema validator does not encode.
 
 #### Scenario: Initial publication validates against the packaged registry schema
@@ -75,6 +80,11 @@ The system SHALL continue to treat `LiveAgentRegistryRecordV2` as the authoritat
 
 ### Requirement: Runtime schema-packaging specs describe the current v2 shared-registry contract
 The runtime Pydantic-boundaries specification SHALL describe the current packaged shared-registry schema and typed boundary in terms of the `agent_id`-keyed v2 registry record contract rather than the retired v1 `agent_key` contract.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the current-contract description SHALL align on:
 

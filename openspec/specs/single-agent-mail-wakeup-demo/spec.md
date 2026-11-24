@@ -24,6 +24,11 @@ That output root SHALL contain:
 - a redirected Houmao project overlay under `overlay/`,
 - demo-owned registry, control, log, delivery, and evidence artifacts under sibling directories.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The redirected overlay SHALL remain the authority for project-local Houmao-owned state in the supported workflow, including:
 - `overlay/agents/`
 - `overlay/runtime/`
@@ -78,6 +83,11 @@ For each lane, the demo SHALL:
 
 The demo SHALL persist the selected tool in canonical demo state rather than encoding it in a tool-specific output-root path.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The demo SHALL NOT claim headless or mixed-mode support as part of this operator contract.
 
 #### Scenario: Claude TUI lane starts through project
@@ -107,6 +117,11 @@ The supported stepwise/manual surface of `scripts/demo/single-agent-mail-wakeup/
 - `notifier set-interval`
 
 The implementation MAY retain `manual-send` as a compatibility alias, but the maintained README and operator workflow SHALL teach `send` as the primary message-injection command.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `attach` SHALL resolve the persisted active demo state and re-attach the operator to the live agent tmux session for the selected tool lane.
 
@@ -146,6 +161,11 @@ The supported demo SHALL present one narrow single-agent workflow:
 6. enable gateway mail-notifier polling,
 7. inject one operator-originated filesystem-backed mailbox message,
 8. observe the agent wake and process that message.
+
+#### Scenario: Demo follows the single-agent notifier workflow in order
+
+- **GIVEN** a user follows the supported single-agent wake-up demo
+- **THEN** the demo takes the user from the redirected project overlay to processing a notifier-triggered mailbox message
 
 The demo SHALL include:
 - one automatic one-shot workflow,
@@ -194,6 +214,11 @@ The supported demo SHALL treat success as all of the following:
 - gateway notifier evidence shows unread work was detected and processed,
 - the agent creates the requested artifact under the copied project's `tmp/` directory,
 - `houmao-mgr agents mail list --read-state unread` reaches zero actionable unread messages for the selected agent.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `houmao-mgr project mailbox messages list|get` SHALL remain structural inspection only within this demo and SHALL be used to corroborate message identity, folder, projection path, canonical path, sender, recipients, subject, body, and attachments rather than authoritative read-state.
 

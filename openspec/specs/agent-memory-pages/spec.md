@@ -10,6 +10,11 @@ The memory root SHALL contain a fixed `houmao-memo.md` file and exactly one Houm
 
 Houmao SHALL create the memory root, `houmao-memo.md`, and `pages/` before a managed launch or join is considered complete.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Houmao SHALL NOT create or publish managed `scratch/` or `persist/` subdirectories as part of the managed-agent memory contract.
 
 #### Scenario: Default memory derives from active overlay and agent id
@@ -64,6 +69,11 @@ Houmao SHALL provide supported operator entrypoints to resolve memory root paths
 
 The live gateway SHALL expose equivalent memo and page operations for attached agents, and the pair server SHALL proxy those operations for managed agents resolved through the server.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The supported surfaces SHALL use memo/page vocabulary and SHALL NOT expose lane-scoped `scratch` or `persist` operations.
 
 Houmao SHALL NOT expose a supported operation that reindexes pages into `houmao-memo.md`.
@@ -90,6 +100,11 @@ For every tmux-backed managed launch or join that renders the default managed pr
 That guidance SHALL include the resolved absolute memo file path for the launched or joined managed agent.
 
 That guidance SHALL instruct the agent to read `houmao-memo.md` at the start of each prompt turn before planning or acting.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That guidance SHALL treat files under `pages/` as supporting material reached through authored memo links or explicit task context, not as an automatically indexed memory database.
 

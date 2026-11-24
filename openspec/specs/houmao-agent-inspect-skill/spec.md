@@ -1,10 +1,15 @@
 # houmao-agent-inspect-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-agent-inspect-skill. Update Purpose after archive.
+Help operators and agents inspect managed sessions through supported state surfaces and runtime evidence. Use gateway tracker data for TUI sessions and turn status or artifacts for headless sessions when available.
 ## Requirements
 ### Requirement: Houmao provides a packaged `houmao-agent-inspect` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-inspect` under the maintained system-skill asset root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That skill SHALL instruct agents and operators to inspect Houmao-managed agents through these supported read-oriented surfaces:
 
@@ -55,6 +60,13 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **AND THEN** it routes the caller to the owned operational skill instead of performing that mutation inside the inspection skill
 
 ### Requirement: `houmao-agent-inspect` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-agent-inspect` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-agent-inspect` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
@@ -91,6 +103,11 @@ The packaged `houmao-agent-inspect` skill SHALL tell the caller to recover omitt
 
 The skill SHALL NOT guess a missing required target, transport kind, or inspection lane that is not explicit in current or recent conversation context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL route generic managed-agent inspection in this order:
 
 1. identify the target managed agent through `agents list` or an explicit selector
@@ -123,6 +140,11 @@ For TUI-backed managed agents, the packaged `houmao-agent-inspect` skill SHALL t
 - `GET /houmao/agents/{agent_ref}/state/detail`
 - `houmao-mgr agents gateway status`
 - `houmao-mgr agents gateway tui state|history|watch` when a live gateway is attached
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For TUI-backed managed agents, the skill SHALL position raw tmux attach or pane capture as a local last-resort lane rather than as the canonical first inspection surface.
 
@@ -157,6 +179,11 @@ When the inspection task is about mailbox identity, unread state, or current liv
 - `houmao-mgr agents mail list`
 
 When the inspection task is about late mailbox-binding posture for one local managed agent, the skill SHALL direct the caller to `houmao-mgr agents mailbox status`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the inspection task is about structural mailbox-root or projected-message state rather than actor-scoped mailbox follow-up, the skill SHALL direct the caller to `houmao-mailbox-mgr` instead of duplicating mailbox-admin guidance locally.
 

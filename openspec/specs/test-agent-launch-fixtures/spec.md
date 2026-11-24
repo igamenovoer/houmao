@@ -175,7 +175,14 @@ Unit and integration coverage SHALL exercise both cases, the qualified tool/mode
 
 ### Requirement: DSH Headless Fixtures Reuse Generic Local Configuration
 
-The fixture helper SHALL prepare raw and managed one-shot DSH headless CLI launches for `self-hosted` and `cloud-api` using resolved `tool_params`, explicit model and compatibility metadata, and private isolated homes. Cloud preparation SHALL use local key and endpoint references without auth JSON. Explicit endpoint-only `pi-ai/openai-completions` fixtures SHALL use the native authorization placeholder. Unsupported DSH modes and native login SHALL fail explicitly before authenticated run state is created.
+The fixture helper SHALL prepare raw and managed one-shot DSH headless CLI launches for `self-hosted` and `cloud-api` using resolved `tool_params`, explicit model and compatibility metadata, and private isolated homes. Cloud preparation SHALL use local key and endpoint references without auth JSON. Explicit endpoint-only `pi-ai/openai-completions` fixtures SHALL use the native authorization placeholder.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Unsupported DSH modes and native login SHALL fail explicitly before authenticated run state is created.
 
 #### Scenario: Fresh Host Uses DeepSeek Without a Local Model
 - **WHEN** a developer provides the cloud key, the selected Messages-compatible endpoint, and an explicit model through the local fixture configuration

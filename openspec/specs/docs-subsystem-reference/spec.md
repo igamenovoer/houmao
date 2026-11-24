@@ -55,6 +55,11 @@ The lifecycle reference SHALL include a page documenting the ReactiveX completio
 
 The registry reference SHALL retain existing content with a light accuracy pass: verify that `ManagedAgentRecord`, `LiveAgentRecord`, and filesystem registry operations match `registry_models.py` and `registry_storage.py` source. Remove any stale CAO references.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Operator-facing pages within the registry reference (notably `operations/discovery-and-cleanup.md`) SHALL use `houmao-mgr agents prompt` and `houmao-mgr agents stop` as the primary example commands for name-based session control. Raw `python -m houmao.agents.realm_controller` invocations MAY be retained in a clearly-labelled low-level section but SHALL NOT appear as the primary examples.
 
 #### Scenario: Registry docs match current models
@@ -71,6 +76,11 @@ Operator-facing pages within the registry reference (notably `operations/discove
 ### Requirement: Operator-facing agent reference uses houmao-mgr as primary example surface
 
 `docs/reference/agents/contracts/public-interfaces.md` and `docs/reference/agents/operations/session-and-message-flows.md` SHALL present `houmao-mgr agents` commands as the primary operator surface. Any raw `python -m houmao.agents.realm_controller` invocations SHALL be retained only in a clearly-labelled "Low-level access" section.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Mermaid sequence diagrams in these pages SHALL use `houmao-mgr agents launch`, `houmao-mgr agents prompt`, and `houmao-mgr agents stop` (with appropriate `<br/>` wrapping for width) rather than the abstract `start-session`, `send-prompt`, and `stop-session` verb forms.
 

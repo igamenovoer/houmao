@@ -6,6 +6,11 @@ The packaged current Houmao-owned system-skill inventory SHALL include `houmao-p
 
 That packaged skill SHALL use `houmao-project-mgr` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The top-level `houmao-project-mgr` skill SHALL act as an index/router for these supported project command families:
 
 - `houmao-mgr project init`
@@ -38,6 +43,11 @@ The `houmao-project-mgr` skill SHALL document the current project-overlay resolu
 - `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`
 - `HOUMAO_NATIVE_AGENT_ROOT`
 - ambient `ancestor` versus `cwd_only` discovery behavior
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL explain the managed `.houmao/` layout and SHALL distinguish the canonical semantic store from the compatibility projection. At minimum, that layout guidance SHALL cover:
 
@@ -82,6 +92,11 @@ The `houmao-project-mgr` skill SHALL explain what changes for other Houmao comma
 - `houmao-mgr server start`
 - `houmao-mgr admin cleanup runtime ...`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That guidance SHALL explain that those command families resolve project-local defaults such as the active agent-definition tree, runtime root, jobs root, mailbox root, or selected overlay when project context is present.
 
 The skill SHALL use the current renamed packaged skill names when routing neighboring concerns. At minimum, it SHALL hand off:
@@ -106,6 +121,11 @@ The skill SHALL use the current renamed packaged skill names when routing neighb
 The packaged `houmao-project-mgr` skill SHALL document the supported explicit launch-profile management surface as including `list`, `get`, `add`, `set`, and `remove`.
 
 When a user asks to update one existing explicit launch profile's stored launch defaults, the skill SHALL route to `houmao-mgr internals native-agent launch-dossiers set --name <profile> ...`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When a user asks to replace one existing explicit launch profile definition, the skill SHALL route to `houmao-mgr internals native-agent launch-dossiers add --name <profile> --recipe <recipe> ... --yes` after identifying the replacement intent.
 

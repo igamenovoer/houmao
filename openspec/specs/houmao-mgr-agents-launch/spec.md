@@ -6,6 +6,11 @@ Define retained managed-agent birth contracts for project-backed launch and inte
 ### Requirement: Managed launch establishes primary tmux surface independent of user base indexes
 Retained managed-agent birth surfaces such as `houmao-mgr project agents launch` SHALL start Houmao-owned tmux-backed managed-agent sessions successfully when the user's tmux configuration sets non-zero default window or pane base indexes, provided tmux otherwise supports creating and moving the session's bootstrap surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For launched tmux-backed sessions, the command SHALL publish managed-agent metadata only after the runtime has established the contractual primary window index `0` and captured the primary tmux object handles needed for later operations.
 
 If the primary surface cannot be established, launch SHALL fail before publishing an active shared-registry record for the attempted managed agent.

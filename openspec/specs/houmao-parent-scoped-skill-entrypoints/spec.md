@@ -1,7 +1,7 @@
 # houmao-parent-scoped-skill-entrypoints Specification
 
 ## Purpose
-TBD - created by archiving change adopt-protected-skill-main-entrypoints. Update Purpose after archive.
+Public roots and protected children use distinct entrypoint filenames so hosts discover only public skills. Parents explicitly load eligible children, and validation enforces the discovery rules for packaged layouts and generated prompts.
 ## Requirements
 ### Requirement: System-skill entrypoint filenames reflect discovery scope
 Houmao SHALL package every standalone or host-discoverable public system-skill root with `SKILL.md` and every protected parent-scoped router or routine below `subskills/<name>/` with `SKILL-MAIN.md`.
@@ -62,6 +62,11 @@ The notation SHALL define top-level `SKILL.md`, explicitly parent-loaded `SKILL-
 
 ### Requirement: Generated prompts invoke only public skill entrypoints
 Automatically generated mailbox-operation and mail-notifier prompts SHALL invoke the eligible public entrypoint through the current tool's native skill syntax. They SHALL describe protected routines as parent-controlled routes and SHALL NOT instruct the agent to discover, open, or invoke a protected entrypoint independently.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Internal object-style route traces MAY appear for diagnostics, but SHALL NOT replace the public `$houmao-agent-entrypoint <route> ...`, `/houmao-agent-entrypoint <route> ...`, or equivalent plain invocation.
 

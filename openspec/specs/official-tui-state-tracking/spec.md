@@ -4,6 +4,11 @@ Define the server-owned live TUI tracking contract for direct tmux/process obser
 ### Requirement: Live tracked-state reduction SHALL be implemented through the shared TUI tracking core
 For supported tmux-backed TUI sessions, the active per-agent control plane SHALL derive tracker-owned `surface`, `turn`, `last_turn`, detector identity, and tracker-state stability semantics through the repo-owned shared TUI tracking core rather than through a package-local reducer or parser-owned reduction path.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Any reusable tracking ownership or supervision helpers needed by both the attached gateway and the direct `houmao-server` fallback SHALL live in neutral shared modules layered over the shared tracking core rather than requiring the gateway to import `houmao.server.tui` package-local ownership code.
 
 The active per-agent control plane SHALL be:
@@ -44,6 +49,11 @@ The system SHALL continuously track every known tmux-backed managed TUI session 
 
 For server-managed sessions, `houmao-server` SHALL continue seeding known-session identity from authoritative registration or admission records and SHALL determine whether an eligible attached gateway exists for that agent.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When an eligible attached gateway exists for a managed TUI agent, the system SHALL assign continuous tracking authority for that agent to the gateway. When no eligible gateway exists, the direct `houmao-server` fallback tracker SHALL continue tracking that agent.
 
 When tracking authority changes because a gateway attaches, detaches, or becomes unhealthy, the system SHALL maintain exactly one active authoritative tracking owner for that agent at a time.
@@ -80,6 +90,11 @@ Shared live-agent registry records MAY be consulted as compatibility evidence or
 ### Requirement: Attached gateways can own live tracked state for runtime-owned local interactive sessions
 For a runtime-owned `local_interactive` TUI session outside `houmao-server`, when an attached gateway is present and healthy, that gateway SHALL be allowed to act as the active control plane for live tracked-state authority for that session.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For this runtime-owned path, the active control plane SHALL be allowed to use the runtime-owned session identifier as the tracked-session identity and SHALL NOT require a CAO-style terminal alias so long as the public compatibility alias can fall back to the tracked session id.
 
 #### Scenario: Gateway becomes the tracking owner for runtime-owned local interactive session
@@ -111,6 +126,11 @@ For each tracked tmux-backed session, the system SHALL determine whether the sup
 ### Requirement: Parsed TUI state comes from direct tmux capture through the official parser
 For supported live TUI tools, when the system computes parser-owned surface evidence it SHALL parse pane content directly captured from tmux through the repo-owned official parser stack for server-owned functionality such as structured diagnostics, parser metadata, or operator-facing surface evidence.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That parser path SHALL remain separate from state-tracking authority. Parsed live surface data SHALL be server-owned sidecar enrichment derived from the same raw tmux capture, and the shared tracked-state reduction SHALL NOT require parsed-surface output as its input contract.
 
 The parsing and state-tracking paths SHALL NOT require `cao-server` terminal-status or terminal-output endpoints as the authoritative source for either live TUI interpretation or tracked-state reduction.
@@ -133,6 +153,11 @@ The parsing and state-tracking paths SHALL NOT require `cao-server` terminal-sta
 
 ### Requirement: Live tracked state exposes foundational observables and unified turn semantics for consumer dashboards
 For supported tmux-backed sessions whose raw pane capture is available to the shared tracker, the authoritative tracked state SHALL expose a simplified state model built from foundational observables plus one unified turn lifecycle.
+
+#### Scenario: Supported pane capture produces consumer-facing surface and turn state
+
+- **GIVEN** the shared tracker can capture a supported session's tmux pane
+- **THEN** the tracker publishes the dashboard fields and derives turn state from eligible evidence
 
 At minimum, that simplified model SHALL include:
 
@@ -221,6 +246,11 @@ When a supported tracked TUI profile recognizes a bounded current-turn terminal 
 
 In that case, the tracker SHALL continue to derive `surface.accepting_input`, `surface.editing_input`, and `surface.ready_posture` from the current prompt and overlay facts.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The tracker SHALL NOT settle `last_turn.result=success` while that bounded terminal failure surface remains the current turn outcome.
 
 When the selected profile identifies a recognized terminal failure family strong enough to justify a terminal failure result, the tracker MAY publish `last_turn.result=known_failure` while preserving the current prompt-derived readiness.
@@ -249,6 +279,11 @@ Recoverable degraded compact/server failures remain distinct from stronger recog
 When a supported tracked TUI profile recognizes a bounded live-edge retry, reconnect, or stream-recovery surface for the current turn, the authoritative tracked state SHALL treat that surface as active-turn evidence rather than as a ready-return completion.
 
 While that bounded retry or reconnect surface remains current, the tracker SHALL keep `turn.phase=active` and SHALL block success settlement for that turn.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Historical retry or reconnect text outside the bounded current-turn scope SHALL NOT by itself keep the turn active after the surface has genuinely returned to a ready non-active state.
 
@@ -284,6 +319,11 @@ The system SHALL continue to report real draft prompt content as `surface.editin
 ### Requirement: Claude style-classified suggestions preserve ready tracked state
 For supported Claude Code TUI sessions, when the selected tracked-TUI profile classifies the current prompt payload as ghost suggestion or placeholder content rather than user-authored draft input, the authoritative tracked state SHALL treat the prompt as non-editing.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When no stronger active-turn evidence, modal overlay, blocked surface, or instability rule applies, that same snapshot SHALL remain eligible for ready tracked state with `surface.accepting_input=yes`, `surface.editing_input=no`, `surface.ready_posture=yes`, and `turn.phase=ready`.
 
 The tracked state SHALL NOT depend on exact ghost-suggestion wording to produce that ready posture. It SHALL depend on the selected profile's style-based prompt classification.
@@ -310,6 +350,11 @@ Real user-authored draft input SHALL continue to report `surface.editing_input=y
 
 ### Requirement: Live tracked state distinguishes transport, process, and parse outcomes explicitly
 The tracked-state contract SHALL expose low-level diagnostics separately from the simplified turn model.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the tracked-state contract SHALL expose:
 
@@ -345,6 +390,11 @@ For an attached managed TUI agent, that authoritative in-memory tracked state SH
 
 For a managed TUI agent with no eligible attached gateway, that authoritative in-memory tracked state SHALL live in the direct `houmao-server` fallback tracker.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system SHALL NOT require per-session watch snapshot files or append-only watch logs as part of the authoritative tracked-state contract for this capability.
 
 `houmao-server` MAY project gateway-owned tracked state through its public routes, but those route responses SHALL read from the active control plane's current in-memory authority rather than reconstructing authoritative tracked state from persisted watch artifacts.
@@ -363,6 +413,11 @@ The system SHALL NOT require per-session watch snapshot files or append-only wat
 For supported tmux-backed TUI sessions whose active control plane uses the shared TUI tracking core, the system SHALL retain recent tracked snapshots in memory in addition to the current-state snapshot and any recent transition summaries.
 
 That snapshot-history buffer SHALL be bounded to the most recent 1000 snapshots per tracked session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The snapshot-history buffer SHALL be implementation-owned live state rather than a durable artifact and SHALL disappear when the active tracking owner forgets or loses that session.
 
@@ -396,6 +451,11 @@ For supported tmux-backed TUI sessions, timed behavior in server-owned lifecycle
 
 That ReactiveX timing layer SHALL remain authoritative for server-owned readiness/completion enrichment such as `operator_state`, `lifecycle_timing`, and `lifecycle_authority`, but SHALL NOT redefine or delay tracker-owned `surface`, `turn`, or `last_turn`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Shared-tracker success settlement remains owned by the standalone tracker session even when server-owned lifecycle timing is also present for the same live cycle.
 
 #### Scenario: Tracker-owned success remains authoritative when lifecycle timing differs
@@ -411,6 +471,11 @@ Shared-tracker success settlement remains owned by the standalone tracker sessio
 
 ### Requirement: Interactive Codex live tracking resolves through the Codex TUI tracker family
 When the server tracks an interactive Codex session from raw captured TUI snapshots, the live tracked-TUI adapter SHALL resolve the shared tracker through the `codex_tui` tracker app family rather than through a headless backend label.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That tracker-family resolution SHALL apply only to the interactive screen-scraped Codex TUI case. Structured headless Codex control flows SHALL remain outside the official tracked-TUI live path unless they are explicitly re-expressed as interactive raw-snapshot sources.
 
@@ -435,6 +500,11 @@ This tracker-facing resolution change SHALL NOT rename runtime/backend identifie
 When the server feeds interactive Codex TUI snapshots into the shared tracker, it SHALL preserve their observation order so the selected `codex_tui` profile can derive temporal hints over its recent sliding window.
 
 The live adapter SHALL NOT require callers or clients to manage that recent-window logic directly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The live adapter MAY emit explicit input events when they are available, but snapshot-only tracking SHALL remain compatible with success settlement that relies on surface-inferred turn authority.
 
@@ -515,6 +585,11 @@ For supported Claude Code sessions at or above 2.1.296, the selected profile SHA
 ### Requirement: Current draft editing remains visible during overlapping turn activity
 When the visible prompt area contains current user-authored draft input, the tracked state SHALL report that draft through `surface.editing_input=yes` even if a previous turn is still visibly active or old terminal status text remains visible in transcript history.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Selected profiles MAY still classify visible placeholder or suggestion text as `surface.editing_input=no` or `unknown`, but prompt-marker styling or stale transcript status lines SHALL NOT by themselves downgrade a real current draft to `unknown`.
 
 #### Scenario: Follow-up draft typed while the previous turn is still active
@@ -534,6 +609,11 @@ For tmux-backed tracked TUI sessions, when the active control plane has explicit
 
 Session-scoped tmux pane discovery used by the active control plane SHALL span all panes in the tracked session, including panes in non-current windows.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When multiple candidate panes exist and the tracked contract does not include explicit pane or window identity for the intended surface, the active control plane SHALL fail explicitly or surface non-authoritative diagnostics rather than silently rebinding to the current active window.
 
 #### Scenario: Tracked local interactive session stays bound to the agent surface
@@ -550,6 +630,11 @@ When multiple candidate panes exist and the tracked contract does not include ex
 
 ### Requirement: Live tracked state recovers stale active turns after stable submit-ready posture
 The authoritative live tracked-state layer SHALL recover a stuck `turn.phase=active` posture through one of two recovery paths: a fast stale-active recovery that consults the parser-readiness evidence, and a final stable-active recovery that judges purely from rendered-surface stability so that no parser fault can disable it.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For the existing fast stale-active recovery path, submit-ready posture SHALL require at minimum:
 - `parsed_surface.business_state=idle`,
@@ -649,6 +734,11 @@ The shared tracked-TUI contract SHALL allow supported profiles to publish struct
 
 That metadata SHALL identify the owning CLI tool or profile family. Any degraded error type value other than `unknown` SHALL be scoped to that owning CLI tool or profile family.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The shared tracked-TUI contract SHALL NOT define one universal degraded error-type enum for all CLI tools. A consumer SHALL NOT assume that two non-`unknown` degraded error type strings from different tool profiles have the same semantics unless those profiles explicitly define that compatibility.
 
 `unknown` SHALL be the only degraded error type value that is shared by default across CLI tool profiles.
@@ -702,6 +792,11 @@ The maintained Kimi process-name set SHALL include `kimi-code` and `kimi`.
 
 When captured pane text is available for a recognized Kimi TUI process, the parser-owned sidecar path SHALL produce a supported `HoumaoParsedSurface` rather than reporting `unsupported_tool` solely because the tool is Kimi.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The Kimi parser-owned sidecar path SHALL wrap Kimi-specific visible-surface analysis directly and SHALL NOT instantiate the Claude/Codex `ShadowParserStack` for Kimi.
 
 The parser-owned Kimi surface SHALL remain sidecar evidence. Shared tracker reduction SHALL continue using raw captured snapshot text as its input.
@@ -731,6 +826,11 @@ At minimum, the Kimi parser SHALL distinguish:
 - approval dialogs that require operator choice
 - agent-initiated question dialogs that require an operator answer
 - startup or modal surfaces such as workspace trust, session picker, login, update, or unknown blocking prompts
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The parser SHALL classify approval dialogs and agent-initiated question dialogs as operator-blocked and SHALL expose dialog text that includes the command or question being approved or asked when that text is visible.
 
@@ -765,7 +865,14 @@ The parser SHALL classify recognized startup or modal surfaces that block normal
 - **THEN** the parser does not report active business state solely from that footer text
 
 ### Requirement: Kimi 2.1.x busy evidence is the live-edge spinner union
-For kimi-code versions at or above the support floor, current-turn busy evidence SHALL be the union of provider spinner-frame rows at the live edge (moon-phase and braille-phase families). Braille rows SHALL count only when qualified by a 2.1.x busy label (`Thinking…`, `Working…`, `Retrying (N/M)`, `Compacting context…`, `Orchestrating…`, or subagent `… Running (…)` rows); the compaction bullet SHALL count without a spinner frame. An interruption notice SHALL mark the surface interrupted only when no concurrent spinner-union activity is visible. Queue-hint chrome SHALL establish pending input only while visible at the live edge.
+For kimi-code versions at or above the support floor, current-turn busy evidence SHALL be the union of provider spinner-frame rows at the live edge (moon-phase and braille-phase families). Braille rows SHALL count only when qualified by a 2.1.x busy label (`Thinking…`, `Working…`, `Retrying (N/M)`, `Compacting context…`, `Orchestrating…`, or subagent `… Running (…)` rows); the compaction bullet SHALL count without a spinner frame.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+An interruption notice SHALL mark the surface interrupted only when no concurrent spinner-union activity is visible. Queue-hint chrome SHALL establish pending input only while visible at the live edge.
 
 #### Scenario: Braille thinking phase reads as busy
 - **WHEN** a tracked Kimi 2.1.x pane shows a braille spinner row labeled `Thinking…` or `Working…` at the live edge
@@ -817,6 +924,11 @@ After a supported process changes from down to up or changes identity, the track
 ### Requirement: Public tracked TUI state exposes provider-native pending input
 
 For supported tmux-backed TUI sessions, the authoritative tracked state SHALL expose `surface.pending_input` with the same `yes | no | unknown` tristate vocabulary as the other foundational surface observables.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `surface.pending_input=yes` SHALL mean that the current visible provider TUI contains decisive evidence of at least one already-submitted instruction waiting behind the active turn. `surface.pending_input=no` SHALL mean that the captured provider surface is complete enough to make a negative decision and contains no such pending instruction. Cropped, incomplete, unsupported, or structurally ambiguous evidence SHALL produce `surface.pending_input=unknown`.
 

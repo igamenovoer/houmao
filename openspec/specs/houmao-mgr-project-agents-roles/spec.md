@@ -39,6 +39,11 @@ The help text for this subtree SHALL present it as management for project-local 
 
 `houmao-mgr internals native-agent roles get --name <role>` SHALL report one role as structured data, including the role path, the `system-prompt.md` path, whether the prompt file exists, and the names of any presets that currently reference that role.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `houmao-mgr internals native-agent roles set --name <role>` SHALL mutate only the canonical `system-prompt.md` for that role. At minimum, it SHALL support:
 
 - `--system-prompt <text>`
@@ -99,6 +104,11 @@ The default `get` output SHALL continue to report the role path, prompt path, pr
 ### Requirement: `internals native-agent roles` fail clearly when referenced preset files are malformed
 
 When a maintained `houmao-mgr internals native-agent roles ...` command traverses project-local preset references and encounters malformed YAML or invalid preset content under `.houmao/agents/presets/`, the command SHALL fail as explicit CLI error output rather than leaking a Python traceback.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 This SHALL apply at minimum to role flows that inspect or enforce preset references, including:
 

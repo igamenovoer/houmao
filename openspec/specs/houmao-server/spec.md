@@ -8,6 +8,11 @@ Retained Python modules under `houmao.server` SHALL be treated as internal imple
 
 The repository MAY retain Python modules under `houmao.server` when maintained surfaces still use their models, clients, stores, parser adapters, process helpers, tmux helpers, or compatibility utilities.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Retaining those modules SHALL NOT expose or imply a maintained packaged `houmao-server` executable, standalone FastAPI application, `/cao/*` compatibility server, old-server CLI, or public old-server route contract.
 
 Maintained code SHOULD move broadly shared old-server helpers to neutral packages in later cleanup changes when that move reduces coupling without blocking the executable retirement.

@@ -1,7 +1,7 @@
 # houmao-mgr-agent-definition-batches Specification
 
 ## Purpose
-TBD - created by archiving change add-agent-definition-batch-deployment. Update Purpose after archive.
+Batch deployment prepares multiple project deployments from one exact Agent Definition revision and one validated plan per member. Houmao publishes members to the catalog together, journals interruptions for recovery, and returns individual launch handoffs.
 ## Requirements
 ### Requirement: Batch Requests bind one exact definition and bounded count
 A Batch Deployment Request SHALL name one exact definition revision, one target project, a positive count within a maintained limit, shared inputs, optional valid member overrides, and explicit delegation categories.

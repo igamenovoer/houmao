@@ -18,6 +18,11 @@ At minimum, that family SHALL include:
 - `credentials`
 - `mailbox`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `project` family SHALL be presented as the ordinary local Houmao workflow. It SHALL NOT present `easy` as a public nesting level, and it SHALL NOT present provider-aligned native-agent material as ordinary project resources.
 
 #### Scenario: Operator sees the first-class project command family
@@ -32,6 +37,11 @@ The `project` family SHALL be presented as the ordinary local Houmao workflow. I
 The supplied directory SHALL be interpreted as the human-facing project directory. The selected overlay root SHALL be `<project-dir>/.houmao`.
 
 When `--project-dir` is supplied, project subcommands SHALL use that selected project directory instead of discovering a project from the process current working directory.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Stateful project subcommands SHALL fail clearly when the selected project directory does not contain an initialized Houmao overlay, except for `project init`, which SHALL create or validate the selected overlay.
 
@@ -58,6 +68,11 @@ Ordinary `houmao-mgr project` commands SHALL use project-layer terms:
 - `specialist` for reusable project-local persona/tool/credential definitions,
 - `profile` for reusable launch defaults for a specialist,
 - `managed agent` or `agent instance` for live or stopped Houmao-managed runtime identities.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Project help text, structured output keys intended for ordinary users, config drafts, and packaged project-management skill guidance SHALL NOT call those project-layer resources native agents, raw agent definitions, raw profiles, or launch dossiers.
 
@@ -91,6 +106,11 @@ Ordinary stateful project-backed commands SHALL require an active project overla
 
 `project credentials` SHALL use the selected project overlay supplied by the `project` command group and SHALL use the project-backed credential behavior defined for project-local catalog-backed auth profiles.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `project credentials` SHALL NOT expose `--project`, `--agent-def-dir`, or direct native-agent root selectors because its target is the selected project overlay by definition.
 
 #### Scenario: Operator sees the project-scoped credential verbs for one tool
@@ -109,6 +129,11 @@ Ordinary stateful project-backed commands SHALL require an active project overla
 1. group-level `--project-dir <dir>` when supplied, resolving to `<dir>/.houmao`,
 2. retained project-overlay environment selection when set for automation or internal workflows,
 3. default `<cwd>/.houmao`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When `--project-dir` is supplied, `project init` SHALL bootstrap the overlay under that project directory rather than under the caller's current working directory.
 When retained environment selection is used, it SHALL be an absolute overlay path.
@@ -180,6 +205,11 @@ At minimum, `project init` SHALL NOT create:
 - `.houmao/mailbox/`
 - optional compatibility projection trees only because init was run
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The catalog-backed overlay MAY create the managed content roots required by the base project-local storage contract even though those roots are not optional workflow state.
 
 `houmao-mgr project init` SHALL NOT expose a public flag, option, or documented workflow for pre-creating `.houmao/agents/compatibility-profiles/`.
@@ -209,6 +239,11 @@ The catalog-backed overlay MAY create the managed content roots required by the 
 
 1. `HOUMAO_PROJECT_OVERLAY_DIR` when set,
 2. ambient discovery from the caller's current working directory under `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE` is unset, the effective mode SHALL be `ancestor`.
 When the effective mode is `ancestor`, status SHALL use nearest-ancestor project discovery from the caller's current working directory.
@@ -263,6 +298,11 @@ Maintained `houmao-mgr project agents ...` commands that inspect existing projec
 
 When no active project overlay exists for the caller and no stronger overlay selection override applies, these commands SHALL fail clearly without bootstrapping the selected or would-bootstrap overlay root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, this requirement SHALL apply to:
 
 - `houmao-mgr internals native-agent tools <tool> get`
@@ -311,6 +351,11 @@ Maintained `houmao-mgr project ...` help text, failures, and structured payload 
 - non-creating resolution that intentionally does not create the selected or would-bootstrap overlay,
 - implicit bootstrap that created the selected overlay during the current invocation.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Operator-facing wording for maintained project commands SHALL use `selected overlay root` or `selected project overlay` terminology rather than stale `discovered project overlay` wording when the command resolved an env-selected or explicitly bootstrapped overlay.
 
 #### Scenario: Non-creating project inspection reports the selected or would-bootstrap overlay
@@ -329,6 +374,11 @@ Maintained `houmao-mgr project ...` commands and project-aware catalog-backed fl
 
 When one of those flows detects a known legacy project structure that requires conversion into the current supported project model, the command SHALL fail clearly and direct the operator to `houmao-mgr project migrate`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 This requirement applies to ordinary project administration and authoring flows such as `project init`, `project ...`, project-backed credential commands, and project-aware compatibility materialization.
 
 #### Scenario: Project command fails with migration guidance instead of upgrading implicitly
@@ -341,6 +391,11 @@ This requirement applies to ordinary project administration and authoring flows 
 `houmao-mgr project [--project-dir <dir>] agents` SHALL operate on managed-agent instances that belong to the selected project overlay.
 
 `project agents` SHALL use project-local selectors for project-owned instances, such as the project-managed instance name exposed by the project layer. It SHALL validate runtime manifest ownership before returning or mutating existing managed-agent state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `project agents` SHALL NOT operate on an agent from another project overlay merely because that agent is visible in the shared managed-agent registry.
 

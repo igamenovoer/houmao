@@ -33,6 +33,11 @@ The native-agent root resolution order SHALL be:
 2. `HOUMAO_NATIVE_AGENT_ROOT` when set to a non-empty absolute path,
 3. an actionable missing-root error.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `HOUMAO_NATIVE_AGENT_ROOT` SHALL replace `HOUMAO_AGENT_DEF_DIR` for maintained native-agent internals. The system MAY continue to recognize `HOUMAO_AGENT_DEF_DIR` only as a temporary compatibility input with deprecation diagnostics.
 
 #### Scenario: Explicit native-agent root is used without project discovery
@@ -79,6 +84,11 @@ houmao-mgr internals native-agent brain build
 ```
 
 The command SHALL build one local brain home from selected native-agent material and runtime build options. It SHALL use the selected native-agent root instead of a public `--agent-def-dir` option.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `--preset` selector SHALL support:
 

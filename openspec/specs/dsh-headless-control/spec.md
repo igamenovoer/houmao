@@ -55,7 +55,14 @@ Each headless turn SHALL close and flush its native session and reap its one-sho
 
 ### Requirement: DSH Operation Support Is Explicit
 
-DSH headless capability inspection SHALL identify supported creation, exact resume, prompting, cancellation, closure, native prompt, skills, accounting sources, common-plugin observation, and home refresh. Skills and MCP discovery SHALL report only capabilities independently qualified for the native CLI. An input requiring ACP initialization or a wire request SHALL be refused before invocation. Unsupported load, transcript replay, deletion, fork, additional-workspace, raw-key, or ACP reload SHALL fail explicitly without emulation through ordinary chat.
+DSH headless capability inspection SHALL identify supported creation, exact resume, prompting, cancellation, closure, native prompt, skills, accounting sources, common-plugin observation, and home refresh. Skills and MCP discovery SHALL report only capabilities independently qualified for the native CLI. An input requiring ACP initialization or a wire request SHALL be refused before invocation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Unsupported load, transcript replay, deletion, fork, additional-workspace, raw-key, or ACP reload SHALL fail explicitly without emulation through ordinary chat.
 
 #### Scenario: Caller Requests Unsupported Session Fork
 - **WHEN** a caller requests a DSH operation that the qualified native CLI does not support

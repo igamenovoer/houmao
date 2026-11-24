@@ -1,7 +1,7 @@
 # single-agent-gateway-wakeup-headless-demo Specification
 
 ## Purpose
-TBD - created by archiving change add-single-agent-gateway-wakeup-headless-demo. Update Purpose after archive.
+Teach operators to launch one managed headless Claude Code or Codex agent, attach its gateway, and use mailbox delivery to wake the agent. Keep the demonstration state isolated and verify handling through gateway, runtime, mailbox, and output evidence.
 ## Requirements
 ### Requirement: `scripts/demo/` SHALL publish a supported `single-agent-gateway-wakeup-headless` demo
 
@@ -23,6 +23,11 @@ That output root SHALL contain:
 - a copied project worktree under `project/`,
 - a redirected Houmao project overlay under `overlay/`,
 - demo-owned registry, control, log, delivery, and evidence artifacts under sibling directories.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The demo SHALL run project-aware commands from the copied project root while exporting `HOUMAO_PROJECT_OVERLAY_DIR` as the absolute path to the sibling `overlay/` directory.
 
@@ -48,6 +53,11 @@ The demo SHALL reset ephemeral run-local state on a fresh `start`, including the
 The stepwise headless workflow SHALL keep the managed agent inside one demo-owned tmux session even though the runtime surface is headless.
 
 The primary agent surface and the live gateway surface SHALL remain separately inspectable within that tmux session. The headless agent SHALL run in the primary agent window, and the gateway SHALL attach in a separate watchable auxiliary window.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `attach` SHALL resolve the persisted active demo state and re-attach the operator to the live demo tmux session for the selected tool lane.
 
@@ -83,6 +93,11 @@ The supported stepwise/manual surface of `scripts/demo/single-agent-gateway-wake
 
 The implementation MAY retain `manual-send` as a compatibility alias, but the maintained README and operator workflow SHALL teach `send` as the primary message-injection command.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `notifier ...` subcommands SHALL reuse the existing gateway mail-notifier behavior for the running demo instance and SHALL allow the operator to inspect current notifier state, enable or disable notifier polling, and update the polling interval.
 
 #### Scenario: Operator injects an additional message with `send`
@@ -108,6 +123,11 @@ The supported demo SHALL present one narrow single-agent workflow:
 7. inject one operator-originated filesystem-backed mailbox message,
 8. observe the headless agent wake and process that message.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The demo SHALL include:
 
 - one automatic one-shot workflow,
@@ -130,6 +150,11 @@ The stepwise workflow SHALL use canonical persisted demo state under `outputs/` 
 
 ### Requirement: Maintained demo lanes use native installed Houmao mailbox skills
 For the maintained Claude, Codex, and Gemini lanes, the supported `single-agent-gateway-wakeup-headless` demo SHALL exercise the mailbox-system-skill contract through installed Houmao-owned mailbox skills in the selected runtime home and SHALL NOT depend on a project-local `skills/mailbox/...` mirror or copied `SKILL.md` path for ordinary runtime prompting.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For maintained wake-up rounds:
 - Claude guidance SHALL use the installed Houmao mailbox skill through Claude's native skill surface.
@@ -161,6 +186,11 @@ The supported demo SHALL treat success as all of the following:
 - the headless managed-agent inspection surface records execution evidence for the delivered work,
 - the agent creates the requested artifact under the copied project's `tmp/` directory,
 - `houmao-mgr agents mail list --read-state unread` reaches zero actionable unread messages for the selected agent.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `houmao-mgr project mailbox messages list|get` SHALL remain structural inspection only within this demo and SHALL be used to corroborate message identity, folder, projection path, canonical path, sender, recipients, subject, body, and attachments rather than authoritative read-state.
 

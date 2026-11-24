@@ -5,7 +5,14 @@ Define the documentation requirements for the top-level Houmao docs site structu
 ## Requirements
 ### Requirement: Docs index provides canonical navigation
 
-The `docs/index.md` file SHALL serve as the single entry point for all Houmao documentation. It SHALL contain a table of contents linking to every section: getting-started, reference (organized by phase and subsystem), developer guides, and examples. It SHALL NOT reference CAO as a primary concept, demo packs, migration guides, or deleted pages (`agents_brains.md`, `brain-builder.md`, `recipes-and-adapters.md`). Links to the deleted build-phase pages SHALL be removed; the build-phase section SHALL list `launch-overrides.md` and `launch-policy.md`.
+The `docs/index.md` file SHALL serve as the single entry point for all Houmao documentation. It SHALL contain a table of contents linking to every section: getting-started, reference (organized by phase and subsystem), developer guides, and examples. It SHALL NOT reference CAO as a primary concept, demo packs, migration guides, or deleted pages (`agents_brains.md`, `brain-builder.md`, `recipes-and-adapters.md`).
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Links to the deleted build-phase pages SHALL be removed; the build-phase section SHALL list `launch-overrides.md` and `launch-policy.md`.
 
 #### Scenario: New reader navigates from index
 
@@ -31,6 +38,11 @@ The `docs/index.md` file SHALL serve as the single entry point for all Houmao do
 
 The `docs/index.md` file SHALL open with a short introductory block (2–3 sentences) describing what Houmao is and who the site is for (primarily installed users, with developer and contributor material available). Immediately after the intro, the file SHALL include a "where to start" table with at minimum three audience rows: installed user, from-source developer, and contributor. Each row SHALL name the audience and point to its recommended starting resource.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The installed-user row SHALL point readers toward installing Houmao system skills, starting their CLI agent in the target project, and invoking `houmao-touring`. The from-source developer row SHALL still point to the quickstart guide, but it SHALL describe that page as the agent-driven first-run guide with source-checkout launcher notes rather than as a manual build-brain command walkthrough.
 
 #### Scenario: Installed user lands on docs index
@@ -53,7 +65,14 @@ The installed-user row SHALL point readers toward installing Houmao system skill
 
 ### Requirement: Directory structure mirrors source packages
 
-The `docs/` directory structure SHALL organize reference content by system phase and subsystem, mirroring the source package layout: `reference/cli/`, `reference/build-phase/`, `reference/run-phase/`, `reference/gateway/`, `reference/mailbox/`, `reference/tui-tracking/`, `reference/lifecycle/`, `reference/registry/`, `reference/terminal-record/`, and `reference/system-files/`. The `reference/build-phase/` directory SHALL contain `launch-overrides.md` and `launch-policy.md` after the three deleted files are removed. The `mkdocs.yml` navigation SHALL reflect these deletions with no dangling entries.
+The `docs/` directory structure SHALL organize reference content by system phase and subsystem, mirroring the source package layout: `reference/cli/`, `reference/build-phase/`, `reference/run-phase/`, `reference/gateway/`, `reference/mailbox/`, `reference/tui-tracking/`, `reference/lifecycle/`, `reference/registry/`, `reference/terminal-record/`, and `reference/system-files/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+The `reference/build-phase/` directory SHALL contain `launch-overrides.md` and `launch-policy.md` after the three deleted files are removed. The `mkdocs.yml` navigation SHALL reflect these deletions with no dangling entries.
 
 #### Scenario: Each source subsystem has a docs counterpart
 
@@ -85,6 +104,11 @@ The `docs/index.md` and `docs/reference/index.md` files SHALL include links to a
 - `docs/getting-started/easy-specialists.md`
 - `docs/getting-started/launch-profiles.md`
 - `docs/reference/build-phase/launch-policy.md`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each link SHALL include a one-line description of the page content.
 
@@ -120,6 +144,13 @@ The `mkdocs.yml` navigation SHALL list `docs/getting-started/launch-profiles.md`
 
 ### Requirement: Cross-references between new and existing pages verified
 
+All cross-references between new and existing documentation pages SHALL resolve correctly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 All cross-references between new pages and existing pages SHALL resolve correctly. Specifically:
 
 - The easy-specialist guide SHALL link to the CLI reference for `project` commands and to the launch-profiles guide for the shared conceptual model.
@@ -143,6 +174,13 @@ All cross-references between new pages and existing pages SHALL resolve correctl
 - **THEN** the easy-specialists, agent-definitions, `houmao-mgr` CLI reference, and launch-overrides target pages exist and resolve
 
 ### Requirement: Index pages link the new managed prompt header reference and system-skills overview guide
+
+`docs/index.md` and `docs/reference/index.md` SHALL link to the managed prompt header reference and the system-skills overview guide.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `docs/index.md` and `docs/reference/index.md` files SHALL include links to the two new pages introduced by this change:
 
@@ -174,6 +212,13 @@ The `mkdocs.yml` navigation SHALL list both new pages under the appropriate sect
 
 ### Requirement: Cross-references between new pages and existing pages verified during this pass
 
+All documentation cross-references introduced by the managed prompt header reference and system-skills overview change SHALL resolve correctly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The cross-references introduced by this change SHALL all resolve correctly. Specifically:
 
 - The managed prompt header reference SHALL link to `docs/getting-started/launch-profiles.md`, `docs/reference/run-phase/role-injection.md`, and `docs/reference/cli/houmao-mgr.md`.
@@ -188,6 +233,13 @@ The cross-references introduced by this change SHALL all resolve correctly. Spec
 - **THEN** the target page exists and the link resolves correctly
 
 ### Requirement: Docs index lists the current top-level CLI reference pages
+
+The CLI Surfaces section of `docs/index.md` SHALL link to the reference pages for `houmao-mgr`, `houmao-server`, `houmao-passive-server`, `system-skills`, `agents-gateway`, `agents-turn`, `agents-mail`, `agents-mailbox`, and `admin-cleanup`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `docs/index.md` file SHALL link to each of the following CLI reference pages from its CLI Surfaces section so the landing page matches the coverage already present in `docs/reference/index.md`:
 
@@ -241,6 +293,11 @@ The `docs/reference/index.md` file SHALL NOT contain any link to the same retire
 
 The `docs/index.md` file SHALL surface the 0.8.0 subsystem capabilities — gateway control-request coalescing, mail-notifier context-recovery policy, lifecycle-aware managed-agent registry record, and the reuse-home / stop-relaunch run-phase flow — through its existing Subsystems block (or an immediately adjacent list) without requiring the reader to first open the per-subsystem index page.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For each of those four capabilities the landing page SHALL either:
 
 - add a short capability-named pointer line under the corresponding subsystem entry (for example, "Gateway -> control-request coalescing"), OR
@@ -290,6 +347,11 @@ The existing Subsystems block rows and their existing links (gateway index, mail
 The docs landing page `docs/index.md` SHALL point installed users toward the current recommended agent-driven setup path.
 
 For installed users with `npx` and internet access, the docs index SHALL mention installing system skills with `npx skills add` against the root of `https://github.com/igamenovoer/houmao-skills` or link to guidance that does so. The linked guidance SHALL distinguish latest-stable installation from Git-tag-pinned installation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The docs index SHALL still route readers to `houmao-mgr system-skills install` or the system-skills overview/reference when they need offline, package-local, explicit-home, named-set, subset-skill, symlink/copy, or cleanup behavior.
 

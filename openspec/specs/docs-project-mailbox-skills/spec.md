@@ -7,6 +7,13 @@ Define the documentation requirements for the project mailbox skills reference p
 
 ### Requirement: Project mailbox skills reference page exists
 
+The mailbox reference SHALL include `docs/reference/mailbox/contracts/project-mailbox-skills.md` to document native mailbox skill projection into runtime homes for Claude and other tools.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The mailbox reference SHALL include a page at `docs/reference/mailbox/contracts/project-mailbox-skills.md` documenting native mailbox skill projection into runtime homes for Claude and other tools. The page SHALL explain:
 
 - What mailbox skills are: system-level SKILL.md assets that are automatically injected into an agent's runtime home during the build phase when the agent has a mailbox binding.

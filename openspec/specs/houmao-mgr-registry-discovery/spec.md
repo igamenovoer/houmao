@@ -6,6 +6,11 @@ The shared registry SHALL represent managed-agent lifecycle state rather than on
 
 Each registry record SHALL contain durable managed-agent identity and runtime locator metadata, including `agent_name`, `agent_id`, backend/tool identity, manifest path, session root, and agent-definition directory when available.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Each registry record SHALL expose a lifecycle state. At minimum, lifecycle state SHALL distinguish:
 
 - `active`: live runtime control is available
@@ -38,6 +43,11 @@ Stopped records SHALL preserve the last known tmux session name separately from 
 ### Requirement: Agent post-launch commands use registry-first discovery
 
 `houmao-mgr agents` post-launch commands that require live runtime control SHALL resolve `<agent_ref>` by first looking up owner-local lifecycle records and operator execution locators in the shared registry before contacting a fallback server.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The active discovery chain SHALL be:
 1. Look up `<agent_ref>` in the shared managed-agent registry's owner-local and execution-locator collections and reject conflicting or ambiguous matches
@@ -101,6 +111,11 @@ Stopped lifecycle records SHALL NOT be treated as active live targets for prompt
 
 By default, `agents list` SHALL show active managed agents only. The command SHALL provide an explicit lifecycle-inclusive mode, such as `--all` or `--state <state>`, for stopped or retired records.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a `houmao-server` is reachable, the list MAY be enriched with server-managed agent state (e.g., TUI tracking status), but the registry SHALL be the primary source so that agents launched without a server are still visible.
 
 #### Scenario: Agents list shows locally launched active agents
@@ -132,6 +147,11 @@ When a `houmao-server` is reachable, the list MAY be enriched with server-manage
 `houmao-mgr agents relaunch` SHALL resolve explicit local `--agent-id` and `--agent-name` selectors through lifecycle-aware registry records.
 
 When the selected registry record is active and local tmux authority is healthy, relaunch SHALL use the existing active relaunch path.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the selected registry record is active but local tmux authority is degraded because the tmux session still exists while the contractual primary surface is missing, relaunch SHALL use the degraded-active recovery path for that same logical managed agent.
 
@@ -205,6 +225,11 @@ For serverless local `houmao-mgr agents` commands that resolve a managed agent t
 - exact authoritative `agent_id`
 - unique friendly `agent_name`
 - unique exact current tmux session name from an active registry record's terminal metadata
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For the native CLI surface, the local registry-backed discovery path SHALL be driven by explicit selector flags rather than one positional managed-agent reference:
 
@@ -305,6 +330,11 @@ At minimum, the successful stop response SHALL include:
 - `manifest_path`
 - `session_root`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The command SHALL capture these values before clearing or otherwise losing the live shared-registry record. These locator fields SHALL remain valid for supported `houmao-mgr agents cleanup session|logs|mailbox --manifest-path` or `--session-root` follow-up as long as the corresponding runtime-owned artifacts still exist.
 
 For relaunchable local tmux-backed managed agents, a successful stop SHALL update the shared registry record to lifecycle state `stopped` instead of deleting the managed-agent identity record. The stopped record SHALL preserve the locators needed for later `houmao-mgr agents relaunch` and `houmao-mgr agents cleanup`.
@@ -350,6 +380,11 @@ This same stop contract SHALL apply when the selected local tmux-backed active r
 
 `houmao-mgr` registry-backed managed-agent discovery SHALL include external communication-only records as selectable communication targets while preserving the existing local lifecycle record contract.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Owner-local lifecycle records under `live_agents/` and executor-managed routing locators SHALL form the first registry discovery tier for normal managed-agent selectors. Conflicting managed matches SHALL fail explicitly. External records SHALL be considered only after no matching managed lifecycle target is selected. Explicit pair-port targeting SHALL continue to bypass registry discovery.
 
 External discovery SHALL resolve by local external-agent id for `--agent-id` and by local external-agent name for `--agent-name`. It SHALL route to the stored remote agent reference rather than treating the local alias as a remote pair-managed identity. An execution profile with a matching name or address SHALL NOT upgrade an external record's authority.
@@ -376,6 +411,11 @@ External discovery SHALL resolve by local external-agent id for `--agent-id` and
 
 ### Requirement: External registry records remain separate from local lifecycle records
 External communication-only records SHALL be stored in a registry collection that is separate from local lifecycle records. Local lifecycle validation, lease freshness, tmux liveness probing, relaunch resolution, and stale local runtime cleanup SHALL NOT require external records to contain local runtime metadata.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Registry cleanup that is designed for stale local lifecycle records SHALL NOT delete valid external communication-only records merely because they lack local tmux sessions, local leases, or local manifest paths.
 

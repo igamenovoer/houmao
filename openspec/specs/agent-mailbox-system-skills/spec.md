@@ -4,6 +4,11 @@ Define the runtime-owned mailbox system-skill contract, including env bindings, 
 ### Requirement: Runtime-owned mailbox system skills are never copied into launched project content
 Runtime-owned Houmao mailbox system skills SHALL remain runtime-home assets under the active tool skill destination and SHALL NOT be copied into copied project worktrees, generated demo project content, or other launched project content merely to make ordinary mailbox prompting succeed.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Maintained runtime and demo workflows SHALL treat project content and runtime-owned mailbox skills as separate surfaces:
 - copied project content remains ordinary work content,
 - runtime-owned mailbox skills remain installed in the tool-native runtime-home skill destination,
@@ -23,6 +28,11 @@ Maintained runtime and demo workflows SHALL treat project content and runtime-ow
 The system SHALL provide a projected runtime-owned mailbox skill `houmao-process-emails-via-gateway` that defines the workflow for processing gateway-notified unread emails in bounded rounds.
 
 That workflow SHALL assume the current notifier round already provides the exact current gateway base URL needed for shared mailbox operations.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workflow SHALL start by using the shared gateway mailbox API itself to inspect current mailbox state for the round, including listing unread mail through the shared `/v1/mail/*` surface.
 
@@ -89,6 +99,11 @@ When `houmao-mgr agents join` adopts a mailbox-enabled session with default syst
 
 The installation SHALL use the shared pack installer, copy projection, and a pack receipt. The agent entrypoint's protected composition SHALL include the notifier-round processing routine and ordinary mailbox routine, while unrelated user-authored skills remain untouched.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If the agent pack cannot be staged, validated, or committed safely, join SHALL fail before publishing a managed session whose runtime prompts assume the entrypoint exists. An explicit system-skill opt-out MAY continue without the pack, but later prompts SHALL NOT assume mailbox routines are available.
 
 #### Scenario: Joined mailbox session receives agent pack
@@ -130,6 +145,11 @@ If the agent pack cannot be staged, validated, or committed safely, join SHALL f
 ### Requirement: Tmux-backed mailbox system skills resolve current mailbox bindings through a runtime-owned live resolver
 For tmux-backed managed sessions, projected mailbox system skills SHALL resolve current mailbox bindings through the runtime-owned live resolver exposed by `houmao-mgr agents self mail resolve-live` rather than relying on the provider process's inherited mailbox env snapshot, mailbox-specific tmux env, or a direct Python-module entrypoint.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That live resolver SHALL:
 
 - support same-session discovery when selectors are omitted inside the owning managed tmux session,
@@ -159,6 +179,11 @@ When a live gateway is attached, the resolver SHALL return the exact current `ga
 ### Requirement: Runtime-owned mailbox skill guidance keeps tmux integration behind the runtime-owned helper boundary
 Projected mailbox system skills for tmux-backed sessions SHALL keep raw tmux integration details behind the runtime-owned helper boundary exposed through `houmao-mgr`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill guidance SHALL NOT require the agent to:
 
 - list all tmux session environment variables,
@@ -175,6 +200,11 @@ The skill guidance SHALL NOT require the agent to:
 ### Requirement: Projected mailbox system skills keep routine attached-session actions on the shared gateway facade
 
 When a live gateway exposes the shared `/v1/mail/*` mailbox surface for a mailbox-enabled session, the projected mailbox system skills SHALL use the shared gateway facade for ordinary mailbox work.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Projected mailbox system skills for filesystem and `stalwart` SHALL resolve current mailbox state through `houmao-mgr agents self mail resolve-live` and use a runtime-owned client for live calls. Managed self commands SHALL sign the challenge with the current generation's key. Scoped admins SHALL use an explicit signing key. Skill text, resolver output, and shell examples SHALL omit keys, proof material, and private credential references.
 
@@ -234,6 +264,11 @@ That policy guidance MAY include markdown instructions about:
 - mailbox-local etiquette,
 - other presentation or workflow hints specific to that mailbox.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL NOT present mailbox `rules/` as requiring the agent to execute mailbox-owned Python helper scripts for ordinary list, peek, read, send, post, reply, mark, move, or archive work.
 
 #### Scenario: Filesystem mailbox skill treats mailbox-local rules as policy guidance
@@ -245,6 +280,11 @@ The skill SHALL NOT present mailbox `rules/` as requiring the agent to execute m
 Mailbox-enabled managed homes SHALL receive the agent pack rather than separate top-level mailbox skills.
 
 The one public mailbox-capable surface SHALL be `houmao-agent-entrypoint`. Its protected `houmao-shared-routines` composition SHALL include `houmao-agent-email-comms` for ordinary mailbox work and `houmao-process-emails-via-gateway` for notified unread-mail rounds. Transport-specific ordinary guidance SHALL remain private to the ordinary mailbox routine.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The runtime SHALL NOT project the protected mailbox logical ids as top-level skill directories, SHALL NOT require role-authored mailbox skill content, and SHALL NOT create a parallel hidden mailbox compatibility tree.
 
@@ -299,6 +339,11 @@ The agent pack's protected composition SHALL include two distinct mailbox logica
 
 `houmao-process-emails-via-gateway` SHALL own notifier-triggered, bounded unread-mail rounds, assume the notifier supplies the exact gateway base URL, perform metadata-first triage, inspect selected messages, complete work, archive successfully processed mail, and stop for the next notifier wake-up.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `houmao-agent-email-comms` SHALL own ordinary discovery, status, list, peek, read, send, post, reply, mark, move, and archive behavior. It SHALL prefer a gateway base URL already present in prompt or route context and SHALL use the manager-owned live resolver only when current context lacks that URL. Filesystem and Stalwart guidance SHALL remain internal to this protected routine.
 
 The public agent entrypoint SHALL route to the correct protected routine from operation and notifier context. It SHALL NOT project transport-specific or old compatibility mailbox skills as top-level directories.
@@ -350,6 +395,11 @@ The public agent entrypoint SHALL route to the correct protected routine from op
 ### Requirement: Unified ordinary-mailbox skill uses the manager-owned live resolver as the ordinary gateway discovery contract
 Projected runtime-owned mailbox skills SHALL direct agents to the manager-owned live resolver `houmao-mgr agents self mail resolve-live` only when current prompt or context does not already provide the exact current gateway base URL needed for shared `/v1/mail/*` mailbox operations.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When current prompt or context already provides the exact current gateway base URL, runtime-owned mailbox skills SHALL treat that URL as the authoritative endpoint prefix for the current mailbox work and SHALL NOT require redundant manager-based rediscovery.
 
 When the manager-owned live resolver returns a `gateway` object, runtime-owned mailbox skills SHALL treat `gateway.base_url` as the exact current endpoint prefix for channel-selected `/v1/mail/{channel}/...` mailbox operations. The routine SHALL preserve the selected channel and expected binding ID.
@@ -378,6 +428,11 @@ Projected runtime-owned mailbox skills SHALL NOT present `python -m houmao.agent
 ### Requirement: Runtime-owned mailbox workflow skills use archive as completion
 Projected runtime-owned mailbox workflow skills SHALL instruct agents to treat archive, not read state, as the completion signal for processed mailbox work.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The `houmao-process-emails-via-gateway` workflow SHALL direct agents to list open inbox work through the gateway, choose relevant messages for the current round, peek or read selected messages intentionally, perform the requested work, reply or acknowledge when appropriate, archive only successfully processed messages, and stop after the round.
 
 Deferred, skipped, or not-yet-completed messages SHALL remain unarchived so later notifier rounds can wake the agent again.
@@ -391,6 +446,11 @@ Deferred, skipped, or not-yet-completed messages SHALL remain unarchived so late
 Projected runtime-owned mailbox skills SHALL present the ordinary mailbox action set as status, list, peek, read, send, post, reply, mark, move, archive, and resolve-live.
 
 The skills SHALL explain that listing and peeking do not mark a message read, that reading marks a message read, that reply marks the parent answered, and that archive closes processed inbox work.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skills SHALL keep manual marking available as a repair or operator-directed action rather than as the normal completion step for processed mail.
 
@@ -408,6 +468,11 @@ The skills SHALL keep manual marking available as a repair or operator-directed 
 The runtime-owned `houmao-process-emails-via-gateway` workflow skill SHALL understand notifier prompts that identify notification mode as `any_inbox` or `unread_only`.
 
 When the prompt identifies mode `any_inbox`, the workflow SHALL direct the agent to list open inbox mail through the shared gateway mailbox API and process relevant selected mail for the round.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the prompt identifies mode `unread_only`, the workflow SHALL direct the agent to start from unread inbox mail through the shared gateway mailbox API for that round.
 

@@ -1,7 +1,7 @@
 # registry-reference-docs Specification
 
 ## Purpose
-TBD - created by archiving change add-shared-registry-reference-docs. Update Purpose after archive.
+Give operators and maintainers a dedicated reference for the shared agent registry as a locator layer. Document local and external record semantics, discovery and cleanup procedures, and how the runtime publishes and retires records.
 ## Requirements
 ### Requirement: Shared-registry reference documentation is organized under a dedicated subtree
 The repository SHALL publish the shared live-agent registry reference documentation under `docs/reference/registry/` with an `index.md` entrypoint instead of concentrating the full registry reference inside broader runtime pages.
@@ -31,6 +31,11 @@ The registry reference SHALL include at minimum one detailed page in each of tho
 ### Requirement: Shared-registry reference pages combine intuitive explanations with exact technical detail
 Each detailed shared-registry reference page SHALL be understandable to first-time readers while still preserving the exact technical details needed for implementation, debugging, or maintenance.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, each detailed registry reference page SHALL include:
 
 - a short explanation of what the page covers,
@@ -53,6 +58,11 @@ When a shared-registry reference page introduces an important procedure involvin
 
 These diagrams SHALL accompany the prose explanation rather than replace it.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Important shared-registry procedures include at minimum:
 
 - name-based resolution with tmux-local discovery and shared-registry fallback,
@@ -71,6 +81,11 @@ Important shared-registry procedures include at minimum:
 
 ### Requirement: Shared-registry contract documentation explains the locator-layer boundary and implemented v2 record semantics
 The shared-registry contract documentation SHALL explain that the shared registry is a locator layer pointing to runtime-owned state rather than a replacement authority for manifests, tmux discovery, gateway artifacts, or mailbox state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that contract coverage SHALL include:
 
@@ -100,6 +115,11 @@ The contract documentation SHALL reflect current implemented v2 behavior and SHA
 ### Requirement: Shared-registry operational documentation covers discovery fallback and cleanup workflows
 The shared-registry operational documentation SHALL explain how registry-backed discovery and cleanup behave in the implemented v1 flow.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, that operational guidance SHALL cover:
 
 - when name-based control uses tmux-local discovery first,
@@ -120,6 +140,11 @@ At minimum, that operational guidance SHALL cover:
 
 ### Requirement: Shared-registry internal documentation explains runtime publication hooks and failure boundaries
 The shared-registry internal documentation SHALL explain how the runtime publishes, refreshes, persists, and clears registry state across runtime-managed session lifecycle actions.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that internal coverage SHALL include:
 
@@ -162,6 +187,11 @@ At minimum, the documentation SHALL define or explain recurring terms such as sh
 ### Requirement: Registry reference pages link to the centralized system-files reference for the broader Houmao filesystem map
 The shared-registry reference documentation SHALL keep registry-specific contract, ownership, and lifecycle semantics in the registry subtree while pointing readers to the centralized system-files reference for the broader Houmao filesystem map.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Registry pages SHALL continue to document registry-specific paths such as `live_agents/<agent-id>/record.json`, but they SHALL defer the broader relationship between the registry root, runtime root, launcher state, and workspace-local scratch to the centralized system-files reference.
 
 Registry reference pages SHALL use current `agent_id`-keyed terminology for live-agent directories and SHALL NOT describe the current registry layout through legacy `agent key` language from the older canonical-name-keyed design.
@@ -196,6 +226,11 @@ At minimum, the registry reference SHALL link to the centralized system-files re
 
 ### Requirement: Registry reference documents external communication-only records
 The shared-registry reference documentation SHALL describe external communication-only managed-agent records alongside local lifecycle-managed records.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The documentation SHALL explain:
 - why external records are stored separately from local lifecycle records,

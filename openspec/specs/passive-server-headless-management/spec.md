@@ -1,13 +1,18 @@
 # passive-server-headless-management Specification
 
 ## Purpose
-TBD - synced from change passive-server-requests-and-headless. Update Purpose after archive.
+Let the passive server launch managed headless agents, publish their registry records, and submit turns. Durable authority and execution records support restart recovery and queries for turn status, events, artifacts, and usage.
 ## Requirements
 
 ### Requirement: Passive server headless launch publishes shared-registry state
 `POST /houmao/agents/headless/launches` SHALL explicitly publish a `LiveAgentRegistryRecordV2` for the launched headless agent after `start_runtime_session()` succeeds and before the launch is reported as successful.
 
 The published record SHALL make the new agent discoverable to later passive-server routes and other registry consumers.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If shared-registry publication fails after the runtime session starts, the passive server SHALL stop the launched session, avoid leaving partial managed state behind, and report the launch as failed instead of returning success.
 
@@ -27,6 +32,11 @@ If shared-registry publication fails after the runtime session starts, the passi
 Before launch, the passive server SHALL validate that `working_directory` is an existing directory, `agent_def_dir` is an existing directory, `brain_manifest_path` is an existing file, and `tool` matches the manifest `inputs.tool`.
 
 If `role_name` is present, the passive server SHALL validate that the role exists before attempting launch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If mailbox options are present, the passive server SHALL forward the full mailbox configuration needed by the selected transport, including Stalwart-specific fields.
 
@@ -116,6 +126,11 @@ On startup, the `HeadlessAgentService` SHALL scan persisted `ManagedHeadlessAuth
 For each persisted authority whose tmux session is still live, the service SHALL call `resume_runtime_session()` from the stored manifest and persisted runtime state to rebuild the in-memory handle with a resumable `RuntimeSessionController`.
 
 The rebuilt handle SHALL support turn submission, interrupt, and stop without requiring a relaunch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For authorities whose tmux sessions are gone or whose persisted runtime state cannot be resumed irrecoverably, the service SHALL log a warning and clean up the stale authority record.
 

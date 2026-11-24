@@ -7,6 +7,11 @@ Define the packaged Houmao-owned `houmao-credential-mgr` skill for credential-ma
 
 The system SHALL package a Houmao-owned system skill named `houmao-credential-mgr` under the maintained system-skill asset root.
 
+#### Scenario: Packaged credential guidance routes operators to supported commands
+
+- **GIVEN** an agent consults `houmao-credential-mgr` to manage provider credentials
+- **THEN** the packaged guidance identifies the supported operations, tool families, and command surfaces
+
 That skill SHALL instruct agents to manage credential CRUD through these supported commands for supported credential-CRUD tool families:
 
 - `houmao-mgr project credentials <tool> list`
@@ -88,6 +93,13 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **AND THEN** it does not present a `houmao-mgr project credentials kimi login` or `houmao-mgr internals native-agent credentials kimi login` helper unless a maintained Kimi login helper is added in a later change
 
 ### Requirement: `houmao-credential-mgr` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-credential-mgr` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-credential-mgr` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
@@ -163,6 +175,11 @@ The packaged `houmao-credential-mgr` skill SHALL tell the agent to recover omitt
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL resolve both action and target:
 
 - use `project [--project-dir <dir>] credentials <tool> list|get|add|set|rename|remove|login` when the request is clearly project-local, names a project directory, or the active project overlay is the intended target,
@@ -224,6 +241,11 @@ Unless the user explicitly asks for a narrower path-based inspection as part of 
 The packaged `houmao-credential-mgr` skill SHALL route requests to obtain fresh provider auth files through the supported credential `login` helper when the user asks to log in with a new Codex, Claude, or Gemini account and import the resulting credential into Houmao storage.
 
 The top-level `SKILL.md` for that packaged skill SHALL include `login` in its action router alongside `list`, `get`, `add`, `set`, `rename`, and `remove`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL instruct agents to use:
 
@@ -287,6 +309,11 @@ The skill SHALL tell agents not to hand-roll this workflow by manually creating 
 The packaged `houmao-credential-mgr` skill SHALL include local Kimi Code login-handling guidance for requests to obtain a fresh default Kimi Code OAuth login and import it into Houmao Kimi credential storage.
 
 The guidance SHALL explain that `kimi login` is the Kimi Code CLI OAuth device-code login command and SHALL distinguish it from the Kimi TUI `/login` flow, which can also collect Kimi Platform API keys.
+
+#### Scenario: Kimi credential guidance obtains and imports an explicit OAuth login
+
+- **GIVEN** the user asks for a fresh default Kimi Code OAuth login and Houmao import
+- **THEN** the guidance uses the supported CLI login and credential import workflow
 
 The guidance SHALL tell agents to run `kimi login` in a dedicated tmux session by default, with an isolated temporary `KIMI_CODE_HOME`, when the user asks for a new Kimi Code OAuth credential and the required Houmao credential name and target are known.
 
@@ -447,6 +474,11 @@ At minimum, covered credential verbs SHALL include:
 
 The skill SHALL document project-vs-native-agent lane selection directly and SHALL include tool-specific option shapes for Claude, Codex, and Gemini where a workflow needs credential material flags.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL NOT reference `houmao-mgr internals command-templates show`, `houmao-mgr internals command-templates render`, command-template ids, or template blockers.
 
 #### Scenario: Codex credential add uses direct project command
@@ -469,6 +501,11 @@ The skill SHALL NOT reference `houmao-mgr internals command-templates show`, `ho
 The packaged `houmao-credential-mgr` action pages for `list`, `get`, `add`, `set`, `rename`, and `remove` SHALL include Kimi as a supported tool family wherever those pages enumerate supported tools or show tool-specific credential examples.
 
 Kimi `add` and `set` guidance SHALL describe only documented Kimi credential flags and SHALL NOT invent provider-neutral flags that the CLI does not support.
+
+#### Scenario: Credential action pages describe the supported Kimi operations
+
+- **GIVEN** an agent consults a packaged credential action page for Kimi Code
+- **THEN** the guidance identifies supported Kimi operations, flags, or login routing for that action
 
 Kimi `login` guidance SHALL state that Kimi does not have a maintained Houmao credential login helper in this change and may route explicit Kimi Code OAuth login/import requests to the local Kimi Code login-handling workflow.
 

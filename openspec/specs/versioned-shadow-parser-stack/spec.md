@@ -15,6 +15,11 @@ For each provider, the stack SHALL select exactly one parsing preset for a given
 2. A detected version signature from the output when present.
 3. A deterministic fallback strategy when version detection fails.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The stack SHALL return:
 
 - a structured provider `SurfaceAssessment` value object for the selected snapshot,
@@ -44,6 +49,11 @@ The stack SHALL treat state/projection artifacts as the core parser contract ins
 
 ### Requirement: Dialog projection processing is modular and swappable within the parser stack
 The runtime-owned shadow parser stack SHALL resolve dialog projection through a provider-owned projection processor abstraction rather than by hardwiring all projection rules into one monolithic parser method.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For each parsed snapshot, the provider parser SHALL select exactly one projection processor instance.
 The projection processor contract SHALL be a repo-owned duck-typed interface such as a `Protocol` or an equivalent narrow abstraction rather than an ad hoc callback surface.
@@ -86,6 +96,11 @@ At minimum, the shared base `SurfaceAssessment` contract SHALL carry:
 - `operator_blocked_excerpt` when an active blocked surface exposes a useful operator-facing excerpt, and
 - parser metadata/anomalies.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The shared `business_state` vocabulary SHALL include:
 
 - `idle`
@@ -122,6 +137,11 @@ The runtime-owned shadow parser stack SHALL classify `ui_context="slash_command"
 
 Historical slash-command echoes, command results, or model-switch output that remain visible elsewhere in the same `mode=full` scrollback SHALL NOT keep a newer normal prompt classified as `slash_command`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a newer normal prompt is visible, the returned `SurfaceAssessment.input_mode` value SHALL reflect that recovered `freeform` prompt even if the dialog projection still includes earlier slash-command content.
 
 #### Scenario: Active slash-command prompt is classified as slash-command
@@ -144,6 +164,11 @@ When evidence conflicts inside one bounded window, parsers SHALL resolve input s
 2. slash-command or other modal command surfaces
 3. normal freeform prompt surfaces
 4. `unknown` when the active input region cannot be resolved safely
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Parsers SHALL NOT emit contradictory pairs such as:
 
@@ -204,6 +229,11 @@ Provider implementations SHALL expose provider-specific subclasses that refine p
 ### Requirement: Shadow parser stack supports controlled projection-processor override
 The runtime-owned shadow parser stack SHALL support controlled override of the projection processor used for a parsed snapshot so tests and advanced callers can swap projection behavior without rewriting provider parser classes.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 This controlled override SHALL be exposed through provider parser construction and through `ShadowParserStack` construction.
 The stack-level override SHALL act as pass-through injection to the selected provider parser rather than as an independent projector-selection mechanism.
 This controlled override SHALL remain narrower than arbitrary runtime plugin discovery.
@@ -240,6 +270,11 @@ Its parsing contract SHALL continue to operate on normalized snapshot text plus 
 
 ### Requirement: Repo-owned shadow-aware helper code uses the shared stack-level abstraction
 Repo-owned helpers, runtime code, or server integrations that need to parse supported provider TUI snapshots outside the main CAO turn engine SHALL use the shared parser stack or another repo-owned stack-level adapter that preserves provider selection, parser-owned projector selection, controlled override behavior, and structured state/projection outputs.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 They SHALL NOT bypass that shared abstraction by pinning provider-private parser classes, CAO provider status helpers, or other ad hoc parser entry points as the normal integration point for server-owned or helper-owned parsing behavior that the stack now owns.
 

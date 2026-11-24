@@ -1,7 +1,7 @@
 # ag-ui-workbench-app Specification
 
 ## Purpose
-TBD - created by archiving change add-ag-ui-workbench-app. Update Purpose after archive.
+Give developers a standalone browser workbench for testing and operating Houmao AG-UI sessions. Define docked agent and tmux panes, event and graphics rendering, and the boundaries for stored layout and stream state.
 ## Requirements
 
 ### Requirement: Standalone AG-UI workbench app
@@ -10,6 +10,11 @@ The repository SHALL provide a standalone AG-UI workbench application under `app
 The workbench SHALL run as a single-user local web application with a TypeScript Fastify backend server and a browser frontend.
 
 The user SHALL start the local workbench server and open the browser to that server's loopback port.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workbench backend SHALL be part of the GUI product and SHALL NOT be treated as part of the Houmao Python package distribution.
 
@@ -71,6 +76,11 @@ The local workbench backend SHALL own AG-UI gateway network access and target-po
 
 The browser frontend SHALL request AG-UI actions through the workbench backend's private protocol rather than directly owning arbitrary Houmao gateway connections.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For watched targets, the workbench SHALL route connect-stream events through the watched-target cache and reducer rather than storing them only in pane-local state.
 
 Visible panes SHALL render the reduced state for their selected target from cached events plus live watcher updates.
@@ -111,6 +121,11 @@ Normal agent panes SHALL keep transcripts and rendered artifacts visible by defa
 ### Requirement: Workbench run requests minimize agent-visible metadata
 For normal agent pane prompt submissions, including operator-designated panes, the workbench SHALL submit AG-UI `RunAgentInput` requests with only protocol-required routing fields, the user message, an empty tools array, an empty state object, an empty context array, and an empty forwarded props object.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The workbench SHALL NOT include GUI-derived layout measurements in `RunAgentInput.context`, including `houmao.canvas_size_px.v1`, `houmao.canvas.v1`, pane dimensions, display surface dimensions, transcript dimensions, renderer dimensions, scroll state, or any equivalent canvas-size hint.
 
 The workbench SHALL NOT measure the visible graphics surface as part of normal prompt submission.
@@ -148,6 +163,11 @@ Send-capable prompt editors include normal agent pane prompt composers and Debug
 The `Shift+Enter` shortcut SHALL use the same submission path as the editor's visible Run or Send button.
 
 The shortcut SHALL NOT submit empty or whitespace-only prompt content.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Plain `Enter` in textarea-based send-capable editors SHALL remain available for multiline editing and SHALL NOT submit the prompt.
 
@@ -205,6 +225,11 @@ The clear-canvas control SHALL clear the pane's client-side AG-UI display eviden
 
 The clear-canvas control SHALL preserve target configuration, prompt text, active AG-UI connections, watcher reconnect behavior, gateway state, and managed Houmao agent lifecycle.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The clear-canvas control SHALL NOT send detach, stop, restart, shutdown, interrupt, or agent-memory-clear requests.
 
 #### Scenario: Clear removes rendered graphics from agent pane
@@ -251,6 +276,11 @@ The workbench SHALL persist layout and non-sensitive configuration in localStora
 The workbench SHALL persist AG-UI stream events only in the client-owned event cache for watched targets.
 
 The workbench SHALL NOT store stream content in localStorage by default.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workbench SHALL NOT persist discovered-agent list responses, gateway-status response bodies, prompt text, AG-UI request bodies, forwarded props, mailbox content, memory content, raw terminal content, credentials, cookies, bearer tokens, or authorization headers.
 
@@ -313,6 +343,11 @@ The renderer registry SHALL be keyed by component or tool-call name.
 The initial renderer registry SHALL support `houmao.graphic.template`, `houmao.table`, `houmao.metric_grid`, and `houmao.dashboard`.
 
 The renderer registry SHALL NOT register `houmao.chart.bar`, `houmao.chart.line`, or `houmao.chart.pie` after those fixed chart APIs are retired.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workbench SHALL preserve unknown component events as visible raw tool-call or custom-event records rather than failing the pane.
 
@@ -380,6 +415,11 @@ The test SHALL verify visible chart/dashboard evidence and fallback behavior for
 For a pane whose target source is a discovered Houmao agent, the workbench SHALL actively resolve the pane's durable agent address through the configured passive server before opening an AG-UI stream.
 
 If the agent is offline, live without a gateway, or temporarily unreachable, the pane SHALL show a deterministic waiting, offline, reconnecting, or gateway-unavailable state and SHALL retry resolution using bounded backoff.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If an active AG-UI stream ends unexpectedly, the pane SHALL mark the stream disconnected and return to the agent-address resolution loop without requiring the user to reselect the agent.
 
@@ -456,6 +496,11 @@ The operator designation SHALL NOT change AG-UI request bodies, target resolutio
 
 Only panes targeting a discovered Houmao agent SHALL be eligible for the operator designation.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If the designated pane is closed or retargeted away from a discovered Houmao agent, the workbench SHALL clear the operator designation.
 
 #### Scenario: User marks a Houmao agent pane as operator
@@ -503,6 +548,11 @@ The picker SHALL be presented as a top-placed searchable combobox/dropdown so th
 The picker SHALL list local tmux sessions available to the host running the workbench development server when the user opens the dropdown or explicitly refreshes the picker.
 
 The picker SHALL support quick fuzzy search using Fuse.js while the user types in the combobox input.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The searchable fields SHALL include tmux session name and matched Houmao agent metadata when available, including agent name, agent id, tool, backend, and generation id.
 
@@ -595,6 +645,11 @@ The workbench SHALL persist tmux tab layout and non-sensitive tmux tab configura
 
 The workbench SHALL NOT persist raw tmux terminal output, terminal input, terminal scrollback, WebSocket payloads, credentials, cookies, bearer tokens, or authorization headers in localStorage or IndexedDB.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Restored tmux tab metadata MAY remember the selected session name and attachment mode, but restored visible terminal scrollback SHALL start from a fresh attachment stream.
 
 #### Scenario: Tmux pane metadata can persist
@@ -647,6 +702,11 @@ The active-thread control SHALL show an inactive gray state when the pane's thre
 
 The active-thread control SHALL show an active green state when the pane's thread matches the gateway active thread.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The active-thread control SHALL show a deterministic unavailable or error state when the workbench cannot read active-thread status from a gateway that previously appeared to support active-thread.
 
 The active-thread control SHALL show a deterministic unsupported state, or be disabled with unsupported text, when the gateway responds as if `/active-thread` is not implemented.
@@ -695,6 +755,11 @@ The default poll interval SHALL be 1 second.
 The workbench SHALL update eligible pane active-thread presentation from the polled gateway state.
 
 The polling implementation SHALL be shared per gateway rather than duplicated per pane.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workbench SHALL stop active-thread polling for a gateway after the gateway is classified as unsupported until the pane target or gateway key changes.
 
@@ -751,6 +816,11 @@ Agent panes SHALL dispatch runtime actions for target changes, connect/watch req
 
 Agent panes SHALL keep UI-local concerns such as prompt editor state, target form editing, display DOM refs, and rendered DOM outside the runtime lifecycle effects.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Agent panes SHALL NOT keep component-local reconnect timers, stream abort refs, connection ids, or duplicated connect/run status after the equivalent workflow has moved into the runtime.
 
 #### Scenario: Agent pane connect uses runtime action
@@ -793,6 +863,11 @@ Agent panes SHALL continue to render transcripts, Houmao graphics, typed compone
 
 Normal agent panes SHALL expose state snapshots, activity, custom events, raw event timelines, and per-message tool-call evidence through the on-demand message diagnostics inspector.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Tmux panes SHALL continue to search/filter sessions, filter Houmao agent sessions, attach read-write by default, support read-only attachment, send input only for read-write attachment, and show attach status through the top session combobox and full-width terminal layout.
 
 #### Scenario: Graphics remain visible after runtime migration
@@ -818,6 +893,11 @@ Tmux tabs SHALL make the terminal attachment area consume the pane's available c
 
 Tmux tabs SHALL refit the visible xterm terminal when the browser viewport, Dockview panel, or terminal host size changes.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Session discovery controls and dropdown lists SHALL remain usable without causing the attached terminal to shrink below the available panel area.
 
 #### Scenario: Browser resize refits tmux terminal
@@ -836,6 +916,11 @@ Session discovery controls and dropdown lists SHALL remain usable without causin
 The workbench SHALL remove a tmux session from visible tmux session picker results after the host tmux bridge reports that the session no longer exists.
 
 The workbench SHALL refresh tmux session inventory after a tmux attachment exits or disconnects, when the user opens the session combobox, and when the user explicitly refreshes the picker.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If an attached session exits, the tmux tab SHALL mark the attachment disconnected, preserve any terminal output already written to the xterm instance, and update the next shown session list without sending a Houmao agent lifecycle command or tmux kill command.
 
@@ -891,6 +976,11 @@ Tmux panes SHALL keep xterm `Terminal`, `FitAddon`, DOM refs, and direct termina
 
 Tmux panes SHALL schedule a visible-row xterm refresh after local scroll events, parsed terminal writes, successful fit operations, Dockview dimension or visibility changes, and terminal host resize observations.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Tmux panes SHALL continue to send tmux resize messages to the runtime only when the fitted terminal column or row count changes.
 
 The repaint behavior SHALL NOT persist terminal bytes in reduced runtime state or localStorage.
@@ -916,6 +1006,11 @@ The repaint behavior SHALL NOT persist terminal bytes in reduced runtime state o
 The deterministic workbench browser coverage SHALL exercise Plotly-backed template graphic rendering, retired fixed-chart fallback behavior, datasource-bound template rendering, visible renderer diagnostics, and tmux terminal repaint behavior.
 
 Chart rendering coverage SHALL verify Plotly-backed visible evidence without relying on Recharts-specific DOM selectors.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Tmux repaint coverage SHALL attach to a deterministic tmux bridge fixture, create enough terminal output to scroll, perform mouse-wheel scrolling, and verify that the terminal remains visibly updated without forcing an outer window resize.
 
@@ -1036,6 +1131,11 @@ The workbench validation suite SHALL include a real-agent smoke path that launch
 
 The smoke assertion SHALL treat one Plotly chart with multiple SVG layers as one visible chart.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The smoke evidence SHALL include enough information to distinguish a rendering failure, a publish-delivery failure, an active-thread routing failure, and a test-locator failure.
 
 #### Scenario: Fresh agent renders graphics on first connect
@@ -1057,6 +1157,11 @@ The workbench tmux pane SHALL treat selecting a different tmux session as replac
 Before attaching to the selected session, the pane SHALL request detach for the previous attachment and remove the previous xterm surface from the pane.
 
 The runtime SHALL maintain only one current tmux attachment per pane and SHALL route input, resize, and scroll actions only through that current attachment.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The runtime SHALL ignore output, close, exit, error, and attached events from an older attachment after a newer attachment has become current for the same pane.
 
@@ -1085,6 +1190,11 @@ Tmux panes SHALL NOT enable xterm newline conversion intended for non-PTY data s
 
 Tmux panes SHALL preserve raw tmux control semantics for bare line feed, carriage return, cursor movement, line clear, alternate screen, wrapping, and long autonomous TUI redraws.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The behavior SHALL NOT require a browser resize, Dockview resize, mouse scroll, or terminal refresh workaround to clear stale edge cells caused by newline rewriting.
 
 #### Scenario: Bare line feed keeps PTY cursor semantics
@@ -1104,6 +1214,11 @@ The deterministic workbench browser coverage SHALL include a tmux pane regressio
 The regression case SHALL use terminal control bytes rather than only line-oriented fixture messages ending in `\r\n`.
 
 The regression case SHALL verify that edge text is cleared or overwritten without resizing the browser window or Dockview panel.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Manual or smoke validation for real tmux TUI sessions SHALL include evidence that the browser xterm size and host tmux pane size are synchronized while long autonomous output renders without stale edge artifacts.
 

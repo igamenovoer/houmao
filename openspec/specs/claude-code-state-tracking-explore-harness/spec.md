@@ -8,6 +8,11 @@ Define the external Claude Code state-tracking explore harness, including live t
 ### Requirement: Explore harness SHALL capture live Claude Code tmux sessions through a scripted scenario runner
 The repository SHALL provide an explore-only harness under `scripts/explore/claude-code-state-tracking/` that can launch `claude-yunwu` in tmux, drive scripted scenario actions, and capture the resulting live session for later state-model verification.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The harness SHALL support at minimum:
 
 - launching a fresh tmux-backed Claude session,
@@ -63,6 +68,11 @@ That diagnostics evidence SHALL be sufficient to distinguish, at minimum:
 ### Requirement: Explore harness SHALL derive content-first groundtruth outside of `houmao-server`
 The harness SHALL derive a groundtruth state timeline from recorded Claude pane snapshots without importing or delegating to `houmao-server` tracker implementation code.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That groundtruth flow SHALL:
 
 - use content-first signal detection over raw recorded pane content,
@@ -79,6 +89,11 @@ That groundtruth flow SHALL:
 The harness SHALL provide a harness-owned replay adapter over the shared TUI tracking core that consumes recorded snapshot observations and emits the simplified turn-state model using ReactiveX-driven timing rather than manual wall-clock bookkeeping.
 
 That replay adapter SHALL remain outside of `houmao-server` implementation ownership and SHALL NOT import the server live-tracker adapter as the reducer under test.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The replay adapter SHALL instead consume the repo-owned shared TUI tracking core so that replay semantics match the official tracked-state contract without maintaining a separate mirrored reducer implementation inside the harness.
 
@@ -105,6 +120,11 @@ The harness SHALL support controlled child-process fault injection so error-path
 
 The first supported mechanism MAY be syscall-level subprocess injection, such as targeted network syscall failure for the launched Claude process. If additional disruption methods are added later, they SHALL remain explicit scenario mechanisms rather than invisible environment assumptions.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The harness SHALL record the selected fault-injection mechanism and target timing in the scenario control artifacts.
 
 #### Scenario: Startup failure scenario uses deliberate injected fault
@@ -119,6 +139,11 @@ The harness SHALL record the selected fault-injection mechanism and target timin
 
 ### Requirement: Abrupt process loss SHALL remain a diagnostics path unless a recognized visible crash signal exists
 When the supported Claude process exits abruptly because it is killed, segfaults, or otherwise disappears without a separately recognized visible failure signal, the harness SHALL treat that path as a diagnostics outcome rather than automatically turning it into `interrupted` or `known_failure`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum:
 
@@ -154,6 +179,11 @@ At minimum, the comparison output SHALL identify:
 ### Requirement: Explore harness SHALL formalize newly discovered stable signals as state-discovery notes
 When live capture, replay comparison, or validation of the explore harness reveals a new stable and useful Claude TUI signal, the workflow SHALL record that signal as a formal state-discovery note rather than leaving it only in implementation code or transient run logs.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Each formalized signal note SHALL capture, at minimum:
 
 - tool and observed version context,
@@ -169,6 +199,11 @@ Each formalized signal note SHALL capture, at minimum:
 
 ### Requirement: Explore harness SHALL ship an initial scenario corpus for the highest-value Claude turn boundaries
 The explore harness SHALL include an initial scenario set that exercises the most important boundaries of the simplified state model for Claude Code.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the initial scenario corpus SHALL include:
 

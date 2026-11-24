@@ -1,12 +1,17 @@
 # houmao-agent-ready-profile-workflow Specification
 
 ## Purpose
-TBD - created by archiving change unify-agent-definition-skills. Update Purpose after archive.
+`create-agent-fast-forward` prepares a launchable project profile from one operator request by selecting or creating its specialist and storing reusable launch defaults. It reports the specialist, profile, intended agent identity, and exact launch command for later use.
 ## Requirements
 ### Requirement: Houmao agent definition provides a ready project-profile workflow
 The system SHALL provide a `houmao-agent-definition` subskill exposed as `create-agent-fast-forward` for preparing a launchable specialist-backed project profile from one operator request.
 
 That workflow SHALL create or select a specialist, create or update an project profile backed by that specialist, store supplied launch defaults on the profile, and report the resulting launch command without launching the managed agent.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workflow SHALL prefer unattended prompt mode by default unless the user explicitly requests another prompt mode.
 
@@ -35,6 +40,11 @@ The workflow MAY mention older ready-profile wording only as compatibility termi
 
 ### Requirement: Ready-profile workflow stores launch defaults instead of manual runtime setup
 The `create-agent-fast-forward` workflow SHALL store supported project-profile defaults for agent identity, workdir, prompt mode, model, reasoning level, environment, mailbox posture, gateway posture, gateway mail-notifier appendix, prompt overlay, and memo seed when those inputs are supplied or selected by the operator.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The workflow SHALL NOT instruct agents to preregister same-root ordinary per-agent mailbox addresses when the later project-profile launch can own launch-time filesystem mailbox bootstrap for the managed-agent identity.
 

@@ -8,6 +8,11 @@ The system SHALL maintain a runtime-owned launch policy registry for supported t
 
 The registry SHALL be stored as repo-owned YAML under `src/houmao/agents/launch_policy/registry/`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Each registry document SHALL expose a concrete schema that can represent:
 
 - top-level `schema_version`
@@ -35,6 +40,11 @@ Packaged strategies for DSH, Kimi Code, Claude Code, and Codex SHALL declare one
 Each launch policy strategy SHALL declare the unattended-compatibility contract it supports and the evidence basis for its behavior assumptions.
 
 This unattended-compatibility ownership model SHALL apply to every Houmao-launched agent backend that participates in the launch-policy registry, whether TUI or headless.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, strategy metadata SHALL be able to describe:
 
@@ -67,6 +77,11 @@ Credential-readiness metadata SHALL remain separate from unattended-compatibilit
 A launch policy strategy SHALL define the ordered actions that must be applied before provider start to satisfy the requested prompt policy for the resolved working directory and runtime home.
 
 Those actions SHALL run after the selected setup baseline has been projected into the runtime home for the selected tool. They SHALL apply the resolved user-configurable values and derive the declared reserved values. Authored conflicts with reserved launch inputs SHALL fail explicitly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Those actions SHALL support at minimum CLI argument mutation, canonicalization of equivalent launch arguments, runtime-home config or state mutation, trust or bootstrap state management, startup notice or onboarding suppression when required by the version, and pre-launch validation.
 
@@ -101,6 +116,11 @@ Provider-specific complex behavior SHALL be exposed through stable hook ids refe
 ### Requirement: Codex unattended strategies emit final CLI config override surfaces
 
 For Codex unattended launch strategies, the registry-owned startup surface SHALL include final Codex CLI config override arguments for resolved strategy-managed preferences in addition to any runtime-home config mutations.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The strategy SHALL project the effective approval and sandbox settings through the highest qualified native startup precedence. It SHALL preserve recognized authored approval and sandbox values and fill omitted fields with the versioned defaults. Final arguments SHALL agree with the runtime-home projection even when project-local `.codex/config.toml` contains a different value.
 
@@ -144,6 +164,11 @@ The registry resolution path SHALL allow a transient strategy-id override for co
 ### Requirement: Registry declares maintained Kimi unattended strategy coverage
 
 The launch-policy registry SHALL include maintained Kimi Code unattended strategy coverage for `kimi_headless` and for the `raw_launch` backend used by Kimi Code local-interactive TUI launch. The compatible version expression SHALL be `>=2.1.1` with no upper version limit. Earlier versions SHALL fail compatibility validation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Both strategies SHALL declare their minimal provider-ready inputs, evidence, startup surfaces, v2-engine requirement, native `SYSTEM.md` projection, pre-launch actions, and validation. Credential readiness SHALL remain separate from permission and role-prompt compatibility.
 

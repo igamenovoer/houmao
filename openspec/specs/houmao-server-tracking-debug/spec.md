@@ -6,6 +6,11 @@ Define the maintainer-facing `houmao-server` tracking-debug workflow used to rep
 ### Requirement: Debug workflow SHALL provide opt-in dense server-side lifecycle trace streams
 The system SHALL provide a maintainer-facing debug mode for `houmao-server` live TUI tracking that is disabled by default and enabled only through an explicit debug workflow or environment setting.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When enabled, the server SHALL emit structured trace events that cover, at minimum:
 
 - CAO-compatible terminal input submission handling
@@ -35,6 +40,11 @@ The system SHALL provide an automatic debug runner that exercises interactive li
 1. a server-owned input path that submits the prompt through the CAO-compatible terminal-input route
 2. a direct tmux-input path that injects the prompt into the live pane without using the server input route
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The runner SHALL collect the same classes of evidence for both paths so the results can be compared directly.
 
 #### Scenario: Runner captures the server-owned input control path
@@ -53,6 +63,11 @@ When the automatic tracking-debug workflow is invoked without an explicit output
 ```text
 tmp/houmao-server-tracking-debug/
 ```
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each run directory SHALL preserve, at minimum:
 

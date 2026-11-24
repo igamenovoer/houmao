@@ -6,6 +6,11 @@ Define the tracked dummy-project and lightweight fixture family used by narrow r
 ### Requirement: Repository SHALL provide tracked dummy-project fixtures for narrow runtime-agent tests
 The repository SHALL include tracked dummy projects under `tests/fixtures/dummy-projects/` for mailbox, prompt-turn, and other runtime-agent tests that do not require the main repository checkout as the launched working directory.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At least one tracked dummy project SHALL be suitable for mailbox and runtime-contract automation and SHALL contain a concrete tiny Python-oriented starter tree with a small implementation module, a small test module, and a README-level document so the workspace is realistic for Claude Code and Codex without inviting repo-scale discovery.
 
 Each dummy project fixture SHALL remain source-only in the tracked repository. A test or supported helper SHALL copy that source tree into a run-local path and initialize the copied directory as a fresh standalone git-backed workdir rather than by creating a git worktree of the main repository or by copying tracked `.git` metadata.
@@ -27,6 +32,11 @@ The repository SHALL provide a dedicated lightweight role family for mailbox and
 
 Those lightweight roles SHALL explicitly bias the agent toward the requested mailbox or runtime-contract action over broad project discovery. They SHALL avoid unrelated benchmarking, CUDA, or large-repo exploration guidance unless a specific fixture explicitly needs that behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The repository SHALL also provide dedicated mailbox-demo named presets at `tests/fixtures/plain-agent-def/presets/mailbox-demo-claude-default.yaml` and `tests/fixtures/plain-agent-def/presets/mailbox-demo-codex-default.yaml` so supported flows can select the lightweight mailbox role through the canonical preset model instead of through legacy recipes or blueprints.
 
 #### Scenario: Maintainer can select dedicated mailbox-demo presets
@@ -39,6 +49,11 @@ The repository fixture documentation SHALL explain when a test or supported help
 
 - a copied dummy-project workdir instead of a repo worktree, and
 - a lightweight mailbox/runtime role instead of a heavyweight engineering role.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That guidance SHALL make clear that dummy projects and lightweight roles are the default choice for narrow runtime-contract or mailbox-turn coverage, while repo-scale worktrees and heavyweight roles remain appropriate for workflows that intentionally test broad engineering behavior.
 
@@ -53,6 +68,11 @@ The guidance SHALL include a short selection rubric or decision tree that helps 
 The repository SHALL include at least one tracked reusable dummy skill fixture under `tests/fixtures/plain-agent-def/skills/` for narrow skill-invocation tests and other supported non-demo validation flows.
 
 That dummy skill fixture SHALL remain small, deterministic, and self-contained. It SHALL define a stable probe contract that causes a visible side effect in the launched dummy-project workdir when the agent invokes the skill through its intended trigger wording.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The dummy skill fixture MAY include helper assets adjacent to `SKILL.md` when needed by the probe contract.
 
@@ -73,6 +93,11 @@ The repository fixture guidance SHALL explain when maintainers should use the tr
 - repo-scale heavyweight engineering fixtures.
 
 That guidance SHALL make clear that the probe-skill fixture is the default choice when the question under test is whether installed skills can be invoked cleanly from a narrow prompt contract.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That same guidance SHALL preserve the canonical fixture-model boundary: presets own tool/setup/auth selection, while roles define behavior and skills provide reusable task instructions.
 

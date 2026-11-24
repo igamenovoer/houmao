@@ -1,7 +1,7 @@
 # houmao-operator-messaging-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-operator-messaging-skill. Update Purpose after archive.
+Give operators an explicit workflow to clarify a message and dispatch it to managed agents through a prompt or mailbox route. Mail dispatch uses the operator's managed mailbox address or the reserved operator-origin sender as appropriate.
 ## Requirements
 ### Requirement: Operator messaging skill exposes a manual concise control surface
 The system SHALL package a `houmao-operator-messaging` system skill for manual operator-to-agent messaging workflows.
@@ -13,6 +13,11 @@ The skill entrypoint SHALL use concise structured Markdown and SHALL expose thes
 - `help`
 - `clarify`
 - `dispatch`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL NOT expose separate single-agent and multi-agent dispatch subcommands; target count SHALL be resolved from the user's dispatch task.
 
@@ -37,6 +42,11 @@ When the skill is invoked without a subcommand or actionable operator-messaging 
 
 ### Requirement: Clarify resolves operator intent without dispatching
 The `clarify` subcommand SHALL resolve operator intent before dispatch and SHALL NOT send any direct prompt, mailbox message, gateway request, lifecycle command, or other runtime mutation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Clarification SHALL build an internal coverage map that includes:
 
@@ -86,6 +96,11 @@ The `dispatch` subcommand SHALL dispatch operator messages to one or more Houmao
 By default, `dispatch` SHALL route packets by prompt delivery.
 
 `dispatch` SHALL choose mailbox delivery only when the operator prompt or chat context indicates mail, inbox, thread, asynchronous mailbox note, reply-reference, or mailbox sender-identity intent.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `dispatch` SHALL NOT choose mailbox delivery merely because the target has a mailbox.
 
@@ -145,6 +160,11 @@ The skill SHALL NOT provide durable scheduling, retry orchestration, topology va
 For mailbox dispatch, the skill SHALL determine whether the current operator is a Houmao-managed agent with a usable mailbox binding.
 
 When the current operator is Houmao-managed and has a usable mailbox binding, mailbox dispatch SHALL use that operator agent's own mailbox address for ordinary mailbox sends.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the current operator is not Houmao-managed, or the current operator does not have a usable own mailbox binding, mailbox dispatch SHALL use the supported operator-origin mailbox post path where available.
 

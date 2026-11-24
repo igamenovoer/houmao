@@ -11,6 +11,11 @@ At minimum, the persisted artifact set SHALL include:
 - one live-state or finalized-state record describing recorder process state, and
 - one structured input-event stream when the selected mode provides managed input capture.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The recorder SHALL preserve these artifacts after stop for later inspection and replay.
 
 #### Scenario: Stopped run preserves required artifacts
@@ -27,6 +32,11 @@ At minimum, recorder metadata SHALL include:
 - a visual recording kind,
 - an input capture level, and
 - whether the run became tainted together with recorded taint reasons when capture guarantees degraded.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The recorder SHALL treat tmux pane snapshots as the authoritative replay surface for parser and state-tracking analysis.
 
@@ -63,6 +73,11 @@ The recorder SHALL capture a final pane snapshot during orderly stop before fina
 The terminal recorder SHALL support Kimi tool identity for capture runs and SHALL preserve ANSI/style-bearing pane text for Kimi replay analysis.
 
 For Kimi signal investigation, the recorder SHALL be able to write capture runs under a caller-selected repo-local run root such as `tmp/kimi-tui-tracking/<run-id>/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The recorder SHALL support sampling intervals suitable for about 10 fps capture. Recorder metadata SHALL record the configured sample interval and enough target metadata to replay or inspect the captured pane later.
 

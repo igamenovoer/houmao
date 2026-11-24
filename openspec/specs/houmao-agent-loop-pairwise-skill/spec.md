@@ -1,7 +1,7 @@
 # houmao-agent-loop-pairwise-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-agent-loop-pairwise-skill. Update Purpose after archive.
+The retired pairwise skill turned user intent into an explicit tree-loop plan and assigned run supervision to a designated master. Houmao routes current tree-loop authoring and execution through `houmao-agent-loop-pro`.
 ## Requirements
 ### Requirement: The authoring lane formulates user intent into an explicit pairwise loop plan
 The authoring guidance in `houmao-agent-loop-pairwise` SHALL turn natural-language user intent into one explicit pairwise loop plan before run start.
@@ -10,6 +10,11 @@ That authored plan SHALL support two forms:
 
 - one single-file Markdown plan,
 - one bundle directory with `plan.md` as the canonical entrypoint plus referenced supporting Markdown files or scripts.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Every authored plan SHALL identify at minimum:
 
@@ -59,6 +64,11 @@ That diagram SHALL show at minimum:
 - where the completion condition is evaluated,
 - where the stop condition is evaluated.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The graph guidance SHALL treat the execution topology as pairwise local-close routing and SHALL distinguish that topology from the supervisor review loop that keeps the run alive.
 
 The graph guidance SHALL NOT require or imply an arbitrary cyclic worker-to-worker execution graph as the default model.
@@ -83,6 +93,11 @@ The operating guidance SHALL include at minimum:
 - `stop`.
 
 The lifecycle guidance SHALL define `start` as the action that sends the normalized start trigger only to the designated master.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The lifecycle guidance SHALL define `status` as a periodic read-only status request to the designated master for one `run_id`.
 
@@ -123,6 +138,11 @@ The packaged `houmao-agent-loop-pairwise` skill SHALL keep its skill name, packa
 The skill SHALL describe its authored topology as a tree loop or local-close tree loop in user-facing explanatory text.
 
 The skill SHALL present `pairwise loop` as a legacy alias for tree loop behavior rather than as the primary concept name.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL keep pairwise-named protocol references only where they identify existing skill handles, compatibility aliases, or elemental local-close edge behavior.
 

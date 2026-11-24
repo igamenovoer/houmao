@@ -1,11 +1,16 @@
 # project-config-catalog Specification
 
 ## Purpose
-TBD - created by archiving change refactor-config-storage-to-sqlite-catalog. Update Purpose after archive.
+Define the project overlay's SQLite catalog as the source of configuration and deployment relationships, with large content stored in managed files. Cover stable credential references, skill projections, explicit schema migration, and atomic batch deployment records.
 ## Requirements
 ### Requirement: Project-local overlays persist canonical semantic configuration in a SQLite catalog
 
 Project-local Houmao overlays SHALL store canonical semantic configuration in a SQLite catalog under the overlay root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That catalog SHALL be the source of truth for project-local identities and relationships, including at minimum:
 
@@ -39,6 +44,11 @@ At minimum, this file-backed content contract SHALL cover:
 - setup bundles,
 - skill packages.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The SQLite catalog SHALL reference those file-backed payloads through explicit managed content references rather than by treating path nesting as the semantic graph.
 
 #### Scenario: Launch-profile prompt overlay remains file-backed while relationships live in SQLite
@@ -55,6 +65,11 @@ At minimum, that surface SHALL provide:
 - schema versioning,
 - foreign-key-backed relationship integrity,
 - stable read-oriented inspection tables or views for core project-local objects.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If advanced users manipulate project-local catalog state through SQL tools, the system SHALL define that surface intentionally rather than relying on undocumented path reconstruction behavior.
 
@@ -80,6 +95,11 @@ At minimum, each persisted auth profile SHALL carry:
 - an immutable opaque bundle reference used for file-backed auth content storage and compatibility projection,
 - a managed content reference for the auth payload.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Managed auth content SHALL be stored under bundle-reference-keyed managed content paths rather than display-name-keyed managed content paths.
 
 Directory basenames under managed auth content or compatibility projection trees SHALL NOT be treated as the semantic identity of an auth profile.
@@ -100,6 +120,11 @@ Persisted project-local relationships that target auth profiles SHALL resolve th
 
 At minimum, launch-profile auth overrides and specialist-owned auth selection SHALL resolve through the referenced auth profile instead of duplicating display-name identity as authoritative state.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 User-facing inspection surfaces MAY render the current auth display name, but that rendered name SHALL be derived from the referenced auth profile rather than treated as the stored relationship key.
 
 #### Scenario: Launch-profile auth relationship remains valid after auth rename
@@ -118,6 +143,11 @@ User-facing inspection surfaces MAY render the current auth display name, but th
 Project-local catalog initialization SHALL create the current catalog schema when the project overlay has no catalog yet.
 
 When a project overlay already contains a catalog, initialization SHALL validate that the catalog uses the current supported schema version and required current-format invariants before continuing.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When an existing catalog is missing required current-format metadata, reports an unsupported schema version, or exposes an obsolete current-table shape, Houmao SHALL fail explicitly and direct the operator to recreate or reinitialize the project overlay. Houmao SHALL NOT mutate that existing catalog through an in-place compatibility migration.
 
@@ -144,6 +174,11 @@ That canonical project skill entry MAY be either:
 - a copied directory owned by the project overlay, or
 - a symlink entry that targets one source directory outside or inside the overlay.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The catalog SHALL treat that canonical content-root entry as the authoritative project-local skill payload rather than treating `.houmao/agents/skills/` as a second canonical skill store.
 
 #### Scenario: Canonical project skill payload lives under the content root
@@ -155,6 +190,11 @@ The catalog SHALL treat that canonical content-root entry as the authoritative p
 When a project overlay materializes compatibility or runtime-facing skill trees, those trees SHALL be derived from the canonical project skill entries under `.houmao/content/skills/`.
 
 For project-local compatibility projection, `.houmao/agents/skills/<name>` SHALL be treated as derived projection state only.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Persisted project-local specialist relationships to skills SHALL resolve by registered skill identity rather than by treating `.houmao/agents/skills/<name>` as the authoritative relationship key.
 
@@ -187,6 +227,11 @@ This safety rule SHALL apply to managed content and projection flows for at leas
 - prompt-overlay payloads,
 - memo-seed payloads,
 - derived compatibility projections.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Catalog code MAY resolve managed content references for read-only validation, rendering, or digesting, but it SHALL NOT use those resolved paths as destructive mutation targets.
 

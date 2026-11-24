@@ -6,6 +6,11 @@ Define the historical CAO-compatibility capability state for `houmao-mgr`.
 ### Requirement: Houmao-owned CLI compatibility verification SHALL cover retired CAO behavior
 This capability SHALL preserve the historical compatibility verification posture after retirement of the `cao` namespace and top-level `launch` compatibility surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Houmao-owned CLI behavior SHALL be tested directly. That verification SHALL cover at minimum:
 
 - native headless top-level `launch --headless`
@@ -45,6 +50,11 @@ At minimum, the session-backed launch surfaces SHALL accept:
 
 - `--compat-http-timeout-seconds`
 - `--compat-create-timeout-seconds`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When those flags are omitted, the session-backed launch surfaces SHALL resolve defaults from these optional environment variables before falling back to built-in client defaults:
 

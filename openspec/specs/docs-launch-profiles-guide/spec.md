@@ -8,6 +8,11 @@ Define the documentation requirements for the shared launch-profiles conceptual 
 
 The getting-started section SHALL include a page at `docs/getting-started/launch-profiles.md` that explains the shared launch-profile semantic model and the two user-facing authoring lanes.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The page SHALL explain:
 
 - what a launch profile IS: reusable, operator-owned, birth-time launch configuration that is distinct from reusable source definitions and distinct from live managed-agent instances,
@@ -64,6 +69,11 @@ The launch-profiles guide SHALL document the effective-launch precedence chain a
 
 The guide SHALL state that fields omitted by a higher-priority layer survive from the next lower-priority layer.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guide SHALL state that live runtime mutations such as late mailbox registration remain runtime-owned and SHALL NOT rewrite the stored launch profile.
 
 The guide SHALL state that direct launch-time overrides such as `--agent-name`, `--agent-id`, `--auth`, and `--workdir` do not rewrite the stored launch profile.
@@ -91,6 +101,11 @@ The launch-profiles guide SHALL document the supported prompt overlay modes:
 
 The guide SHALL state that the effective role prompt is composed before backend-specific role injection planning begins, and that the runtime SHALL NOT reapply the overlay as a separate second bootstrap step on resumed turns.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guide SHALL state that prompt overlay payloads are stored as managed file-backed content and that the catalog stores only the references to those payloads.
 
 #### Scenario: Reader understands append versus replace overlays
@@ -107,6 +122,11 @@ The launch-profiles guide SHALL state that the build manifest and runtime launch
 - whether the launch originated from a specialist source or a recipe source,
 - whether the birth-time reusable config came from an project profile or an explicit launch profile,
 - the originating profile name when available.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The guide SHALL state that easy `instance list` and `instance get` report the originating project-profile identity when runtime-backed state makes it resolvable, and that the same lane and profile information appears on inspection commands for explicit launch-profile-backed managed agents.
 
@@ -127,6 +147,11 @@ The launch-profiles guide SHALL include a comparison that distinguishes:
 - runtime `LaunchPlan` (derived, ephemeral, runtime-owned),
 - live managed-agent instances (running runtime objects).
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The comparison SHALL state which of those objects are user-authored, which are stored in the catalog, which are projected into `.houmao/agents/`, and which are derived only at launch time.
 
 #### Scenario: Reader can place every object in the source-versus-birth-time taxonomy
@@ -138,6 +163,11 @@ The comparison SHALL state which of those objects are user-authored, which are s
 
 ### Requirement: Launch-profiles guide documents the managed prompt header
 The launch-profiles guide SHALL document the Houmao-managed prompt header as part of effective launch-prompt composition.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The guide SHALL explain:
 - that managed launches prepend a general Houmao-managed header by default,
@@ -165,6 +195,11 @@ The launch-profiles guide SHALL distinguish:
 - profile patch commands, which mutate stored reusable defaults while preserving unspecified fields,
 - profile replacement commands, which rewrite the same named profile in the same lane and clear omitted optional fields.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guide SHALL explain that the easy and explicit lanes share one catalog-backed launch-profile family but replacement remains lane-bounded.
 
 #### Scenario: Reader can choose patch versus replacement
@@ -179,6 +214,11 @@ The guide SHALL explain that the easy and explicit lanes share one catalog-backe
 
 ### Requirement: Launch-profiles guide documents managed-header section policy
 The launch-profiles guide SHALL document that stored launch profiles can persist managed-header section policy independently from whole managed-header policy.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the guide SHALL explain:
 
@@ -211,6 +251,11 @@ The launch-profiles guide SHALL document memo seeds as optional launch-profile-o
 
 The guide SHALL use memo terminology for this feature, including `memo seed`, `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`. It SHALL NOT call this feature a memory seed.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guide SHALL explain:
 - supported seed sources: inline text, Markdown file, and memo-shaped directory,
 - accepted directory shape: `houmao-memo.md` and `pages/`,
@@ -242,6 +287,11 @@ The guide SHALL explain:
 The launch-profiles guide SHALL explain that project profiles and native launch dossiers share one catalog-backed launch-profile family and project into the same compatibility path family under `.houmao/agents/launch-profiles/<name>.yaml`.
 
 The guide SHALL also state that this shared storage and shared projection path do not make the two command families interchangeable.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the guide SHALL explain:
 

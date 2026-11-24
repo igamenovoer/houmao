@@ -1,13 +1,18 @@
 # managed-agent-detailed-state Specification
 
 ## Purpose
-TBD - created by archiving change server-managed-agent-gateway-state. Update Purpose after archive.
+Expose one managed-agent detail route for TUI, Web, headless, and service agents. Each transport reports its own observation or execution evidence, with memo-pages memory and inspection details where available.
 ## Requirements
 
 ### Requirement: Managed agents expose a transport-specific detailed state route
 The system SHALL expose `GET /houmao/agents/{agent_ref}/state/detail` as the transport-specific inspection route for managed agents.
 
 The maintained passive server SHALL retain canonical raw TUI detail at `/houmao/agents/{agent_ref}/state/detail` for verified terminal agents. Its curated transport-specific managed response SHALL use `/houmao/agents/{agent_ref}/managed-state/detail` and reference that canonical raw route for TUI. Other modes SHALL receive structured detail in both route families.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That route SHALL use the same managed-agent alias resolution contract as the rest of `/houmao/agents/{agent_ref}`.
 
@@ -45,6 +50,11 @@ For Web-backed interactive managed agents, the detail payload SHALL expose struc
 
 ### Requirement: Headless detailed state is execution-centric and queryable without raw artifact scraping
 For managed headless agents, the detailed state model SHALL describe execution posture rather than parsed UI posture.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the headless detail payload SHALL expose:
 
@@ -99,6 +109,11 @@ The managed-agent detail route SHALL query TUI, Web, headless, and service agent
 ### Requirement: Headless detailed state treats tmux liveness as auxiliary diagnostics
 For managed headless agents, `GET /houmao/agents/{agent_ref}/state/detail` SHALL describe active-turn and last-turn posture from controller-owned execution state and durable turn records.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For managed headless agents, terminal last-turn status SHALL reconcile from authoritative active-turn state plus durable per-turn artifact evidence. When a durable terminal artifact such as the exit-status artifact exists for the latest turn and no authoritative active turn remains, that terminal artifact evidence SHALL take precedence over stale tmux or live-posture observations for that same turn.
 
 The headless detail payload MAY expose tmux liveness fields for inspectability or degradation reporting, but those tmux fields SHALL NOT by themselves redefine active-turn status, last-turn result, or the durability of a terminal turn outcome.
@@ -142,6 +157,11 @@ When such inspectability metadata is exposed, it SHALL anchor that metadata to t
 
 When that metadata includes a window name, it SHALL use the stable value `agent` for managed-headless sessions created under this contract.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Auxiliary tmux windows MAY exist in the same session, but the detailed state payload SHALL NOT imply that active-turn identity, last-turn identity, or operator attach guidance depends on those auxiliary windows.
 
 #### Scenario: Detailed state keeps attach guidance on the primary agent surface
@@ -163,6 +183,11 @@ Auxiliary tmux windows MAY exist in the same session, but the detailed state pay
 `GET /houmao/agents/{agent_ref}/state/detail` SHALL preserve one public detail-route envelope and one transport-discriminated detail payload family regardless of whether the addressed managed agent is currently backed by an attached gateway or by the direct fallback path.
 
 When an eligible live gateway is attached for the addressed managed agent, `houmao-server` SHALL prefer the gateway-owned per-agent live state for current detail projection.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When no eligible live gateway is attached, `houmao-server` SHALL continue serving the detail route through its direct fallback detail path for that managed agent.
 

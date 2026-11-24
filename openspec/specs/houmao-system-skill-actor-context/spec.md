@@ -1,7 +1,7 @@
 # houmao-system-skill-actor-context Specification
 
 ## Purpose
-TBD - created by archiving change refactor-system-skills-by-actor. Update Purpose after archive.
+Bind system-skill routing to a fixed actor frame established by the selected entrypoint. The frame determines routine eligibility and carries the operator's target or the agent's verified self identity when required.
 ## Requirements
 ### Requirement: Executable entrypoints establish an immutable actor frame
 Before routing substantive work, each executable public entrypoint SHALL establish a routing frame containing `actor_kind`, `entrypoint_name`, verified self identity when required, requested target, and selected routine.

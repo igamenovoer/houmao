@@ -1,7 +1,7 @@
 # llm-wiki-viewer-search Specification
 
 ## Purpose
-TBD - created by archiving change add-llm-wiki-viewer-search. Update Purpose after archive.
+Help readers find wiki pages through keyboard-accessible, browser-based full-text search. The viewer serves a local Markdown document feed and opens results through its existing page navigation.
 ## Requirements
 ### Requirement: Viewer Exposes Searchable Wiki Documents
 The LLM Wiki viewer SHALL expose a read-only search document feed for Markdown pages under the active wiki root's `wiki/` directory.

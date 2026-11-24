@@ -1,10 +1,15 @@
 # houmao-mgr-external-agents Specification
 
 ## Purpose
-TBD - created by archiving change add-external-communication-agents. Update Purpose after archive.
+Operators can register an already-running remote Houmao agent under a local alias and inspect its connection. Supported communication commands use the stored remote API and identity, while lifecycle authority stays with the remote owner.
 ## Requirements
 ### Requirement: External agents can be registered as communication-only managed targets
 `houmao-mgr agents external register` SHALL create a durable local external-agent record for an already-running remote Houmao agent served by a reachable maintained `houmao-passive-server`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Registration SHALL require a local name, remote passive-server API base URL, and remote agent reference. The command SHALL verify the remote authority by using the maintained pair-authority health probe and SHALL resolve the remote agent reference through the remote managed-agent identity API before persisting the record.
 
@@ -31,6 +36,11 @@ The persisted record SHALL store external communication metadata only: local nam
 
 ### Requirement: External agent records can be inspected, verified, and removed
 `houmao-mgr agents external` SHALL provide local registry management commands for external records.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the command family SHALL support:
 - `register` to create or replace an external communication-only record when replacement is explicitly allowed,
@@ -60,6 +70,11 @@ Removing an external record SHALL NOT send stop, cleanup, detach, or lifecycle r
 
 ### Requirement: External agents participate in communication-safe managed-agent commands
 External communication-only records SHALL be selectable through the normal explicit managed-agent selectors after registration. When an external record is selected, communication-safe commands SHALL route through the record's stored remote pair API base URL and remote agent reference.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, external targets SHALL support:
 - `houmao-mgr agents list`,
@@ -97,6 +112,11 @@ At minimum, external targets SHALL support:
 
 ### Requirement: External agents reject lifecycle and raw local-control commands
 External communication-only targets SHALL reject commands that require local lifecycle ownership, local tmux authority, local runtime artifacts, or gateway process ownership.
+
+#### Scenario: External target rejects operations that require local authority
+
+- **GIVEN** an operator resolves a command target to an external communication-only agent
+- **THEN** commands that require local authority fail with an ownership explanation and supported communication options
 
 At minimum, external targets SHALL reject:
 - `houmao-mgr agents stop`,

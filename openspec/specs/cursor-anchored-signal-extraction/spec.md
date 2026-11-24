@@ -8,6 +8,11 @@ Define the shared zone-partitioned signal extraction model used by shadow parser
 ### Requirement: Shadow parser extracts a typed signal set from each tail snapshot
 For each shadow-mode tail snapshot, the provider parser SHALL extract signals into a typed `SnapshotSignalSet` frozen value object before state classification.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The signal set SHALL carry at minimum:
 - `prompt_boundary_index`: the line index within the tail where the active zone begins, or None when no anchor is found,
 - `active_zone_lines`: the tail lines from the prompt boundary to the end,
@@ -37,6 +42,11 @@ Provider-defined boundary anchors SHALL include at minimum:
 - processing spinner patterns,
 - menu/approval block start patterns, and
 - setup/onboarding block patterns.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When a visible prompt owns spinner/progress lines below it, the `prompt_boundary_index` SHALL resolve to that prompt line so the active zone still includes the typeable prompt together with the processing evidence.
 

@@ -1,7 +1,7 @@
 # ag-ui-workbench-local-server Specification
 
 ## Purpose
-TBD - created by archiving change refactor-ag-ui-workbench-fastify-server. Update Purpose after archive.
+Run the single-user workbench through a local Fastify server that serves the browser app and owns host resources. Define its private browser protocol, presentation sessions, AG-UI proxy, and tmux attachment lifecycle.
 ## Requirements
 ### Requirement: Workbench runs as a single-user local Fastify web application
 The AG-UI workbench SHALL provide a TypeScript Fastify backend server as the authoritative local GUI application entrypoint.
@@ -87,6 +87,11 @@ The first implementation SHALL establish session identity, pane association, lif
 
 The first implementation SHALL NOT need to implement full large-dataset querying, DuckDB execution, Arrow transport, or Plotly materialization.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Future graphing capabilities MAY add datasource registries, query execution, materialization, and bounded browser render payloads under this presentation-session boundary.
 
 #### Scenario: Presentation session is server-owned
@@ -105,6 +110,11 @@ The Fastify server SHALL bind to loopback by default and SHALL reject non-loopba
 The server SHALL NOT persist credentials, authorization headers, cookies, bearer tokens, raw terminal bytes, raw AG-UI request bodies, or large datasource rows in browser storage.
 
 The server SHALL strip hop-by-hop and unsafe proxy headers when forwarding requests.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The server SHALL release stream, WebSocket, process, and session resources during deterministic teardown.
 
@@ -157,6 +167,11 @@ The bridge SHALL perform this cleanup for client close messages, browser WebSock
 
 The bridge SHALL release only the browser-owned tmux attach client and SHALL NOT stop, restart, shut down, interrupt, or kill the underlying tmux session or Houmao managed agent.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The bridge SHALL tolerate tmux detach cleanup failures by reporting or logging deterministic diagnostics without crashing the workbench server.
 
 #### Scenario: Client close releases only the attach client
@@ -195,6 +210,11 @@ The workbench local server SHALL attach browser tmux tabs through a PTY backend 
 When the server runs under Node, the tmux bridge SHALL use the Node-compatible `node-pty` backend.
 
 When the server runs under Bun and Bun exposes first-party terminal support, the tmux bridge SHALL use Bun's native terminal backend instead of `node-pty`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The tmux bridge SHALL keep the existing private browser WebSocket protocol for attach, input, resize, scroll, close, output, attached, error, and exit messages.
 

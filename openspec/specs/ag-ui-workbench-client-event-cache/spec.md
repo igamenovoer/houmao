@@ -10,6 +10,11 @@ A watched target SHALL identify one AG-UI source and thread that the GUI is inte
 
 For discovered Houmao agents, the watched target key SHALL use the durable agent address: canonical `agent_id` when available, otherwise an unambiguous `agent_name` until canonical id resolution is available.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For manual AG-UI targets, the watched target key SHALL use the normalized AG-UI base URL and thread id.
 
 Each watched target SHALL own at most one active background AG-UI connect stream per browser workbench instance.
@@ -37,6 +42,11 @@ The cache SHALL be separate from gateway storage and SHALL NOT require gateway r
 
 The cache SHALL store target key, thread id, receive timestamp, local monotonic sequence, optional non-durable SSE frame id, and the raw standard AG-UI event object.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The cache SHALL NOT store AG-UI request bodies, forwarded props, credentials, cookies, bearer tokens, authorization headers, passive-server response bodies, mailbox content, memory content, or raw terminal content.
 
 The cache SHALL enforce bounded retention by event count, byte size, time window, or a documented combination of those limits.
@@ -62,6 +72,11 @@ An agent pane presenting a watched target SHALL initialize its displayed AG-UI s
 The pane SHALL subscribe to future live events from the watcher for that target.
 
 The pane SHALL render Houmao typed components, graphics, transcripts, raw events, state snapshots, activity records, errors, and unknown component fallbacks from the same reducer path for cached and live events.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Reopening a pane for a still-watched target SHALL show previously received cached graphics without asking the gateway to replay them.
 
@@ -107,6 +122,11 @@ After a target is watched again, the workbench SHALL keep any events already pre
 For discovered Houmao agents, a watcher SHALL resolve the durable agent address through the configured passive server before opening an AG-UI stream.
 
 If the agent is offline, live without a gateway, or temporarily unreachable, the watcher SHALL show a deterministic waiting, offline, reconnecting, or gateway-unavailable state and SHALL retry resolution using bounded backoff.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If an active AG-UI stream ends unexpectedly, the watcher SHALL return to the resolution loop without requiring a visible pane.
 
@@ -154,6 +174,11 @@ When an agent pane presents a watched target, the workbench SHALL make the pane'
 
 Clear-canvas SHALL preserve the watched target registration, active watcher connection when present, reconnect loop, resolved target metadata, and future event caching behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Clear-canvas SHALL NOT request gateway replay, gateway deletion, or managed agent lifecycle changes.
 
 #### Scenario: Watched chart does not reappear after clear and reopen
@@ -196,6 +221,11 @@ The runtime SHALL NOT cache AG-UI request bodies, forwarded props, credentials, 
 Client cache clearing for watched targets SHALL be available through typed runtime actions.
 
 Clearing a watched target cache through the runtime SHALL remove cached stream events and reset the in-memory reduced display state for that watched target while preserving the watched-target registration, active watcher connection or reconnect loop, target metadata, and future cache writes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Clearing all watched caches through the runtime SHALL remove cached stream events and reset in-memory reduced display state for every watched target without sending Houmao agent lifecycle commands.
 

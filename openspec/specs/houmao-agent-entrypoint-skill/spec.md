@@ -1,7 +1,7 @@
 # houmao-agent-entrypoint-skill Specification
 
 ## Purpose
-TBD - created by archiving change refactor-system-skills-by-actor. Update Purpose after archive.
+Route managed agents to protected routines after verifying their identity. Use that identity for self-scoped operations and require explicit targets for supported cross-agent work.
 ## Requirements
 ### Requirement: Houmao provides a public managed-agent entrypoint
 Houmao SHALL provide a public skill named `houmao-agent-entrypoint` as the sole public member of the agent pack.

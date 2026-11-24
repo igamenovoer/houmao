@@ -1,7 +1,7 @@
 # native-cli-provider-support Specification
 
 ## Purpose
-TBD - created by archiving change remove-gemini-cli-support. Update Purpose after archive.
+Define Claude Code, Codex, Kimi Code, and qualified DeepSeek Harness operations as Houmao's maintained native CLI support. Apply that provider set to runtime launch, release contents, fixtures, and guidance.
 ## Requirements
 ### Requirement: Maintained native CLI provider set excludes Gemini CLI
 Houmao SHALL maintain native CLI launch support for Claude Code, Codex, Kimi Code, and DeepSeek Harness (`dsh`). DSH operations SHALL be limited to its explicitly qualified backend capabilities.

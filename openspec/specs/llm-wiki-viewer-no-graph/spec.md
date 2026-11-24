@@ -1,7 +1,7 @@
 # llm-wiki-viewer-no-graph Specification
 
 ## Purpose
-TBD - created by archiving change remove-llm-wiki-viewer-graph. Update Purpose after archive.
+Focus the bundled LLM Wiki viewer on reading and feedback by removing its graph controls, API route, and graph-only dependencies.
 ## Requirements
 ### Requirement: Web Viewer Omits Graph UI
 The bundled LLM Wiki web viewer SHALL NOT expose a graph button, graph overlay, or graph-specific keyboard shortcut.

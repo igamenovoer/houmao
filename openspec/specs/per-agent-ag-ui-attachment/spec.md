@@ -1,7 +1,7 @@
 # per-agent-ag-ui-attachment Specification
 
 ## Purpose
-TBD - created by archiving change add-per-agent-ag-ui-attachment. Update Purpose after archive.
+Let GUI clients discover and attach to a live per-agent gateway, receive status and published AG-UI events, and detach independently of the agent lifecycle. Define the wire format, live event fanout, graphics capability metadata, safe diagnostics, and admin access checks.
 ## Requirements
 ### Requirement: Per-agent gateway exposes an AG-UI attachment namespace
 
@@ -34,6 +34,11 @@ The AG-UI namespace SHALL be served by the same live per-agent gateway runtime t
 The gateway SHALL provide `GET /v1/ag-ui/capabilities` so GUI clients can discover supported AG-UI behavior before connecting or starting a run.
 
 The capabilities response SHALL report HTTP SSE support, GUI connect support, text input parsing support, state snapshot support, and task-run submission as enabled when AG-UI run streaming is implemented for the live per-agent gateway.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The capabilities response SHALL report generated graphics support as enabled only when `houmao_render_graphic` artifact validation and event mapping are available for the target.
 
@@ -119,6 +124,11 @@ The connect stream SHALL emit an initial AG-UI `STATE_SNAPSHOT` describing sanit
 
 The connect handler SHALL NOT submit a prompt, create a gateway request, start a task run, stop the agent, interrupt the agent, restart the agent, or shut down the agent.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The connect handler MAY accept an optional `lastSeenEventId` field for request compatibility, but SHALL NOT treat it as a replay cursor for Houmao-published GUI events. The connect stream SHALL emit the current sanitized state snapshot and continue with future live events.
 
 #### Scenario: Connect emits a state snapshot
@@ -154,6 +164,11 @@ The connect handler MAY accept an optional `lastSeenEventId` field for request c
 The AG-UI `STATE_SNAPSHOT` payload SHALL put Houmao-specific state under a namespaced Houmao object.
 
 The snapshot SHALL include only safe observation fields needed by a GUI attachment, such as connection id, thread id, run id, gateway availability, target transport family, and a compact active-execution summary.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The snapshot SHALL NOT include mailbox message content, memory page content, raw terminal history, credentials, authorization headers, cookies, bearer tokens, raw prompt text, or unmanaged forwarded props.
 
@@ -206,6 +221,11 @@ The live per-agent gateway SHALL emit safe diagnostics for AG-UI connect streams
 
 At minimum, AG-UI diagnostics SHALL cover connect creation, disconnect or detach, run admission, run stream start, run completion, stream client disconnect, and stream error outcomes.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 AG-UI diagnostics SHALL include lifecycle identifiers and operational metadata such as connection id, thread id, run id, gateway request id, target transport family, terminal outcome, active connection count, active run count, duration, status code, and error category when available.
 
 AG-UI diagnostics SHALL NOT include prompt text, full AG-UI message content, mailbox content, memory content, raw terminal history, credentials, authorization headers, or unmanaged forwarded props.
@@ -245,6 +265,11 @@ After an AG-UI run has been admitted and `RUN_STARTED` has been emitted, the liv
 
 Pre-admission validation and availability failures SHALL remain HTTP errors and SHALL NOT emit `RUN_STARTED`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Client disconnects SHALL clean up stream bookkeeping and SHALL NOT require a `RUN_ERROR` event because the client has detached from the stream.
 
 #### Scenario: Mapping error after run start becomes RUN_ERROR
@@ -271,6 +296,11 @@ The live per-agent gateway SHALL expose an AG-UI event ingestion route under `/v
 The ingestion route SHALL accept a bounded batch of AG-UI event JSON objects plus routing metadata needed to attach those events to a thread, run, or GUI connection.
 
 The ingestion route SHALL validate each event against AG-UI core event shapes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The ingestion route SHALL validate AG-UI event sequencing within the submitted batch when sequencing is locally checkable, including tool-call args and end events referencing a started tool call.
 
@@ -303,6 +333,11 @@ The gateway SHALL expose deterministic behavior when no matching stream is conne
 
 The gateway SHALL keep published-event stream bookkeeping separate from the Houmao task-run lifecycle.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway SHALL NOT store accepted published events for delivery to future streams.
 
 #### Scenario: Connected GUI receives published events
@@ -325,6 +360,11 @@ The gateway SHALL NOT retain accepted published events for later gateway replay.
 The gateway SHALL bound event count, event size, and total batch size before broadcast.
 
 Gateway diagnostics for published events SHALL include safe operational metadata such as route, status code, event count, thread id, run id, delivery count, and validation error locations.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Gateway diagnostics SHALL NOT include full tool-call argument payloads, message contents, credentials, authorization headers, cookies, or raw request-body dumps by default.
 
@@ -370,6 +410,11 @@ For Houmao gateway live-only published GUI events, the response SHALL report `st
 
 When no live stream currently matches a valid event batch, the response SHALL make that state visible with `accepted_count > 0`, `stored_count = 0`, and `delivered_count = 0`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a valid event batch reaches matching live streams, the response SHALL report `delivered_count` as the number of live stream deliveries performed at publish time.
 
 The gateway SHALL NOT advertise resumable replay support for Houmao-published GUI events.
@@ -388,6 +433,11 @@ The gateway SHALL NOT advertise resumable replay support for Houmao-published GU
 
 ### Requirement: AG-UI capabilities advertise Layer 2 Vega-Lite support
 The live per-agent gateway SHALL include Houmao custom AG-UI implementation metadata for Layer 2 Vega-Lite graphics when the target supports typed graphics capability metadata.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The metadata SHALL identify `houmao.graphic.vegalite` as a Vega-Lite implementation tool name, classify it under `freeform-graphics`, list supported Vega-Lite major versions, identify `vega-embed` as the workbench renderer, report remote data loading as disabled by default, report inline data support, and report optional Python Altair authoring.
 

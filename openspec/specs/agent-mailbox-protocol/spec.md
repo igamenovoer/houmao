@@ -2,6 +2,13 @@
 Define the canonical mailbox message model, addressing rules, threading, attachments, and recipient-state semantics shared across mailbox transports.
 ## Requirements
 ### Requirement: Canonical mailbox message envelope
+The system SHALL preserve transport-neutral mailbox message semantics in a canonical envelope. For transports that persist Houmao-owned canonical content, the envelope SHALL remain immutable after delivery.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system SHALL preserve transport-neutral mailbox message semantics in a canonical model that includes at minimum:
 
 - `message_id`
@@ -85,6 +92,11 @@ When `notify_block` or `notify_auth` are present in a canonical envelope, transp
 ### Requirement: Principal-based mailbox addressing
 The system SHALL address participants through durable mailbox principals rather than transient sessions. Each principal SHALL include a stable principal ID and an address appropriate to the selected channel. For Houmao agents, the owner principal ID SHALL be the persisted `agent_id`, not a friendly name, preferred mail address, or provider login.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Human principals SHALL retain their own stable principal identities. Email participants that have no verified Houmao identity SHALL remain email participants; the system SHALL NOT synthesize an agent ID by hashing an incoming sender address or trusting an unverified sender-supplied ID.
 
 #### Scenario: Agent mailbox uses canonical agent identity
@@ -121,6 +133,11 @@ Each attachment entry SHALL include:
 - size metadata when available
 - digest metadata when available
 - a transport-appropriate local reference, managed-store locator, or transport-owned attachment locator
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The mailbox protocol SHALL NOT require every transport to preserve a local absolute path reference after delivery.
 
@@ -174,6 +191,11 @@ Mailbox local parts beginning with `HOUMAO-` SHALL be reserved for Houmao-owned 
 
 The reserved namespace SHALL include `HOUMAO-operator@houmao.localhost`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 This requirement changes the default address-derivation policy only. Explicit mailbox bindings that already use another valid address remain valid unless later reconfigured.
 
 #### Scenario: New managed agent derives a human-readable Houmao mailbox address
@@ -188,6 +210,11 @@ This requirement changes the default address-derivation policy only. Explicit ma
 
 ### Requirement: Shared mailbox lifecycle state separates read, answered, and archived semantics
 The shared mailbox protocol SHALL distinguish message visibility from task completion.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Per-recipient mailbox state exposed through runtime-owned and gateway-owned mailbox surfaces SHALL include at minimum:
 
@@ -217,6 +244,11 @@ The shared mailbox operation contract exposed through runtime-owned and gateway-
 - manually marking supported recipient-local state fields,
 - moving messages among supported mailbox boxes,
 - archiving selected messages as a shortcut for moving them to the archive box.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 All operations that target existing messages SHALL use opaque plain-string `message_ref` values. Callers SHALL treat the entire value as opaque and SHALL NOT derive behavior from transport-specific prefixes, paths, encodings, or storage identifiers.
 
@@ -251,6 +283,11 @@ This requirement applies to substantive replies and acknowledgement replies alik
 
 ### Requirement: Sender-marked notification block extends the canonical envelope
 The canonical mailbox message envelope SHALL include an optional `notify_block` field carrying short sender-authored text intended for prominent receiver-side rendering by the gateway notifier.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `notify_block` SHALL be a structured value with fields `text: str` and `placement: Literal["append", "prepend"]`. `placement` SHALL default to `"append"` when omitted. The field SHALL remain part of the immutable canonical envelope content. Per-recipient mailbox state (`read`, `answered`, `archived`) SHALL NOT extend to `notify_block`.
 
@@ -322,6 +359,11 @@ An empty fenced block (no non-whitespace content between the fence markers) SHAL
 The canonical mailbox message envelope SHALL include an optional `notify_auth` field carrying sender-supplied authentication metadata associated with `notify_block`.
 
 `notify_auth` SHALL be a structured value with fields `scheme`, `token`, `iss`, `iat`, and `exp`. `scheme` SHALL be one of `none`, `shared-token`, `hmac-sha256`, or `jws`. `token`, `iss`, `iat`, and `exp` SHALL each be optional strings.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 In this change, canonical-message validation SHALL accept only `scheme="none"`. Validation SHALL reject any other `scheme` value with an explicit "verifier not yet supported" error and SHALL NOT silently accept or normalize the rejected value.
 

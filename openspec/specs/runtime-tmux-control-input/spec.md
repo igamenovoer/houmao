@@ -12,6 +12,11 @@ The parser SHALL:
 - recognize a special-key token only when the substring uses the exact `<[key-name]>` form with no internal whitespace, and
 - preserve non-matching substrings as literal text.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The implementation SHALL guarantee support for at least these exact key names: `Enter`, `Escape`, `Up`, `Down`, `Left`, `Right`, `Tab`, `BSpace`, `C-c`, `C-d`, and `C-z`.
 
 #### Scenario: Sequence mixes literal text and exact special keys
@@ -41,6 +46,11 @@ The system SHALL provide a mode that disables special-key parsing for the provid
 The system SHALL deliver parsed literal text and special-key tokens to the live tmux target in order, SHALL NOT append an implicit `Enter` at the end of the provided sequence, and SHALL require an explicit `<[Enter]>` token when submit behavior is desired.
 
 The implementation SHALL deliver literal text segments using tmux literal-text mode (`send-keys -l`) and SHALL deliver special-key tokens using tmux key-name delivery (`send-keys` without literal mode).
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Literal text segments SHALL support normal punctuation and other literal special characters without requiring the high-level prompt-submission path.
 

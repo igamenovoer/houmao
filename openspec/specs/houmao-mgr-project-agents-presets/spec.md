@@ -7,6 +7,11 @@ Define the project-local low-level recipe workflow, with `internals native-agent
 
 When `houmao-mgr internals native-agent recipes ...` or the compatibility `project agents presets ...` surface parses existing stored preset files during inspection or enumeration and encounters malformed YAML or invalid preset content, the command SHALL fail as explicit CLI error output rather than leaking a Python traceback.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 This SHALL apply at minimum to:
 
 - `internals native-agent recipes list`

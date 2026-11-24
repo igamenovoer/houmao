@@ -7,6 +7,11 @@ Define the expected module layout and public entrypoint stability for the `houma
 ### Requirement: Project command implementation is decomposed by command family
 The `houmao-mgr project` command implementation SHALL be split across focused modules instead of keeping all project command handlers and helpers in one oversized module.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the split SHALL preserve separate ownership for:
 
 - project root group registration and `init` / `status`

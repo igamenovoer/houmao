@@ -1,11 +1,16 @@
 # writer-team-example Specification
 
 ## Purpose
-TBD - created by archiving change add-writer-team-example. Update Purpose after archive.
+Give operators a project template for a story writer, character designer, and reviewer. Show how to set up the agents with supported project commands and run the writer-led pairwise workflow with shared workspace artifacts and managed memory defaults.
 ## Requirements
 ### Requirement: Repository includes a writer-team example template
 
 The repository SHALL include a checked-in `examples/writer-team/` example that provides source material for a three-agent story-writing team without committing live Houmao project state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The example SHALL include, at minimum:
 
@@ -32,6 +37,11 @@ The writer-team example SHALL provide role prompts for:
 - `character-designer`, the worker agent that creates or updates character profiles and relationship notes,
 - `story-reviewer`, the worker agent that reviews chapters for logic, causality, character plausibility, pacing, and worldbuilding consistency.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The prompts SHALL be reusable as system-prompt files for `houmao-mgr project specialist create`.
 
 #### Scenario: User creates specialists from prompt files
@@ -43,6 +53,11 @@ The prompts SHALL be reusable as system-prompt files for `houmao-mgr project spe
 ### Requirement: Writer-team setup uses supported project commands
 
 The writer-team README SHALL show how to materialize the example with supported `houmao-mgr` project/easy commands.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The setup instructions SHALL cover:
 
@@ -70,6 +85,11 @@ The writer-team loop plan SHALL designate one master agent and two named worker 
 - review worker: `alex-review`.
 
 The loop plan SHALL describe a chapter pipeline in which the master drafts a chapter, delegates character work to the character worker, revises the draft, delegates review to the review worker, addresses review findings, and advances to the next chapter until the requested chapter count is complete.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The loop plan SHALL keep the user outside the execution loop and SHALL require worker results to close back to the master.
 

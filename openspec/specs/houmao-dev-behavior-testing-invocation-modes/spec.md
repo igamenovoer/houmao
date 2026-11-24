@@ -1,12 +1,17 @@
 # houmao-dev-behavior-testing-invocation-modes Specification
 
 ## Purpose
-TBD - created by archiving change enable-entrypoint-implicit-invocation. Update Purpose after archive.
+Behavior-test cases distinguish manual skill invocation from automatic entrypoint selection and track downstream delegation separately. Selectors, run manifests, and evidence reports carry this distinction through qualification.
 ## Requirements
 ### Requirement: Driver invocation mode is explicit case data
 Every behavior-test case or stable variant that originates from a driving-agent prompt SHALL declare `driver_invocation_mode` as `manual` or `automatic`.
 
 `manual` SHALL mean that the driving agent submits an exact prompt containing the intended top-level `$houmao-*` invocation. `automatic` SHALL mean that the driving agent submits natural task context without any `$houmao-*` handle and the oracle evaluates automatic selection or intentional non-selection.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated-prompt and lifecycle cases SHALL declare `driver_invocation_mode=not-applicable` with their actual stimulus origin and SHALL NOT be counted as natural-context automatic discovery.
 
@@ -29,6 +34,11 @@ Generated-prompt and lifecycle cases SHALL declare `driver_invocation_mode=not-a
 Every resolved case SHALL record `expected_initial_root`, `expected_delegated_roots`, and `expected_route` independently.
 
 An automatic actor-entrypoint case MAY require shared routines or a loop sibling downstream. The report SHALL identify the entrypoint as the initial automatic root and the sibling as delegated execution. It MUST NOT convert observed downstream access into evidence that an explicit-only sibling was directly selected implicitly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Strict manual welcome cases SHALL name welcome as the initial root only when the driving stimulus contains `$houmao-admin-welcome`. Automatic cases MUST NOT name welcome as an initial or delegated root.
 
@@ -55,6 +65,11 @@ Strict manual welcome cases SHALL name welcome as the initial root only when the
 ### Requirement: Invocation-aware selectors compose with functional coverage
 The behavior-testing skill SHALL accept `<functional-area>/<manual|automatic>/<coverage-profile>` and `all/<manual|automatic>/<coverage-profile>` selectors in addition to existing area, global, tag, exact-case, exact-variant, and composite forms.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Mode-aware selectors SHALL filter committed cases after cumulative functional-profile expansion and SHALL retain stable catalog order and deduplication. Existing `<functional-area>/<coverage-profile>` and `all/<coverage-profile>` selectors SHALL include every invocation mode in that functional slice, including applicable generated-prompt and lifecycle cases.
 
 Unknown invocation modes or malformed selector forms MUST fail before provider launch.
@@ -76,6 +91,11 @@ Unknown invocation modes or malformed selector forms MUST fail before provider l
 
 ### Requirement: Version 3 adds automatic entrypoint and delegation cases
 The behavior catalog SHALL advance to `houmao-dev-behavior-cases.v3`, contain 46 stable case records before matrix expansion, and add `ACT-005`, `ACT-006`, `SHR-009`, and `LOOP-008`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `ACT-005` SHALL have informational and operational managed-agent variants. The informational variant SHALL expect agent-entrypoint selection without identity verification or delegation. The operational variant SHALL expect fresh identity verification before delegation. `ACT-006` SHALL use raw-operator and genuine-managed variants in an explicitly combined-pack home to cover actor-context disambiguation. `SHR-009` SHALL use admin and managed-agent variants to cover natural actor-entrypoint selection followed by shared-child delegation. `LOOP-008` SHALL use admin-pro and agent-lite variants to cover natural actor-entrypoint selection followed by delegation to an explicitly distinguished loop sibling.
 
@@ -130,6 +150,11 @@ Before matrix expansion, version 3 SHALL resolve cumulative global counts of 13 
 
 Per-area cumulative counts SHALL be activation `4/5/6/6`, managed bootstrap `1/1/2/2`, admin entrypoint `1/3/8/9`, agent entrypoint `1/3/9/9`, shared routines `2/5/9/9`, agent loops `3/6/8/8`, and generated prompts `1/2/3/3`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Coverage profile selection MUST remain independent of provider selection, repetition count, invocation-mode filtering, and stable variant expansion.
 
 #### Scenario: Normal global coverage is resolved
@@ -145,6 +170,11 @@ Coverage profile selection MUST remain independent of provider selection, repeti
 ### Requirement: Run artifacts and reports preserve invocation provenance
 Before provider launch, the frozen run manifest SHALL record requested selectors, catalog version and digest, resolved cases and variants, driver invocation mode, stimulus origin, exact stimulus digest, expected initial root, expected delegated roots, expected route, providers, contexts, and repetitions.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Reports SHALL separate manual results, automatic positive-selection results, automatic intentional-non-selection results, and non-driver-origin results. Automatic informational and operational phase results SHALL be distinguishable. A report MUST NOT claim automatic entrypoint qualification when the driver supplied an explicit skill handle or when initial-root evidence remained unobservable.
 
 #### Scenario: Automatic activation is fully observable
@@ -159,6 +189,11 @@ Reports SHALL separate manual results, automatic positive-selection results, aut
 
 ### Requirement: Structural validation enforces invocation constraints
 Focused repository tests SHALL validate catalog version, case ids, case revisions, cumulative counts, selector documentation, and exactly one driver invocation mode per resolved case or variant.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The tests SHALL reject automatic driver stimuli containing `$houmao-*`, manual driver stimuli that omit their intended top-level handle, `not-applicable` modes outside generated-prompt or lifecycle origins, automatic welcome initial or delegated roots, and initial-root or delegated-root oracles that contradict packaged activation policy.
 

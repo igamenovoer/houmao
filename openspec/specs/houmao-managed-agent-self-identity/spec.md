@@ -1,7 +1,7 @@
 # houmao-managed-agent-self-identity Specification
 
 ## Purpose
-TBD - created by archiving change add-managed-agent-instance-state. Update Purpose after archive.
+Verified-self commands derive an agent's identity from its runtime manifest and current live registry generation. Tmux-backed agents also verify their owning socket and session, and supported headless agents use a runtime-owned manifest locator.
 ## Requirements
 ### Requirement: Verified self resolves from current runtime authority
 Houmao SHALL resolve managed self from a confined runtime manifest and the current shared-registry generation. The manifest SHALL supply the agent's identity fields. Tmux-backed self resolution SHALL verify the owning socket and session. Supported headless runtimes SHALL also resolve self through their runtime-owned manifest locator.

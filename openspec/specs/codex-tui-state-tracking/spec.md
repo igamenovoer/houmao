@@ -21,6 +21,11 @@ That capability SHALL be limited to the interactive TUI case that requires raw s
 ### Requirement: Codex TUI single-snapshot signals come from current visible surface facts
 The `codex_tui` profile SHALL derive its single-snapshot facts from the current visible surface only.
 
+#### Scenario: A Codex snapshot reports evidence from the current visible pane
+
+- **GIVEN** the `codex_tui` profile classifies one visible pane capture
+- **THEN** it derives snapshot facts from the eligible prompt, activity, and failure evidence in that capture
+
 At minimum, the profile SHALL be able to recognize:
 - agent-turn-backed activity rows,
 - in-flight tool or command transcript cells,
@@ -137,6 +142,11 @@ The `codex_tui` profile SHALL classify a current prompt-adjacent compact/server 
 
 When the current prompt-adjacent compact/server terminal failure surface is present, the profile SHALL expose current-error evidence for the current turn and SHALL prevent success candidacy for that surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the current prompt-adjacent compact/server terminal failure surface is present and the current composer facts otherwise indicate prompt readiness, the profile SHALL preserve prompt readiness instead of forcing the input surface to unknown or active solely because of that error.
 
 The profile SHALL derive this compact/server degraded classification from the bounded prompt-adjacent prompt region and from the essential compact/server semantics carried by that failure surface. It SHALL NOT require an exact full-sentence literal to classify the compact/server degraded family.
@@ -170,6 +180,11 @@ The `codex_tui` profile SHALL be allowed to derive temporal hints from a sliding
 
 That temporal inference SHALL support Codex-specific cases where the visible running row may disappear while streamed answer content continues to grow.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The profile SHALL prefer degrading certainty when the recent snapshot window is too sparse or ambiguous rather than manufacturing active or successful turn outcomes from insufficient evidence.
 
 #### Scenario: Hidden status row does not hide an active answering turn
@@ -189,6 +204,11 @@ The `codex_tui` profile SHALL treat successful completion as a stable return to 
 That prior armed turn authority MAY come from either an explicit input event or prior stronger active-turn evidence that armed the shared tracker through surface inference.
 
 A visible `Worked for ...` separator MAY contribute supporting evidence, but it SHALL NOT be required for successful completion.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Current overlays, exact interruption surfaces, current prompt-adjacent terminal failure surfaces, or live-edge retry or reconnect status SHALL block success settlement for the current turn.
 
@@ -212,6 +232,11 @@ Current overlays, exact interruption surfaces, current prompt-adjacent terminal 
 When the `codex_tui` profile recognizes a bounded prompt-adjacent compact/server degraded failure surface, it SHALL expose structured degraded-context diagnostic metadata in addition to `chat_context=degraded`.
 
 That diagnostic metadata SHALL identify Codex as the owning CLI tool and SHALL use Codex-scoped degraded error type labels for Codex-specific classifications.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Codex degraded error type labels SHALL NOT be treated as a shared cross-tool enum. Other CLI tool profiles SHALL NOT reuse Codex labels unless they are explicitly reporting a Codex TUI surface.
 
@@ -249,6 +274,11 @@ The `codex_tui` profile SHALL keep deriving these diagnostics only from bounded 
 ### Requirement: Codex delegated work remains active until the parent turn settles
 For a maintained Codex 0.162.x TUI profile, visible multi-agent or collaboration activity SHALL count as current-turn active evidence. A parent turn SHALL remain active while delegated agents are running, waiting on current collaboration work, or reporting current progress, even if the editor frame remains visible.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The tracker SHALL report ready only after delegation activity has settled and the current surface satisfies the normal stable ready-return contract. Missed short-lived delegation frames at lower capture rates SHALL not create an impossible state sequence or a false successful completion before later active evidence.
 
 #### Scenario: Running delegated agents keep the turn active
@@ -263,6 +293,11 @@ The tracker SHALL report ready only after delegation activity has settled and th
 
 ### Requirement: Codex current pending-input panes are active-turn evidence
 For a maintained Codex 0.162.x TUI profile, a follow-up submitted while a turn is active SHALL be recognized from the queued-echo surface: a composer-style `› <text>` row rendered above the status row, disambiguated by in-flight turn content above the echo. A current queued echo SHALL contribute pending-input and active-turn evidence and SHALL prevent `surface.ready_posture=yes` even when the ordinary status row is hidden.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 A queued echo accompanied by a `Worked for` dock or an interruption notice SHALL be treated as a turn-starting submission, not as pending input for the settled turn. Historical queued-echo text superseded by a later completed assistant response SHALL NOT by itself keep a settled prompt active.
 
@@ -292,6 +327,11 @@ When the queued echo collapses into a folded `+ N lines` expansion affordance, t
 
 ### Requirement: Codex retry and list-selector activity is bounded to current source-backed surfaces
 The Codex tracked-TUI profile SHALL recognize current reconnect activity from the maintained source-backed reconnect status family and SHALL NOT classify arbitrary prose or command descriptions containing `retry` as stream activity.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The profile SHALL treat a current model or list selector with a selection title or rows and the current list-selection confirmation footer (the 0.162 form `enter select · esc back`) as a blocking overlay. Historical selector titles or footers outside the current bounded interactive region SHALL NOT block a later prompt.
 

@@ -35,6 +35,13 @@ The recovery page SHALL document the confirmed classifications used in recovery.
 
 ### Requirement: Recovery paths documented
 
+The recovery page SHALL document the effects of `agents stop` and `agents relaunch` for both `degraded_missing_primary` and `stale_missing_session`.
+
+#### Scenario: Recovery page specifies stop and relaunch effects by session classification
+
+- **GIVEN** an operator looks up recovery for a degraded or stale session
+- **THEN** the page identifies what stop and relaunch do for the session's classification
+
 The recovery page SHALL document the recovery behavior for each classification:
 
 - **Degraded** (`degraded_missing_primary`):

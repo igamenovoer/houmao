@@ -1,7 +1,7 @@
 # per-agent-ag-ui-run-streaming Specification
 
 ## Purpose
-TBD - created by archiving change add-ag-ui-run-streaming-graphics. Update Purpose after archive.
+Define how a per-agent gateway admits an AG-UI run, converts its input into a prompt, and streams the resulting task lifecycle. Preserve the event correlation available in each runtime mode and define how errors and disconnects affect the stream.
 ## Requirements
 ### Requirement: Per-agent AG-UI runs stream task lifecycle events
 
@@ -10,6 +10,11 @@ TBD - created by archiving change add-ag-ui-run-streaming-graphics. Update Purpo
 An admitted run stream SHALL emit `RUN_STARTED` before mapped task output.
 
 An admitted run stream SHALL terminate with exactly one terminal AG-UI run event: `RUN_FINISHED` for success or `RUN_ERROR` for failure.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `RUN_STARTED`, `RUN_FINISHED`, and `RUN_ERROR` SHALL describe the submitted AG-UI task run, not the lifetime of the Houmao agent process.
 
@@ -36,6 +41,11 @@ AG-UI run submission SHALL use the existing per-agent gateway admission controls
 The run service SHALL reject invalid input, unavailable transports, and busy agents before emitting `RUN_STARTED`.
 
 The run service SHALL pass the AG-UI `runId` as the gateway prompt `turn_id` so headless artifacts have a stable run-specific location.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The run service SHALL reject overlapping AG-UI runs for the same target unless a later change explicitly adds queued AG-UI stream semantics.
 
@@ -75,6 +85,11 @@ The converted prompt SHALL use the latest user message or tool result as the pri
 The converted prompt SHALL include prior AG-UI messages, state, context, forwarded props, and resume data as structured context when those fields are present.
 
 The adapter SHALL ignore AG-UI activity messages as agent input.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The adapter SHALL pass only whitelisted forwarded props to Houmao execution controls and SHALL render all other forwarded props as inert prompt context or omit them.
 
@@ -116,6 +131,11 @@ Visible reasoning SHALL map to AG-UI reasoning events only when policy allows it
 Action requests SHALL map to `TOOL_CALL_START`, `TOOL_CALL_ARGS`, and `TOOL_CALL_END`.
 
 Action results SHALL map to `TOOL_CALL_RESULT`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Progress and diagnostics SHALL map to `ACTIVITY_SNAPSHOT` or `CUSTOM`.
 

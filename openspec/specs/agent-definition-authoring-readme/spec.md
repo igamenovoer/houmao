@@ -1,7 +1,7 @@
 # agent-definition-authoring-readme Specification
 
 ## Purpose
-TBD - created by archiving change add-agent-authoring-readme. Update Purpose after archive.
+Keep a generated workspace README current so a reviewer can understand the agent, authoring state, file tree, and any validated revision. The README provides portable orientation alongside the authoritative intent, approval, and revision artifacts.
 ## Requirements
 ### Requirement: Skill-authored workspaces contain a root README
 

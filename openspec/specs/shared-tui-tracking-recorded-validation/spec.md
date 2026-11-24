@@ -20,6 +20,11 @@ The scenario workflow SHALL continue to support actions such as ready waits, act
 
 The restored recorded-validation workflow SHALL compare human-authored ground truth against the tracker’s public tracked state rather than against raw pane text or internal detector intermediates.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The strict comparison target SHALL remain the public tracked-state fields used by downstream dashboards and reports:
 
 - `diagnostics_availability`
@@ -104,6 +109,11 @@ The restored shared TUI tracking demo pack SHALL provide recorded-capture suppor
 
 Kimi recorded capture SHALL launch one real Kimi Code tmux session from the demo-local Kimi launch assets, record pane evidence and runtime observations, and drive Kimi through scenario-owned actions.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Kimi scenario control SHALL support ready waits, active waits, text submission, Escape interruption, deliberate process loss, and pattern waits using the same scenario DSL used by other supported tools.
 
 #### Scenario: Kimi recorded capture builds from demo-local launch assets
@@ -148,6 +158,11 @@ The restored recorded-validation workflow SHALL accept `tool = kimi` from a fixt
 
 Kimi recorded validation SHALL replay Kimi pane observations through the shared tracker registry and compare the replayed public tracked state against `labels.json` using the same public-state fields as other supported tools.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The workflow SHALL preserve observed Kimi version metadata when fixture manifests or CLI arguments provide it, so profile selection can resolve the maintained `kimi_code` versioned detector.
 
 #### Scenario: Kimi fixture manifest drives replay tool selection
@@ -180,6 +195,11 @@ Kimi sweep contracts SHALL support the same required-label, required-sequence, t
 ### Requirement: Current Codex and Kimi validation uses high-rate truth and varied sparse replay
 Recorded validation for Codex 0.162.x and the Kimi 2.1.1 baseline SHALL capture unattended live TUI sessions at about 20 frames per second. Maintainers SHALL manually label the high-rate source timeline before using tracker output as an oracle. The Kimi baseline evidence SHALL support the maintained `>=2.1.1` profile without imposing an upper version limit.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Validation SHALL derive multiple lower-rate streams or delay schedules from the same source recording, including regular and jittered sampling. Strict comparisons MAY allow skipped transient labels, but every replay SHALL preserve meaningful state ordering, avoid false operator-blocked prompts in unattended mode, and avoid impossible terminal-to-active transitions caused only by capture delay.
 
 Kimi validation SHALL record that native role-prompt projection completed before TUI startup and SHALL contain no role-bootstrap chat turn. Recordings from below-floor Kimi releases SHALL NOT qualify maintained Kimi behavior.
@@ -202,6 +222,11 @@ Kimi validation SHALL record that native role-prompt projection completed before
 ### Requirement: Recorded pending-input qualification uses audited labels and cadence variants
 
 Before pending-input recordings are used as acceptance evidence, a maintainer SHALL review their rendered pane/label videos, correct label boundaries as needed, and record the observed provider version provenance. Analyzer-generated pattern labels SHALL remain calibration input rather than the sole correctness oracle.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Pending-input qualification SHALL run the canonical high-rate recording plus derived low-rate and seeded irregular-cadence variants. Reports SHALL separate detector mismatches, skipped unobserved transitions, provider queue caps, and tainted capture evidence.
 

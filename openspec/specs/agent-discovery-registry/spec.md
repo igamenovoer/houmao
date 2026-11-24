@@ -1,12 +1,17 @@
 # agent-discovery-registry Specification
 
 ## Purpose
-TBD - created by archiving change add-central-agent-registry. Update Purpose after archive.
+Resolve managed agents by stable identity through a per-user registry. Track live runtime and gateway presence separately from durable addresses, mailbox membership, and owner execution locators.
 ## Requirements
 ### Requirement: Shared agent registry uses a fixed per-user root with isolated live-agent directories
 The shared agent registry SHALL keep its fixed per-user root under the platformdirs user config path for app name `houmao` and no app author, and SHALL support an env-var override named `HOUMAO_GLOBAL_REGISTRY_DIR`.
 
 On Linux, the default shared registry root is expected to be `~/.config/houmao/registry`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When `HOUMAO_GLOBAL_REGISTRY_DIR` is set to an absolute directory path, the system SHALL use that value as the effective registry root instead of the platformdirs-derived default. The override SHALL support CI, tests, and similarly controlled environments.
 
@@ -22,6 +27,11 @@ When `HOUMAO_GLOBAL_REGISTRY_DIR` is set to an absolute directory path, the syst
 
 ### Requirement: Shared registry records are strict, secret-free contracts that point to runtime-owned state
 Each local runtime-presence `record.json` SHALL use the current strict versioned schema and include its schema version, friendly name, authoritative `agent_id`, stable-per-live-session generation, publication/lease information, identity metadata, runtime pointers, and terminal metadata. Names SHALL be friendly metadata rather than a global uniqueness guarantee. The local record SHALL retain its manifest locator. Externally useful live gateway coordinates SHALL remain optional presence metadata.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When mail is configured, the record SHALL publish separate `mailboxes.offline` and `mailboxes.online` identity summaries and the derived canonical mail identity. Summaries SHALL contain owner/channel/binding scope, address, revision, and safe availability information; they SHALL NOT publish credential files or secret-resolution inputs.
 
@@ -73,6 +83,11 @@ When the caller omits the exact `HOUMAO-` prefix, the system SHALL canonicalize 
 The system SHALL publish shared-registry updates by writing a temporary file in the target live-agent directory and atomically replacing `record.json`.
 
 Published records whose publication path uses a bounded lease SHALL continue to be treated as stale after their lease expires.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Published records for currently supported tmux-backed live agents SHALL use a dedicated long finite sentinel lease window so their discoverability does not expire at the ordinary 24-hour boundary or the existing 30-day joined-session boundary.
 
@@ -143,6 +158,11 @@ The system SHALL support direct resolution of a published live agent by authorit
 
 When a caller resolves a live agent by friendly `agent_name` instead of `agent_id`, the system SHALL consult persisted registry metadata rather than deriving the lookup path from the name alone.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When more than one fresh live registry record shares the same friendly `agent_name` but carries different authoritative `agent_id` values, friendly-name lookup SHALL report ambiguity rather than silently choosing one record.
 
 When current-session discovery cannot use a valid tmux-published manifest pointer, resolution by authoritative `agent_id` SHALL be sufficient to recover the published `runtime.manifest_path` for manifest-first attach, resume, and relaunch flows.
@@ -187,6 +207,11 @@ When current-session discovery cannot use a valid tmux-published manifest pointe
 The system SHALL provide a local operator-facing cleanup entrypoint at `houmao-mgr admin cleanup registry` that classifies stale directories under `<platformdirs user config>/registry/live_agents/` or the effective override root.
 
 That tooling SHALL remove directories whose `record.json` is missing, malformed, or expired beyond a bounded grace period.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For tmux-backed records, that tooling SHALL perform a local tmux liveness probe by default. When a record is still lease-fresh but its tmux authority is absent on the local host, the cleanup tool SHALL classify that record as stale.
 
@@ -236,6 +261,11 @@ That tooling SHALL accept `--dry-run`. In dry-run mode, it SHALL classify remova
 When shared-registry resolution loads a candidate `record.json` for a known agent name, the system SHALL treat missing, malformed, schema-invalid, or lease-expired records as unusable discovery state rather than as a successful live result.
 
 Lookup-facing resolution SHALL return an explicit not-found or stale-record outcome for those unusable records.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Strict validation MAY still be used for diagnostics, cleanup classification, or publish-time verification, but malformed persisted records SHALL NOT force name-based discovery to abort before it can conclude that the record is unusable.
 
@@ -312,6 +342,11 @@ The system SHALL create a shared-registry record for a live agent according to t
 The launch authority SHALL be persisted in runtime-readable session or authority metadata so runtime and `houmao-server` consult the same signal before any shared-registry publish or refresh attempt.
 
 For agents created or admitted through `houmao-server`-owned authority, `houmao-server` SHALL create and refresh the shared-registry record for that agent.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For direct runtime-owned workflows outside `houmao-server`-owned admission, runtime publication MAY continue to create and refresh the shared-registry record for that live agent.
 
@@ -396,6 +431,11 @@ Registry cleanup SHALL NOT follow a symlinked record directory to choose the rec
 The shared registry SHALL provide enough secret-free metadata for callers to resolve a known managed agent by authoritative `agent_id` even when no live gateway is currently attached.
 
 Known-agent address metadata SHALL include the authoritative `agent_id`, canonical `agent_name`, lifecycle state when available, relaunchability when available, and safe runtime pointers needed by supported relaunch or status flows.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Known-agent address metadata SHALL treat live gateway coordinates, tmux session handles, live generation identifiers, and leases as volatile presence data rather than durable addresses.
 

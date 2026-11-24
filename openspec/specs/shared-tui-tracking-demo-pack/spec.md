@@ -84,6 +84,11 @@ The restored demo pack SHALL include secret-free Kimi agent-definition assets un
 
 Those assets SHALL include a Kimi tool adapter compatible with the current Kimi brain-builder contract, a default Kimi setup directory, and an `interactive-watch-kimi-default.yaml` preset that launches Kimi through the demo-local `default` auth alias.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The tracked Kimi assets SHALL NOT commit plaintext Kimi OAuth credentials, Kimi API keys, or user-global Kimi Code state.
 
 #### Scenario: Maintainer inspects Kimi demo assets

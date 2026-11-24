@@ -4,7 +4,14 @@ Define the README structure and onboarding order for the primary Houmao project 
 
 ### Requirement: README section ordering follows specialist-first onboarding
 
-The README SHALL present an agent-first onboarding order: title/intro, Motivation, audience list, What It Is (with name origin), Why This Design, Architecture at a Glance, Quick Start, agent-driven examples, Core Concepts, Agent Loops, concise System Skills summary, Subsystems, Demos and Examples, CLI Entry Points, Full Documentation, Development, License. The former Typical Use Cases section is removed; audience signposting in the "who this is for" list and the Agent Loops and Demos sections carry that content.
+The README SHALL present an agent-first onboarding order: title/intro, Motivation, audience list, What It Is (with name origin), Why This Design, Architecture at a Glance, Quick Start, agent-driven examples, Core Concepts, Agent Loops, concise System Skills summary, Subsystems, Demos and Examples, CLI Entry Points, Full Documentation, Development, License.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+The former Typical Use Cases section is removed; audience signposting in the "who this is for" list and the Agent Loops and Demos sections carry that content.
 
 The Quick Start SHALL NOT require a reader to walk through a numbered 0-through-6 manual `houmao-mgr` tutorial before seeing Houmao's agent-driven value. Manual command details and secondary paths SHALL be linked to docs rather than expanded as the primary README flow.
 
@@ -16,6 +23,11 @@ The Quick Start SHALL NOT require a reader to walk through a numbered 0-through-
 
 ### Requirement: Drive with Your CLI Agent is step 1
 The README Quick Start SHALL present the skill-driven human-operator path as the primary recommended entry point. It SHALL instruct the user to install Houmao, verify `tmux`, install the admin system-skill pack into the target CLI-agent home, start that CLI agent from the target directory, and invoke `$houmao-admin-welcome start-guided-tour`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The README SHALL explain that the welcome is read-only and hands executable work to `$houmao-admin-entrypoint ...`. It SHALL keep detailed pack, home, mode, migration, and receipt behavior in linked documentation and SHALL NOT recommend direct installation from the source asset tree, old named sets, protected routine selectors, or `$houmao-touring`.
 
@@ -55,6 +67,11 @@ The README SHALL still explain that Houmao creates a `.houmao/` project overlay 
 
 The README SHALL introduce specialists, project profiles, and managed agents through a simple agent-driven workflow rather than through a full `houmao-mgr project specialist create` flag tutorial.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The workflow SHALL show the user asking their CLI agent to create or select a specialist, create a reusable easy launch profile when useful, launch a managed agent, and send an initial prompt through the gateway or maintained messaging surface. The README MAY include a short illustrative command or outcome list, but detailed command syntax SHALL be delegated to linked docs.
 
 #### Scenario: Reader sees the specialist workflow
@@ -66,6 +83,11 @@ The workflow SHALL show the user asking their CLI agent to create or select a sp
 ### Requirement: Agent loop section showcases pairwise coordination (step 3)
 
 The README SHALL present agent loops as the place where Houmao's multi-agent system shines. The main loop story SHALL focus on `houmao-agent-loop-pro`: the user feeds a complex multi-agent plan to the pro loop skill, the CLI agent decomposes it into intention and execplan artifacts, prepares required specialists, profiles, workspaces, skills, credentials, mailbox/gateway posture, and then launches and operates the loop.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The README SHALL mention `houmao-agent-loop-lite` as the lighter Markdown/direct-SQL loop path, but SHALL keep `houmao-agent-loop-pro` as the marquee example for complex plans. The README SHALL avoid presenting retired pairwise loop skill packages as the current main loop lifecycle.
 
@@ -95,6 +117,11 @@ The README MAY summarize joined-session capability at a high level and SHALL lin
 ### Requirement: System Skills section lists every shipped skill with its purpose
 The README System Skills section SHALL be a concise summary of the public roles and the actor-driven model, not a table of protected routines and not an inline reference for pack lifecycle behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 It SHALL keep the table of the six shipped skills with pack membership and role, presenting the welcome skill first as the starting skill, and SHALL explain the actor model in no more than a short paragraph: natural Houmao requests route to the admin entrypoint for a human-operator session and to the agent entrypoint for a verified managed session, while welcome and both loop skills are invoked explicitly. Pack membership resolution, shared-owner tracking, route-selection rules, bypass syntax, ownership config, and compatibility aliases SHALL live in the System Skills Overview and System Skills CLI reference; the README SHALL link to both instead of expanding them inline. The System Skills section body after the table SHALL NOT exceed roughly 15 lines of prose.
 
 #### Scenario: Reader sees skills as an actor-qualified capability layer
@@ -122,6 +149,11 @@ The capabilities table in step 5 (Adopt an Existing Session) SHALL include at le
 
 ### Requirement: README What It Is section acknowledges Copilot system-skills target
 The README opening "What It Is" paragraph SHALL mention Copilot as a supported system-skills install target alongside the three primary launch-capable tools (`claude`, `codex`, `kimi`). The mention SHALL make clear that Copilot is a skill-install surface, not a launch backend.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The README SHALL include a Kimi Code note that identifies 2.1.1 as the minimum supported version and states that support has no upper version limit. It SHALL explain that Houmao applies the complete composed role prompt before provider startup through the managed Kimi home's native `SYSTEM.md`, while preserving Kimi's built-in instructions. It SHALL contain no below-floor compatibility, manual auto-skill invocation, or role-bootstrap guidance.
 
@@ -175,7 +207,14 @@ The install block SHALL state that `tmux` is required because managed agents run
 
 ### Requirement: README usage examples use AI/user chat style
 
-The README SHALL include at least one concise "You:" / "AI:" usage example inside the Quick Start, immediately after the install and tour steps. The example SHALL show the user asking their CLI agent to perform Houmao work and the AI reporting concrete Houmao outcomes, such as project initialization, specialist creation, project profile preparation, managed-agent launch, gateway attachment, prompt delivery, or loop preparation. Additional examples (such as gateway interaction) MAY appear in a later examples section and SHALL NOT duplicate the Quick Start exchange.
+The README SHALL include at least one concise "You:" / "AI:" usage example inside the Quick Start, immediately after the install and tour steps. The example SHALL show the user asking their CLI agent to perform Houmao work and the AI reporting concrete Houmao outcomes, such as project initialization, specialist creation, project profile preparation, managed-agent launch, gateway attachment, prompt delivery, or loop preparation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Additional examples (such as gateway interaction) MAY appear in a later examples section and SHALL NOT duplicate the Quick Start exchange.
 
 The first example prompt in the README SHALL invoke the entrypoint skill explicitly (for example, `$houmao-admin-entrypoint ...`), teaching the recommended first-prompt pattern; explicit-only skills (welcome, both loops) always show their handle. Later example prompts MAY drop the handle and SHALL include the keyword `houmao` so implicit skill routing triggers reliably.
 
@@ -229,7 +268,14 @@ Examples SHALL use public skill invocations and SHALL NOT rely on a protected lo
 
 ### Requirement: README intro narrative carries brand, rationale, and architecture
 
-The README opening SHALL present, in order: the title and one-line summary, the central motivation (strong single agents as units, human-like cooperation without a hardcoded orchestration layer), a "who this is for" audience list (multi-agent system developers, agent system end users, Houmao extenders), and "What It Is" with the name-origin brand story, followed by "Why This Design" as short rationale paragraphs and an architecture walkthrough, all before Quick Start. The name-origin story SHALL be preserved as brand identity.
+The README opening SHALL present, in order: the title and one-line summary, the central motivation (strong single agents as units, human-like cooperation without a hardcoded orchestration layer), a "who this is for" audience list (multi-agent system developers, agent system end users, Houmao extenders), and "What It Is" with the name-origin brand story, followed by "Why This Design" as short rationale paragraphs and an architecture walkthrough, all before Quick Start.
+
+#### Scenario: README introduces Houmao before Quick Start
+
+- **GIVEN** a reader opens the README and reads from the title toward Quick Start
+- **THEN** the opening presents Houmao's motivation, audience, brand story, design rationale, and architecture in order
+
+The name-origin story SHALL be preserved as brand identity.
 
 The pre-Quick-Start prose MAY use up to ~60 lines and SHALL use subheadings so the narrative stays scannable.
 
@@ -263,6 +309,11 @@ The architecture section SHALL narrate the existing team diagram in prose (who d
 
 Every load-bearing concept in the README — specialist, project profile, managed agent, gateway, mailbox, loop, and the `.houmao/` overlay — SHALL be defined in plain language at or before its first use. A one-clause definition at first use is sufficient; the Core Concepts table remains the full reference.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The opening "What It Is" paragraph SHALL NOT use more than one not-yet-defined Houmao-specific term per sentence, and SHALL prefer concrete wording (for example, "a real `claude` or `codex` process running in its own tmux session") over abstraction-nouns a newcomer cannot guess (for example, "posture", "surface" as a noun, "credential lane", "pack closure", "turn evidence").
 
 #### Scenario: Newcomer reads top to bottom without a glossary
@@ -274,6 +325,11 @@ The opening "What It Is" paragraph SHALL NOT use more than one not-yet-defined H
 ### Requirement: README Quick Start presents a single golden path with visible outcomes
 
 The Quick Start SHALL present exactly one recommended sequence: prerequisites check, `uv tool install houmao`, `command -v tmux`, `npx skills add https://github.com/igamenovoer/houmao-skills`, start the CLI agent from the project directory, and invoke `$houmao-admin-welcome start-guided-tour`. Each step SHALL state in one line what success looks like.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The Quick Start SHALL close with the first `You:`/`AI:` exchange inline (for example, create a reviewer specialist, launch it, ask for a review), so the reader sees a complete zero-to-first-managed-agent arc before running anything.
 

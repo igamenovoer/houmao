@@ -9,6 +9,11 @@ Maintained `houmao-mgr` subcommands that parse caller-supplied JSON from an inli
 
 The fix guide SHALL identify the failed command or operation, the input option or source, the root parse or shape problem, a JSON Schema-style expected shape, and at least one valid example payload or command invocation.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The primary error message SHALL remain concise and SHALL precede the schema and example so humans can quickly see the cause.
 
 #### Scenario: Invalid inline JSON shows repair guide

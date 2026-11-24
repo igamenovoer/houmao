@@ -62,6 +62,11 @@ For the project backend:
 - `rename` SHALL change only the display name,
 - add, set, get, list, login, and remove SHALL use the catalog as the source of truth.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Credential list payloads SHALL preserve the existing credential-name list and SHALL also include timestamped credential records. For project-backed credentials, each record's last update time SHALL come from the project catalog database timestamp.
 
 #### Scenario: Project add stores credential content under an opaque bundle ref
@@ -88,6 +93,11 @@ By default, `get` SHALL redact secret-like values such as API keys, auth tokens,
 
 File-backed credential material SHALL be reported through presence and path metadata rather than by dumping raw file contents by default.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `set` SHALL only update fields explicitly provided by the operator. Omitted fields SHALL remain unchanged unless the operator uses an explicit clear-style flag supported by the selected tool lane.
 
 Both project-backed and internal native-agent credential backends SHALL validate env names and file inputs against the selected tool adapter contract and SHALL reject unsupported env names, auth-file inputs, or clear flags.
@@ -106,6 +116,11 @@ Both project-backed and internal native-agent credential backends SHALL validate
 
 ### Requirement: Direct native credential actions manage named auth directories
 When the resolved target is a plain native-agent root, such as a copied temp root derived from `tests/fixtures/plain-agent-def/`, `list|get|add|set|remove|login` SHALL manage named auth directories under `tools/<tool>/auth/<name>/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For the direct native backend:
 
@@ -141,6 +156,11 @@ When the resolved target is a plain native-agent root, `rename` SHALL:
 
 Direct native rename SHALL fail clearly when the selected credential does not exist or when the target name already exists for that tool lane.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Direct native rename SHALL NOT claim to rewrite arbitrary prose, tests, or external scripts outside the maintained in-tree reference set.
 
 #### Scenario: Direct native rename rewrites preset and launch-profile auth references
@@ -158,6 +178,11 @@ Direct native rename SHALL NOT claim to rewrite arbitrary prose, tests, or exter
 
 ### Requirement: Supported credential lanes remain available through maintained credential surfaces
 The maintained credential surfaces SHALL preserve the current tool-specific credential input lanes for each supported tool.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum:
 
@@ -194,6 +219,11 @@ houmao-mgr internals native-agent credentials <tool> login --native-agent-root <
 At minimum, `<tool>` SHALL include `claude`, `codex`, and `gemini`.
 
 The `login` verb SHALL resolve the same project-backed or direct native-agent target backend as the existing credential verbs before mutating credential storage.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `login` verb SHALL create a secure temporary provider home, run the installed provider CLI login flow with the selected provider home environment variable pointed at that temporary home, validate that the expected provider auth artifact exists, and import that artifact through the same storage path used by the selected tool lane's existing `add` behavior.
 

@@ -1,7 +1,7 @@
 # ag-ui-template-graphics Specification
 
 ## Purpose
-TBD - created by archiving change add-ag-ui-template-graphics-vega. Update Purpose after archive.
+Give agents a standard Layer 1 component for supported 2D charts. Define the payload and its capabilities metadata so the workbench can render validated charts with Plotly.js.
 ## Requirements
 ### Requirement: Houmao defines standardized template graphic payloads
 Houmao SHALL define a Layer 1 AG-UI component named `houmao.graphic.template`.
@@ -15,6 +15,11 @@ The `figureType` value SHALL be `plotly2d`.
 The payload MAY include `renderer`, `subtitle`, `dataRefs`, `layout`, `config`, `display`, and `extra`.
 
 The schema SHALL use `traces[].type` as the primary chart-family selector.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The schema SHALL define supported trace types through a Houmao-owned Plotly 2D trace catalog.
 
@@ -66,6 +71,11 @@ For Layer 1 template graphics, the only supported renderer-scoped extra key SHAL
 
 The `extra` object SHALL be optional and SHALL NOT be required for correct rendering.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Python authoring validation SHALL reject `extra` content that attempts to replace standardized chart semantics, including full backend specs, raw trace replacement, raw data replacement, raw layout replacement, raw config replacement, arbitrary JavaScript, HTML, iframe content, scriptable SVG, or remote URL loading.
 
 The Plotly `extra` block SHALL be limited to safe renderer presentation refinements such as margins, axis formatting, legend placement, hover mode, bar gap, marker refinements, line interpolation, point sizing, and responsive sizing hints.
@@ -94,6 +104,11 @@ The generated `TOOL_CALL_START` event SHALL use `toolCallName` equal to `houmao.
 
 The generated `TOOL_CALL_ARGS` event SHALL contain the normalized Plotly-backed payload with stable camelCase field names, `schemaVersion` equal to `3`, and `figureType` equal to `plotly2d`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The generated sequence SHALL remain compatible with the existing Houmao gateway publish helper.
 
 #### Scenario: Template graphic renders to tool-call events
@@ -111,6 +126,11 @@ The generated sequence SHALL remain compatible with the existing Houmao gateway 
 The AG-UI capabilities response SHALL advertise Houmao Layer 1 template graphics in Houmao custom metadata.
 
 The metadata SHALL include the template tool name, schema version, figure type, supported trace types, excluded trace types, supported renderer ids, default renderer id, Plotly bundle identifier, `extra` policy, datasource binding vocabulary support, datasource materialization support, and whether raw Plotly or Vega-Lite DSL specs are supported.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The metadata SHALL list Plotly 2D trace catalog coverage rather than advertising the previous five chart types as the complete Layer 1 surface.
 
@@ -156,6 +176,11 @@ The skill SHALL explain that Layer 1 template graphics use standardized Houmao J
 The skill SHALL explain that agents should not choose among Layer 1 template renderers.
 
 The skill SHALL explain that `extra.plotly` is disposable and must not be used as a full Plotly, Vega-Lite, Vega, React, HTML, or JavaScript escape hatch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL explain that ordinary static charts can use inline trace arrays and nested trace data objects.
 
@@ -208,6 +233,11 @@ The workbench SHALL use a Plotly browser bundle capable of rendering every trace
 
 The workbench SHALL use `Plotly.react` as the default render and refresh path.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The workbench SHALL clean up mounted Plotly charts when the React component unmounts, the pane clears, or the tool-call render is replaced.
 
 The workbench SHALL show deterministic invalid or unsupported component fallbacks for malformed template payloads, unsupported trace types, unsupported trace fields, unsupported bundle coverage, datasource-bound payloads when materialization is unsupported, or rejected renderer fields.
@@ -235,6 +265,11 @@ Datasource-bound template payloads SHALL declare datasource dependencies through
 A trace SHALL use either inline data or a `source.bindings` entry for the same catalog field path, not both.
 
 Trace source bindings SHALL reference datasource columns through Houmao-owned field-path binding entries under `source.bindings`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each `source.bindings` key SHALL match a trace field path allowed by the Plotly 2D trace catalog, such as `data.x`, `data.y`, `data.z`, `data.open`, `data.high`, `data.low`, `data.close`, `data.labels`, `data.values`, `data.node.label`, `data.link.source`, `data.link.target`, `data.link.value`, `data.header.values`, or `data.cells.values`.
 

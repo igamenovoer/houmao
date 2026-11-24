@@ -14,6 +14,11 @@ In `parsing_mode=shadow_only`, the system SHALL NOT rely on:
 - CAO `GET /terminals/{terminal_id}` `status` for turn gating, or
 - CAO `mode=last` output for dialog projection.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 In `parsing_mode=shadow_only`, the core Codex shadow parser SHALL NOT promise prompt-associated final answer extraction from `mode=full`.
 
 #### Scenario: Codex shadow mode uses only `mode=full` for state and projection
@@ -52,6 +57,11 @@ At minimum, the Codex shadow parser SHALL correctly handle:
 
 ### Requirement: Codex shadow surface classification is output-driven and bounded
 The system SHALL compute Codex shadow surface state from `mode=full` output using a bounded provider-aware window.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Before classifying state, the system SHALL partition the bounded window into a historical zone and an active zone using cursor-anchored prompt boundary detection. State classification SHALL operate on the active zone only. Historical signals above the prompt boundary SHALL NOT contribute to `business_state`, `input_mode`, or `ui_context` classification.
 When a visible Codex prompt owns processing/progress evidence below it, the prompt line SHALL remain inside the active zone so `working + freeform` remains representable.

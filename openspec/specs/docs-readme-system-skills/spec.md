@@ -17,6 +17,11 @@ The `README.md` SHALL be reviewed for accuracy against the current codebase. Any
 
 The `README.md` "What You Get After Joining" section (or the equivalent section that summarizes the operator-facing capabilities of a managed agent) SHALL include one short note explaining that managed launches and joins prepend a Houmao-owned prompt header by default, and SHALL link to the new managed prompt header reference page (`docs/reference/run-phase/managed-prompt-header.md`).
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The note SHALL state that the header is opt-out via `--no-managed-header` on the launch surfaces and is persisted in stored launch profiles, deferring the full explanation to the linked reference page.
 
 #### Scenario: Reader notices the managed prompt header from the README
@@ -114,6 +119,11 @@ The `README.md` CLI Entry Points section SHALL include a discoverable reference 
 ### Requirement: README distinguishes Skills CLI install from Houmao system-skills install
 
 The README system-skill guidance SHALL present `npx skills add https://github.com/igamenovoer/houmao-skills` as the recommended install path when `npx` is available and the target machine has internet access. It SHALL explain that the repository root contains the released skills, the unqualified URL selects the latest stable release, and a `#vX.Y.Z` Git fragment selects the skills matching a specific `houmao-mgr` release.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The README SHALL present `houmao-mgr system-skills install` as the preferred path when `npx` is unavailable, internet access is unavailable, the user is working from an installed Houmao package, or the user needs customization such as named sets, subset skills, explicit homes, symlink/copy projection, or retired-skill cleanup.
 

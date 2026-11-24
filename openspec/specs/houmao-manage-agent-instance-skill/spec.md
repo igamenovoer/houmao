@@ -4,6 +4,11 @@ Define the packaged Houmao-owned `houmao-agent-instance` skill for managed-agent
 ### Requirement: Houmao provides a packaged `houmao-agent-instance` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-instance` under the maintained system-skill asset root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That skill SHALL instruct agents to manage live managed-agent instances through these supported lifecycle commands:
 
 - `houmao-mgr project agents launch`
@@ -55,6 +60,13 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **AND THEN** it does not require another specialist-authoring skill to become a general-purpose instance-management skill
 
 ### Requirement: `houmao-agent-instance` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-agent-instance` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-agent-instance` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
@@ -97,6 +109,11 @@ The resolved launcher SHALL be reused for any routed managed-agent instance acti
 The packaged `houmao-agent-instance` skill SHALL tell the agent to recover omitted lifecycle inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL select commands by lifecycle source and target:
 
@@ -160,6 +177,11 @@ The packaged `houmao-agent-instance` launch action guidance SHALL preserve foreg
 
 For specialist-backed launch through `project agents launch`, the guidance SHALL defer detailed launch-time gateway behavior to `houmao-specialist-mgr` while still stating that agents MUST NOT add background gateway flags unless the user explicitly requests detached background gateway execution.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For explicit launch-profile-backed managed launch, the guidance SHALL state that stored launch-profile gateway posture may already control gateway auto-attach, and agents SHALL NOT add one-shot background gateway overrides unless the user explicitly requests background gateway execution.
 
 For direct role or preset launch through `agents launch`, the guidance SHALL avoid treating gateway attach as part of launch completion, while preserving the rule that any later gateway attach should go through `houmao-agent-gateway` foreground-first lifecycle guidance.
@@ -187,6 +209,11 @@ The packaged `houmao-agent-instance` cleanup guidance SHALL tell agents to use d
 
 When recent stop output includes `manifest_path` or `session_root`, the guidance SHALL prefer `houmao-mgr agents cleanup session|logs --manifest-path <path>` or `--session-root <path>` over `--agent-id` or `--agent-name`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When no durable path locator is available but the user provides a concrete `agent_id` or `agent_name`, the guidance MAY route cleanup through `--agent-id` or `--agent-name` and SHALL describe that selector cleanup can recover stopped sessions through bounded runtime-root fallback after live registry removal.
 
 The guidance SHALL NOT instruct agents to create, search, or depend on stopped-session tombstones, stopped-agent indexes, or additional shared-registry state.
@@ -210,6 +237,11 @@ The guidance SHALL NOT instruct agents to create, search, or depend on stopped-s
 
 ### Requirement: `houmao-agent-instance` explains relaunch chat continuation
 The packaged `houmao-agent-instance` skill SHALL explain that `houmao-mgr agents relaunch` can restart a relaunchable tmux-backed managed agent as either a fresh provider chat or a provider-native continuation when the implementation supports relaunch chat-session selection.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL route user requests to continue the previous provider chat during relaunch through `houmao-mgr agents relaunch` with the supported relaunch chat-session selector rather than through `agents launch` or ad hoc provider CLI commands.
 

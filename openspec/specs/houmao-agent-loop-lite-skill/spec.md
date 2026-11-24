@@ -1,7 +1,7 @@
 # houmao-agent-loop-lite-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-agent-loop-lite. Update Purpose after archive.
+Support manual coordination loops with a minimal generated execution plan that includes typed communication templates and static skills. Use direct SQLite when the loop needs durable state and delegate platform operations to supported Houmao commands.
 ## Requirements
 ### Requirement: Houmao provides a packaged manual `houmao-agent-loop-lite` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-lite` under the maintained system-skill asset root.
@@ -9,6 +9,11 @@ The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-li
 That packaged skill SHALL use `houmao-agent-loop-lite` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
 
 The packaged `houmao-agent-loop-lite` skill SHALL be manual-invocation-only. It SHALL activate only when the user explicitly requests `houmao-agent-loop-lite` or an explicitly named lite loop operation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The packaged skill SHALL describe itself as the lightweight Markdown/direct-SQL loop authoring and generated-loop execution path.
 
@@ -33,6 +38,11 @@ The skill SHALL keep `<loop-dir>/runs/` as the durable runtime artifact root.
 
 Lite generated execplans SHALL use `execplan/specs/`, `execplan/skills/`, and `execplan/agents/` when those concern areas are required.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Lite generated execplans SHALL NOT generate `execplan/harness/` or `execplan/docs/`.
 
 #### Scenario: Lite initializes a loop directory
@@ -47,6 +57,11 @@ The lite skill SHALL emit only files and directories needed by the selected loop
 The default lite generated package SHALL include required Markdown files for manifest, objective, organization, process, communication, generated skill index, agent binding index, and state usage.
 
 The default lite generated package SHALL include required communication templates and a required SQLite schema.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Optional material such as workspace rules, run-artifact rules, seed SQL, query recipes, notifier prompts, concrete profile definitions, tick skills, and operator-control skills SHALL NOT appear unless the selected loop process needs them.
 
@@ -73,6 +88,11 @@ The prologue SHALL end at the first blank line.
 
 The template body SHALL use literal `<placeholder ...>` placeholders when generated content must be filled.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Lite templates SHALL NOT use JSON Schema, Jinja2, conditionals, loops, filters, or expression language.
 
 Lite templates SHALL NOT duplicate Houmao mail envelope fields such as sender, receiver, subject, message id, thread id, timestamps, reply refs, or system headers.
@@ -93,6 +113,11 @@ A lite execplan SHALL include generated skills under `execplan/skills/`.
 A lite execplan SHALL include a generated shared guidance skill that states common lite rules for read order, placeholder replacement, direct SQLite usage, Houmao envelope metadata, and bounded-turn behavior.
 
 For every required `Loop-Template-Type`, the lite execplan SHALL include at least one generated receiver skill whose trigger names that exact template type.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated receiver skills SHALL direct agents to read Houmao mail metadata from the mailbox response and to read loop-local type metadata from the body prologue.
 
@@ -115,6 +140,11 @@ Lite generated execplans SHALL include `execplan/specs/state/README.md` describi
 
 Lite runs SHALL store runtime SQLite databases under `runs/<run-id>/` unless the generated lite manifest records an explicit equivalent location.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated lite skills SHALL manipulate SQLite directly according to the state README and SHALL NOT route state access through a generated harness.
 
 Lite state SHALL store compact facts and references rather than full mail bodies, rendered Markdown, long rationale, or detailed analysis.
@@ -135,6 +165,11 @@ Lite generated skills SHALL model on-event and tick work as prompt-triggered bou
 Lite generated skills SHALL NOT instruct agents to sleep, poll, tail logs, or wait in-chat for future work.
 
 Lite generated skills SHALL route ordinary mailbox operations through maintained Houmao mailbox skills or supported CLI surfaces.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Lite generated skills SHALL route gateway, notifier, launch, messaging, inspection, workspace, and agent-definition operations through their owning maintained Houmao skills or supported CLI surfaces.
 
@@ -160,6 +195,11 @@ Lite guidance SHALL NOT describe workspace-manager `execute` as the standard wor
 ### Requirement: Lite exposes a small authoring and execution operation surface
 The packaged lite skill SHALL support operations for initialization, intent clarification, generated-skill generation, validation, agent preparation, launch, start, status, pause, resume, stop, and recovery when those operations apply to the selected lite loop.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The lite validation operation SHALL validate required Markdown shape, required communication template type declarations, generated receiver-skill coverage for template types, absence of unresolved placeholders in generated templates where applicable, absence of forbidden harness/docs directories, and SQLite schema parseability.
 
 Lite validation SHALL NOT require JSON schemas, TOML contracts, Jinja renderers, or generated harness command registries.
@@ -180,6 +220,11 @@ The packaged `houmao-agent-loop-lite` skill SHALL use `SKILL.md` as an entrypoin
 The lite `SKILL.md` SHALL include activation rules, help text, required root vocabulary, operation names, routing guidance, and global constraints.
 
 The lite package SHALL include operation-specific authoring pages under `subskills/authoring/`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the lite authoring pages SHALL cover:
 
@@ -246,6 +291,11 @@ execplan-specs-process
 
 The lite workflow SHALL NOT include an `execplan-harness` stage.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The lite process and contract stages SHALL use Markdown files as generated authorities for objective, organization, process, communication, state, workspace, run, participant, and agent-binding concerns when those concerns apply.
 
 The lite communication contract SHALL use typed Markdown templates under `execplan/specs/templates/` instead of JSON schemas or Jinja2 renderers.
@@ -277,6 +327,11 @@ Lite validation SHALL verify the routed lite package shape and the generated Mar
 The lite `clarify-intent`, `clarify-execplan`, and routed `clarify` alias guidance SHALL use ASCII/text diagrams for any architecture, process, route, implementation-shape, or coverage visual summary shown directly in TUI chat.
 
 Lite clarification chat output SHALL NOT use fenced `mermaid` blocks for those visual summaries.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 This rule SHALL apply only to chat summaries and clarification questions. It SHALL NOT add Mermaid requirements, remove optional generated-artifact diagrams, or require generated lite execplan artifacts to be converted to ASCII.
 

@@ -1,10 +1,15 @@
 # houmao-system-skill-sibling-routing Specification
 
 ## Purpose
-TBD - created by archiving change replace-runtime-skill-composition-with-static-collection. Update Purpose after archive.
+Route administrator and managed-agent requests from public entrypoints to eligible standalone skills and parent-owned routines. Direct invocation and delegation establish the actor posture used to resolve targets and select operations.
 ## Requirements
 ### Requirement: Human-operator entrypoint establishes admin posture before sibling routing
 `houmao-admin-entrypoint` SHALL declare that the executing assistant acts for a human operator and is not the managed agent being administered. It SHALL resolve target-sensitive work from an explicit target or unambiguous user-provided context and SHALL NOT default to managed self.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 After route selection, ordinary system work SHALL delegate to the installed `houmao-shared-routines` sibling with an immutable admin frame. Pro and lite loop work SHALL delegate directly to the corresponding top-level loop sibling.
 
@@ -36,6 +41,11 @@ After successful verification, eligible ordinary work SHALL delegate to `houmao-
 
 ### Requirement: Entrypoints expose complete static route indexes
 Each actor entrypoint SHALL use a collection-of-routines subcommand table that lists every eligible route argument, one distinguishing `When to Route Here` sentence, and its sibling delegation target.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The admin entrypoint SHALL list admin-only and shared routes, the specialist compatibility alias, and both loop routes. The agent entrypoint SHALL list agent-only and shared routes plus both loop routes. Ineligible routes SHALL remain explicit rejections and SHALL NOT become eligible from prompt text.
 

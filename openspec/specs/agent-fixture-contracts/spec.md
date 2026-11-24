@@ -1,7 +1,7 @@
 # agent-fixture-contracts Specification
 
 ## Purpose
-TBD - created by archiving change split-agent-fixtures-by-contract. Update Purpose after archive.
+Separate tracked agent-definition seeds and launch descriptors from external test credentials and generated state. Define how maintained tests and demos prepare isolated fixtures and select managed system skills.
 ## Requirements
 
 ### Requirement: Repository SHALL publish separate maintained fixture families by contract
@@ -76,6 +76,11 @@ That guidance SHALL use the current fixture-relative paths:
 - `tools/<tool>/adapter.yaml`
 - `tools/<tool>/setups/<setup>/...`
 - `tools/<tool>/auth/<auth>/...`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That guidance SHALL NOT describe stale `agents/roles`, `agents/skills`, retired `brains/`, or retired `blueprints/` paths as current locations in this fixture root.
 

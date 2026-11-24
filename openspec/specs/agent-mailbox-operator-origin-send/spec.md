@@ -6,6 +6,11 @@ Define operator-origin mailbox delivery semantics for managed-agent mailboxes.
 ### Requirement: Operator-origin mailbox delivery uses the reserved Houmao system sender
 The system SHALL support a distinct operator-origin mailbox delivery capability for filesystem-backed managed-agent mailboxes.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Operator-origin delivery SHALL remain distinct from ordinary mailbox `send` behavior:
 
 - ordinary `send` continues to compose and deliver mail as the managed mailbox principal,
@@ -40,6 +45,11 @@ Supported operator-origin reply policies SHALL include at minimum:
 
 New operator-origin mailbox messages created without an explicit reply policy SHALL use `operator_mailbox`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the operator-origin reply policy is `operator_mailbox`, reply flows against that operator-origin message SHALL target the reserved operator mailbox `HOUMAO-operator@houmao.localhost`.
 
 When the operator-origin reply policy is explicitly `none`, reply flows against that operator-origin message SHALL fail explicitly rather than being routed to a hidden operator inbox or dropped silently.
@@ -71,6 +81,11 @@ Messages created through either reply policy SHALL remain identifiable through e
 
 ### Requirement: Operator-origin send accepts notification block and authentication metadata
 Operator-origin mailbox delivery SHALL accept the canonical envelope's `notify_block` and `notify_auth` fields through the same composition contract as ordinary mailbox `send`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `notify_block` SHALL be supplied as the structured `MailboxNotifyBlock` shape with `text` and `placement` fields. Operator-origin composition SHALL apply the canonical extraction-and-validation rules without divergence:
 

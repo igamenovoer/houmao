@@ -1,12 +1,17 @@
 # per-agent-ag-ui-e2e-smoke Specification
 
 ## Purpose
-TBD - created by archiving change add-ag-ui-e2e-smoke-and-demo. Update Purpose after archive.
+Verify the per-agent AG-UI contract end to end through deterministic SSE fixtures, live managed-agent runs, and browser rendering checks. Define the demo setup, stream proxy expectations, and evidence to collect when a smoke test fails.
 ## Requirements
 ### Requirement: AG-UI run smoke exercises the live per-agent gateway contract
 Houmao SHALL provide a deterministic end-to-end smoke path that posts AG-UI `RunAgentInput` JSON to the live per-agent gateway `POST /v1/ag-ui/runs` route and consumes the response as AG-UI SSE.
 
 The smoke path SHALL exercise the real gateway route registration, request admission, durable request-state observation, canonical headless artifact lookup, AG-UI event mapping, and SSE framing. It SHALL NOT call the mapper directly as the only validation path.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The smoke path SHALL assert that the AG-UI `runId` is preserved as the gateway prompt `turn_id` and as the headless artifact lookup key used for `<manifest-stem>.turn-artifacts/<runId>/canonical-events.jsonl`.
 
@@ -28,6 +33,11 @@ Houmao SHALL provide a deterministic graphics smoke that proves an explicit cano
 
 The first graphics smoke SHALL control the canonical event input. It SHALL NOT depend on a live model choosing to call `houmao_render_graphic`, because AG-UI declared tools are not yet provider-native frontend tool bindings.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The graphics smoke SHALL reconstruct at least one assistant message with one `toolCalls` entry whose name is `houmao_render_graphic` and whose parsed arguments match the typed Houmao graphics artifact payload.
 
 #### Scenario: Controlled graphics artifact reconstructs one rendered tool call
@@ -46,6 +56,11 @@ The graphics smoke SHALL reconstruct at least one assistant message with one `to
 Houmao SHALL provide a manual or integration smoke path that launches or reuses one real managed headless agent with a live per-agent gateway and submits a plain-text AG-UI run through `/v1/ag-ui/runs`.
 
 The live smoke SHALL verify queue admission, stream lifecycle ordering, mapped assistant text or compatible terminal output, request completion, and cleanup through maintained Houmao managed-agent launch and gateway patterns.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The live smoke SHALL NOT require real generated graphics until Houmao has provider-native tool binding or another deterministic managed-agent artifact mechanism for graphics.
 
@@ -82,6 +97,11 @@ Browser automation SHALL use the Bun-global Playwright toolchain. Browser checks
 ### Requirement: AG-UI demo documentation covers direct gateway setup and limits
 Houmao SHALL document how to run the per-agent AG-UI smoke or demo against the live gateway before the passive-server facade exists.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The documentation SHALL show the direct `/v1/ag-ui/runs` endpoint, the capability discovery endpoint, and a minimal AG-UI or CopilotKit `HttpAgent` setup that registers the `houmao_render_graphic` renderer. It SHALL also state the known limits: lower-fidelity TUI streams, no frontend tool execution, no state deltas, conservative multimodal support, deterministic graphics smoke, and GUI-detach lifecycle semantics.
 
 #### Scenario: Operator can find the direct per-agent AG-UI workflow
@@ -115,6 +135,11 @@ The smoke SHALL use passive-server discovery or resolution to select the target 
 
 The smoke SHALL connect the workbench pane to the selected agent gateway before submitting a prompt.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The smoke SHALL submit the validation prompt through the workbench prompt composer and run button rather than by posting directly to the gateway from the test harness.
 
 The validation prompt SHALL ask the agent to publish one `houmao.graphic.template` chart to the current GUI thread and request a nonce-labeled text completion marker.
@@ -137,6 +162,11 @@ The smoke SHALL remain opt-in and SHALL NOT be part of the default unit-test com
 The real-agent GUI smoke SHALL verify that the selected agent and gateway advertise AG-UI run submission, GUI connect streams, and live published-event fanout before submitting the validation prompt.
 
 The smoke SHALL verify local `houmao.graphic.template` authoring support before submitting the validation prompt.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The smoke SHALL record template graphics presentation metadata when the gateway advertises it, but SHALL NOT require `generatedGraphics=true` for TUI-backed agents that publish already-rendered AG-UI events through `/v1/ag-ui/events`.
 
@@ -166,6 +196,11 @@ The smoke SHALL treat a text-only answer, Markdown-only chart, stale chart, wron
 The real-agent GUI smoke SHALL record diagnostics for setup, agent, gateway, and browser failures.
 
 Failure evidence SHALL include the selected agent id or name, passive-server URL, resolved gateway target, GUI thread id when available, AG-UI capabilities response when available, submitted prompt, browser console output, screenshot, and visible transcript text.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When raw AG-UI events or reconstructed tool-call diagnostics are available through the workbench or gateway, the smoke SHALL preserve them as additional evidence.
 

@@ -9,6 +9,11 @@ Define the documentation requirements for Houmao developer guides.
 
 The `developer/tui-parsing/` guide SHALL be rewritten to describe the runtime-owned TUI parsing stack in terms of current abstractions: `StreamStateReducer`, detector profiles from `DetectorProfileRegistry`, signal contracts per tool, and the `shared_tui_tracking` package. All references to "CAO transport surface" or "CAO terminal" as primary framing SHALL be replaced with the actual execution contexts (tmux panes for `local_interactive`, process stdout for headless).
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guide SHALL explicitly state that Claude Code, Codex, and Kimi Code have maintained local-interactive TUI tracking coverage. The architecture page's compact provider-parser or detector-profile diagrams SHALL include Kimi when they list three maintained TUI providers.
 
 The guide SHALL explicitly state that Gemini is lower-priority for TUI parsing because maintained Gemini integration is headless-oriented for TUI tracking documentation. The index page SHALL include a provider note explaining that Claude, Codex, and Kimi have maintained local-interactive TUI tracking profiles while Gemini remains outside the maintained TUI tracking path by default. The shared-contracts page SHALL note that legacy `ShadowParserStack` provider subclasses cover Claude and Codex, while Kimi uses a dedicated shared-tracker detector profile rather than routing through that legacy parser stack.

@@ -12,6 +12,11 @@ That contract SHALL allow each supported app to register:
 - exact-match or closest-compatible semver-floor profile resolution from observed version metadata, and
 - a detection entrypoint that converts one raw TUI snapshot into normalized signals for the shared tracker engine.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The shared tracker boundary SHALL resolve supported apps through this contract rather than through public `tool == ...` branching alone. It SHALL NOT require direct dependency on parser/backend preset registries to resolve tracker profiles.
 
 #### Scenario: Claude Code and Codex use the same tracker extension boundary
@@ -23,6 +28,11 @@ The shared tracker boundary SHALL resolve supported apps through this contract r
 Each supported TUI app SHALL be able to define multiple versioned signal profiles under the shared plugin/profile contract.
 
 Each profile SHALL encapsulate the signal-detector set used for that app/version family, and the shared tracker engine SHALL depend only on the profile's normalized detection result rather than on app-specific detector internals.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Profile detection at the shared tracker boundary SHALL derive normalized signals from raw snapshot text, including externally captured direct tmux pane text. Host-provided parsed-surface context SHALL NOT be required by the public tracker contract.
 
@@ -39,6 +49,11 @@ Profile detection at the shared tracker boundary SHALL derive normalized signals
 ### Requirement: Profile-owned signal evidence remains encapsulated from the shared engine
 Signal rules that are specific to one app or version family SHALL remain encapsulated inside that app's selected profile rather than being spread across the shared tracker engine.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The shared engine SHALL consume normalized signals such as active-turn evidence, interruption, known-failure, success-candidate posture, and ready posture, while profile-owned matched-signal details MAY remain available as debugging or testing evidence.
 Those profile-owned matched-signal details SHALL NOT be required in the stable public tracker state contract initially.
 
@@ -51,6 +66,11 @@ Those profile-owned matched-signal details SHALL NOT be required in the stable p
 For drift-prone prompt, status, error, warning, or retry surfaces, a selected versioned TUI profile SHALL match current-turn signal families through bounded structural scope plus essential semantic tokens rather than through exact full-sentence literals alone.
 
 Those bounded semantic patterns SHALL remain profile-private implementation details of the selected profile.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The selected profile SHALL scope those patterns to the visual role that the signal plays on the current surface, such as prompt-adjacent terminal failure blocks or live-edge retry status, rather than applying the same matcher to arbitrary historical transcript text.
 
@@ -75,6 +95,11 @@ The shared tracker engine SHALL continue to consume only normalized outputs from
 The shared versioned TUI profile contract SHALL allow a selected app profile to delegate interpretation of one drift-prone prompt, status, or activity-evidence region to a profile-owned behavior variant.
 
 That behavior variant SHALL consume raw snapshot-derived region content and MAY rely on rendering or style evidence, including raw ANSI/SGR state, cursor or prompt-marker styling, or latest-turn region scoping, when stripped text alone is insufficient to classify the region safely.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The behavior variant SHALL return a coarse profile-local classification that the selected profile can translate into normalized tracker signals.
 
@@ -155,6 +180,11 @@ For prompt-payload interpretation, a selected profile MAY treat foreground/backg
 ### Requirement: Claude prompt behavior distinguishes ghost suggestions by style rather than text
 For Claude Code profiles that support prompt-payload style analysis, the selected profile SHALL distinguish prompt-line ghost suggestion payloads from user-authored draft input using raw rendering and style evidence from the current prompt region rather than exact suggestion text.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 A Claude prompt payload SHALL be eligible for ghost-suggestion classification only when the profile recognizes the payload's non-space characters as rendered wholly in a suggestion style that is visually distinct from ordinary typed prompt text, such as a profile-owned darker or lower-contrast foreground style.
 
 The selected profile SHALL classify such a pure ghost-suggestion payload as placeholder or suggestion content rather than draft input.
@@ -211,6 +241,11 @@ The shared profile contract SHALL allow a profile to contribute temporal hint lo
 
 That temporal hint logic SHALL be exposed through a separate temporal-hint callback rather than by changing the meaning of the single-snapshot signal contract.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The temporal callback MAY consume recent ordered profile frames and the injected scheduler to derive profile-owned lifecycle hints from a sliding time window. The contract SHALL NOT require profiles to rely on adjacent-snapshot comparison only.
 
 Profile-specific frame details such as latest-turn-region signatures MAY remain private to the selected profile in v1 rather than widening the shared normalized-signal contract.
@@ -234,6 +269,11 @@ Profile-specific frame details such as latest-turn-region signatures MAY remain 
 The Kimi Code TUI signal profile SHALL be implemented from the recorded Kimi signal corpus and change-local signal contract artifacts.
 
 The Kimi signal contract SHALL combine live capture evidence with Kimi TUI source-code investigation. Detector rules SHALL identify whether each relied-on signal is source-backed component structure, source-backed styling, temporal behavior observed in capture, or bounded semantics within a known source-backed region.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The profile SHALL prefer minimal stable signals in this order:
 
@@ -265,6 +305,11 @@ The Kimi shared TUI tracking profile SHALL pass the labeled Kimi recorded-valida
 
 The validation gate SHALL include ready, draft, active, completed, approval-blocked, approval-rejected, interrupted, and footer-metadata scenarios across at least 5 development live sessions and at least 3 held-out test live sessions.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Held-out test sessions SHALL NOT be used to choose detector rules, tune temporal thresholds, or revise the Kimi signal contract before the acceptance run.
 
 #### Scenario: Kimi profile passes required scenario families
@@ -286,6 +331,11 @@ Held-out test sessions SHALL NOT be used to choose detector rules, tune temporal
 The shared versioned TUI profile registry SHALL include a Kimi Code TUI app family identified as `kimi_code`.
 
 The Kimi app profile SHALL convert raw Kimi TUI snapshot text into normalized shared tracker signals for prompt readiness, draft editing, active-turn evidence, success-candidate posture, approval-blocked posture, interruption, and known terminal failure families when those families are specifically recognized.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The maintained Kimi Code profile SHALL resolve for every observed version at or above 2.1.1 with no upper version limit. Labeled evidence at the current qualified floor SHALL establish the baseline signal contract; cancellation of change-local capture or replay tasks SHALL NOT count as qualification evidence. Below-floor Kimi profiles SHALL NOT remain selectable as maintained or compatibility profiles.
 
@@ -316,7 +366,14 @@ The maintained Kimi Code profile SHALL resolve for every observed version at or 
 - **AND THEN** the caller receives an unsupported-version result rather than legacy compatibility
 
 ### Requirement: Kimi Code profile resolution errors below the support floor
-Kimi Code tracker profile resolution SHALL support only kimi-code versions at or above the current qualified floor (2.1.1), through exactly one maintained profile with an open-ended semver floor and no kimi fallback profile. An observed version below the floor, or unparseable version metadata, SHALL produce an explicit unsupported-version error at tracker resolution time naming the observed (or missing) version, the required floor, and the migration action (upgrade kimi-code); no detector SHALL be selected for such a session.
+Kimi Code tracker profile resolution SHALL support only kimi-code versions at or above the current qualified floor (2.1.1), through exactly one maintained profile with an open-ended semver floor and no kimi fallback profile.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+An observed version below the floor, or unparseable version metadata, SHALL produce an explicit unsupported-version error at tracker resolution time naming the observed (or missing) version, the required floor, and the migration action (upgrade kimi-code); no detector SHALL be selected for such a session.
 
 #### Scenario: Kimi at the floor resolves the maintained profile
 - **WHEN** the tracker resolves app `kimi_code` with observed version `2.1.1`
@@ -344,6 +401,11 @@ An observed kimi version above the qualified floor SHALL resolve to the maintain
 ### Requirement: Versioned TUI profile compatibility is bounded
 Each maintained detector registration SHALL define the version interval supported by its recorded evidence, either as a bounded interval or as an open-ended floor for a maintained minimum-only registration. The registry SHALL select a profile only when the observed CLI version falls inside that interval.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Versions in gaps or outside every maintained interval SHALL resolve to the conservative app fallback when the app registers one; an app with a floor-gated maintained profile and no fallback (currently `kimi_code`, `codex_tui`, and `claude_code`) SHALL raise an explicit unsupported-version error instead. An explicit experimental override MAY bypass interval matching.
 
 #### Scenario: Newer unvalidated CLI uses fallback
@@ -362,7 +424,14 @@ Versions in gaps or outside every maintained interval SHALL resolve to the conse
 - **AND THEN** the registry retains developer-visible qualified-version metadata without imposing an upper compatibility bound
 
 ### Requirement: Current Codex, Kimi, and Claude releases have evidence-backed profiles
-The registry SHALL provide a Codex 0.162.x profile qualified against labeled Codex 0.162.1 recordings, a Kimi 2.1.x profile qualified against labeled kimi-code 2.1.1 recordings, and a Claude 2.1.x profile qualified against labeled Claude 2.1.296 recordings. Older Codex 0.116.x and 0.144.x profiles SHALL NOT remain registered because Codex support is floor-gated at 0.162.1 with no fallback; older Kimi profiles SHALL NOT remain registered because Kimi support is floor-gated at 2.1.1 with no fallback; older Claude profiles qualified around 2.1.81 SHALL NOT remain registered because Claude support is floor-gated at 2.1.296 with no fallback.
+The registry SHALL provide a Codex 0.162.x profile qualified against labeled Codex 0.162.1 recordings, a Kimi 2.1.x profile qualified against labeled kimi-code 2.1.1 recordings, and a Claude 2.1.x profile qualified against labeled Claude 2.1.296 recordings.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Older Codex 0.116.x and 0.144.x profiles SHALL NOT remain registered because Codex support is floor-gated at 0.162.1 with no fallback; older Kimi profiles SHALL NOT remain registered because Kimi support is floor-gated at 2.1.1 with no fallback; older Claude profiles qualified around 2.1.81 SHALL NOT remain registered because Claude support is floor-gated at 2.1.296 with no fallback.
 
 #### Scenario: Current installed tools resolve current profiles
 - **WHEN** tracking observes Codex 0.162.1, Kimi 2.1.1, or Claude 2.1.296
@@ -431,6 +500,11 @@ An observed claude version above the qualified floor SHALL resolve to the mainta
 The selected Codex TUI, Claude Code, and Kimi Code profiles SHALL derive a normalized `pending_input` tristate from raw captured snapshot text and profile-owned structural or rendering evidence.
 
 Each profile SHALL scope pending-input evidence to the current live queue/composer surface so historical transcript text does not create a positive result. The profile SHALL emit `unknown` rather than `no` when required structural bounds are missing or ambiguous.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The normalized signal SHALL describe presence only. Provider-specific pending counts MAY remain diagnostic or qualification metadata and SHALL NOT be required in the shared public state.
 

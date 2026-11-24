@@ -1,10 +1,15 @@
 # houmao-agent-gateway-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-agent-gateway-skill. Update Purpose after archive.
+Teach agents to resolve gateway targets and use supported lifecycle, status, reminder, and mail-notifier commands. Route ordinary communication and general inspection to their dedicated skills.
 ## Requirements
 ### Requirement: Houmao provides a packaged `houmao-agent-gateway` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-gateway` under the maintained system-skill asset root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That skill SHALL instruct agents and operators to handle gateway-specific work through these supported surfaces:
 
@@ -53,6 +58,13 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **AND THEN** it does not present `houmao-agent-gateway` as the generic replacement for `houmao-agent-instance`, `houmao-agent-messaging`, or the mailbox skills
 
 ### Requirement: `houmao-agent-gateway` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-agent-gateway` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-agent-gateway` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
@@ -96,6 +108,11 @@ The packaged `houmao-agent-gateway` skill SHALL tell the caller to recover omitt
 
 The skill SHALL NOT guess a missing required target, live gateway base URL, or discovery lane that is not explicit in current or recent conversation context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For current-session lifecycle work inside the owning managed tmux session, the skill SHALL describe manifest-first targeting through:
 
 - `HOUMAO_MANIFEST_PATH` when present and valid, then
@@ -126,6 +143,13 @@ The skill SHALL NOT guess a direct gateway host or port when the exact live `gat
 - **AND THEN** it instead directs the caller to a supported higher-level `houmao-mgr agents gateway ...` or `/houmao/agents/{agent_ref}/gateway...` surface when one exists
 
 ### Requirement: `houmao-agent-gateway` routes by gateway-specific intent and keeps ordinary messaging on the existing skills
+The packaged `houmao-agent-gateway` skill SHALL select commands by gateway-specific intent and delegate ordinary prompt and mailbox work to the appropriate messaging or mailbox skill.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-agent-gateway` skill SHALL select commands by gateway-specific intent:
 
 - use `houmao-mgr agents gateway attach|detach|status` or `/houmao/agents/{agent_ref}/gateway...` for gateway lifecycle and summary state,
@@ -166,6 +190,11 @@ The skill SHALL state that reminder records are live-gateway in-memory state, ar
 
 The skill SHALL state that the reminder with the smallest ranking value is the effective reminder and that a paused effective reminder still blocks lower-ranked reminders.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL explain that reminders support two delivery forms:
 
 - semantic `prompt`
@@ -203,6 +232,11 @@ The packaged `houmao-agent-gateway` skill SHALL treat generic requests to inspec
 
 For those generic managed-agent inspection requests, the packaged skill SHALL direct the caller to `houmao-agent-inspect`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged skill MAY continue using gateway status and gateway-owned TUI tracker surfaces when the inspection target is explicitly gateway-specific.
 
 #### Scenario: Generic managed-agent inspection routes to the inspect skill
@@ -219,6 +253,11 @@ The packaged skill MAY continue using gateway status and gateway-owned TUI track
 The packaged `houmao-agent-gateway` lifecycle guidance SHALL present `houmao-mgr agents gateway attach` without `--background` as the first-choice command shape for tmux-backed managed sessions.
 
 The lifecycle guidance SHALL state that foreground gateway attach uses a same-session auxiliary tmux window when supported, leaving the managed-agent surface on tmux window `0` and using a non-zero gateway tmux window for the live sidecar.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The lifecycle guidance SHALL state that `--background` requests detached gateway process execution and SHALL only be used when the current user prompt or recent conversation explicitly asks for background or detached gateway execution.
 
@@ -248,6 +287,11 @@ The skill's mail-notifier guidance SHALL state that the default notifier mode is
 
 The guidance SHALL document the opt-in `unread_only` mode, where only unread unarchived inbox mail is notification-eligible.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guidance SHALL mention that `unread_only` is a lower-noise mode and that read-but-unarchived mail will not by itself trigger future notifier prompts in that mode.
 
 #### Scenario: Gateway skill shows default notifier mode
@@ -269,6 +313,11 @@ The guidance SHALL mention that `unread_only` is a lower-noise mode and that rea
 The packaged `houmao-agent-gateway` skill SHALL document supported gateway commands as direct fenced `bash` snippets or equivalent explicit command shapes.
 
 At minimum, covered command families SHALL include scoped gateway discovery/control/TUI helpers, mail notifier status/enable/disable, and reminders list/get/create/set/remove.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL keep live gateway HTTP workflow guidance, mailbox handoff prose, and semantic reminder prompt design in skill text where those concerns are not direct `houmao-mgr` command spelling.
 

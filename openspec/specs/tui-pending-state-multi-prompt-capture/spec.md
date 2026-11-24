@@ -1,7 +1,7 @@
 # TUI Pending State Multi Prompt Capture Specification
 
 ## Purpose
-TBD - created by archiving change expand-tui-pending-capture-multi-prompt. Update Purpose after archive.
+Collect and label provider TUI evidence for one to three pending prompts during an active turn, including a case with a long prompt. Preserve estimated queue counts in review artifacts and flag attempts where the provider queues fewer prompts than requested.
 
 ## Requirements
 

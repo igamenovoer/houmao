@@ -6,6 +6,11 @@ Define the packaged Houmao-owned system skill that routes communication and cont
 ### Requirement: Houmao provides a packaged `houmao-agent-messaging` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-messaging` under the maintained system-skill asset root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That skill SHALL instruct agents to communicate with already-existing Houmao-managed agents through these supported surfaces:
 
 - `houmao-mgr agents state`
@@ -56,6 +61,13 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 - **AND THEN** it does not present launch, cleanup, or transport-local mailbox repair as part of messaging guidance
 
 ### Requirement: `houmao-agent-messaging` resolves the `houmao-mgr` launcher in the required precedence order
+The packaged `houmao-agent-messaging` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-agent-messaging` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
@@ -159,6 +171,11 @@ The packaged `houmao-agent-messaging` skill SHALL describe clear-context and cha
 
 For TUI-backed managed agents, the skill SHALL describe reset-then-send behavior through `POST /houmao/agents/{agent_ref}/gateway/control/prompt` or direct `POST /v1/control/prompt` with `chat_session.mode = "new"` when immediate clear-and-send control is required.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For headless managed agents, the skill SHALL describe both:
 
 - direct prompt control with `chat_session.mode = "new"`, and
@@ -192,6 +209,11 @@ At minimum, that delegation SHALL cover:
 - `houmao-process-emails-via-gateway`
 - `houmao-agent-email-comms`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-agent-messaging` skill SHALL keep its own mailbox coverage at the communication-routing and mailbox-handoff level and SHALL NOT restate filesystem layout, Stalwart credential handling, managed-agent mailbox operation routes, or the lower-level `/v1/mail/*` contract in full.
 
 #### Scenario: Gateway mailbox round work delegates to the processing skill
@@ -208,6 +230,11 @@ The packaged `houmao-agent-messaging` skill SHALL keep its own mailbox coverage 
 The packaged `houmao-agent-messaging` skill SHALL describe `houmao-mgr agents interrupt` as the default transport-neutral interrupt path for already-running managed agents.
 
 For TUI-backed managed agents, the skill SHALL explain that ordinary interrupt means one best-effort `Escape` delivery and that the caller does not need to switch to raw `send-keys` merely to get that TUI interrupt behavior.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For TUI-backed managed agents, the skill SHALL explain that interrupt MAY still be useful when currently reported TUI state looks idle because tracked TUI state can lag the live visible surface.
 
@@ -235,6 +262,11 @@ The packaged `houmao-agent-messaging` skill SHALL treat generic requests to insp
 
 For those generic inspection requests, the packaged skill SHALL direct the caller to `houmao-agent-inspect`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged skill MAY continue using `agents state`, `agents gateway status`, `agents mail resolve-live`, and gateway-owned TUI tracker surfaces when that inspection is inseparable from the currently selected messaging workflow, such as prompt-lane discovery, queue-specific validation, or explicit prompt-provenance work.
 
 #### Scenario: Generic inspection request routes to the inspect skill
@@ -248,6 +280,13 @@ The packaged skill MAY continue using `agents state`, `agents gateway status`, `
 - **AND THEN** it does not claim ownership of generic managed-agent inspection outside that messaging-specific context
 
 ### Requirement: Messaging skill selects explicit gateway prompt admission policy
+
+The packaged `houmao-agent-messaging` skill SHALL teach agents to select `ready-only`, `if-no-pending`, or `always` for gateway prompt admission based on caller intent.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The packaged `houmao-agent-messaging` skill SHALL teach agents to map caller intent to the maintained gateway prompt admission policies:
 

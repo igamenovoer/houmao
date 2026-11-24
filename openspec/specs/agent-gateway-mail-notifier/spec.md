@@ -12,6 +12,11 @@ That notifier surface SHALL include:
 - `GET /v1/mail-notifier/{channel}` to inspect notifier configuration and runtime status,
 - `DELETE /v1/mail-notifier/{channel}` to disable notifier behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Notifier configuration SHALL include at minimum:
 
 - whether notifier is enabled,
@@ -109,6 +114,11 @@ The channel SHALL be explicit and SHALL be `offline` or `online`. Each channel S
 ### Requirement: Gateway notifier prompts use native mailbox-skill invocation and never surface skill-document paths
 When a gateway notifier wake-up prompt tells an agent to use installed Houmao mailbox skills, that prompt SHALL use tool-native mailbox-skill invocation guidance or explicit Houmao skill names and SHALL NOT instruct the agent to open `SKILL.md` paths from the copied project or from any visible skill directory.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For notifier prompts that assume Houmao mailbox skills are installed:
 - Claude-facing prompts SHALL invoke or reference the installed Houmao mailbox skill through Claude's native skill surface and SHALL NOT point the agent at `skills/.../SKILL.md`.
 - Codex-facing prompts SHALL use Codex-native installed-skill triggering for the current round and SHALL NOT point the agent at `skills/.../SKILL.md` or copied project skill paths.
@@ -138,6 +148,11 @@ The notifier MAY persist gateway-owned metadata such as last poll time or last n
 
 The notifier SHALL NOT require gateway-owned reminder deduplication or reminder-resolution state in order to decide whether unread mail is eligible for another reminder.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Mailbox read or unread truth SHALL come from the selected mailbox transport through the gateway mailbox facade rather than from gateway-owned transport-local persistence.
 
 The gateway SHALL NOT mark a message read merely because:
@@ -162,6 +177,11 @@ When notifier control is exposed through server-owned managed-agent gateway rout
 
 The server projection SHALL NOT create a second notifier state store, a second unread-state source, or a second deduplication history separate from the gateway-owned notifier records.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway sidecar SHALL remain the source of truth for notifier configuration, polling history, and per-poll audit evidence.
 
 The channel SHALL be explicit and SHALL be `offline` or `online`. Each channel SHALL keep its own configuration, appendix, polling observations, compaction eligibility, and audit scope. Changing one channel SHALL preserve the other. Mailbox binding discovery SHALL use the current revision-owned runtime state rather than process environment snapshots.
@@ -180,6 +200,11 @@ The channel SHALL be explicit and SHALL be `offline` or `online`. Each channel S
 The gateway mail notifier SHALL inspect open inbox work through the gateway-owned shared mailbox facade for the managed session rather than using unread-only `check` behavior.
 
 For this change, open inbox work SHALL mean messages in the current principal's inbox that are not archived or otherwise closed. Messages MAY be read or answered and still remain open inbox work.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When open inbox work is present, the notifier SHALL preserve the existing readiness and queue-admission gates before enqueueing a reminder prompt.
 
@@ -201,6 +226,11 @@ When the gateway mail notifier enqueues an internal reminder for open inbox work
 
 The prompt SHALL direct the agent to use the installed runtime-owned `houmao-process-emails-via-gateway` skill for the current round, list mailbox work through the shared gateway mailbox API, process selected relevant mail, archive only successfully processed mail, and stop after the round.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The prompt SHALL distinguish safe triage from mutating reads by listing a concise current gateway mailbox lifecycle endpoint summary for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
 
 The prompt SHALL NOT tell the agent that `mark-read` is the completion action.
@@ -221,6 +251,11 @@ Each configured channel's gateway mail notifier SHALL support its own durable no
 When callers enable or reconfigure the notifier without specifying a mode, the gateway SHALL use `any_inbox`.
 
 The notifier status payload SHALL report the effective mode for both enabled and disabled notifier states.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The notifier poll SHALL always select from the current principal's inbox and SHALL exclude archived or otherwise closed mail. The mode SHALL determine only the read-state filter:
 
@@ -267,6 +302,11 @@ For mode `any_inbox`, the prompt SHALL announce that open inbox mail exists and 
 
 For mode `unread_only`, the prompt SHALL announce that unread inbox mail triggered the notification and direct the agent to start from unread inbox mail for the current round.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 In both modes, the prompt SHALL direct the agent to archive successfully processed mail and SHALL NOT present reading or marking read as the completion action.
 
 #### Scenario: Any-inbox prompt names open inbox work
@@ -288,6 +328,11 @@ In both modes, the prompt SHALL direct the agent to archive successfully process
 For TUI-backed gateway targets, the mail notifier SHALL continue using the tracked prompt-readiness contract to decide whether notifier prompt enqueueing is safe.
 
 When eligible inbox work exists, queue admission gates pass, and the tracked state reports ready posture because the only visible Claude prompt payload is a style-classified ghost suggestion, the notifier SHALL NOT defer solely because stripped prompt text is non-empty.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The notifier SHALL NOT add exact-text heuristics for Claude suggestions. Provider-specific suggestion recognition SHALL remain in the selected tracked-TUI profile.
 
@@ -315,6 +360,11 @@ When the tracked state reports real draft editing, the notifier SHALL continue t
 For prompt-ready sessions, recoverable degraded chat context SHALL NOT by itself cause an ordinary notifier busy skip and SHALL NOT by itself require clean-context notifier work.
 
 When open inbox work is eligible and all existing readiness, notifier-mode, and queue-admission gates pass, the notifier SHALL enqueue or deliver the normal notifier prompt through current-context prompt work even if recoverable degraded context is present.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generic current-error diagnostics that do not carry recoverable degraded chat-context evidence SHALL also remain ordinary prompt-ready diagnostics rather than a reason to reset context or busy-skip when the prompt-ready and queue-admission gates pass.
 
@@ -355,6 +405,11 @@ When the gateway mail notifier enqueues an internal prompt, it SHALL append the 
 
 The appended appendix text SHALL be rendered after the gateway-owned wake-up context and SHALL remain additive prompt context rather than a replacement for notifier mode, gateway base URL, mailbox API summary, or mailbox-processing skill guidance.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When `appendix_text` is the empty string, the notifier SHALL render no appendix block.
 
 #### Scenario: Non-empty appendix appears in notifier prompt
@@ -371,6 +426,11 @@ When `appendix_text` is the empty string, the notifier SHALL render no appendix 
 
 ### Requirement: Gateway mail notifier exposes context recovery policy
 Gateway mail notifier configuration SHALL include an explicit context-error policy and an explicit pre-notification context action.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The context-error policy SHALL support:
 
@@ -401,6 +461,11 @@ Existing notifier configurations that do not store these fields SHALL behave as 
 When `pre_notification_context_action=compact` is configured, the notifier SHALL run a CLI-tool-specific compaction preflight before submitting the semantic mailbox notification prompt.
 
 For Codex TUI-backed gateway targets, the v1 compaction preflight SHALL use Codex's interactive `/compact` command and wait for the tracked surface to return to prompt-ready posture before continuing.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For CLI tools or backend modes that do not define a supported notifier compaction preflight, notifier enablement or the first affected poll SHALL fail explicitly with a support error. The gateway SHALL NOT silently ignore the `compact` policy.
 
@@ -433,6 +498,11 @@ Recoverable degraded chat context SHALL NOT by itself cause mail-notifier clean-
 
 When `context_error_policy=clear_context` is configured and the current degraded diagnostic is a recognized compaction error for the owning CLI tool, the notifier SHALL use clean-context prompt delivery before submitting the semantic mailbox notification prompt.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When `context_error_policy=continue_current` is configured, the notifier SHALL use ordinary current-context delivery even if a recognized degraded compaction diagnostic is present, provided existing prompt-readiness and queue-admission gates pass.
 
 When no recognized compaction-error diagnostic is present, `context_error_policy=clear_context` SHALL NOT clear context solely because generic current-error or degraded evidence exists.
@@ -460,6 +530,11 @@ When no recognized compaction-error diagnostic is present, `context_error_policy
 
 ### Requirement: Notifier audit records context policy decisions
 Gateway notifier audit records SHALL include enough structured evidence to explain context policy behavior for each poll that reaches context preflight or prompt delivery.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The audit evidence SHALL identify:
 
@@ -490,6 +565,11 @@ Audit outcomes SHALL NOT claim clean-context notification success unless a clean
 
 ### Requirement: Pre-notification compaction runs at most once per continuously eligible mail item
 When `pre_notification_context_action=compact` is configured, the gateway mail notifier SHALL treat compaction as a one-shot preflight for each mail item's current eligibility stretch rather than as an action that repeats on every later notifier cycle.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For this requirement, a mail item's eligibility stretch lasts only while that message remains eligible for the notifier's current mode:
 
@@ -531,6 +611,11 @@ This compaction bookkeeping SHALL remain separate from mailbox read state, promp
 
 ### Requirement: Gateway notifier renders sender-marked notification blocks at the requested placement
 When the gateway notifier wakes a managed-agent target with one or more eligible unread mailbox messages whose canonical envelopes carry a non-null `notify_block`, the notifier prompt SHALL surface the `notify_block.text` of each rendered message at the position dictated by `notify_block.placement`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The notifier prompt template SHALL expose two slots:
 
@@ -577,6 +662,11 @@ The gateway notifier SHALL run a configurable verifier against each eligible mes
 
 The verifier interface SHALL accept the canonical message and its `notify_auth` value (which MAY be `None`) and SHALL return a structured outcome with fields `passed: bool`, `detail: str | None`, and `scheme: str` so notifier audit can record both the configured scheme and the per-message verification result.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system SHALL ship two built-in verifier implementations:
 
 - `PermissiveVerifier` — always returns `passed=true`. This implementation is the default when `notify_block_auth_verifier=none` is configured. It records `scheme="none"` and a stable `detail` value indicating that no verification was performed.
@@ -599,6 +689,13 @@ Other reserved schemes (`hmac-sha256`, `jws`) SHALL remain rejected by the canon
 - **THEN** the verifier outcome records `passed=false`, `scheme="shared-token"`, and a `detail` value that does not include the rejected token text
 
 ### Requirement: Gateway notifier trust posture is configurable through `notify_block_auth_mode`
+The gateway notifier SHALL accept `permissive-log` and `required` for `notify_block_auth_mode`. It SHALL also let operators enable or disable `notify_block` rendering through `notify_block_render`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway notifier SHALL accept a `notify_block_auth_mode` configuration value with two supported settings:
 
 - `permissive-log` — the verifier runs and the result is captured in audit, but rendering proceeds regardless of the verification outcome. This is the default mode shipped in this change.
@@ -629,6 +726,11 @@ The notifier SHALL also accept a `notify_block_render` configuration value with 
 
 ### Requirement: Gateway notifier audit rows record per-rendered-block verification outcomes
 The gateway notifier audit record SHALL grow per-rendered-block entries that capture the verification outcome and rendered-content metadata for every eligible mailbox message whose canonical envelope carried a non-null `notify_block`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each per-block audit entry SHALL include:
 

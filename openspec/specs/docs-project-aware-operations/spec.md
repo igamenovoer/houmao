@@ -7,6 +7,13 @@ Define the documentation requirements for the project-aware operations reference
 
 ### Requirement: Project-aware operations reference page exists
 
+The system-files reference SHALL include `docs/reference/system-files/project-aware-operations.md` to document how managed-agent commands resolve against the active project overlay.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system-files reference SHALL include a page at `docs/reference/system-files/project-aware-operations.md` documenting how managed-agent commands resolve against the active project overlay. The page SHALL explain:
 
 - What "project-aware" means: commands like `agents launch`, `agents list`, `agents state`, and others automatically discover and use the active `.houmao/` project overlay for agent definition resolution, mailbox root binding, and registry scoping.

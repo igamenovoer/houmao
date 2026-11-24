@@ -1,10 +1,15 @@
 # recipe-launch-overrides Specification
 
 ## Purpose
-TBD - created by archiving change add-recipe-launch-surface-overrides. Update Purpose after archive.
+Define how presets and direct builds customize provider launch arguments and typed tool parameters. Specify layer precedence, adapter validation and projection, and the fields Houmao reserves to maintain backend control.
 ## Requirements
 ### Requirement: Structured launch overrides are available to recipes and direct builds
 The system SHALL support an optional structured `launch_overrides` model for raw CLI argument overrides alongside a first-class per-tool `tool_params` mapping on presets and direct builds.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Raw argument overrides SHALL be available through declarative preset YAML at `launch.overrides.args` and direct build inputs at `BuildRequest.launch_overrides.args`. Per-tool settings SHALL be declared at top-level `tool_params` on presets and layered `tool_params` inputs on `BuildRequest` rather than nested under `launch.overrides.tool_params`. Both models SHALL remain secret-free and SHALL NOT embed credential values, tokens, or inline secrets.
 
@@ -25,6 +30,11 @@ Raw argument overrides SHALL be available through declarative preset YAML at `la
 
 ### Requirement: Launch overrides merge with tool-adapter defaults under explicit section precedence rules
 The system SHALL treat tool-adapter launch data as the default base layer for the selected tool and SHALL merge raw `args` overrides and layered `tool_params` using explicit precedence rules.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For `args`, `mode = append` SHALL append additional args after adapter defaults and `mode = replace` SHALL replace the adapter default arg list for the winning override section. When both preset and direct-build `args` overrides are present, `args` SHALL remain an atomic section where direct-build `args` replaces preset `args` before evaluating `mode` against adapter defaults, without discarding `tool_params` from any layer.
 
@@ -81,7 +91,14 @@ Each supported tool (`claude`, `codex`, `kimi`, `dsh`) SHALL validate `tool_para
 
 ### Requirement: Per-tool parameters compose across five configuration layers
 
-The system SHALL resolve effective `tool_params` for a selected tool in strict precedence order: (1) `adapter.yaml` `launch.default_tool_params`, (2) the selected setup, (3) specialist or preset `tool_params`, (4) project profile or launch-profile `tool_params`, and (5) one-shot direct build or launch `tool_params`. The setup layer SHALL apply recognized explicit native permission keys followed by its optional `tool-params.yaml`. Merging SHALL preserve unspecified nested fields from lower layers while honoring explicit null overrides.
+The system SHALL resolve effective `tool_params` for a selected tool in strict precedence order: (1) `adapter.yaml` `launch.default_tool_params`, (2) the selected setup, (3) specialist or preset `tool_params`, (4) project profile or launch-profile `tool_params`, and (5) one-shot direct build or launch `tool_params`. The setup layer SHALL apply recognized explicit native permission keys followed by its optional `tool-params.yaml`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Merging SHALL preserve unspecified nested fields from lower layers while honoring explicit null overrides.
 
 #### Scenario: Higher layer patches nested tool_params without erasing sibling fields
 - **WHEN** a DSH specialist defines `tool_params.provider` and `tool_params.models`

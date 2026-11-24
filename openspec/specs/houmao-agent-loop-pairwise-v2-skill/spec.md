@@ -12,6 +12,11 @@ That workflow SHALL include:
 - prestart preparation guidance,
 - expanded operating guidance for enriched pairwise control, including restart recovery after participant stop or relaunch.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The canonical operator action vocabulary for `houmao-agent-loop-pairwise-v2` SHALL include at minimum:
 
 - `plan`,
@@ -61,6 +66,11 @@ The packaged `houmao-agent-loop-pairwise-v2` guidance SHALL define `resume` as t
 
 The guidance SHALL define `recover_and_continue` as the action that restores one accepted pairwise-v2 run after one or more participants were stopped, killed, or relaunched and later need to continue the same logical run under the same `run_id`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 During restart recovery, the guidance SHALL treat `recovering` as the observed state while participant rebinding, durable continuation-material refresh, or wakeup restoration is still in progress.
 
 The guidance SHALL treat `recovered_ready` as the observed state after restart-recovery preparation is complete but before the designated master explicitly accepts continuation.
@@ -91,6 +101,11 @@ The packaged `houmao-agent-loop-pairwise-v2` prestart guidance SHALL distinguish
 The v2 authoring guidance SHALL define `precomputed_routing_packets` as the default preparation strategy for authored pairwise loop plans.
 
 The v2 authoring guidance SHALL retain `operator_preparation_wave` as an explicit preparation strategy when the user asks for prestart preparation mail, participant warmup, or acknowledgement-gated readiness.
+
+#### Scenario: Pairwise V2 prepares participants using the selected strategy
+
+- **GIVEN** an operator authors a pairwise V2 plan and prepares it to start
+- **THEN** the guidance applies the selected strategy to packet authoring, initialization, readiness, and start
 
 For the default `precomputed_routing_packets` strategy, the v2 authoring guidance SHALL precompute subtree slices during plan authoring or revision rather than requiring intermediate runtime agents to derive descendant plan slices.
 
@@ -172,6 +187,11 @@ The v2 `initialize` and `start` guidance SHALL define `ready` as requiring compl
 ### Requirement: V2 authoring guidance uses internal graph tools for routing-packet validation
 The packaged `houmao-agent-loop-pairwise-v2` guidance SHALL treat `houmao-mgr internals graph high` as the first-class deterministic graph helper surface for topology-derived routing-packet facts during authoring and initialization when NetworkX node-link graph and packet JSON artifacts are available.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For authored plans that use the default `precomputed_routing_packets` strategy, the v2 guidance SHALL direct agents to use high-level graph tooling, when available, for:
 
 - identifying root reachability,
@@ -224,6 +244,11 @@ The packaged `houmao-agent-loop-pairwise-v2` initialization guidance SHALL use e
 
 The durable initialize material SHALL live primarily in a dedicated page under `HOUMAO_AGENT_PAGES_DIR`, scoped to the run and participant-facing initialize slot, rather than as a large inline memo body.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The initialize page SHALL include the participant's local role, local objective, allowed delegation targets or delegation set, task-handling rules, obligations, forbidden actions, mailbox and result-return expectations, and any routing-packet or child-dispatch references that the participant must keep easy to reopen across turns.
 
 The v2 guidance SHALL direct initialization to write or replace the initialize page through the supported memory page operation when available, using `HOUMAO_AGENT_PAGES_DIR` as the in-agent pointer and the gateway or pair-server memory page endpoint as the operator-side entrypoint.
@@ -267,6 +292,11 @@ The packaged `houmao-agent-loop-pairwise-v2` start guidance SHALL materialize th
 
 The durable start material SHALL live primarily in a dedicated page under `HOUMAO_AGENT_PAGES_DIR`, scoped to the run and `start-charter` slot.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The start-charter page SHALL include at minimum:
 
 - `run_id`,
@@ -304,6 +334,11 @@ The packaged `houmao-agent-loop-pairwise-v2` guidance SHALL define one exact beg
 
 Each sentinel pair SHALL be keyed by the pairwise-v2 `run_id` and the slot name, such as `initialize` or `start-charter`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When updating durable pairwise-v2 memo material for a given run-owned slot, the guidance SHALL replace only the content bounded by the exact matching sentinel pair, or append one new bounded block when no matching block exists.
 
 The guidance SHALL fail closed when more than one matching bounded block exists for the same `run_id` and slot.
@@ -331,6 +366,11 @@ The packaged `houmao-agent-loop-pairwise-v2` authoring guidance SHALL require on
 When the authoring request does not already identify that directory, the guidance SHALL ask the user for it rather than inventing a storage path.
 
 The canonical plan entrypoint SHALL be `<plan-output-dir>/plan.md` for both the single-file and bundle forms.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For the single-file form, the guidance SHALL write the generated plan as `<plan-output-dir>/plan.md`.
 
@@ -362,6 +402,11 @@ The packaged `houmao-agent-loop-pairwise-v2` skill SHALL keep its skill name, pa
 The skill SHALL describe its enriched authored topology as a tree loop or local-close tree loop in user-facing explanatory text.
 
 The skill SHALL present `pairwise loop` as a legacy alias for tree loop behavior rather than as the primary concept name.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL not rename existing v2 runtime paths, recovery names, generated field names, or pairwise-named compatibility references as part of this terminology change.
 

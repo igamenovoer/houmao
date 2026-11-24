@@ -17,6 +17,11 @@ At minimum, that filesystem-backed source layout SHALL include:
 - `agents/tools/<tool>/setups/<setup>/...`
 - `agents/tools/<tool>/auth/<auth>/...`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Project-local catalog-backed overlays MAY persist canonical semantic relationships outside that directory layout, provided they still resolve to the same canonical parsed or domain semantics before construction.
 
 User-facing reusable launch metadata for filesystem-backed trees SHALL continue to live in presets plus tool-scoped setup and auth directories rather than in a separate recipe plus blueprint layer.
@@ -41,6 +46,11 @@ Repository-owned tracked agent-definition trees that remain part of the supporte
 
 Supported tracked trees SHALL NOT require or ship legacy `brains/`, `brain-recipes/`, `cli-configs/`, `api-creds/`, `blueprints/`, or `compatibility-profiles/` directories as parallel source-of-truth mirrors for the same launchable assets.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Archived historical material under `scripts/demo/legacy/` is not part of that supported live contract and does not define the maintained source-layout requirement.
 
 #### Scenario: Maintainer inspects a supported repo-owned agent-definition tree
@@ -63,6 +73,11 @@ That canonical parsed or domain catalog SHALL capture semantic agent-definition 
 
 - a filesystem-backed `agents/` source tree, or
 - a project-local catalog-backed overlay plus managed content references.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Downstream selector resolution, brain construction, and launch code SHALL consume only canonical parsed definitions or derived resolved launch and build specifications and SHALL NOT depend directly on raw preset-source mappings, legacy recipe files, legacy blueprint files, or project-local directory nesting as the authoritative semantic graph.
 
@@ -146,6 +161,11 @@ For each supported CLI tool, the system SHALL define a tool adapter at `agents/t
 - skill installation placement,
 - auth file projection, and
 - auth environment variable injection.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Auth file mappings SHALL support an explicit `required` boolean. Missing `required` values SHALL default to `true`. Missing required auth files SHALL fail brain construction explicitly. Missing mappings with `required: false` SHALL be skipped without error.
 
@@ -235,6 +255,11 @@ The system SHALL NOT require build-time `default_agent_name` or other duplicated
 
 If present, preset `launch` SHALL be an object containing optional `prompt_mode`, optional `overrides`, and optional `env_records`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `launch.overrides`, when present, SHALL use the existing launch-overrides shape of optional `args` and optional `tool_params`.
 
 Allowed `launch.prompt_mode` values SHALL be `unattended` and `as_is`.
@@ -301,6 +326,11 @@ Each constructed runtime home SHALL produce a resolved manifest that records the
 
 The resolved manifest SHALL use `schema_version: 3`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When persistent specialist env records are present, the resolved manifest SHALL record them as a launch-owned env contract separate from the credential env contract.
 
 That launch-owned env contract is additive to the existing launch-policy intent contract such as `launch_policy.operator_prompt_mode`; it SHALL NOT replace or redefine prompt-policy semantics.
@@ -349,6 +379,11 @@ The system SHALL allow tool-specific auth bundles to include local-only runtime-
 
 Codex launch preparation SHALL refuse launch unless the effective runtime state contains at least one usable authentication path: a valid `auth.json` login state in the runtime home or `OPENAI_API_KEY` in the effective runtime environment. The Codex bootstrap path SHALL perform this validation using the same effective runtime environment that will be used for the launch.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 A valid Codex `auth.json` login state SHALL parse as a non-empty top-level JSON object. Placeholder files such as `{}` SHALL NOT satisfy this requirement by themselves.
 
 #### Scenario: Codex launch is rejected when no auth path exists
@@ -375,6 +410,11 @@ A valid Codex `auth.json` login state SHALL parse as a non-empty top-level JSON 
 ### Requirement: Runtime launches inherit the calling process environment
 
 The system SHALL propagate the full calling process environment into tmux-based launches, and then apply brain-owned and operator-owned overlays.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Environment precedence is:
 1. calling process environment (base),
@@ -419,6 +459,11 @@ The selected policy SHALL be available through:
 - direct build inputs at `BuildRequest.operator_prompt_mode`
 
 Allowed values SHALL be `unattended` and `as_is`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When callers omit prompt policy entirely, current brain construction flows SHALL resolve that omission to the unattended default rather than to pass-through startup behavior.
 
@@ -477,6 +522,11 @@ The resolved brain manifest SHALL continue to capture auth-bundle references and
 
 The system SHALL let callers declare secret-free raw argument overrides (`launch_overrides.args`) and layered per-tool settings (`tool_params`) as part of normal brain construction inputs instead of limiting preset-backed builds to tool-adapter defaults.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Raw argument overrides SHALL be available through declarative preset YAML at `launch.overrides` and `BuildRequest.launch_overrides`. Per-tool settings SHALL be available across `adapter.yaml` `launch.default_tool_params`, optional `<setup>/tool-params.yaml`, preset `tool_params`, launch-profile `tool_params`, and direct build `tool_params`.
 
 #### Scenario: Preset construction includes launch-overrides intent
@@ -492,6 +542,11 @@ Raw argument overrides SHALL be available through declarative preset YAML at `la
 ### Requirement: Brain manifests persist adapter defaults and requested launch overrides separately
 
 The system SHALL persist raw `launch_overrides` state and layered `tool_params` state in the resolved brain manifest as structured, secret-free data with separate provenance for defaults, caller-supplied layers, and merged effective `tool_params`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The resolved brain manifest SHALL explain which defaults came from the tool adapter or setup, which overrides came from the preset, launch profile, or direct build input, and which merged `tool_params` were materialized into the home while deferring backend-specific CLI argument translation until runtime backend selection. The manifest MUST NOT embed credential material, inline secrets, backend-resolved effective args, or backend-reserved continuity flags.
 
@@ -524,6 +579,11 @@ When brain construction is invoked for managed force takeover of an existing man
 Fresh-by-default home creation SHALL remain the default when no explicit managed takeover home policy is requested.
 
 For `keep-stale`, construction SHALL reuse the existing managed home path in place and SHALL overwrite only the setup, skill, auth, model, and helper outputs that the new build projects.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For `keep-stale`, untouched existing files in that managed home SHALL remain in place.
 
@@ -560,6 +620,11 @@ The builder CLI SHALL NOT preserve hidden legacy aliases for current constructio
 - `--setup` instead of `--config-profile`,
 - `--auth` instead of `--cred-profile`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Tool adapter parsing SHALL require current field names. At minimum, adapter parsing SHALL require `setup_projection` and `auth_projection` and SHALL NOT accept `config_projection` or `credential_projection` as aliases.
 
 #### Scenario: Current preset construction succeeds
@@ -585,6 +650,11 @@ Tool adapter parsing SHALL require current field names. At minimum, adapter pars
 ### Requirement: Managed Kimi brain construction exposes projected skills through additive Kimi config
 
 When brain construction or launch preparation builds a managed runtime home for tool `kimi`, the system SHALL continue to project selected private skills and Houmao-owned system skills into the Kimi adapter's configured skill destination under the managed runtime home.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When that managed Kimi projected skill root contains selected skills or Houmao-owned system skills, the system SHALL make that root discoverable to Kimi Code by ensuring the effective managed Kimi `config.toml` includes the absolute projected skill root in `extra_skill_dirs`.
 

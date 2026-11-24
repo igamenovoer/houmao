@@ -28,6 +28,11 @@ The help text for this subtree SHALL present it as management for recipe-backed 
 ### Requirement: `internals native-agent launch-dossiers` manages named explicit launch-profile resources
 `houmao-mgr internals native-agent launch-dossiers add --name <profile> --recipe <recipe>` SHALL create one named explicit launch-profile resource that targets exactly one existing recipe.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, launch-profile content SHALL support:
 - required source recipe reference
 - optional managed-agent name or id defaults
@@ -114,6 +119,11 @@ The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT sil
 
 `--clear-managed-header` SHALL clear the stored explicit policy so the profile returns to `inherit`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `launch-profiles get --name <profile>` SHALL report the stored managed-header policy.
 
 #### Scenario: Add stores an explicit disabled managed-header policy
@@ -131,6 +141,11 @@ The explicit launch-profile surface SHALL remain recipe-backed and SHALL NOT sil
 `houmao-mgr internals native-agent launch-dossiers add --name <profile> --recipe <recipe> --yes` SHALL replace an existing same-name explicit launch profile in the active project overlay.
 
 Replacement SHALL use create semantics: omitted optional launch defaults SHALL be cleared rather than preserved from the old profile.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the same-name explicit launch profile already exists and replacement confirmation is not supplied, the command SHALL prompt on interactive terminals or fail in non-interactive contexts with guidance to rerun using `--yes`.
 
@@ -177,6 +192,11 @@ Supported `STATE` values SHALL include:
 
 - `enabled`
 - `disabled`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The stored section policy SHALL apply only to the named section. Omitted sections SHALL inherit the section default.
 
@@ -226,6 +246,11 @@ Whole-header policy SHALL remain controlled by existing `--managed-header`, `--n
 
 `houmao-mgr internals native-agent launch-dossiers set` SHALL support the same source options. It SHALL also accept `--clear-memo-seed` to remove the stored memo seed from the profile.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `--clear-memo-seed` SHALL NOT be combined with a memo seed source.
 
 `launch-profiles get --name <profile>` SHALL report memo seed presence, source kind, and managed content reference metadata without printing full memo or page contents by default.
@@ -262,6 +287,11 @@ Whole-header policy SHALL remain controlled by existing `--managed-header`, `--n
 
 ### Requirement: `internals native-agent launch-dossiers` enforces explicit lane ownership
 `houmao-mgr internals native-agent launch-dossiers list|get|set|remove` SHALL operate only on stored `launch_profile` entries even though project profiles share the same catalog-backed launch-profile family and compatibility projection path.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When `internals native-agent launch-dossiers get --name <profile>`, `set --name <profile>`, or `remove --name <profile>` targets a stored profile whose `profile_lane` is `easy_profile`, the command SHALL fail clearly instead of reading, mutating, or deleting that project profile through the explicit lane.
 
@@ -302,6 +332,11 @@ That wrong-lane failure SHALL identify that the named resource belongs to the pr
 `houmao-mgr internals native-agent launch-dossiers add` and `houmao-mgr internals native-agent launch-dossiers set` SHALL support storing profile-owned skill overlays without mutating the referenced source recipe.
 
 The explicit launch-profile surface SHALL accept repeatable `--add-registered-skill <name>` options. Each registered skill name SHALL reference an existing project skill registration by name and SHALL NOT create, import, copy, or symlink a new project skill registration.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The explicit launch-profile surface SHALL accept repeatable `--remove-registered-skill <name>` options on `set`. Removing a registered skill SHALL remove only that launch-profile-owned reference and SHALL NOT remove the project skill registration.
 
@@ -362,6 +397,11 @@ Adding the same private installed skill name more than once in a single launch p
 
 `houmao-mgr internals native-agent launch-dossiers list` SHALL include enough structured skill-overlay summary data for operators to see that a profile contributes additional skills.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The projected `.houmao/agents/launch-profiles/<profile>.yaml` file SHALL render registered skill refs separately from private skill refs. Private skill refs SHALL include installed name, source path, and mode.
 
 #### Scenario: Get reports registered and private skill overlays
@@ -381,6 +421,11 @@ The projected `.houmao/agents/launch-profiles/<profile>.yaml` file SHALL render 
 `houmao-mgr internals native-agent launch-dossiers add` and `houmao-mgr internals native-agent launch-dossiers set` SHALL accept managed system-skill policy options for native launch dossiers.
 
 The accepted options SHALL include repeatable `--system-skill-set <set>`, repeatable `--system-skill <skill>`, `--system-skills-mode inherit|extend|replace|none`, `--no-system-skills`, and the patch-only clear option `--clear-system-skills`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When a launch-profile command receives one or more system-skill selectors without an explicit mode, it SHALL store additive mode over the source recipe policy.
 
@@ -417,6 +462,11 @@ When a launch-profile command receives one or more system-skill selectors withou
 The launch-profile templates SHALL distinguish create-style omission from patch-style omission.
 
 For `internals.native-agent.launch-dossiers.add`, omitted optional fields SHALL remain absent from rendered argv so the add command writes no stored value for those fields or clears them during confirmed same-lane replacement according to existing add semantics.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For `internals.native-agent.launch-dossiers.set`, omitted optional fields SHALL remain absent from rendered argv so the set command preserves existing stored values and advanced blocks.
 

@@ -16,6 +16,11 @@ That control core SHALL own at minimum:
 - exit delivery
 - compatibility-surface health checks
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The supported pair SHALL NOT require a supervised child `cao-server` process or an installed `cao` executable in order to satisfy those operations.
 
 #### Scenario: Pair creates a compatibility terminal without a child CAO process
@@ -65,6 +70,11 @@ If a later change intentionally retires or narrows that set, it SHALL do so expl
 ### Requirement: Session-backed compatibility launch projects from native agent definitions at launch time
 The control core SHALL resolve session-backed launch inputs from native agent definitions at launch time rather than from a preinstalled compatibility profile store.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, session-backed `create_session()` and `create_terminal()` behavior SHALL:
 
 - resolve the effective native agent-definition root for the launch
@@ -105,6 +115,11 @@ The control core SHALL treat that case as a valid brain-only launch, not as a co
 ### Requirement: Compatibility inbox queue remains terminal-scoped and separate from Houmao mailbox
 Because the supported `/cao/*` compatibility surface remains exposed in v1, the CAO-compatible inbox route family under `/cao/terminals/{terminal_id}/inbox/messages` SHALL remain a terminal-scoped compatibility queue or minimal compatibility stub owned by the control core.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That compatibility inbox SHALL NOT become the Houmao mailbox transport, message store, unread-state model, or gateway notifier trigger.
 The supported pair SHALL NOT replace those routes with a default unsupported-route error merely because Houmao mailbox remains separate.
 
@@ -143,6 +158,11 @@ At minimum, supported server configuration SHALL cover:
 - provider-readiness timeout
 - provider-readiness polling interval
 - Codex warmup delay
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The default compatibility startup values SHALL be:
 

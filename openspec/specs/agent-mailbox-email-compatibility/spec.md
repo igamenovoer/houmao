@@ -5,6 +5,11 @@ Describe the compatibility guarantees that let shared mailbox operations map ont
 ### Requirement: Shared mailbox operations map cleanly to standard email semantics
 The shared mailbox operation contract SHALL preserve semantics that can be mapped onto standard email surfaces, and the `stalwart` transport SHALL implement that mapping through real email-backed mailbox behavior for the mailbox functions shared with the filesystem transport.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the implemented mapping SHALL preserve:
 
 - sender and recipient identities

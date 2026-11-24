@@ -8,6 +8,11 @@ Define the reference-page requirements for documenting the Houmao-owned managed 
 
 The docs site SHALL include a reference page at `docs/reference/run-phase/managed-prompt-header.md` describing the Houmao-owned prompt header that is prepended to managed launches by default.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That page SHALL explain:
 
 - what the header is (a Houmao-owned, deterministic block of text prepended to the operator-supplied or role-supplied system prompt before backend role injection runs),
@@ -62,6 +67,11 @@ The docs site index entry for that reference page (`docs/index.md`) SHALL mentio
 ### Requirement: Managed prompt header reference documents section controls and automation notice
 The managed prompt header reference page SHALL document the named managed-header section model, the default-enabled automation notice, and the default-disabled task reminder and mail acknowledgement sections.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the page SHALL explain:
 
 - the defined section names `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`,
@@ -111,6 +121,11 @@ At minimum, the page SHALL explain:
 
 ### Requirement: Managed prompt header reference documents the memo cue section
 The managed prompt header reference page SHALL document the `memo-cue` managed-header section.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the page SHALL explain:
 

@@ -20,6 +20,11 @@ The restored shared TUI tracking demo workflow SHALL resolve effective configura
 
 The workflow SHALL support the checked-in `scripts/demo/shared-tui-tracking-demo-pack/demo-config.toml` as the default config source and SHALL also support an alternate config path selected through operator-facing demo commands.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Before a config influences launch, capture, validation, or sweep behavior, the workflow SHALL reject malformed or unsupported config payloads with an error that identifies the selected config file.
 
 Each run SHALL persist the resolved configuration inside the run output so later comparison, reporting, and debugging can identify which launch, evidence, semantic, and presentation settings governed that run.
@@ -52,6 +57,11 @@ The restored shared TUI tracking demo pack SHALL publish a machine-readable JSON
 The restored shared TUI tracking demo pack's checked-in `demo-config.toml` SHALL define a `tools.kimi` section.
 
 The Kimi tool config SHALL provide the default Kimi interactive-watch recipe path and MAY define Kimi-specific launch overrides or operator prompt mode defaults using the same merge and validation rules as other supported tools.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The demo config parser and packaged JSON Schema SHALL include Kimi in the supported tool section for full config documents, profile overrides, scenario overrides, and CLI-derived overrides.
 

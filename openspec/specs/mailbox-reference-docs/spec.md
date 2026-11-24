@@ -29,6 +29,11 @@ The mailbox reference SHALL include at minimum one detailed page in each of thos
 ### Requirement: Mailbox reference pages combine intuitive explanations with exact technical detail
 Each detailed mailbox reference page SHALL be understandable to new users or developers while still preserving the exact technical details needed for implementation or debugging.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, each detailed mailbox page SHALL include:
 
 - a short explanation of what the page covers,
@@ -50,6 +55,11 @@ At minimum, each detailed mailbox page SHALL include:
 When a mailbox reference page introduces an important procedure involving multiple participants or steps, the page SHALL include an embedded Mermaid `sequenceDiagram` block directly in the Markdown page.
 
 These diagrams SHALL accompany the prose explanation rather than replace it.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Important mailbox procedures include at minimum:
 
@@ -75,6 +85,11 @@ Important mailbox procedures include at minimum:
 
 ### Requirement: Mailbox contract documentation covers the implemented v1 mailbox surfaces
 The mailbox contract documentation SHALL describe the implemented v1 mailbox surfaces that readers must follow.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that contract coverage SHALL include:
 
@@ -107,6 +122,11 @@ The mailbox contract documentation SHALL NOT present mailbox-specific `AGENTSYS_
 
 ### Requirement: Mailbox operation documentation covers common workflows and lifecycle handling
 The mailbox operation documentation SHALL explain how to work with the mailbox system safely in the implemented v1 flow, including the preferred local serverless late-registration workflow and the manager-owned resolver-first discovery path for current mailbox state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that operational guidance SHALL cover:
 
@@ -153,6 +173,11 @@ The mailbox operation documentation SHALL NOT require mailbox-specific shell exp
 ### Requirement: Mailbox reference documentation explains the delivered-message clear workflow
 The mailbox reference documentation SHALL document the supported delivered-message clear workflow for filesystem mailbox roots.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the documentation SHALL explain:
 
 - `houmao-mgr mailbox clear-messages` for an arbitrary resolved mailbox root,
@@ -174,6 +199,11 @@ At minimum, the documentation SHALL explain:
 
 ### Requirement: Mailbox reference documentation explains the export archive workflow
 The mailbox reference documentation SHALL document the supported filesystem mailbox export workflow.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the documentation SHALL explain:
 
@@ -207,6 +237,11 @@ At minimum, the documentation SHALL explain:
 
 ### Requirement: Mailbox internal documentation explains runtime integration and mutable-state architecture
 The mailbox internal documentation SHALL explain how the runtime integrates mailbox support and how the filesystem transport divides immutable content from mutable state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that internal coverage SHALL include:
 
@@ -255,6 +290,11 @@ At minimum, the documentation SHALL define or explain recurring terms such as ca
 ### Requirement: Mailbox reference documentation provides a Stalwart-first-session reader path
 The mailbox reference documentation SHALL provide a clear first-session reader path for Stalwart-backed mailbox use instead of requiring readers to infer that path from filesystem-first pages or low-level contract references.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the mailbox reference SHALL:
 
 - make the transport choice visible from the mailbox entry path or quickstart,
@@ -279,6 +319,11 @@ The Stalwart-focused guidance SHALL include at least one transport-comparison ar
 ### Requirement: Mailbox reference documentation explains shared mailbox boundaries across runtime, gateway, and transport
 The mailbox reference documentation SHALL explain the shared mailbox abstraction boundaries now that filesystem-backed and Stalwart-backed transports both exist.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the mailbox reference SHALL explain:
 
 - the difference between direct transport-specific mailbox behavior and the shared gateway mailbox facade,
@@ -300,6 +345,11 @@ When this boundary explanation uses summaries or comparison tables, it SHALL pre
 
 ### Requirement: Mailbox reference docs explain operator-origin filesystem mail and the reserved sender namespace
 The mailbox reference documentation SHALL explain the operator-origin filesystem-mail path and the reserved Houmao sender namespace.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, that documentation SHALL explain:
 

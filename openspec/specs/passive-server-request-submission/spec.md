@@ -1,7 +1,7 @@
 # passive-server-request-submission Specification
 
 ## Purpose
-TBD - synced from change passive-server-requests-and-headless. Update Purpose after archive.
+Define how clients address agents through the passive server to submit prompts, interrupt work, or stop sessions. Cover gateway forwarding, stable references for server-managed headless agents, and the access rules that guard state changes.
 
 ## Requirements
 
@@ -50,6 +50,11 @@ The passive server SHALL accept the managed `tracked_agent_id` and the published
 
 The passive server SHALL expose `POST /houmao/agents/{agent_ref}/interrupt`. A configured target SHALL apply its current admin access rule before interruption or handling gateway availability.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For server-managed headless agents, the endpoint SHALL resolve the authoritative headless match first and signal interruption through the managed `RuntimeSessionController` after admission. For a target that the server does not manage directly, it SHALL forward the admitted interrupt to its live gateway. When an admitted target has neither a managed headless path nor a live gateway, the endpoint SHALL return HTTP 502.
 
 #### Scenario: Interrupt forwarded through gateway
@@ -77,6 +82,11 @@ For server-managed headless agents, the endpoint SHALL resolve the authoritative
 ### Requirement: Passive server can stop agents by killing tmux sessions
 
 The passive server SHALL expose `POST /houmao/agents/{agent_ref}/stop`. A configured target SHALL apply its current admin access rule before effects.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For agents launched by this passive server, the endpoint SHALL resolve managed-headless authority first. After admission it SHALL stop the managed session, clear the shared registry record, clean up the active `ManagedHeadlessStore` record, and remove the in-memory handle. For a discovered-only agent, it SHALL terminate its tmux session and clear its registry record after admission. Retained owner access settings SHALL survive live-record cleanup.
 

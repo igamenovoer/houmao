@@ -8,6 +8,11 @@ Define the interactive Claude state-tracking watch workflow, including fixture-b
 ### Requirement: Interactive watch pack SHALL launch a recorder-backed Claude session from canonical repository fixtures with a live dashboard
 The repository SHALL provide an interactive Claude state-tracking watch workflow under `scripts/explore/claude-code-state-tracking/` that can build a fresh Claude runtime home from canonical preset-backed fixture inputs under `tests/fixtures/plain-agent-def/`, launch the generated `launch.sh` in tmux, start recorder-backed observation, and bring up a live dashboard for the same run.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The interactive watch SHALL provide, at minimum:
 
 - a `start` workflow that creates a fresh run root,
@@ -36,6 +41,11 @@ The watch MAY reuse shared Houmao Python modules for:
 - detector selection, and
 - ReactiveX reducer logic.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The watch SHALL NOT require:
 
 - `houmao-server` routes,
@@ -49,6 +59,11 @@ The watch SHALL NOT require:
 
 ### Requirement: Interactive dashboard SHALL derive live state from recorder/runtime observations using the simplified state model
 The interactive dashboard SHALL consume the same recorder pane snapshots and runtime liveness observations that are retained for later analysis, and it SHALL derive live state using the simplified Claude turn model rather than a second ad hoc parser contract.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the dashboard SHALL present:
 
@@ -144,6 +159,11 @@ Workflow-owned live resources include:
 - the run's Claude tmux session
 - the run's dashboard tmux session
 - the run's passive terminal-record session and controller state
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 This cleanup SHALL apply both to ordinary startup failures and to operator interruption during startup. Cleanup MAY preserve run-local logs and artifact files for debugging, but it SHALL NOT leave workflow-owned tmux sessions running for that failed start attempt.
 

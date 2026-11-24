@@ -7,6 +7,11 @@ Define the documentation requirements for the easy-specialist conceptual guide i
 
 The getting-started section SHALL include a page at `docs/getting-started/easy-specialists.md` documenting the easy lane as a three-step model: specialist, optional project profile, and easy instance. The page SHALL retain the existing filename so that incoming README and `docs/index.md` cross-links continue to resolve.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The page SHALL explain:
 
 - What an easy-specialist is: a lightweight, project-local agent definition that bundles a role, tool, setup, auth, optional skills, and durable launch configuration into a single named source definition.
@@ -100,6 +105,11 @@ The easy-specialist guide SHALL document how to edit an existing project profile
 
 The guide SHALL explain that project-profile `set` preserves unspecified stored defaults, while `project profile create --name <profile> --specialist <specialist> --yes` performs same-lane replacement and clears omitted optional defaults.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The guide SHALL state that project-profile replacement cannot replace an explicit launch profile that happens to use the same name.
 
 #### Scenario: Reader can edit an project profile without removing it
@@ -116,6 +126,11 @@ The guide SHALL state that project-profile replacement cannot replace an explici
 The easy-specialist guide SHALL document how to edit an existing specialist with `houmao-mgr project specialist set --name <specialist> ...`.
 
 The guide SHALL explain that specialist `set` preserves unspecified stored source-definition fields, while `project specialist create --name <specialist> --tool <tool> ... --yes` performs same-name replacement with create semantics and may clear omitted optional fields.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The guide SHALL include at least one example that changes skill bindings without removing and recreating the specialist.
 
@@ -144,6 +159,11 @@ At minimum, the guide SHALL document:
 - `houmao-mgr project skills add --name <name> --source <dir> --mode copy|symlink`
 - `houmao-mgr project specialist create --skill <name>`
 - `houmao-mgr project specialist set --add-skill <name>`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If the guide documents `--with-skill <dir>`, it SHALL describe that flag as a convenience path that registers or updates the canonical project skill entry before binding the resulting registered skill to the specialist.
 

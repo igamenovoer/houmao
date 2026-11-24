@@ -15,6 +15,13 @@ The repository SHALL publish one supported runnable tutorial demo under `scripts
 
 ### Requirement: The tracked demo assets use the canonical minimal agent-definition layout
 
+The tracked demo SHALL use the canonical agent-definition layout and include only the secret-free files needed to explain preset-backed launch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The tracked minimal demo SHALL include only the secret-free files needed to explain the canonical preset-backed launch shape:
 - `inputs/agents/skills/`
 - `inputs/agents/roles/minimal-launch/system-prompt.md`
@@ -75,6 +82,11 @@ The supported demo SHALL include:
 
 The tutorial SHALL explain prerequisites, provider and case selection, model/endpoint configuration, generated outputs, verification steps, and common failure modes. It SHALL direct credential setup to local env references or the shared external credential discovery/import flow.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The maintained runner and tutorial SHALL describe one generated project-aware overlay root for each run as the local Houmao-owned state anchor. Credential-bearing outputs SHALL live outside the checkout. The demo SHALL NOT require separate root env overrides for agent-definition and runtime placement merely to keep the run self-contained.
 
 Important generated outputs relative to the private run root SHALL include:
@@ -100,6 +112,11 @@ Command logs and summaries SHALL exclude key values and raw auth contents. Expli
 ### Requirement: The minimal demo uses one generated overlay root for local Houmao-owned state
 
 The maintained `scripts/demo/minimal-agent-launch/` runner SHALL select one generated overlay root for each run and rely on that overlay-local default contract for agent definitions, runtime state, and jobs placement.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The maintained runner MAY continue to use one explicit `HOUMAO_PROJECT_OVERLAY_DIR` override to point the CLI at that generated overlay when the selected output root is outside the repository tree, but it SHALL NOT require separate agent-definition or runtime-root env overrides only to keep the demo self-contained.
 

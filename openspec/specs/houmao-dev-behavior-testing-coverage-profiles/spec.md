@@ -1,7 +1,7 @@
 # houmao-dev-behavior-testing-coverage-profiles Specification
 
 ## Purpose
-TBD - created by archiving change organize-behavior-test-coverage-profiles. Update Purpose after archive.
+Behavior-test cases have one functional owner and belong to committed cumulative coverage profiles. Deterministic selectors and frozen run manifests let reports distinguish selected coverage from the attempts that actually ran.
 ## Requirements
 
 ### Requirement: Cases are owned by functional areas
@@ -23,6 +23,11 @@ Every functional area SHALL expose `minimal`, `normal`, `extended`, and `complet
 
 Each case SHALL declare the profile where it is introduced. Selecting a profile MUST include every case introduced at that profile or a lower profile in the same area. `complete` SHALL include every committed case and declared matrix variant in the selected area for the frozen catalog version.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The version 2 catalog SHALL resolve `all/minimal`, `all/normal`, `all/extended`, and `all/complete` to 11, 22, 41, and 42 case records respectively before matrix expansion.
 
 #### Scenario: Maintainer selects normal coverage
@@ -37,6 +42,11 @@ The version 2 catalog SHALL resolve `all/minimal`, `all/normal`, `all/extended`,
 
 ### Requirement: Suite selectors resolve deterministically
 The skill SHALL accept canonical `<functional-area>/<coverage-profile>` selectors, `all/<coverage-profile>`, `tag:<name>`, exact case ids, exact case-variant ids, and composite unions of those selectors.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 A bare functional area SHALL alias its `normal` profile. Composite selections SHALL use a stable catalog-order union and SHALL deduplicate repeated cases and variants. Unknown selectors MUST fail before provider launch. An absent selector MUST produce read-only selection help and MUST NOT launch `all/normal` or another implicit suite.
 

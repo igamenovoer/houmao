@@ -10,6 +10,11 @@ Houmao SHALL create `houmao-memo.md` when missing.
 
 Houmao SHALL read, replace, or append `houmao-memo.md` only when the caller explicitly invokes a memo read, replace, or append operation, or when the caller explicitly selects a launch profile that stores a memo seed.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When applying a launch-profile memo seed that represents `houmao-memo.md`, Houmao SHALL treat the seed content as caller-authored memo content and SHALL replace `houmao-memo.md` before provider startup.
 
 Houmao SHALL NOT insert, update, remove, preserve, or interpret generated sections, marker comments, page indexes, headings, metadata blocks, or page links inside `houmao-memo.md`.
@@ -55,6 +60,11 @@ The page path-resolution response SHALL include:
 - and the existing path kind when available.
 
 The relative link SHALL use the form `pages/<page-relative-path>`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The absolute filesystem path SHALL be returned only after the input path passes the same containment validation used by page operations.
 

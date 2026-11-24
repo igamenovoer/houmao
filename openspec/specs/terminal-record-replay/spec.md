@@ -6,6 +6,11 @@ The repository SHALL provide a replay/analyze flow that consumes recorder pane s
 
 The replay/analyze flow SHALL operate over persisted pane snapshots rather than requiring a live tmux session.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When recorder artifacts also preserve runtime diagnostics or authoritative input events, the replay/analyze flow SHALL use that additional evidence to refine tracked-state reduction without replacing pane snapshots as the machine source of truth.
 
 The replay/analyze flow SHALL NOT depend on demo-owned reference trackers as its implementation dependency.
@@ -41,6 +46,11 @@ The terminal cast MAY be used for operator review, but SHALL NOT be the required
 The repository SHALL support operator-provided labels that annotate selected recorded samples or sample ranges with expected parser or lifecycle meanings.
 
 At minimum, the labeling surface SHALL support stable references to recorded samples together with expected state-oriented fields such as parser classification, diagnostics posture, foundational surface observables, `turn.phase`, `last_turn.result`, `last_turn.source`, or scenario identity.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The primary repo-owned authoring surface for those labels SHALL remain `terminal_record add-label`, updated to accept the official tracked-state vocabulary directly.
 
@@ -105,6 +115,11 @@ Terminal-record state timelines, operator labels, replay analysis, state compari
 
 Replay SHALL derive pending input from persisted pane snapshots through the selected provider profile. It SHALL NOT require a live provider process, credentials, or gateway submission history to reproduce the pending-input state.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The primary labeling surface SHALL let an operator assign pending-input expectations to stable samples or sample ranges, and comparison output SHALL identify mismatches by field and sample range.
 
 #### Scenario: Recorded pending span replays without a live provider
@@ -130,6 +145,11 @@ The primary labeling surface SHALL let an operator assign pending-input expectat
 The replay workflow SHALL support deterministic downsampled and irregular-cadence variants of a frozen pending-input recording without mutating the source recording.
 
 At minimum, qualification SHALL cover the canonical 20 Hz stream, derived 10 Hz, 5 Hz, and 2 Hz streams, and seeded variants that introduce jitter, frame drops, or capture bursts. Each retained sample SHALL be compared with the audited expectation for that source sample.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 A cadence variant SHALL NOT be required to reconstruct a transition that has no retained sample. It SHALL preserve meaningful classification for retained decisive surfaces and SHALL report transition drift against the retained cadence.
 

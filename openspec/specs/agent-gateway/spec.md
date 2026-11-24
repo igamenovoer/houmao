@@ -11,6 +11,11 @@ Diagnostic logging SHALL be disabled by default when no explicit gateway diagnos
 
 When diagnostic logging is enabled, the gateway SHALL write line-oriented structured diagnostic entries to a dedicated diagnostic log path separate from the human-oriented `gateway.log`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The diagnostic log configuration SHALL provide bounded retention through at least a maximum active-file size and a maximum backup-file count.
 
 The existing `gateway.log` SHALL remain the stable human-oriented running log and SHALL NOT become the only diagnostic evidence surface for this feature.
@@ -29,6 +34,11 @@ The existing `gateway.log` SHALL remain the stable human-oriented running log an
 When gateway diagnostic logging is enabled, the gateway SHALL record compact diagnostic entries for gateway HTTP requests and outcomes, including validation failures that occur before an endpoint handler is invoked.
 
 Diagnostic entries for HTTP requests SHALL include at minimum method, path, status code, duration, request identifier, and diagnostic event code when those values are available.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Diagnostic entries for gateway mailbox facade operations SHALL include safe operational metadata such as operation name, transport, sender address, recipient addresses, generated message identifier when available, recipient count when available, result status, and repair guidance when applicable.
 
@@ -53,6 +63,11 @@ When gateway diagnostic logging is enabled, the gateway SHALL deduplicate consec
 
 The deduplication key SHALL ignore volatile values such as timestamp, duration, request identifier, and generated message identifier while preserving event code, route, HTTP status, error category, and normalized validation field paths.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway SHALL write the first warning or error entry in a consecutive duplicate run normally, suppress later consecutive duplicates with the same key, and emit a summary entry with the suppressed count when the run ends or when diagnostic logging is flushed.
 
 Diagnostic logging SHALL NOT deduplicate ordinary informational entries unless they are explicitly modeled as warning or error summaries.
@@ -73,6 +88,11 @@ Diagnostic logging SHALL NOT deduplicate ordinary informational entries unless t
 The system SHALL support a per-agent gateway companion for gateway-capable tmux-backed sessions.
 
 For tmux-backed managed sessions, managed attach and launch-time auto-attach SHALL default the effective gateway execution mode to same-session foreground auxiliary-window execution unless the operator explicitly requests background mode.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When explicit background mode is requested for a tmux-backed managed session, the gateway companion SHALL use detached execution and SHALL NOT require or create a visible tmux window or pane for normal operation.
 
@@ -111,6 +131,11 @@ The gateway companion SHALL direct its own logs away from the contractual operat
 ### Requirement: Pair-owned gateway attach for managed `houmao_server_rest` sessions supports explicit and current-session targeting
 When called through the current-session contract, the command SHALL require execution inside the target agent's tmux session, SHALL discover the current tmux session as the attach context, SHALL prefer `HOUMAO_MANIFEST_PATH` from that tmux session when present and valid, and SHALL otherwise use `HOUMAO_AGENT_ID` from that same tmux session to resolve exactly one fresh shared-registry record and `runtime.manifest_path`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Current-session attach SHALL NOT fall back to retired `AGENTSYS_*` names. It SHALL also NOT fall back to `HOUMAO_GATEWAY_ATTACH_PATH`, `HOUMAO_GATEWAY_ROOT`, `terminal_id`, cwd, ambient shell env, or another server target when manifest or shared-registry discovery is invalid or stale.
 
 #### Scenario: Current-session attach prefers HOUMAO manifest pointer
@@ -127,6 +152,11 @@ Current-session attach SHALL NOT fall back to retired `AGENTSYS_*` names. It SHA
 For pair-managed tmux-backed `houmao_server_rest` sessions, the system SHALL default the gateway companion to same-session auxiliary-window execution for normal operation unless explicit background mode is requested.
 
 When explicit background mode is requested for a pair-managed `houmao_server_rest` session, the system SHALL attach or reuse the gateway in detached execution instead of creating or reusing the same-session auxiliary tmux window for that attach.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the gateway companion runs in the same tmux session, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
 
@@ -161,6 +191,11 @@ The `houmao-server` process and its internal compatibility support state SHALL r
 For runtime-owned tmux-backed managed sessions launched through `houmao-mgr`, the system SHALL allow the gateway companion to run in a separate auxiliary tmux window in the same tmux session whenever foreground mode is the effective execution mode, whether selected by default or by an explicit override.
 
 When that foreground mode is active, the system SHALL keep tmux window `0` reserved for the managed agent surface and SHALL keep gateway output off that primary agent window.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When that foreground mode is active, the runtime SHALL treat the gateway auxiliary tmux window and pane as the authoritative local execution surface for gateway lifecycle management. It SHALL use tmux-owned pane state for local liveness, SHALL use gateway health responses for readiness, and SHALL target that auxiliary tmux surface for shutdown rather than relying on a detached subprocess handle.
 
@@ -219,6 +254,11 @@ The runtime SHALL persist one authoritative live gateway record under `<session-
 
 When the gateway runs in a same-session auxiliary tmux window, that live record SHALL include an explicit execution mode plus the tmux window and pane identifiers for the auxiliary gateway surface, in addition to the listener and managed-agent instance fields needed for live gateway status.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Detach, crash cleanup, and auxiliary-window recreation SHALL resolve the live gateway surface from that runtime-owned record rather than from ad hoc tmux discovery over non-contractual auxiliary windows.
 
 When auxiliary-window recreation replaces the live gateway surface, the runtime SHALL update the authoritative live gateway record before treating the recreated gateway as ready.
@@ -239,6 +279,11 @@ When the same-session auxiliary-window mode is active, the recorded tmux window 
 Each gateway-capable session SHALL have a deterministic per-agent gateway root under the runtime-owned storage hierarchy once attachability is published or a gateway first attaches.
 
 For runtime-owned sessions in v1, the canonical runtime-owned session root SHALL be `<runtime_root>/sessions/<backend>/<session_id>/`, using the runtime-generated session id used for session-manifest storage, and the gateway root SHALL be the nested `gateway/` subdirectory under that session root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That gateway root SHALL contain at minimum:
 
@@ -284,6 +329,11 @@ The gateway root SHALL distinguish stable attachability metadata from live gatew
 
 ### Requirement: Stable attachability metadata is distinct from live gateway bindings
 The system SHALL publish stable attachability metadata for gateway-capable sessions independently from whether a gateway process is currently running.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Stable attachability metadata SHALL be sufficient for a later attach flow to determine how to attach to the live session through `manifest.json` together with tmux-local discovery and shared-registry fallback. `gateway_manifest.json` MAY exist as derived outward-facing gateway bookkeeping, but SHALL NOT be the authoritative input for attach resolution.
 
@@ -370,6 +420,11 @@ The system MAY keep internal gateway bootstrap artifacts such as `attach.json` u
 
 Those artifacts SHALL be treated as internal runtime state rather than supported public authority for attach or control behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 External attach, resume, relaunch, and control flows SHALL use manifest-backed authority plus shared-registry and tmux-local discovery rather than reading `attach.json` or another bootstrap artifact directly as the contract.
 
 `gateway_manifest.json` SHALL remain outward-facing bookkeeping only. When internal bootstrap artifacts and manifest-backed authority disagree, manifest-backed authority wins for supported behavior.
@@ -389,6 +444,11 @@ For tmux-backed sessions that a gateway attaches to, the resolved manifest SHALL
 
 When the attached session uses tmux-local relaunch authority, the gateway SHALL use the shared runtime relaunch primitive backed by `manifest.json` plus the owning tmux session env.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Gateway-managed relaunch SHALL NOT route through build-time `houmao-mgr agents launch`, SHALL NOT require per-agent launcher directories in shared registry, and SHALL NOT depend on copied launcher scripts or copied credentials outside the owning tmux session.
 
 Gateway-managed relaunch SHALL always target tmux window `0` for the managed agent surface and SHALL NOT allocate a new tmux window.
@@ -405,6 +465,11 @@ Gateway-managed relaunch SHALL always target tmux window `0` for the managed age
 
 ### Requirement: Each running gateway instance binds one resolved host and port
 Each running gateway instance SHALL expose its gateway submit or status surface as an HTTP service bound on exactly one resolved listener address before that gateway instance starts accepting work.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Allowed listener hosts in this change are exactly `127.0.0.1` and `0.0.0.0`. Binding to `0.0.0.0` SHALL require valid explicit access settings and initialized owner access state before live publication or plugin activation. Both listeners SHALL apply the same route access rules, including the admin list's empty state.
 
@@ -447,6 +512,11 @@ When a gateway instance starts successfully with a system-assigned port, the sys
 
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
 The gateway SHALL expose an HTTP API for health, endpoint discovery, enabled public input, status, gateway-managed request submission, reminders, notifier control, and shared mailbox operations on the resolved listener address. Route admission SHALL enforce the selected target's public, private, and admin access classes.
+
+#### Scenario: Gateway HTTP routes apply resource and authority rules
+
+- **GIVEN** the gateway serves its HTTP API on the resolved listener address
+- **THEN** each route uses its resource contract and access class
 
 The base API SHALL include public `GET /health` and `GET /v1/endpoint`, private `GET /v1/status`, and admin `POST /v1/requests`. The public input setting SHALL enable `POST /v1/messages` and `POST /v1/public/prompt`. Those two routes SHALL use the public handoff contract.
 
@@ -510,6 +580,11 @@ The gateway SHALL publish a structured status model that separates gateway healt
 
 That published status model SHALL be protocol-versioned and SHALL be shared by both `state.json` and `GET /v1/status`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the published gateway status SHALL distinguish:
 
 - protocol version
@@ -571,6 +646,11 @@ In v1, the public terminal-mutating request kinds SHALL be exactly `submit_promp
 
 Mailbox transport operations SHALL use the dedicated `/v1/mail/*` routes rather than introducing new public terminal-mutating request kinds.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The HTTP submission contract SHALL expose typed per-kind payloads. Any persisted `payload_json` field remains an internal storage detail rather than part of the public protocol contract.
 
 For accepted terminal-mutating requests, the gateway SHALL persist them durably, SHALL serialize execution through a single active terminal-mutation slot per managed agent, and SHALL order eligible work according to gateway policy such as priority, timing constraints, or coalescing rules.
@@ -630,6 +710,11 @@ When managed-agent recovery or reconciliation state makes safe execution impossi
 The gateway SHALL coalesce adjacent accepted queued control-intent records before those records execute against the managed agent.
 
 Control-intent records SHALL be limited to queued `interrupt` requests and queued `submit_prompt` requests whose entire trimmed prompt exactly matches a recognized context-control command. The initial recognized context-control commands SHALL include `/compact`, `/clear`, and `/new`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The gateway SHALL treat ordinary prompts, internal `mail_notifier_prompt` records, unsupported stored request kinds, and different managed-agent instance epochs as coalescing boundaries. The gateway SHALL NOT coalesce `running`, `completed`, `failed`, or already `coalesced` records.
 
@@ -718,6 +803,11 @@ The gateway SHALL support regular gateway heartbeats, managed-agent liveness obs
 
 Timer-driven or wakeup-oriented queued work in v1 SHALL remain gateway-owned internal behavior rather than additional externally submitted public request kinds.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a gateway first attaches to an already-running session, the gateway SHALL initialize from current observation plus attach metadata rather than requiring continuous launch-time observation.
 
 When the managed agent fails or becomes unavailable while the gateway companion remains alive, the gateway SHALL attempt bounded recovery through the runtime-owned backend integration for that session and SHALL record the recovery outcome.
@@ -765,6 +855,11 @@ The gateway SHALL maintain a running log on disk under its gateway-owned root so
 
 That running log SHALL live under the gateway log directory and SHALL be append-only and line-oriented so common file-tail tools can follow it while the gateway is active.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The running log SHALL cover at minimum:
 
 - gateway process start and stop,
@@ -790,6 +885,11 @@ The gateway SHALL avoid unbounded log spam from high-frequency identical poll ou
 
 ### Requirement: Gateway notifier wake-up semantics are unread-set based rather than per-message based
 When gateway-owned notifier behavior is enabled for a mailbox-backed session, the gateway SHALL treat notification eligibility as a function of whether unread mail exists for that session and whether the session is currently eligible to receive a reminder prompt.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If a poll cycle finds multiple unread messages, the gateway SHALL support satisfying notifier behavior with a single internal reminder prompt that summarizes the unread set for that cycle, including message metadata such as titles or identifiers.
 
@@ -820,6 +920,11 @@ The gateway SHALL NOT suppress a later reminder solely because a prior reminder 
 
 ### Requirement: Gateway notifier records structured per-poll decision auditing for later review
 When gateway-owned notifier behavior is enabled, the gateway SHALL record one structured notifier-decision audit record for each enabled poll cycle in a queryable SQLite audit table under the gateway state root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each record SHALL capture enough detail to explain what the notifier saw and why it enqueued or skipped work, including at minimum:
 
@@ -854,6 +959,11 @@ Detailed per-poll decision history SHALL remain available through that durable a
 
 ### Requirement: Gateway execution adapters support REST-backed, local-headless, and server-managed targets
 The gateway SHALL execute accepted terminal-mutating request kinds through an explicit execution-adapter boundary selected from durable attach metadata and manifest-backed runtime authority. The gateway SHALL bind managed work to the recorded run mode, current owner generation, and supported operations before dispatch. A supervisor pane or reachable listener alone SHALL NOT authorize a fallback adapter.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 In this change, the gateway execution layer SHALL support at minimum:
 
@@ -918,6 +1028,11 @@ The returned history SHALL be ordered from oldest retained snapshot to newest re
 ### Requirement: Gateway-owned TUI tracking routes support attached runtime-owned local interactive sessions
 For an attached runtime-owned `local_interactive` session outside `houmao-server`, the gateway SHALL treat that session as eligible for its gateway-owned live TUI state, bounded snapshot history, and explicit prompt-note tracking surface when durable attach metadata identifies the runtime-owned session and the tmux-backed session remains available.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For this path, the gateway SHALL start one gateway-owned continuous tracking runtime for the attached session and SHALL serve `GET /v1/control/tui/state`, `GET /v1/control/tui/history`, and `POST /v1/control/tui/note-prompt` from that runtime rather than returning unsupported-backend semantics.
 
 The gateway SHALL derive tracked-session identity from durable attach-contract fields together with optional manifest-backed enrichment and SHALL NOT require a CAO terminal id to expose this tracking surface.
@@ -969,6 +1084,11 @@ The published gateway status contract SHALL remain structurally stable across tr
 ### Requirement: Attached gateway becomes the authoritative per-agent control plane
 When an eligible live gateway is attached to a gateway-capable managed agent session, that gateway SHALL become the authoritative per-agent control plane for live session-local control behavior for that agent.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For an attached agent, gateway-owned control behavior SHALL include at minimum:
 
 - prompt queueing,
@@ -998,6 +1118,11 @@ When no eligible live gateway is attached, this requirement does not prevent the
 
 ### Requirement: Gateway control roots publish read-optimized per-agent live control state
 For an attached managed agent, the gateway SHALL expose read-optimized per-agent live control state through its versioned live HTTP surface so `houmao-server` and other pair-owned consumers can project current gateway-backed posture without reconstructing it from queue internals or raw tmux probing.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Those HTTP read surfaces MAY be backed by gateway control-root storage, but `houmao-server` SHALL consume attached-agent live control state through the gateway API rather than treating files under the session root as the authoritative live-state source.
 
@@ -1039,6 +1164,11 @@ For native headless gateway targets, the live gateway SHALL expose dedicated hea
 - `POST /v1/control/headless/next-prompt-session`
 
 `GET /v1/control/headless/state` SHALL return the gateway's current headless control-state payload for the addressed managed session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That payload SHALL include a `chat_session` state object with at least:
 
@@ -1098,6 +1228,11 @@ The gateway SHALL expose two semantic prompt surfaces:
 
 - `POST /v1/requests` as the queued gateway request surface for `submit_prompt` and `interrupt`
 - `POST /v1/control/prompt` as the immediate prompt-control surface for "send now or refuse now" prompt dispatch
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For native headless targets, `POST /v1/control/prompt` SHALL additionally accept an optional structured `chat_session` selector object.
 
@@ -1170,6 +1305,11 @@ For native headless targets, recoverable degraded chat context SHALL NOT by itse
 
 For TUI-backed targets, recoverable degraded chat context SHALL NOT by itself trigger the reset-then-send workflow.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Explicit clean-context requests SHALL remain supported. When a caller explicitly requests `chat_session.mode = new`, the gateway SHALL preserve the existing headless fresh-chat selection and TUI reset-then-send behavior for targets that support that selector.
 
 #### Scenario: Ordinary TUI prompt continues degraded current context
@@ -1213,6 +1353,11 @@ When the gateway executes semantic prompt submission for an attached runtime-own
 
 For this local-interactive semantic prompt path, the gateway SHALL preserve the distinction between prompt submission and raw send-keys internally as well as on the HTTP surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway SHALL only record gateway-owned prompt-submission tracking evidence after the semantic prompt-submission path succeeds.
 
 #### Scenario: Gateway prompt for local interactive session uses semantic submit
@@ -1243,6 +1388,11 @@ That reminder surface SHALL include:
 - `GET /v1/reminders/{reminder_id}`
 - `PUT /v1/reminders/{reminder_id}`
 - `DELETE /v1/reminders/{reminder_id}`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each reminder record SHALL include:
 
@@ -1307,6 +1457,11 @@ When the effective reminder becomes due, the gateway SHALL treat delivery of tha
 
 The public terminal-mutating request-kind set SHALL remain limited to `submit_prompt` and `interrupt`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Before a due effective reminder starts execution, the gateway SHALL require:
 
 - request admission to be open
@@ -1370,6 +1525,11 @@ For native headless gateway targets, both semantic gateway prompt surfaces SHALL
 
 That `execution.model` object SHALL use the same normalized unified model-selection shape as Houmao launch-owned model configuration.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For native headless targets, the gateway SHALL treat `execution` and `chat_session` as orthogonal controls:
 
 - `chat_session` selects conversation continuity
@@ -1419,6 +1579,11 @@ The timing configuration SHALL include:
 - stale-active recovery seconds
 - final stable-active recovery seconds
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a timing value is omitted, the gateway attach flow SHALL preserve the existing default or previously persisted desired value for that field.
 
 When a timing value is supplied, the gateway attach flow SHALL validate that it is greater than zero before starting the gateway companion.
@@ -1456,6 +1621,11 @@ The gateway mailbox post request model SHALL continue to accept explicit `reply_
 
 When `reply_policy` is omitted or set to `operator_mailbox`, the created operator-origin message SHALL record reply-enabled policy metadata and route replies to `HOUMAO-operator@houmao.localhost`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When `reply_policy` is explicitly set to `none`, the created operator-origin message SHALL remain no-reply and later replies against that message SHALL fail explicitly.
 
 Pair-managed mail-post proxy request models that inherit the live gateway mailbox post model SHALL preserve this same omitted-field default.
@@ -1477,6 +1647,11 @@ Pair-managed mail-post proxy request models that inherit the live gateway mailbo
 
 ### Requirement: Shared gateway mailbox facade exposes lifecycle routes
 The shared mailbox facade SHALL expose private `GET /v1/mail/status` as a summary of both optional bindings and the derived canonical mail identity. Mailbox-disabled agents SHALL receive a normal empty-binding summary.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The gateway SHALL expose channel-selected lifecycle routes under `/v1/mail/{channel}/` for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, where `channel` is `offline` or `online`. The former unqualified lifecycle routes SHALL NOT infer a channel from the canonical mail identity.
 
@@ -1544,6 +1719,11 @@ The gateway memory surface SHALL include:
 
 The gateway SHALL NOT expose `scratch` or `persist` lane identifiers on this surface.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway SHALL NOT expose a memory reindex route or action.
 
 #### Scenario: Gateway memory summary reports memo-pages paths
@@ -1568,6 +1748,11 @@ Gateway page file and path-resolution operations SHALL accept relative page path
 Gateway page file and path-resolution operations SHALL reject absolute paths, parent traversal, symlink escapes, and content containing NUL bytes where content is supplied.
 
 Gateway memo operations SHALL operate only on the resolved fixed memo file and SHALL NOT accept arbitrary memory-root target paths.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Gateway page operations SHALL NOT mutate `houmao-memo.md`.
 
@@ -1623,6 +1808,11 @@ When an existing gateway root contains durable SQLite state whose schema is olde
 ### Requirement: Live gateway HTTP clients bypass ambient proxies by default
 The live gateway HTTP client SHALL connect directly to its explicit remote base URL or resolved owner-local gateway listener by default and SHALL NOT use ambient proxy environment variables such as `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, or their lowercase variants for gateway requests.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 This direct-by-default policy SHALL apply consistently to all requests made through the shared gateway client, including health, endpoint discovery, challenge and key operations, status, public notifications and prompts, request submission, prompt control, TUI control, reminder, mail, mail-notifier, and memory calls.
 
 The direct-by-default policy SHALL NOT require mutating process-wide `NO_PROXY` or `no_proxy` values.
@@ -1653,6 +1843,11 @@ The live gateway HTTP client SHALL respect ambient proxy environment variables o
 
 When `HOUMAO_GATEWAY_RESPECT_PROXY_ENV` is absent or has any value other than `1`, the gateway client SHALL use direct-by-default behavior.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When proxy-respecting mode is enabled, the gateway client SHALL use the standard Python HTTP proxy handling for the caller environment, including any caller-provided `NO_PROXY` or `no_proxy` values.
 
 The gateway client SHALL NOT persist this proxy policy decision in gateway manifests, gateway status, runtime session manifests, registry records, or durable gateway state.
@@ -1673,6 +1868,11 @@ When gateway attach observes a published listener but health readiness does not 
 
 If at least one health probe failed with a gateway HTTP error before the deadline, the attach error SHALL also include the last observed health probe error detail.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The attach flow SHALL continue using the gateway health endpoint as the authoritative readiness signal; diagnostic files and last-probe details SHALL NOT replace successful health readiness.
 
 #### Scenario: Timeout reports the last health probe error
@@ -1689,6 +1889,11 @@ The attach flow SHALL continue using the gateway health endpoint as the authorit
 
 ### Requirement: Gateway clean-context recovery remains explicit or policy-selected
 Gateway prompt control SHALL continue to treat recoverable degraded chat context as compatible with ordinary current-context prompt delivery when the target otherwise satisfies the prompt-ready contract.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Clean-context prompt delivery SHALL occur only when one of the following is true:
 
@@ -1737,6 +1942,11 @@ The gateway SHALL expose Houmao extension routes to read destination state, read
 
 The active-thread set operation SHALL require a non-empty `threadId` string.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The destination state SHALL be a Houmao gateway extension and SHALL NOT be described as part of the AG-UI core standard.
 
 #### Scenario: Gateway starts with empty active destination state
@@ -1783,6 +1993,11 @@ When no destination is specified by the publish request or event batch, the gate
 
 When no destination is specified and active-thread is empty, the gateway SHALL send the batch to a Houmao-defined default sink.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The gateway SHALL NOT use last-sent-thread as a publish fallback destination.
 
 The default sink thread name SHALL NOT be returned as an agent-targetable route.
@@ -1819,6 +2034,11 @@ When a publish uses a message-specified destination, the gateway SHALL set last-
 
 When a publish uses active-thread fallback, the gateway SHALL set last-sent-thread to that active thread after the publish is sent.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a publish falls through to the default sink, the gateway SHALL NOT set last-sent-thread to the sink.
 
 Last-sent-thread SHALL NOT participate in future destination fallback decisions.
@@ -1840,6 +2060,11 @@ Last-sent-thread SHALL NOT participate in future destination fallback decisions.
 Gateway direct prompt control through `POST /v1/control/prompt` SHALL accept `admission_policy = ready_only | if_no_pending | always` and SHALL default omitted policy to `ready_only`.
 
 For a terminal TUI-backed target, `ready_only` SHALL require the existing stable prompt-ready contract and `surface.pending_input=no`. It SHALL reject busy, pending, or pending-unknown observations.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For a terminal TUI-backed target, `if_no_pending` SHALL ignore prompt-readiness and busy posture, dispatch only when the latest gateway-owned tracked snapshot reports `surface.pending_input=no`, reject `yes` with `error_code=pending_input`, and reject `unknown` with `error_code=pending_input_unknown`.
 
@@ -1960,6 +2185,11 @@ For a Web interactive target, `ready_only` SHALL require native idle, unblocked,
 ### Requirement: Gateway prompt-control schema and CLI remove binary force behavior
 
 The direct prompt-control request schema SHALL advance to schema version 2, SHALL contain `admission_policy`, and SHALL NOT contain `force`. Success and structured-refusal payloads SHALL report `admission_policy` and SHALL NOT report a boolean `forced` field.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The maintained `houmao-mgr agents single|self ... gateway prompt` commands SHALL expose `--admission-policy ready-only|if-no-pending|always` with `ready-only` as the default and SHALL NOT expose `--force` as an alias or deprecated compatibility flag.
 

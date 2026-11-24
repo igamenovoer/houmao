@@ -1,7 +1,7 @@
 # passive-server-gateway-proxy Specification
 
 ## Purpose
-TBD - created by archiving change passive-server-gateway-proxy. Update Purpose after archive.
+Expose a common passive-server entry point for managed-agent gateway control, mail, usage, memory, and inspection. Resolve each agent reference to the owning source and preserve operation semantics, caller authority, and upstream errors.
 ## Requirements
 
 ### Requirement: Passive server provides a gateway status proxy endpoint
@@ -57,6 +57,11 @@ The passive server SHALL expose `POST /houmao/agents/{agent_ref}/gateway/control
 
 The response body SHALL be a `GatewayControlInputResultV1` payload from the live gateway.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Agent-not-found (404), ambiguous (409), and no-gateway (502) error handling SHALL follow the same pattern as the existing passive gateway status and request-submission endpoints.
 
 #### Scenario: Raw control-input proxy forwards to the gateway and returns the action result
@@ -78,6 +83,11 @@ For headless targets, the proxied request body MAY include optional structured `
 
 - `mode = auto | new | current | tool_last_or_new | exact`
 - `id` required only when `mode = exact`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The response body SHALL be a `GatewayPromptControlResultV1` payload from the live gateway.
 
@@ -123,6 +133,11 @@ Those routes SHALL resolve the agent, create a `GatewayClient`, and proxy the co
 
 The response body for each route SHALL be the live gateway headless control-state payload.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Agent-not-found (`404`), ambiguous (`409`), and no-gateway (`502`) error handling SHALL follow the same pattern as the existing passive gateway status and request-submission endpoints.
 
 If the live gateway rejects the request because the addressed target is not headless, the passive server SHALL forward that validation failure explicitly rather than pretending that a headless proxy surface exists.
@@ -153,6 +168,11 @@ The passive server SHALL expose proxy routes for the managed-agent gateway remin
 - `GET /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`
 - `PUT /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`
 - `DELETE /houmao/agents/{agent_ref}/gateway/reminders/{reminder_id}`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Those routes SHALL resolve the managed agent, create a `GatewayClient`, and proxy the corresponding direct gateway reminder calls.
 
@@ -191,6 +211,11 @@ The passive server SHALL expose proxy routes for the gateway mail-notifier contr
 - `DELETE /houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}`
 
 Those routes SHALL resolve the agent, create a `GatewayClient`, and proxy the corresponding direct gateway mail-notifier calls.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The response body for each route SHALL be a `GatewayMailNotifierStatusV1` payload from the live gateway.
 
@@ -250,6 +275,11 @@ Those routes SHALL resolve the agent, create a `GatewayClient`, and proxy the co
 
 The TUI state response body SHALL match the live gateway's TUI state payload.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The TUI history response body SHALL match the live gateway's bounded recent TUI snapshot-history payload.
 
 The prompt-note response body SHALL match the live gateway's updated TUI state payload after prompt-note recording.
@@ -281,6 +311,11 @@ The response body SHALL be a `GatewayMailStatusV1` payload.
 
 Agent-not-found (404), ambiguous (409), and no-gateway (502) error handling SHALL follow the same pattern.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The forwarded summary SHALL preserve both optional bindings, canonical mail identity, binding revisions, and independent health. A gateway summary with neither channel configured SHALL remain a normal summary.
 
 #### Scenario: Mail status returns the gateway's mailbox status
@@ -299,6 +334,11 @@ The passive server SHALL expose `POST /houmao/agents/{agent_ref}/mail/{channel}/
 
 The response body SHALL be a `GatewayMailListResponseV1` payload.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The channel SHALL be explicit, validated as `offline` or `online`, and forwarded unchanged. The proxy SHALL preserve scoped references and structured binding/scope failures without selecting a canonical-address fallback or keeping a second mailbox state store.
 
 #### Scenario: Mail list forwards to the gateway and returns messages
@@ -311,6 +351,11 @@ The channel SHALL be explicit, validated as `offline` or `online`, and forwarded
 The passive server SHALL expose `POST /houmao/agents/{agent_ref}/mail/{channel}/send` that resolves the agent, creates a `GatewayClient`, and forwards the request body as a `GatewayMailSendRequestV1` payload to `POST /v1/mail/{channel}/send`.
 
 The response body SHALL be a `GatewayMailActionResponseV1` payload.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The channel SHALL be explicit, validated as `offline` or `online`, and forwarded unchanged. The proxy SHALL preserve scoped references and structured binding/scope failures without selecting a canonical-address fallback or keeping a second mailbox state store.
 
@@ -325,6 +370,11 @@ The passive server SHALL expose `POST /houmao/agents/{agent_ref}/mail/{channel}/
 
 The response body SHALL be a `GatewayMailActionResponseV1` payload.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The channel SHALL be explicit, validated as `offline` or `online`, and forwarded unchanged. The proxy SHALL preserve scoped references and structured binding/scope failures without selecting a canonical-address fallback or keeping a second mailbox state store.
 
 #### Scenario: Mail post forwards to the gateway and returns the action response
@@ -337,6 +387,11 @@ The channel SHALL be explicit, validated as `offline` or `online`, and forwarded
 The passive server SHALL expose `POST /houmao/agents/{agent_ref}/mail/{channel}/reply` that resolves the agent, creates a `GatewayClient`, and forwards the request body as a `GatewayMailReplyRequestV1` payload to `POST /v1/mail/{channel}/reply`.
 
 The response body SHALL be a `GatewayMailActionResponseV1` payload.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The channel SHALL be explicit, validated as `offline` or `online`, and forwarded unchanged. The proxy SHALL preserve scoped references and structured binding/scope failures without selecting a canonical-address fallback or keeping a second mailbox state store.
 
@@ -351,6 +406,11 @@ All gateway proxy endpoints SHALL resolve the `{agent_ref}` path parameter using
 1. Try direct lookup by `agent_id`.
 2. Fall back to canonical `agent_name` lookup.
 3. Return 404 if not found, 409 if ambiguous.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The proxy SHALL enforce target access before handling gateway availability. If an admitted caller's target has no live gateway (gateway is None or host/port are None), the proxy SHALL return 502 with `detail` describing that the gateway is not attached.
 
@@ -388,6 +448,11 @@ The passive server SHALL expose pair-server routes that proxy live gateway memor
 
 The proxy routes SHALL mirror the gateway memory summary, memo read, memo replace, memo append, page tree, page read, page write, page append, page delete, and page path-resolution operations under the managed-agent gateway route family.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The proxy SHALL preserve the gateway's page containment errors, memo-targeting errors, path-resolution errors, and unavailable-gateway errors in structured responses.
 
 The passive server SHALL NOT expose a memory reindex proxy route.
@@ -418,6 +483,11 @@ Managed-agent gateway mail-notifier proxy routes SHALL preserve the notifier mod
 
 When a caller enables the notifier through `PUT /houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}`, the proxy SHALL forward the request body to the live gateway without reinterpreting or dropping `mode`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a caller reads notifier status through `GET /houmao/agents/{agent_ref}/gateway/mail-notifier/{channel}`, the proxy SHALL return the live gateway's `mode` field as part of the `GatewayMailNotifierStatusV1` payload.
 
 The channel SHALL be explicit, validated as `offline` or `online`, and forwarded unchanged. The proxy SHALL preserve scoped references and structured binding/scope failures without selecting a canonical-address fallback or keeping a second mailbox state store.
@@ -437,6 +507,11 @@ The channel SHALL be explicit, validated as `offline` or `online`, and forwarded
 ### Requirement: Passive-server prompt proxy preserves admission-policy semantics
 
 The maintained passive-server route `POST /houmao/agents/{agent_ref}/gateway/control/prompt` SHALL accept the schema-version-2 gateway prompt request, forward `admission_policy` unchanged to the live gateway, and return the live result or structured refusal without re-evaluating TUI readiness or pending input locally.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The proxy request SHALL NOT accept the removed `force` field, and its success and error projections SHALL expose the selected `admission_policy` instead of a boolean `forced` field.
 

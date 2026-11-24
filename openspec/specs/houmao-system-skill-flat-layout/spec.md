@@ -26,6 +26,11 @@ The system SHALL package each standalone current Houmao system skill as one top-
 
 The standalone inventory SHALL be the six static roots defined by `houmao-system-skill-static-collection`. Only `houmao-shared-routines` SHALL contain current parent-scoped runtime skills, and those children SHALL live directly beneath its `subskills/` directory with `SKILL-MAIN.md` entrypoints.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The active packaged source SHALL NOT require an external `protected/` tree, audience route variants, or family-specific source directories. Historical loop references MAY remain under `legacy/` and SHALL NOT be current install units.
 
 #### Scenario: Maintainer inspects the packaged skill asset root

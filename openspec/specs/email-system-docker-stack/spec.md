@@ -8,6 +8,11 @@ The repository SHALL provide a local Docker-based email stack under `dockers/ema
 
 The repo-owned stack materials SHALL include the compose entry point plus the operator-facing configuration and documentation needed to start the stack from repository context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Normal stack bring-up SHALL rely on the required images already being present on the host and SHALL NOT pull or check remote registries as part of startup.
 
 #### Scenario: Operator starts the local email stack from repository-owned files
@@ -26,6 +31,11 @@ The local email stack SHALL provide `dockers/email-system/.env` and `dockers/ema
 The tracked `env.example` SHALL enumerate every stack value intended to be configurable.
 
 The active `.env` file in the compose directory SHALL be the local source for those configurable values during normal stack bring-up.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Repo-owned compose files, helper scripts, and service config templates SHALL treat those env files as the configuration source rather than scattering independently configurable literals across multiple files.
 

@@ -1,13 +1,18 @@
 # kimi-tui-signal-corpus Specification
 
 ## Purpose
-TBD - created by archiving change capture-kimi-tui-signals. Update Purpose after archive.
+Qualify Kimi Code TUI tracking against manually labeled recordings from live sessions. The corpus links high-rate terminal captures with derived sampling streams and records the visible evidence used to define stable detector signals.
 ## Requirements
 
 ### Requirement: Kimi TUI tracking SHALL be based on recorded and labeled live evidence
 Before Kimi Code TUI tracking is treated as implemented, the system SHALL produce a Kimi TUI signal corpus from live logged-in Kimi Code sessions.
 
 The corpus SHALL include replay-grade tmux pane snapshots, input-event evidence when available, run metadata, Kimi CLI version metadata, manual labels, and notes describing the observed scenario.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The corpus SHALL include at least 5 labeled live sessions for development and at least 3 additional labeled live sessions held out as a test set. Held-out test sessions SHALL NOT be used to design detector rules, tune thresholds, or select the Kimi signal contract.
 
@@ -58,6 +63,11 @@ Each label SHALL record expected public tracked-state fields and MAY record pars
 
 Each label SHOULD include evidence notes that explain the human-observed structural, styling, temporal, or bounded semantic signals that justify the label.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the Kimi corpus SHALL label these scenario families:
 
 - idle welcome or editor-ready surface
@@ -80,6 +90,11 @@ At minimum, the Kimi corpus SHALL label these scenario families:
 
 ### Requirement: Kimi TUI signal design artifacts SHALL document stable signals before implementation
 The change SHALL create Kimi signal design artifacts under change-local `context/`, `design/`, and `contracts/` directories before the Kimi detector profile is finalized.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Those artifacts SHALL document:
 
@@ -110,6 +125,11 @@ Those artifacts SHALL document:
 
 ### Requirement: Maintained Kimi corpus targets current-floor operation including operator surfaces
 The refreshed maintained Kimi corpus SHALL use kimi-code at or above the current support floor (2.1.1). Unattended lifecycle scenarios SHALL NOT request operator confirmation beyond the startup trust modal. Operator-interaction scenarios (approvals, plan review, question dialogs, trust modal) SHALL be captured deliberately in manual permission mode and labeled like any other state family.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Managed-session corpus evidence SHALL record that native role-prompt projection completed before provider startup and that no role-bootstrap chat turn occurred. A canceled capture or replay task SHALL NOT establish qualification or waive the recorded-validation gate.
 

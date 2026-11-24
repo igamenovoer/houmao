@@ -1,10 +1,15 @@
 # single-agent-mail-prompt-injection-demo Specification
 
 ## Purpose
-TBD - created by archiving change render-mailbox-notify-block-channel. Update Purpose after archive.
+Demonstrate in a controlled TUI run how gateway notifier trust settings affect whether untrusted mailbox text reaches a managed agent's wake-up prompt. Give operators recorded evidence of the result under each trust setting.
 ## Requirements
 ### Requirement: `single-agent-mail-prompt-injection/` demonstrates mail-borne prompt injection through the notify-block channel
 The system SHALL expose one runnable demo at `scripts/demo/single-agent-mail-prompt-injection/` that drives operator-origin notify-block injection through the gateway notifier wake-up surface and makes the threat observable end-to-end.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The demo SHALL share the structural conventions of the existing `single-agent-mail-wakeup/` pack:
 

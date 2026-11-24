@@ -1,7 +1,7 @@
 # houmao-mgr-agent-definition-deployments Specification
 
 ## Purpose
-TBD - created by archiving change deploy-predefined-agent-blueprints. Update Purpose after archive.
+Houmao validates an exact Agent Definition revision and uses a deterministic plan to publish its deployment in a target project before launch. Deployment operations retain the instance contract and verify provenance, ownership, and references when checking, updating, or removing a deployment.
 ## Requirements
 ### Requirement: Houmao discovers, validates, and materializes Agent Definitions
 `houmao-mgr` SHALL expose maintained commands to inspect and validate local or built-in revisions and to preview or write one approved authoring workspace result.

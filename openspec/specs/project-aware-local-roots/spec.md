@@ -1,7 +1,7 @@
 # project-aware-local-roots Specification
 
 ## Purpose
-TBD - created by archiving change make-operations-project-aware. Update Purpose after archive.
+Give local Houmao commands a consistent way to select a project overlay and resolve its agent-definition, runtime, job, and mailbox roots alongside the shared registry. Carry the selected root context through managed launches and relaunches.
 ## Requirements
 ### Requirement: Project-aware local commands resolve one active overlay before using local Houmao-owned state
 Maintained local Houmao command flows that need Houmao-owned local state SHALL resolve one active project overlay using this precedence:
@@ -9,6 +9,11 @@ Maintained local Houmao command flows that need Houmao-owned local state SHALL r
 1. explicit CLI overlay selection when a command supports it,
 2. `HOUMAO_PROJECT_OVERLAY_DIR`,
 3. nearest ancestor discovered project overlay within the current Git worktree boundary.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The current Git worktree boundary SHALL be inferred by walking ancestors from the invocation directory until the nearest ancestor containing a `.git` file or directory. When no ancestor contains `.git`, discovery MAY continue to the filesystem root.
 When `HOUMAO_PROJECT_OVERLAY_DIR` is set, it SHALL be an absolute path.
@@ -57,6 +62,11 @@ When a maintained local Houmao command runs in project context without a stronge
 - jobs root: `<overlay>/jobs`
 - mailbox root: `<overlay>/mailbox`
 - project catalog and managed content roots under the overlay.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The shared registry SHALL remain outside the project overlay by default under the platformdirs user config root, expected as `~/.config/houmao/registry` on Linux, unless the existing registry env override redirects it.
 For this change, `runtime/`, `jobs/`, and `mailbox/` SHALL remain convention-derived overlay subpaths rather than new configurable `houmao-config.toml` path keys.

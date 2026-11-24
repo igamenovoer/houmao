@@ -9,6 +9,11 @@ The repository SHALL provide a live interactive watch workflow for the standalon
 
 Recorder-backed observation SHALL be optional for live watch and SHALL only start when the selected live-watch recorder control explicitly enables it.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The workflow SHALL create run roots under a repo-owned subtree such as `tmp/demo/shared-tui-tracking-demo-pack/live/<tool>/<run-id>/`.
 
 #### Scenario: Default live watch starts without recorder capture
@@ -29,6 +34,11 @@ The restored live-watch workflow SHALL load demo-owned defaults from `demo-confi
 
 The default live observation cadence SHALL use the same `sample_interval_seconds = 0.2` baseline as the recorded-validation workflow unless explicitly overridden.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The checked-in default live-watch config SHALL disable recorder capture unless a later override source explicitly enables it.
 
 #### Scenario: Live watch starts with demo-owned defaults
@@ -42,6 +52,11 @@ The checked-in default live-watch config SHALL disable recorder capture unless a
 The live dashboard SHALL derive displayed state through the standalone shared TUI tracker using runtime liveness observations plus one pane-text evidence source for the watched run.
 
 When recorder capture is enabled, the pane-text evidence source SHALL be recorder pane snapshots for that run. When recorder capture is disabled, the pane-text evidence source SHALL be direct visible-pane tmux captures for that run.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the dashboard SHALL present:
 
@@ -77,6 +92,11 @@ At minimum, every live-watch run SHALL retain:
 
 When recorder capture is enabled, the run SHALL also retain the recorder run root and SHALL be able to finalize offline replay and comparison artifacts from that retained recorder evidence for the same run.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When recorder capture is disabled, stopping the run SHALL still finalize the live summary report and issue documents for the retained live-state artifacts, but the workflow SHALL NOT claim recorder-backed replay or comparison artifacts for that run.
 
 #### Scenario: Stopped non-recorder run retains live-state artifacts
@@ -111,6 +131,11 @@ Recorder-backed live observation SHALL remain optional for Kimi and SHALL only s
 The live dashboard for a Kimi run SHALL derive displayed state through the standalone shared TUI tracker using the `kimi_code` detector profile family selected by the shared profile registry.
 
 The Kimi dashboard SHALL present the same public tracked-state fields as other tools, including diagnostics availability, input posture, turn phase, last-turn result/source, detector identity, and recent transition information.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The Kimi dashboard SHALL treat footer model metadata such as a model name followed by `thinking` according to the shared Kimi signal contract: footer metadata alone SHALL NOT mark the turn active.
 

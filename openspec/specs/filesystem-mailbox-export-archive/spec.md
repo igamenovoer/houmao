@@ -12,6 +12,11 @@ The default export mode SHALL verify that the final output archive contains no s
 
 The export archive SHALL contain a `manifest.json` file at its root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the export archive SHALL contain these top-level paths when matching source artifacts exist:
 
 - `messages/` for exported canonical message files,
@@ -43,6 +48,11 @@ When exporting all accounts, the system SHALL include every canonical message kn
 
 When exporting selected addresses, the system SHALL include messages visible through `mailbox_projections` for the selected registrations.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a selected projection references a missing canonical message file, the system SHALL record a blocked artifact in the export result and manifest rather than silently dropping that message.
 
 #### Scenario: All-account export includes every indexed canonical message
@@ -60,6 +70,11 @@ When a selected projection references a missing canonical message file, the syst
 
 ### Requirement: Filesystem mailbox export records source and archive mappings in a manifest
 The export manifest SHALL record enough metadata to audit what was copied, materialized, preserved, skipped, or blocked.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, `manifest.json` SHALL record:
 
@@ -102,6 +117,11 @@ Preserved symlinks SHALL be archive-internal relative symlinks.
 
 When symlink preservation is requested and the target filesystem cannot create symlinks, the export SHALL fail clearly rather than silently falling back to materialization.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 External symlink-backed mailbox account targets SHALL be materialized unless a later feature defines a separate external-symlink preservation mode.
 
 #### Scenario: Preserve mode uses relative links for exported projections
@@ -122,6 +142,11 @@ The exporter SHALL copy mailbox-owned managed-copy attachment artifacts that res
 The exporter SHALL NOT copy external `path_ref` attachment targets by default.
 
 For external `path_ref` attachment targets, the exporter SHALL record attachment metadata in `manifest.json`, including the original path and whether the target existed at export time.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When a managed-copy attachment path recorded in the mailbox index resolves outside the mailbox root's managed attachment directory, the exporter SHALL record a blocked artifact rather than copying that path.
 

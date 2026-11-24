@@ -1,7 +1,7 @@
 # houmao-dev-tui-testing-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-dev-behavior-testing. Update Purpose after archive.
+Developers use `houmao-dev-tui-testing` to qualify terminal tracking through a staged workflow that records, labels, replays, and compares captures. Each run keeps its artifacts under the development TUI testing root.
 ## Requirements
 
 ### Requirement: TUI qualification uses an explicit skill identity
@@ -19,6 +19,11 @@ The old `skillset/dev/houmao-dev-testing` root and `houmao-dev-testing` invocati
 The renamed skill SHALL retain the `record`, `label`, `replay`, `compare`, `render-video`, `run-all`, and `help` subcommands and their predecessor-artifact order.
 
 It SHALL continue to freeze high-rate raw terminal evidence before labeling or replay, keep independent manual labels separate from tracker output, replay canonical and varied-cadence streams, compare exact and semantic results, render review evidence, and delegate provider launch to `houmao-dev-launch-agents`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 No command page, evidence gate, public tracked-state vocabulary, comparison rule, video contract, or supported provider SHALL change meaning merely because of the rename.
 

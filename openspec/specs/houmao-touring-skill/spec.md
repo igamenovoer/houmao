@@ -24,6 +24,11 @@ It SHALL also expose Existing Project Reorientation as a curated path and SHALL 
 ### Requirement: Admin welcome is the semantic successor to pre-compaction touring
 `houmao-admin-welcome` SHALL preserve the maintained behavior of `houmao-touring` from Git commit `8f377c468bc7f87ff40dbf40c0a68327616112bd` while changing the public name, read-only boundary, and executable handoff target.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The welcome SHALL retain bare-invocation orientation, state inspection before path selection, likely-intent inference, blank-workspace and project-ready menus, fast-path use cases, subsystem exploration, compact presentation, informative questions, concept guidance, and non-linear next steps. It SHALL NOT replace that behavior with a shallow route list.
 
 #### Scenario: Bare welcome runs in a blank workspace

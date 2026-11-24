@@ -8,6 +8,11 @@ The system SHALL package a Houmao-owned system skill named `houmao-interop-ag-ui
 
 The skill SHALL teach agents how to produce AG-UI-conforming GUI messages by using `houmao-mgr ag-ui protocol` for standard AG-UI event generation, event validation, event framing, and schema-agnostic tool-call rendering.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL teach agents how to use `houmao-mgr ag-ui impl` for Houmao-known implementation schema discovery, payload validation, implementation rendering, and implementation catalog discovery.
 
 The skill SHALL state that AG-UI is the wire/event protocol and that Houmao typed components are AG-UI implementation contracts carried by standard tool-call events.
@@ -28,6 +33,11 @@ The skill SHALL be installable through the Houmao system-skill catalog like othe
 The `houmao-interop-ag-ui` skill SHALL provide concrete workflows for generating GUI messages through AG-UI protocol events.
 
 For already-chosen Houmao-known implementations, the workflow SHALL instruct the agent to resolve `houmao-mgr`, inspect the target implementation schema, create or receive a JSON payload, validate the payload, render AG-UI events, validate the rendered events, and then publish or hand off the generated events.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For frontend-specific implementations that Houmao does not know, the workflow SHALL instruct the agent to use `houmao-mgr ag-ui impl new-component render`, validate the rendered events with AG-UI protocol validation, and then publish or hand off the generated events according to the target endpoint.
 
@@ -68,6 +78,11 @@ The `houmao-interop-ag-ui` skill SHALL describe how to choose a publish target.
 The skill SHALL allow publishing to a known Houmao per-agent gateway AG-UI event ingestion endpoint.
 
 For third-party AG-UI-compatible endpoints, the skill SHALL instruct agents to use `houmao-mgr ag-ui protocol` to generate or validate standard AG-UI events, then perform delivery themselves according to the third-party endpoint's own request, authentication, header, framing, and admission constraints.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For Houmao-known implementation payloads, the skill SHALL instruct agents to use `houmao-mgr ag-ui impl` before protocol validation so payload semantics are checked before delivery.
 
@@ -114,6 +129,11 @@ The skill SHALL state that Houmao gateway publish is live-only for GUI events an
 
 The skill SHALL state that `delivered_count` means live streams received events at publish time.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL state that `delivered_count = 0` with `stored_count = 0` means no live GUI stream received the events and the Houmao gateway did not retain them for later replay.
 
 The skill SHALL instruct agents not to claim that the GUI displayed a graphic when `delivered_count = 0`, unless the user or another explicit observation confirms that a GUI received it through another path.
@@ -144,6 +164,11 @@ The skill SHALL continue to instruct agents not to guess gateway host, port, thr
 
 The skill SHALL explain that the workbench can cache GUI events only while it is watching the intended target.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL direct agents to supported Houmao discovery and gateway publish helpers when publishing to the current agent's Houmao gateway.
 
 For third-party AG-UI-compatible endpoints, the skill SHALL continue to instruct agents to generate and validate events with `houmao-mgr` and then use that endpoint's own delivery method.
@@ -169,6 +194,11 @@ The `houmao-interop-ag-ui` skill SHALL explain that a tmux-controlled Houmao age
 The skill SHALL teach agents that, for Houmao gateway publishing, they may omit explicit routing and let the gateway resolve the destination through active-thread fallback.
 
 The skill SHALL describe the omitted-routing order as message-specified destination, active-thread, then Houmao default sink.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL state that last-sent-thread is gateway bookkeeping and is not a fallback destination.
 
@@ -218,6 +248,11 @@ The `houmao-interop-ag-ui` skill SHALL teach agents that `houmao-mgr ag-ui impl 
 
 The skill SHALL teach agents that Houmao implementation commands add schema discovery and payload validation only for Houmao-known implementations.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL state that protocol validation means the event batch is valid AG-UI, not that the target GUI implements or displayed the implementation payload.
 
 The skill SHALL teach agents that graphing-specific payload authoring is outside the AG-UI interop skill, while interop validation, rendering, publishing, and delivery-result interpretation remain available for already-chosen implementation payloads.
@@ -241,6 +276,11 @@ The skill SHALL teach agents that graphing-specific payload authoring is outside
 The `houmao-interop-ag-ui` skill SHALL remain a non-extension skill focused on AG-UI protocol, implementation rendering for already-chosen payloads, gateway publishing, endpoint boundaries, and delivery interpretation.
 
 The skill SHALL NOT list `houmao-ext-graphing` as a required related skill, delegated workflow, or graphing handoff.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL NOT require the graphing extension for AG-UI protocol validation, generic implementation rendering, gateway publishing, or delivery-result interpretation.
 

@@ -8,6 +8,11 @@ The `houmao-agent-loop-pairwise-v4` skill SHALL preserve the pairwise-v3 lifecyc
 
 The `houmao-agent-loop-pairwise-v4` skill SHALL preserve the pairwise-v3 observed states: `authoring`, `initializing`, `ready`, `running`, `paused`, `recovering`, `recovered_ready`, `stopping`, `stopped`, and `dead`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The v4 skill SHALL require authored workspace contracts with mode `standard` or `custom`.
 
 The v4 skill SHALL preserve pairwise-v3 memo-first initialize, mail-notifier readiness during initialize, mail-first ordinary start, and runtime-owned recovery boundary guidance.
@@ -21,6 +26,11 @@ The v4 skill SHALL preserve pairwise-v3 memo-first initialize, mail-notifier rea
 The `houmao-agent-loop-pairwise-v4` skill SHALL include packaged document-template guidance for generated bundle files.
 
 Those templates SHALL define required section headers, required section order, and required fields for the generated documents they cover.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, v4 template guidance SHALL cover:
 
@@ -48,6 +58,11 @@ When a required template field cannot be filled from known input, the generated 
 The v4 authoring guidance SHALL require a source-constraint extraction pass before drafting generated bundle files.
 
 That pass SHALL inspect the user task note and any explicitly referenced rulebooks or common-contract files that are available in the workspace.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The extraction pass SHALL identify high-salience constraints including:
 
@@ -79,6 +94,11 @@ The canonical `plan.md` SHALL include a central source-contract summary or equiv
 
 Role-scoped constraints SHALL be projected into the relevant `agents/<participant>.md` files.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 State schemas SHALL be projected into central plan summaries and, when reusable runtime bookkeeping is needed, into generated bookkeeping templates.
 
 Evidence/reporting constraints SHALL be projected into `reporting.md`, relevant report templates, or role-local reporting gates.
@@ -102,6 +122,11 @@ The audit SHALL map each extracted high-salience source rule to its central plan
 
 The audit SHALL mark unresolved or intentionally excluded items explicitly with a reason.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The v4 authoring guidance SHALL require the planner to review the audit before reporting the generated plan as complete.
 
 #### Scenario: Coverage audit catches missing projection
@@ -120,6 +145,11 @@ The packaged `houmao-agent-loop-pairwise-v4` skill SHALL keep its skill name, pa
 The skill SHALL describe its template-driven workspace-aware authored topology as a tree loop or local-close tree loop in user-facing explanatory text.
 
 The skill SHALL present `pairwise loop` as a legacy alias for tree loop behavior rather than as the primary concept name.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL not rename existing v4 generated template names, strict document surfaces, runtime paths, or pairwise-named compatibility references as part of this terminology change.
 

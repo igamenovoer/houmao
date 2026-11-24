@@ -1,7 +1,7 @@
 # houmao-system-skill-version-metadata Specification
 
 ## Purpose
-TBD - created by archiving change add-system-skill-version-doctor. Update Purpose after archive.
+Tie the six released system-skill trees to the Houmao release through root frontmatter and matching Git tags. Validate the versions in source and distributions, and read installed metadata for diagnostics.
 ## Requirements
 
 ### Requirement: Standalone system skills declare their Houmao release
@@ -36,6 +36,11 @@ The tagged release build SHALL fail before distribution publication when a root 
 
 ### Requirement: Released system skills publish under matching Git tags
 Publishing a Houmao GitHub release SHALL copy the complete public system-skill directories to the repository root of `igamenovoer/houmao-skills` and SHALL create an immutable tag whose name matches the Houmao release tag.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The mirror's `main` branch SHALL track the latest stable Houmao release. Publishing a prerelease SHALL create its matching tag without advancing `main`. The release workflow SHALL validate the release tag against `[project].version`, validate standalone `houmao_version` frontmatter, and validate Skills CLI discovery before publishing.
 

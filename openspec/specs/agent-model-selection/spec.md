@@ -14,6 +14,11 @@ Launch profiles MAY persist reusable model and reasoning overrides.
 
 Direct launch surfaces MAY provide one-off model and reasoning overrides.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The reasoning field SHALL be a non-negative integer interpreted relative to the resolved tool and resolved model rather than as a normalized portable `1..10` scale.
 
 `0` SHALL mean explicit off or no-thinking only when the resolved tool/model ladder supports such a preset and SHALL otherwise be rejected clearly instead of being silently promoted to the first positive preset.
@@ -53,6 +58,11 @@ The system SHALL resolve the effective model configuration using this precedence
 
 Fields omitted by a higher-priority layer SHALL survive from the next lower-priority layer.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Runtime-only in-session mutation SHALL remain non-persistent and SHALL NOT rewrite recipe, specialist, or launch-profile state.
 
 #### Scenario: Launch-profile model overrides the source default
@@ -84,6 +94,11 @@ Runtime-only in-session mutation SHALL remain non-persistent and SHALL NOT rewri
 
 ### Requirement: Resolved model configuration is projected into tool-native runtime state
 Before provider startup, the system SHALL project the resolved model configuration into the constructed runtime home, launch environment, or final provider CLI override arguments using supported tool-native startup surfaces.
+
+#### Scenario: Provider startup applies model and reasoning settings through native surfaces
+
+- **GIVEN** Houmao has resolved a model configuration for a managed provider launch
+- **THEN** it applies the model choice and any requested reasoning preset through the provider's supported startup surfaces
 
 At minimum, the maintained direct model-name projection targets SHALL be:
 
@@ -208,6 +223,11 @@ The core launch/config CLI SHALL standardize only the model name and the tool/mo
 
 Detailed vendor-native reasoning controls that exceed that coarse abstraction, such as exact token budgets, generation-parameter recipes, or model-family-specific tuning tables, SHALL NOT become required first-class launch/config flags in this change.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system MAY expose those advanced workflows through skills or other higher-level guidance instead of through the generic launch/config schema.
 
 When an operator needs finer control than a maintained Houmao preset ladder provides, the supported workflow SHALL be to omit Houmao `reasoning.level` and manage native tool config or env directly.
@@ -259,6 +279,11 @@ For supported headless prompt submission surfaces, the system SHALL accept an op
 `execution.model.name` SHALL use the same model-name field as launch-owned model selection.
 
 `execution.model.reasoning.level` SHALL use the same non-negative tool/model-relative preset-index semantics as launch-owned model selection.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When a request supplies only one of `name` or `reasoning`, omitted subfields SHALL inherit from the addressed agent's launch-resolved effective model configuration for that prompt.
 
@@ -313,6 +338,11 @@ When the resolved Codex model name is absent after applying copied native baseli
 
 Houmao SHALL NOT synthesize a fixed Codex model name solely because a Codex runtime config omits `model`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Houmao MAY still project Codex reasoning configuration when the resolved launch-owned model name is absent, using the maintained fallback reasoning ladder and recording provenance that the model name was provider-owned.
 
 #### Scenario: New Codex launch omits model when no layer selects one
@@ -361,6 +391,11 @@ The maintained ladders SHALL be:
 
 - `gpt-5.6`, `gpt-5.6-sol`, and `gpt-5.6-terra`: `1=low`, `2=medium`, `3=high`, `4=xhigh`, `5=max`, `6=ultra`
 - `gpt-5.6-luna`: `1=low`, `2=medium`, `3=high`, `4=xhigh`, `5=max`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Values above a ladder SHALL saturate to its final value. Level `0` SHALL be rejected for these ladders because the Codex CLI catalog does not advertise an off preset for them.
 

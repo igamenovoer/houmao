@@ -9,6 +9,11 @@ The docs site SHALL include a reference page at `docs/reference/cli/internals.md
 
 The page SHALL document the `graph high` subgroup with one entry per command: `analyze`, `packet-expectations`, `validate-packets`, `slice`, and `render-mermaid`. For each command the page SHALL include a description, the full option table, and at least one usage example.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The page SHALL document the `graph low` subgroup with one entry per command: `create`, `mutate`, `relabel`, `compose`, `subgraph`, `reverse`, and `ego`. For each command the page SHALL include a description and the key options.
 
 The page SHALL document the `graph low alg` subgroup with a shared option schema table followed by a summary table of all supported algorithm subcommands: `ancestors`, `descendants`, `descendants-at-distance`, `topological-sort`, `is-dag`, `cycles`, `weak-components`, `strong-components`, `condensation`, `transitive-reduction`, `dag-longest-path`, `shortest-path`, and `all-simple-paths`.

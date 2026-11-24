@@ -6,6 +6,13 @@ Define the documentation requirements for the launch policy reference page.
 
 ### Requirement: Launch policy reference page exists
 
+The build-phase reference SHALL include `docs/reference/build-phase/launch-policy.md` to document launch policy.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The build-phase reference SHALL include `docs/reference/build-phase/launch-policy.md`. The page SHALL explain:
 
 - The available `OperatorPromptMode` values, the limits of the selected execution owner, and the most permissive supported native defaults selected for unattended launch.
@@ -59,6 +66,11 @@ The reference SHALL list the applicable DSH, Kimi Code, Claude Code, and Codex m
 ### Requirement: Launch policy reference documents Kimi unattended TUI auto mode
 
 The launch policy reference SHALL document separate maintained Kimi contracts for `kimi_headless` and the `raw_launch` TUI strategy. It SHALL give the minimum-only `>=2.1.1` range and explain rejection below the floor.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The page SHALL explain that headless uses its native prompt-mode policy and excludes incompatible `--auto`, `--yolo`, and `--plan` flags. TUI uses `--auto` as the unattended default for fresh and resumed startup and honors supported authored permission settings through native startup inputs. Policy setup SHALL be documented as outside the conversation.
 

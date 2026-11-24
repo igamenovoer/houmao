@@ -6,6 +6,11 @@ Define the ownership boundaries, default roots, and authoritative identity model
 ### Requirement: Maintained local default paths retire `.agentsys*` path families
 Maintained workspace-local and run-local default path families that currently derive from `.agentsys` or `.agentsys-*` for agent-definition working trees or scratch outputs SHALL use `.houmao` or another Houmao-owned path family instead.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the system derives a default ambient agent-definition root from a working directory without explicit CLI override, environment override, or discovered project config, that default SHALL be `<working-directory>/.houmao/agents`.
 When maintained runtime or demo helpers require a workspace-local fallback scratch directory that previously lived under a `.agentsys*`-named sibling, that default SHALL instead live under `<working-directory>/.houmao/`.
 
@@ -32,6 +37,11 @@ This requirement applies to active maintained workflows and helper code. Histori
 The system SHALL separate Houmao-owned directories into distinct filesystem zones with different responsibilities while making the active project overlay the default local root for non-registry state.
 
 The default per-user shared Houmao root that remains global SHALL be the platformdirs user config path for app name `houmao` and no app author. On Linux this is expected to be `~/.config/houmao`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The default per-user shared registry root SHALL be:
 
@@ -102,6 +112,11 @@ The system SHALL NOT require Houmao-owned directory hierarchy to encode agent gr
 
 When association is needed, the system SHALL rely on persisted metadata and explicit identity surfaces such as canonical agent name, authoritative `agent_id`, persisted session metadata, or registry publication rather than on bucket names in the directory hierarchy.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 This requirement does not forbid future metadata indexes or sidecar metadata files, but this change SHALL NOT require them.
 
 Whenever a Houmao-owned directory name is intended to stand for one agent rather than one session or service instance, the system SHALL use authoritative `agent_id` as that directory name instead of canonical agent name.
@@ -131,6 +146,11 @@ When the system bootstraps an initial `agent_id` from canonical agent name, it S
 
 ### Requirement: Managed memory pages remain distinct from artifacts, runtime, and mailbox state
 The system SHALL preserve distinct mutability and ownership boundaries across the Houmao-owned zones.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum:
 - the registry root SHALL contain discovery-oriented metadata only,
@@ -165,6 +185,11 @@ Managed memory pages MUST NOT be treated as the default scratch ledger, build ou
 The shared registry root SHALL be allowed to contain external communication-only managed-agent discovery records in addition to local lifecycle-managed live-agent records.
 
 External-agent records SHALL remain registry-owned locator metadata. They SHALL NOT contain mutable runtime session state, launcher-managed provider home state, mailbox contents, gateway process state, or task artifacts.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The default external-agent registry collection SHALL remain under the shared registry root and SHALL NOT be relocated under project runtime, mailbox, memory, or workspace directories by default.
 

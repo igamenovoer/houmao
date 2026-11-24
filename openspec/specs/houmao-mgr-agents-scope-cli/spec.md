@@ -1,13 +1,18 @@
 # houmao-mgr-agents-scope-cli Specification
 
 ## Purpose
-TBD - created by archiving change split-agents-global-self-cli. Update Purpose after archive.
+`houmao-mgr agents` routes commands by target scope across the local registry, a selected local agent, the caller's verified agent, and external communication references. Scope determines which commands can inspect a native home, check resource freshness, or request native refresh.
 ## Requirements
 
 ### Requirement: Agents command family exposes explicit global, single, self, and external scopes
 `houmao-mgr agents` SHALL be a public command namespace that exposes explicit `global`, `single`, `self`, and `external` subcommand groups.
 
 `houmao-mgr agents` SHALL NOT expose direct lifecycle, gateway, mail, mailbox, memory, turn, cleanup, launch, join, or external-reference action commands at the same nesting level as `global`, `single`, `self`, and `external`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The `agents` help output SHALL explain that:
 
@@ -31,6 +36,11 @@ At minimum, `agents global` SHALL expose:
 - `list`
 
 `agents global` MAY expose future fleet operations such as stopping all local managed agents when the operation targets multiple agents and does not require a single selected-agent identity.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `agents global` SHALL NOT expose exactly-one-agent operations such as selected-agent `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, or `cleanup`.
 
@@ -111,6 +121,11 @@ At minimum, `agents self` SHALL expose:
 
 `agents self join` SHALL adopt the current tmux session into the Houmao managed-agent registry as one local managed-agent identity.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `agents self join` MAY accept new-identity fields such as `--agent-name` and optional `--agent-id`. Those fields SHALL create or assign the current tmux session's managed identity and SHALL NOT select another existing agent.
 
 `agents self` commands other than `join` SHALL require a verified current managed runtime. Tmux-backed commands SHALL resolve the owning tmux session. Supported headless self commands SHALL accept their verified runtime-owned manifest locator without tmux.
@@ -162,6 +177,11 @@ At minimum, `agents external` SHALL expose:
 - `remove`
 
 External references SHALL remain distinct from local managed-agent runtime identities. Their lifecycle SHALL remain under the external owner rather than this user's `houmao-mgr`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `agents external` SHALL NOT expose local runtime control commands such as `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `turn`, or `cleanup`.
 

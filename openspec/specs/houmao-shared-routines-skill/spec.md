@@ -1,7 +1,7 @@
 # houmao-shared-routines-skill Specification
 
 ## Purpose
-TBD - created by archiving change refactor-system-skills-by-actor. Update Purpose after archive.
+House reusable Houmao commands, reference material, and subskills in one bundle. Route them by actor posture so administrators and managed agents receive the operations and targets available to them.
 ## Requirements
 ### Requirement: Houmao packages one canonical protected routine bundle
 Houmao SHALL package one protected bundle with logical id `houmao-shared-routines` as the canonical owner of reusable system-skill commands, references, audience routers, and maintained nested routine skills.
@@ -18,6 +18,11 @@ The admin route SHALL include `houmao-project-mgr`, `houmao-credential-mgr`, `ho
 
 The agent route SHALL include `houmao-process-emails-via-gateway`; the admin route SHALL omit that notifier-round-only routine.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Both routes SHALL include `houmao-agent-email-comms`, `houmao-adv-usage-pattern`, `houmao-utils-workspace-mgr`, `houmao-ext-graphing`, `houmao-mailbox-mgr`, `houmao-memory-mgr`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite`, `houmao-agent-instance`, `houmao-agent-inspect`, `houmao-agent-messaging`, `houmao-agent-gateway`, and `houmao-interop-ag-ui`.
 
 #### Scenario: Composer resolves both audience closures
@@ -29,6 +34,11 @@ Both routes SHALL include `houmao-agent-email-comms`, `houmao-adv-usage-pattern`
 The protected parent `SKILL.md` installed for each audience SHALL remain a lean router.
 
 Parent-owned executable procedures SHALL live under `commands/`; supporting facts, examples, schemas, and policy SHALL live under `references/`; and each direct subskill SHALL live under `subskills/<name>/` with its own `SKILL.md` and privately owned resources.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Each parent router SHALL list every direct subskill with a “When to Route Here” summary. Existing procedure-only `actions/*.md` or `subskills/*.md` pages SHALL be reclassified according to resource ownership.
 

@@ -13,6 +13,11 @@ The canonical ordinary project guidance SHALL instruct agents to manage project-
 - `houmao-mgr project credentials ...`
 - `houmao-mgr project skills ...`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The canonical native-provider guidance SHALL instruct agents to use internal native-agent commands only when the user explicitly asks for provider-aligned native material, launch dossiers, recipes, roles, or direct native-agent root work:
 
 - `houmao-mgr internals native-agent roles list`
@@ -97,6 +102,13 @@ Packaged system skills that mention Houmao agent authoring or launch preparation
 
 ### Requirement: `houmao-agent-definition` resolves the `houmao-mgr` launcher in the required precedence order
 
+The packaged `houmao-agent-definition` skill SHALL teach agents to resolve `houmao-mgr` for the current workspace. An explicit user choice SHALL take precedence over the default order of PATH lookup, the uv-managed fallback, and a development launcher.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The packaged `houmao-agent-definition` skill SHALL instruct agents to resolve the `houmao-mgr` launcher for the current workspace using this default order unless the user explicitly requests a different launcher:
 
 1. resolve `houmao-mgr` with `command -v houmao-mgr` and use the command found on `PATH`,
@@ -140,6 +152,11 @@ The resolved launcher SHALL be reused for any routed definition-management actio
 The packaged `houmao-agent-definition` skill SHALL tell the agent to recover omitted definition-management inputs from the current user prompt first and from recent chat context second when those values were stated explicitly.
 
 The skill SHALL NOT guess missing required inputs that are not explicit in current or recent conversation context.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL select commands by target and action:
 
@@ -193,6 +210,11 @@ When the user asks to change env vars or auth files inside an auth bundle, the s
 ### Requirement: `houmao-agent-definition` is the canonical pre-launch agent-definition skill
 The packaged `houmao-agent-definition` skill SHALL be the canonical Houmao-owned skill for persisted pre-launch agent definition workflows.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That unified skill SHALL expose these skill-level subcommands:
 
 - `roles` for low-level prompt-only roles;
@@ -222,6 +244,11 @@ The unified `houmao-agent-definition` skill SHALL keep its entry page concise an
 At minimum, the skill SHALL distinguish `roles`, `recipes`, `launch-dossiers`, `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent`.
 
 The skill SHALL include shared guidance for launcher resolution, missing-input handling, profile-lane terminology, and credential-routing boundaries.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The entry page SHALL either route existing generic `actions/*` pages through the new subcommand vocabulary or mark those pages as legacy low-level-only references so they do not conflict with the subcommand table.
 
@@ -254,6 +281,11 @@ The packaged `houmao-agent-definition` skill SHALL instruct agents to use `houma
 - profile preparation inside `create-agent-fast-forward`
 
 For those supported config-authoring flows, the skill SHALL tell agents to generate drafts from explicit user inputs and recovered explicit context only.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL NOT own full default-bearing YAML examples or command skeletons in Markdown for config shapes covered by `internals config-drafts`.
 

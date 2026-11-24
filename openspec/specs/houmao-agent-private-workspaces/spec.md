@@ -1,7 +1,7 @@
 # houmao-agent-private-workspaces Specification
 
 ## Purpose
-TBD - created by archiving change add-private-agent-workspaces. Update Purpose after archive.
+Agent definitions can declare private workspace storage with confined semantic paths and an independently selected execution directory. Houmao manages workspace identity, record indexing, and recoverable preparation and preserves user content during ordinary agent removal.
 ## Requirements
 ### Requirement: Definitions declare optional private workspace contracts
 The Agent Definition instance-contract schema SHALL support an optional Private Agent Workspace Contract with stable semantic labels, default relative paths, path kinds, required posture, materialization policy, activation mode, and workdir mode.

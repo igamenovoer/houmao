@@ -1,11 +1,16 @@
 # repo-identity-guidance Specification
 
 ## Purpose
-TBD - created by archiving change clean-canonical-repo-identity-after-github-rename. Update Purpose after archive.
+Keep user-facing metadata, runnable instructions, and module references aligned with the canonical Houmao repository and package identity. Use portable paths in active guidance and preserve the original names and paths where they record history.
 ## Requirements
 
 ### Requirement: User-facing repository metadata and guidance use the canonical Houmao identity
 The repository SHALL present its user-facing metadata, contributor guidance, assistant instruction files, docstrings, CLI help, and shipped documentation using the canonical `Houmao` identity, the `houmao` Python package namespace, the `houmao-mgr` operator CLI, the `houmao-passive-server` service surface, and the current GitHub repository URL.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 User-facing guidance includes package metadata links, contributor instructions, AI-assistant guidance files, exported docstrings, CLI help or output, and repo-owned instructional docs that describe the current active public surface.
 
@@ -30,6 +35,11 @@ Active guidance MAY mention `houmao-cli`, `houmao-server`, `houmao-cao-server`, 
 The repository SHALL keep its active Python source package under `src/houmao/`, and repo-owned code, tests, scripts, packaged-resource lookups, runnable documentation, and user-facing docstrings or help text SHALL use `houmao...` import and module-entrypoint paths as the current contract.
 
 The repository SHALL present `houmao-mgr` and `houmao-passive-server` as the active user-facing CLI binaries for current operator and server workflows.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Historical, migration, retirement, or internal implementation materials MAY mention `houmao-cli`, `houmao-server`, or `houmao-cao-server`, but the repository SHALL NOT present those binaries as the canonical current operator surface outside those explicitly marked contexts.
 

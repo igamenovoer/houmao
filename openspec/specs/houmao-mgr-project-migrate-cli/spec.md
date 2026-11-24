@@ -1,7 +1,7 @@
 # houmao-mgr-project-migrate-cli Specification
 
 ## Purpose
-TBD - created by archiving change source-aware-project-assets. Update Purpose after archive.
+`houmao-mgr project migrate` previews named upgrades for supported legacy project overlays and applies them in place on explicit request. The command preserves external source trees when importing their content into the current layout.
 ## Requirements
 ### Requirement: `houmao-mgr project migrate` provides an explicit project-structure migration surface
 `houmao-mgr` SHALL expose `project migrate` as the supported command for upgrading known legacy project structures into the current `houmao-mgr project` model.
@@ -9,6 +9,11 @@ TBD - created by archiving change source-aware-project-assets. Update Purpose af
 `project migrate` SHALL resolve the active project overlay using the same project-aware overlay selection rules as other project commands.
 
 The command SHALL support a non-destructive planning path and an explicit apply path.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The plan output SHALL identify:
 
@@ -48,6 +53,11 @@ At minimum, the initial supported migration set SHALL include:
 
 - legacy `.houmao/easy/specialists/*.toml` specialist metadata into the current catalog-backed specialist model,
 - compatibility-tree-first project skill state into canonical `.houmao/content/skills/<name>` entries plus derived `.houmao/agents/skills/` projection.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The command SHALL NOT attempt best-effort migration for unknown or unsupported project layouts.
 

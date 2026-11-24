@@ -10,6 +10,11 @@ The start flow SHALL require a target tmux session identifier and MAY accept an 
 
 Pane resolution for the addressed tmux session SHALL enumerate panes across the full session rather than only the current tmux window.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If the target session contains multiple panes across one or more windows and the caller does not provide an explicit target pane, the recorder SHALL fail with an explicit target-selection error instead of guessing.
 
 On successful start, the recorder SHALL create one recorder run root, persist live run state, and return enough information for a later `status` or `stop` command to address the same recorder process.
@@ -54,6 +59,11 @@ The terminal recorder SHALL support exactly two operating modes, `active` and `p
 In `active` mode, the recorder SHALL provide a recorder-owned interactive path for the target tmux session and SHALL surface an attach target for that recorder-owned client session.
 
 In `passive` mode, the recorder SHALL observe the target tmux session without requiring the user to abandon their existing tmux inspection workflow.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The selected mode SHALL be persisted in recorder metadata and SHALL remain stable for the duration of the run.
 

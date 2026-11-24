@@ -1,7 +1,7 @@
 # houmao-agent-loop-pro-skill Specification
 
 ## Purpose
-TBD - created by archiving change add-houmao-agent-loop-pro. Update Purpose after archive.
+`houmao-agent-loop-pro` turns editable intent into validated execution plans for tree loops and generic loops. Generated plans specify participant routing, schema-typed mail, cycle handling where needed, and the evidence operators use to verify workspace readiness.
 ## Requirements
 ### Requirement: Houmao provides a packaged manual `houmao-agent-loop-pro` system skill
 The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-pro` under the maintained system-skill asset root.
@@ -9,6 +9,11 @@ The system SHALL package a Houmao-owned system skill named `houmao-agent-loop-pr
 That packaged skill SHALL use `houmao-agent-loop-pro` as both its skill name and its packaged asset directory name under `src/houmao/agents/assets/system_skills/`.
 
 The packaged `houmao-agent-loop-pro` skill SHALL be manual-invocation-only. It SHALL only activate when the user explicitly requests `houmao-agent-loop-pro` or an explicitly named pro loop operation.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The packaged skill SHALL describe itself as a professional loop authoring and execution skill that supports both pairwise-tree and generic-graph topology modes.
 
@@ -31,6 +36,11 @@ The skill SHALL keep `<loop-dir>/execplan/` as generated operational material.
 
 The skill SHALL preserve the staged generation model in which process specs are generated before derived contracts, harness surfaces, generated skills, agent bindings, and final support docs.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The skill SHALL NOT present itself as `houmao-agent-loop-pairwise-v5` or mention v5 lineage in user-facing skill body text.
 
 #### Scenario: Pro initializes a loop directory
@@ -50,6 +60,11 @@ Supported topology modes SHALL include:
 
 - `pairwise-tree`, for tree-shaped or forest-shaped local-close execution;
 - `generic-graph`, for directed graph execution that can include cycles and non-tree communication routes.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The selected topology mode SHALL be recorded in generated process material and in generated topology contracts when topology contracts are emitted.
 
@@ -72,6 +87,11 @@ In `pairwise-tree` mode, a downstream participant SHALL return its result or rep
 
 In `pairwise-tree` mode, generated execution subgraphs SHALL be trees or forests.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 In `pairwise-tree` mode, generated plans SHALL NOT allow a downstream result to bypass its immediate upstream as normal participant result flow.
 
 #### Scenario: Worker replies to immediate upstream
@@ -90,6 +110,11 @@ When intention source describes pairwise behavior but includes a non-tree closed
 The pro skill SHALL either clarify whether the user wants `generic-graph` mode or normalize the intended pairwise behavior into local-close tree or forest execution.
 
 When normalizing, the pro skill SHALL choose an existing participant as the relay, root, or cycle breaker.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The pro skill SHALL NOT create a new synthetic participant solely to break a pairwise cycle.
 
@@ -110,6 +135,11 @@ The normalization decision SHALL be recorded in generated process or topology ar
 In `generic-graph` mode, generated communication contracts SHALL support directed graph routes that can include cycles and non-tree downstream communication.
 
 In `generic-graph` mode, execplan generation SHALL consider whether each downstream route or message family needs selected predecessor information from upstream participants.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When selected predecessor information is needed, generated communication contracts SHALL define what to carry or reference, such as predecessor message refs, ancestor refs, artifact refs, commit refs, state refs, summaries, required context keys, or current-hop deltas.
 
@@ -143,6 +173,11 @@ For each templated participant mail family, generated communication contracts SH
 
 Generated communication contracts SHALL include a template registry that maps each template name to its `schema_id`, JSON Schema path, and Markdown renderer path.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated templated mail authoring guidance SHALL use the flow: TOML payload, schema validation, Markdown rendering, then Houmao mail delivery.
 
 Generated schemas SHALL include constant or otherwise validation-visible fields for `schema_id`, `schema_version`, and mail `kind` when those concepts apply.
@@ -164,6 +199,11 @@ Generated Markdown renderers for templated pro mail SHALL include a parseable in
 
 The normal metadata header SHALL be a fenced `houmao-email-metadata` block unless a generated execplan records an equivalent parseable in-body metadata block name.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The metadata header SHALL include `schema_id`, `schema_version`, `kind`, `run_id`, `plan_revision`, and any payload, handoff, exchange, route, reply, or result identifiers that the generated mail family needs for event dispatch and bookkeeping.
 
 The metadata header SHALL be human-visible in the mail body so an agent and a notifier prompt can identify the mail type without relying on hidden transport headers.
@@ -182,6 +222,11 @@ The metadata header SHALL be human-visible in the mail body so an agent and a no
 Generated pro on-event skills for templated mail SHALL state their trigger in terms of the expected mail `schema_id`.
 
 Generated notifier prompt or agent-binding guidance SHALL direct agents to inspect or use the detected in-body metadata `schema_id` to choose the matching generated on-event skill when processing templated mail.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Generated event skills MAY assume sender-side schema validation for ordinary templated mail and focus on semantic inspection, role-owned action, state updates, and outgoing replies.
 
@@ -204,6 +249,11 @@ Generated state or record contracts SHALL include compact facts sufficient to tr
 
 Generated process specs SHALL describe the stopping condition for each true directed loop.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated validation SHALL reject generic-graph loops that have cycles but no explicit termination, dedupe, or repeat-visit policy.
 
 #### Scenario: Cyclic generic graph has termination rules
@@ -222,6 +272,11 @@ When a pro loop needs topology contracts, generated files SHALL live under the g
 The normal topology contract location SHALL be `<loop-dir>/execplan/specs/collab/topology/`.
 
 Generated topology material SHALL include a human-readable graph explanation and a machine-readable topology contract when machine validation or harness queries need it.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When predecessor-context carrying is selected by the generated execplan, generated communication or collaboration contracts SHALL define the selected context fields, rendering expectations, and validation behavior.
 
@@ -244,6 +299,11 @@ Generated pro harnesses SHALL expose loop-local validation and query surfaces fo
 
 For `pairwise-tree` mode, generated harness validation SHALL be able to detect direct non-tree participant cycles unless an accepted normalization decision has converted them into local-close tree or forest execution.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For `generic-graph` mode, generated harness validation SHALL be able to validate task-selected context fields, predecessor refs, lineage facts, cycle-control fields, and state refs when those concepts are emitted.
 
 Generated harnesses SHALL store or query compact context and topology facts through generated state or record contracts rather than copying full mail bodies into state.
@@ -265,6 +325,11 @@ In `pairwise-tree` mode, generated participant skills SHALL return normal result
 
 In `generic-graph` mode, generated participant skills SHALL preserve selected carried context when the generated execplan requires forwarding or replying with predecessor context.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Generated skills SHALL finish one bounded event or tick pass and then stop, following Houmao's notifier-prompt-driven mail loop model.
 
 #### Scenario: Pairwise generated skill replies upstream
@@ -285,6 +350,11 @@ The generated execplan SHALL name acceptance authority, start authority, schedul
 
 If a generated loop needs a central owner, the generated contracts SHALL state that owner explicitly.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If a generated loop does not need a central owner, generated lifecycle and communication contracts SHALL still define how start, completion, stop, recovery, and operator control work.
 
 #### Scenario: Loop with no central master is valid
@@ -301,6 +371,11 @@ If a generated loop does not need a central owner, generated lifecycle and commu
 The pro `clarify-intent` and `clarify-execplan` guidance SHALL prioritize questions that affect objective semantics, topology mode, participant communication, predecessor-context choices, loop process, termination, state, workspace, and validation.
 
 The pro clarification guidance SHALL show high-level ASCII/text diagrams for agent architecture and loop structure in TUI chat output before the first intent clarification question when enough source material exists.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The pro clarification guidance SHALL NOT emit fenced `mermaid` blocks in chat visual summaries for `clarify-intent`, `clarify-execplan`, or the routed `clarify` alias path.
 
@@ -333,6 +408,11 @@ The pro `prepare-agents` guidance SHALL route specialist, project-profile, launc
 
 The pro `prepare-agents` guidance SHALL default to `houmao-agent-definition create-agent-fast-forward` when a participant may need both specialist and project profile preparation.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The pro `prepare-agents` guidance SHALL use `houmao-agent-definition profiles`, `specialists`, or `launch-dossiers` only when that narrower route matches the generated execplan or operator intent.
 
 The pro `prepare-agents` guidance SHALL treat `houmao-mgr project ...` as the underlying CLI surface owned by `houmao-agent-definition`, not as loop-local agent-preparation logic.
@@ -351,6 +431,11 @@ The pro `prepare-agents` guidance SHALL treat `houmao-mgr project ...` as the un
 The packaged `houmao-agent-loop-pro` skill SHALL use required/optional input labels when asking users for Houmao loop system-operation values.
 
 Those labeled questions SHALL apply to loop directory selection, project context roots, generated artifact locations, workspace preparation targets, agent-definition preparation inputs, validation targets, launch targets, operator-control targets, mail-notifier posture, lifecycle mode, and other Houmao runtime mechanics.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The pro skill SHALL NOT impose required/optional labels on user-task intent questions about objectives, acceptance criteria, domain constraints, participant reasoning, or business semantics unless the specific question asks for Houmao runtime behavior.
 
@@ -401,6 +486,11 @@ The packaged `houmao-agent-loop-pro` skill SHALL remain the maintained Houmao-ow
 
 The pro skill SHALL NOT claim to be the only maintained Houmao loop skill after `houmao-agent-loop-lite` is added.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The pro skill SHALL distinguish its generated execplan workflow from the lite Markdown/direct-SQL workflow when current loop-skill choice matters.
 
 #### Scenario: User needs generated harness and schemas
@@ -417,6 +507,11 @@ The pro skill SHALL distinguish its generated execplan workflow from the lite Ma
 The pro `prepare-workspace` guidance SHALL adapt generated workspace contracts, generated agent bindings, and prepared agent/profile facts into `houmao-utils-workspace-mgr` operations named `plan`, `create`, `validate`, and `summarize`.
 
 The pro `prepare-workspace` guidance SHALL default to workspace-manager `plan` when the operator has not explicitly requested workspace mutation and has not approved a current workspace plan.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The pro `prepare-workspace` guidance SHALL route mutating workspace setup through workspace-manager `create`.
 
@@ -451,6 +546,11 @@ Generated pro workspace contracts SHALL express standard in-repo workspace requi
 
 For standard in-repo workspaces, generated pro workspace contracts SHALL identify `<task-root>/shared-kb/` as cross-run shared task knowledge when shared task knowledge is needed.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For standard in-repo workspaces, generated pro workspace contracts SHALL identify `<task-root>/owner-states/<subdir>/...` as per-run task-owner bookkeeping when task-owner run state, reports, coordination records, or owner-managed evidence are needed.
 
 For standard in-repo workspaces, generated pro workspace contracts SHALL identify `<task-root>/<agent-name>/states/` as per-agent local bookkeeping when participant-local notes, scratch state, or agent-owned evidence are needed.
@@ -479,6 +579,11 @@ Generated pro workspace contracts SHALL NOT model standard in-repo workspace `ru
 
 ### Requirement: Pro validation distinguishes workspace readiness evidence
 Pro generated execplan validation guidance SHALL check that supported standard workspace setup routes planning, creation, validation, and summaries through `prepare-workspace` and `houmao-utils-workspace-mgr`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Pro `validate-loop` guidance SHALL treat workspace readiness as complete only when the available evidence satisfies the generated workspace contract and includes a created standard workspace plus current validation evidence, an accepted workspace-manager summary/report, or explicit equivalent manual evidence.
 

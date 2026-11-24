@@ -1,7 +1,7 @@
 # houmao-admin-welcome-skill Specification
 
 ## Purpose
-TBD - created by archiving change refactor-system-skills-by-actor. Update Purpose after archive.
+Help human operators explore Houmao and choose a workflow through read-only guidance. Hand off executable requests to the admin entrypoint with the selected target and confirmed inputs.
 ## Requirements
 ### Requirement: Houmao provides a public admin welcome skill
 Houmao SHALL provide a public skill named `houmao-admin-welcome` as the welcome-role member of the admin pack.

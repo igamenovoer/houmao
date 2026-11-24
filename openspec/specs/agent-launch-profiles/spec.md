@@ -8,6 +8,11 @@ The system SHALL support two user-facing authoring lanes over that shared launch
 - easy `profile`, specialist-backed and opinionated
 - explicit `launch-profile`, recipe-backed and low-level
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Persisting, listing, inspecting, or removing a launch profile SHALL NOT by itself create, stop, or mutate a live managed-agent instance.
 
 #### Scenario: Project profile persists reusable birth-time config without creating an instance
@@ -36,6 +41,11 @@ Catalog-backed profiles authored through either lane SHALL project into that sam
 
 ### Requirement: Launch profiles capture durable birth-time launch defaults
 Launch profiles SHALL support durable birth-time launch defaults without embedding secrets inline.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the shared model SHALL support:
 - source reference
@@ -140,6 +150,11 @@ A patch mutation SHALL update only requested stored fields and preserve unspecif
 
 A replacement mutation SHALL write one complete new stored profile definition for the same profile name and lane, clearing omitted optional fields back to their create defaults.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Neither patch nor replacement mutation SHALL create, stop, relaunch, or rewrite any existing live managed-agent instance.
 
 #### Scenario: Patch preserves unspecified launch-profile defaults
@@ -187,6 +202,11 @@ A memo seed SHALL support these source forms:
 
 A memo seed directory SHALL reject unsupported top-level entries outside `houmao-memo.md` and `pages/`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The launch-profile catalog SHALL store memo seed payloads as managed content references rather than as absolute source paths.
 
 A stored memo seed SHALL NOT store or expose an apply policy. Its launch-time behavior SHALL be source-scoped replacement of represented managed-memory components.
@@ -233,6 +253,11 @@ The policy SHALL support modes `new`, `tool_last_or_new`, and `exact`.
 
 When the stored policy mode is `exact`, the profile SHALL store a non-empty provider-native session id.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When no relaunch chat-session policy is stored, instances launched from the profile SHALL use the system default relaunch chat-session mode `new`.
 
 Profile inspection SHALL report the stored relaunch chat-session policy when present without exposing any credential material.
@@ -262,6 +287,11 @@ Patch mutation SHALL preserve an existing relaunch chat-session policy when no r
 
 ### Requirement: Launch profiles store managed system-skill policy as birth-time configuration
 The shared launch-profile object family SHALL support an optional managed system-skill policy as reusable birth-time launch configuration.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 That stored policy SHALL support:
 
@@ -304,6 +334,11 @@ Launch-profile inspection SHALL report the stored system-skill policy when prese
 Launch-profile system-skill validation SHALL evaluate the selected launch profile, selected source recipe or specialist, and the dependencies required for that selected launch.
 
 Validation SHALL NOT fail a launch solely because an unrelated unselected project preset, profile, or launch profile contains a removed or unknown system-skill selector.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the selected launch source contains a removed or unknown system-skill selector, validation SHALL fail before launch mutation and SHALL name the selected source and offending selector.
 

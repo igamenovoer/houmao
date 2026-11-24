@@ -1,7 +1,7 @@
 # houmao-admin-entrypoint-skill Specification
 
 ## Purpose
-TBD - created by archiving change refactor-system-skills-by-actor. Update Purpose after archive.
+Give human operators a public entrypoint that resolves intent and explicit targets before routing work through protected admin routines. Keep authoring, deployment, launch, adoption, and instance operations tied to the requested action.
 ## Requirements
 ### Requirement: Houmao provides a public human-operator entrypoint
 Houmao SHALL provide a public skill named `houmao-admin-entrypoint` as the executable entrypoint of the admin pack.

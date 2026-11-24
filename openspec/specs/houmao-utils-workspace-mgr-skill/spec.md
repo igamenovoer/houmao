@@ -1,12 +1,17 @@
 # houmao-utils-workspace-mgr-skill Specification
 
 ## Purpose
-TBD - created by archiving change consolidate-system-skill-install-sets. Update Purpose after archive.
+Guide the planning, preparation, and validation of in-repository and out-of-repository multi-agent workspaces. Cover worktree and submodule setup, local-state handling, workspace documentation, and optional launch-profile memo seeds.
 ## Requirements
 ### Requirement: Packaged workspace-manager utility skill plans and executes workspace preparation
 The packaged current-system-skill catalog SHALL include `houmao-utils-workspace-mgr` as a current installable Houmao-owned utility skill.
 
 That packaged skill SHALL use `houmao-utils-workspace-mgr` as both its catalog key and its packaged `asset_subpath`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL support these explicit operation modes:
 
@@ -51,6 +56,11 @@ The top-level skill SHALL load exactly one flavor page after choosing a workspac
 - `subskills/in-repo-workspace.md` for untracked local workspaces rooted under the current repository.
 - `subskills/out-of-repo-workspace.md` for standalone workspace repositories that mount one or more target repositories.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The in-repo flavor SHALL default the workspace collection root to `<repo-root>/houmao-ws`.
 
 The in-repo flavor SHALL default each adjusted launch-profile cwd to `<repo-root>` so agents share the parent repository as their visibility surface.
@@ -80,6 +90,11 @@ The out-of-repo flavor SHALL treat `ws-root` as a standalone workspace Git repos
 The workspace-manager skill SHALL evaluate local-state symlink candidates explicitly instead of blindly applying generic worktree symlink defaults.
 
 For Houmao agent workspaces, the skill SHALL NOT symlink AI tool state directories by default, including `.claude`, `.codex`, `.gemini`, `.aider`, `.cursor`, `.continue`, `.windsurf`, and `.kiro`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For in-repo Houmao agent workspaces, the skill SHALL default to discovering local-state symlink candidates recursively from the parent checkout without following symlinked directories.
 
@@ -141,6 +156,11 @@ Every linked or skipped local-state path SHALL be recorded in the plan and in `w
 ### Requirement: Workspace-manager skill materializes tracked submodules without redundant checkout by default
 Tracked submodule content SHALL be accessible inside agent worktrees, and agents SHALL be able to create branches, commit normally, and push inside submodules when a remote is configured.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The workspace-manager skill SHALL support these tracked-submodule materialization modes:
 
 - `seeded-worktree`, the default mode, which creates a real Git worktree for each initialized source submodule inside the agent worktree and seeds files from the source checkout without copying `.git` metadata.
@@ -168,6 +188,11 @@ The skill SHALL instruct agents that submodule commits require a corresponding s
 The workspace-manager skill SHALL maintain `<task-root>/workspace.md` as a human-readable map and operating contract when execution occurs for an in-repo task workspace.
 
 For non-task-scoped workspace modes, the workspace-manager skill SHALL maintain the applicable workspace map at the selected workspace root.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 `workspace.md` SHALL record the workspace flavor and root, agents and launch-profile bindings, branch names, repo bindings and materialization modes, local-state symlink decisions, submodule materialization decisions, shared local repos, ignored paths, memo seed files created, and integration or ownership rules.
 
@@ -206,6 +231,11 @@ When the user opts in, the workspace-manager skill SHALL create per-agent Markdo
 
 The appended workspace rules SHALL include launch cwd, branch names, writable knowledge paths, shared knowledge paths, owner-state paths, local-state symlink policy, submodule commit and push rules, and the integration rule that agents should avoid submodule add/delete/reconfigure changes.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For in-repo workspaces, the appended workspace rules SHALL state that the launch cwd is `<repo-root>`, source modifications belong in the agent's private worktree, task shared knowledge belongs in the untracked task-local `shared-kb/`, per-run task-owner bookkeeping belongs in untracked task-local `owner-states/<subdir>/...`, and sibling bookkeeping directories and worktrees are read-only by default.
 
 The workspace-manager skill SHALL update launch profiles to use generated memo seed files only after writing those files.
@@ -230,6 +260,11 @@ The skill SHALL route direct live-agent memo edits to `houmao-memory-mgr` rather
 The packaged `houmao-utils-workspace-mgr` guidance SHALL remain the Houmao-owned standard workspace-preparation and workspace-validation surface.
 
 The skill SHALL support preparing, validating, and summarizing Houmao-standard workspace layouts and SHALL NOT add a `custom` workspace lane that attempts to absorb arbitrary operator-owned workspace contracts.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The skill SHALL describe upstream requirements and downstream consumers generically. It SHALL NOT make loop plans, loop execplans, or `houmao-agent-loop-pro` part of its own contract.
 
@@ -259,6 +294,11 @@ For task-scoped in-repo workspaces, the task root SHALL contain:
 - `owner-states/` as the untracked task-local container for per-run task-owner bookkeeping subdirectories,
 - one directory per agent beneath the task root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The repo-level `houmao-ws/workspaces.md` MAY act as a local untracked index across task workspaces, but it SHALL NOT replace each task-local `workspace.md` as the authoritative contract for that team.
 
 Task-scoped in-repo workspaces SHALL use task-qualified branch names such as:
@@ -279,6 +319,11 @@ houmao/<task-name>/<agent-name>/main
 
 ### Requirement: Workspace-manager skill can publish loop-facing standard workspace posture summaries
 The packaged `houmao-utils-workspace-mgr` guidance SHALL support consumer-neutral summaries for prepared standard workspace postures so humans, scripts, or upstream planners can reference prepared workspace behavior without restating the full workspace layout from scratch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For each prepared agent workspace, a workspace summary SHALL identify:
 
@@ -308,6 +353,11 @@ The workspace-manager skill SHALL keep the in-repo workspace collection out of t
 
 Execution SHALL prefer a local ignore rule in `.git/info/exclude` for `houmao-ws/` unless the user explicitly requests a tracked ignore-file update.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The in-repo workspace collection SHALL contain local coordination material, task knowledge, owner state, workspace maps, and per-agent worktree containers, but SHALL NOT itself be a Git-tracked collaboration surface.
 
 #### Scenario: Execution excludes the workspace collection locally
@@ -328,6 +378,11 @@ The top-level entrypoint SHALL include structured sections for activation, help,
 
 The top-level entrypoint SHALL list supported operations in a Markdown table or compact Markdown list that explains what each operation does and when to use it.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Detailed operation behavior SHALL live in routed operation pages, flavor pages, or reference pages rather than the top-level entrypoint.
 
 #### Scenario: Help exposes concise operations
@@ -344,6 +399,11 @@ Detailed operation behavior SHALL live in routed operation pages, flavor pages, 
 The workspace-manager skill SHALL support a `validate` operation that checks prepared workspace readiness without creating or repairing workspace topology.
 
 Validation SHALL verify that planned or created worktrees exist, use the expected branch posture, and have required local-state links or materialized paths needed for project-scope commands.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Validation SHALL support project-scope tool checks for project-managed commands such as Pixi commands, virtual-environment Python commands, C or C++ build commands, and in-project scripts when those commands are discovered safely or supplied explicitly by the operator.
 

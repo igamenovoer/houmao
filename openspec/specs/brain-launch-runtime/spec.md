@@ -90,6 +90,11 @@ For Claude, the system SHALL support a non-CAO interactive backend using repeate
 ### Requirement: Kimi headless backend via prompt-mode stream JSON
 For Kimi, the system SHALL support a non-CAO interactive backend using repeated Kimi Code CLI prompt-mode invocations with machine-readable stream JSON output and session resume.
 
+#### Scenario: Kimi prompt mode preserves conversation state across headless turns
+
+- **GIVEN** a managed Kimi session runs through the native headless backend
+- **THEN** the runtime starts and resumes prompt-mode invocations using the recorded provider session authority
+
 The runtime SHALL:
 
 - start a new Kimi headless turn using `kimi -p <prompt> --output-format stream-json`,
@@ -198,6 +203,11 @@ The system SHALL apply the effective launch prompt as the initial tool instructi
 
 The effective launch prompt MAY be the raw selected role prompt or a launch-owned composition around that role prompt.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the selected role package intentionally contains an empty system prompt, launch SHALL remain valid. If no launch-owned prompt composition adds content, the runtime SHALL treat that role as having no startup prompt content.
 
 #### Scenario: Role is injected on session start
@@ -224,6 +234,11 @@ When the selected role package intentionally contains an empty system prompt, la
 
 ### Requirement: Build and launch resolution applies launch-profile defaults between recipe defaults and direct overrides
 When a launch is started from a reusable launch profile, the build and runtime pipeline SHALL resolve effective launch inputs by applying launch-profile defaults after source recipe defaults and before direct launch-time overrides.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the pipeline SHALL allow launch-profile-derived values to influence:
 - effective auth selection
@@ -274,6 +289,11 @@ Later live gateway mail-notifier edits SHALL remain runtime-owned and SHALL NOT 
 
 ### Requirement: Brain construction projects resolved model configuration into runtime homes and manifests
 During brain-home construction, the system SHALL resolve the effective model configuration before provider startup and SHALL project that configuration into the constructed runtime home or launch environment through maintained tool-native surfaces and a Houmao-owned reasoning mapping policy.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the maintained direct model-name projection surfaces SHALL include:
 - Claude launch env `ANTHROPIC_MODEL`
@@ -335,6 +355,11 @@ For `append`, the effective role prompt SHALL be the source role prompt followed
 
 For `replace`, the effective role prompt SHALL be the profile overlay text instead of the source role prompt.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The runtime SHALL treat that composed prompt as the role prompt for backend-specific role injection and SHALL NOT reapply the overlay as a separate second bootstrap step on resumed turns.
 
 #### Scenario: Append overlay becomes part of the effective role prompt
@@ -352,6 +377,11 @@ The runtime SHALL treat that composed prompt as the role prompt for backend-spec
 The system SHALL treat any retained CAO-compatible REST boundary as internal compatibility support rather than as a maintained public operator workflow.
 
 The system MAY retain internal CAO-compatible session-control adapters through a REST boundary without requiring the core runtime to depend on CAO internals.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For supported operator workflows after this change, public runtime management SHALL NOT be exposed through `houmao-cli` flows that create or control standalone `cao_rest` sessions, and SHALL NOT migrate users to standalone `houmao-server` as the replacement public path.
 
@@ -390,6 +420,11 @@ When the runtime uses an internal compatibility authority, it SHALL pass the res
 The runtime SHALL enable mailbox support through declarative recipe configuration and MAY allow explicit `start-session` CLI overrides for transport-specific ad hoc sessions.
 
 The runtime SHALL resolve one effective mailbox configuration before building the launch plan, SHALL persist that resolved mailbox configuration in the session manifest, and SHALL restore it when resuming the session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The resolved mailbox configuration SHALL preserve transport-specific binding data appropriate to the selected transport, and it SHALL use transport-specific binding shapes rather than one filesystem-shaped mailbox record with optional extras.
 
@@ -435,6 +470,11 @@ When runtime-owned late filesystem mailbox binding derives a mailbox address bec
 
 For ordinary managed-agent mailbox bindings, the derived address SHALL use the managed-agent name as the mailbox local part without the `HOUMAO-` principal-id prefix and SHALL use domain `houmao.localhost`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For the same binding, the derived default mailbox principal id SHALL remain the canonical `HOUMAO-<agentname>` value unless the caller supplies an explicit override.
 
 If the caller supplies an explicit valid mailbox address, the runtime SHALL preserve that explicit address rather than rewriting it to the recommended Houmao default domain.
@@ -452,6 +492,11 @@ If the caller supplies an explicit valid mailbox address, the runtime SHALL pres
 
 ### Requirement: Mailbox-enabled runtime sessions project mailbox system skills and persist manifest-backed mailbox bindings
 When mailbox support is enabled for a started session, the runtime SHALL project the platform-owned mailbox system skills into the active agent skillset through a discoverable tool-native mailbox skill surface and SHALL persist one transport-specific mailbox binding for that session in the session manifest.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When the selected transport is `filesystem`, the runtime SHALL derive and persist the effective filesystem mailbox content root and the mailbox identity needed to resolve current filesystem mailbox state for that session.
 
@@ -546,6 +591,11 @@ The runtime SHALL preserve the current operator-facing `mail list`, `mail send`,
 
 When the runtime owns mailbox execution directly, including manager-owned direct execution or gateway-backed execution, it SHALL return authoritative mailbox success or failure for the requested operation.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the runtime executes a mailbox operation by submitting a request through a live TUI session, it SHALL treat the command outcome as non-authoritative request lifecycle state rather than mailbox success or failure recovered from exact transcript parsing.
 
 The runtime SHALL still translate TUI-mediated `mail` invocations into a runtime-owned mailbox prompt delivered through the existing prompt-turn control path rather than directly manipulating mailbox files or mailbox SQLite state itself.
@@ -618,6 +668,11 @@ When the runtime translates `mail send` or `mail reply` into a runtime-owned mai
 
 For `mail send`, the structured request payload SHALL include full mailbox addresses for recipients and explicit Markdown body content.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For `mail reply`, the structured request payload SHALL include the target `message_id` plus explicit Markdown body content.
 
 The structured request payload for `send` and `reply` SHALL NOT include an `instruction` field.
@@ -636,6 +691,11 @@ The structured request payload for `send` and `reply` SHALL NOT include an `inst
 When the runtime resolves current mailbox state for a filesystem-backed session, it SHALL derive registration-dependent filesystem paths from the active mailbox registration for the session's bound mailbox address rather than by reconstructing a mailbox path from `principal_id`.
 
 At minimum, the manager-owned current-mailbox resolution path SHALL report the active inbox path for the session's bound mailbox address when that address has an active registration.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If runtime bootstrap or later current-mailbox resolution can detect that the target mailbox root still uses the unsupported principal-keyed layout from the earlier implementation, it SHALL fail explicitly and direct the operator to delete and re-bootstrap that mailbox root.
 
@@ -698,6 +758,11 @@ effective model, and SHALL allow pinning alias resolution via:
 - `ANTHROPIC_DEFAULT_SONNET_MODEL`
 - `ANTHROPIC_DEFAULT_HAIKU_MODEL`
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The system SHALL additionally support:
 
 - `CLAUDE_CODE_SUBAGENT_MODEL`
@@ -732,6 +797,11 @@ The system SHALL support streaming output/events for interactive sessions, and S
 
 ### Requirement: Persist a session manifest JSON
 The system SHALL persist a session manifest JSON (session handle) alongside the brain manifest for audit, resume, stop, gateway attach authority, and tmux-backed relaunch authority.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For tmux-backed sessions, that manifest SHALL persist normalized session authority that includes at minimum:
 
@@ -768,6 +838,11 @@ The runtime SHALL default new build and session state to the effective project-a
 
 When a maintained local build or launch flow has an active project overlay and no stronger runtime-root override exists, the effective runtime root SHALL be `<active-overlay>/runtime`.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When an explicit runtime-root override exists, that explicit override SHALL win.
 When no active project overlay exists for the flow and the command requires local Houmao-owned state, the command SHALL ensure `<cwd>/.houmao` exists and use `<cwd>/.houmao/runtime` as the resulting default runtime root unless a stronger override applies.
 
@@ -798,6 +873,11 @@ The initial authoritative id SHALL be the full lowercase `md5("HOUMAO-<name>").h
 For tmux-backed runtime sessions, the runtime SHALL treat the tmux session name as a unique handle for one live session rather than as the source of truth for canonical agent name or authoritative `agent_id`.
 
 The runtime SHALL choose and persist the tmux session name explicitly for each started tmux-backed session rather than relying on tmux collision auto-renaming as an identity mechanism.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Persisted runtime metadata for a tmux-backed session SHALL record at minimum:
 - canonical agent name,
@@ -849,6 +929,11 @@ Allowed values are exactly:
 
 The selected mode SHALL be persisted in session runtime state so resumed operations use the same parsing mode.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 `cao_only` SHALL remain the generic CAO-native mode for CAO-backed sessions.
 `shadow_only` SHALL be used only for tools that have a runtime-owned shadow parser family.
 The runtime SHALL define one explicit shadow-parser-support capability contract for this purpose, and that contract SHALL be shared by parsing-mode validation and backend parser-stack selection rather than inferred indirectly from unrelated defaults.
@@ -888,6 +973,11 @@ For CAO-backed tools that have a runtime-owned shadow parser family, repo-owned 
 
 Such surfaces MAY rely on the existing per-tool parsing-mode default or request `shadow_only` explicitly, but SHALL NOT pin `cao_only` as their normal default unless the workflow exists specifically to exercise or debug the CAO-native path.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When one such shadow-first workflow needs text beyond completion status, it SHALL use structured shadow payloads, explicit schema/sentinel outputs, side-effect verification, or clearly labeled best-effort shadow extraction rather than assuming the final runtime `done.message` contains the exact agent reply text.
 
 #### Scenario: Repo-owned CAO helper workflow relies on the supported tool default
@@ -909,6 +999,11 @@ When one such shadow-first workflow needs text beyond completion status, it SHAL
 For Codex launches, the runtime SHALL apply a runtime-owned bootstrap step to the generated Codex home configuration before starting the tool for:
 - `backend=codex_headless`
 - `backend=cao_rest`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Bootstrap behavior SHALL include:
 - ensuring launch-context trust is recorded for the active workspace target in Codex project config, and
@@ -933,6 +1028,11 @@ When unset, `unknown_to_stalled_timeout_seconds` SHALL default to 30 seconds.
 The same `unknown_to_stalled_timeout_seconds` value applies to both:
 - readiness wait before prompt submission, and
 - completion wait during turn execution.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For the corrected two-axis shadow surface model, the unknown-to-stalled timer SHALL treat a surface as "unknown for stall purposes" only when either:
 
@@ -1003,6 +1103,11 @@ The runtime SHALL support both terminal and non-terminal stalled handling.
 
 ### Requirement: CAO backend sends input only when terminal is ready and does not use inbox
 When using the CAO backend, the system SHALL only send terminal input when the target terminal is ready for the selected parsing mode, SHALL not use CAO inbox messaging, and SHALL fetch or derive output only after request completion for the same mode.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Mode-specific readiness and completion behavior SHALL be:
 - `cao_only`: readiness and completion from CAO terminal status (`idle|completed`) and answer retrieval from CAO `output?mode=last`.
@@ -1093,6 +1198,11 @@ The runtime SHALL NOT perform an automatic retry under the other parser mode aft
 ### Requirement: Shadow TurnMonitor evaluates two-axis surfaces in deterministic priority order
 For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL feed each parsed observation into a stateful turn monitor that preserves post-submit progress evidence across observations.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the readiness path SHALL evaluate each observation in this priority order:
 
 1. `availability in {unsupported, disconnected}` -> fail
@@ -1125,6 +1235,11 @@ The turn monitor's temporal operators SHALL consume the full classified-state st
 
 ### Requirement: Shadow completion requires stability window before declaring turn complete
 For CAO sessions in `parsing_mode=shadow_only`, the runtime SHALL accept a configurable stability window (`completion_stability_seconds`) from the CAO shadow policy config surface and SHALL NOT declare a turn complete on a single idle observation after post-submit activity. Instead, the runtime SHALL require `completion_stability_seconds` of continuous idle observations with no state changes before emitting a completion event.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When unset, `completion_stability_seconds` SHALL default to 1.0 second.
 
@@ -1170,6 +1285,11 @@ The shadow turn monitor's temporal logic SHALL be testable with deterministic vi
 ### Requirement: Shadow runtime distinguishes operator-blocked surfaces from modal non-ready surfaces
 For CAO sessions in `parsing_mode=shadow_only`, runtime SHALL distinguish between surfaces that are blocked on operator action and surfaces that are merely modal or otherwise not yet freeform-ready.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum:
 
 - `business_state = awaiting_operator` SHALL be treated as a blocked-surface outcome,
@@ -1190,6 +1310,11 @@ At minimum:
 For CAO-backed turns in both `parsing_mode=cao_only` and `parsing_mode=shadow_only`, the runtime SHALL apply a shared, parser-agnostic post-processing step after mode-specific gating/output handling.
 
 This shared post-processing step SHALL NOT sanitize/rewrite `cao_only` extracted answer text. It SHALL canonicalize status/provenance into runtime-stable values for downstream consumers and record/log raw backend values for diagnostics.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For `shadow_only`, shared post-processing SHALL distinguish projected dialog content from any caller-owned answer association logic, SHALL expose first-class `dialog_projection` and `surface_assessment` payload fields, and SHALL NOT label projected dialog as the authoritative final answer for the current prompt by default.
 For `shadow_only`, the surfaced `dialog_projection` SHALL remain a best-effort text projection that is suitable for operator inspection and caller-owned best-effort extraction. Lifecycle change evidence MAY instead use normalized shadow text derived from the same parser output, and projected dialog SHALL NOT be represented as an exact recovered reply transcript.
@@ -1240,6 +1365,11 @@ The system SHALL NOT accept `--session-manifest` on those commands.
 ### Requirement: CAO session start supports a human agent identity name and persists the actual tmux session name
 When starting a CAO-backed session, the system SHALL allow the caller to provide an agent identity name via `start-session --agent-identity <name>` (name-only for CAO in this change).
 For CAO-backed sessions, the system SHALL persist the canonical `AGENTSYS-...` identity separately from the actual tmux session name used for the live session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If the caller does not provide a name, the system SHALL generate a short, easy-to-type name derived from the tool and role/blueprint identity, and SHALL add a conflict-avoiding suffix when needed.
 
@@ -1292,6 +1422,11 @@ The runtime SHALL provide a caller-facing `send-keys` control-input command for 
 The runtime session-control surface SHALL expose the corresponding advanced mixed-input operation as `send_input_ex()`.
 
 The existing `send-prompt` command SHALL retain its current high-level prompt-turn semantics.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The control-input command SHALL:
 - require `--agent-identity` and `--sequence`,
@@ -1357,6 +1492,11 @@ If a caller invokes the control-input command for a different backend, the runti
 ### Requirement: CAO session startup fixes "shell-first attach" and prunes the bootstrap window when safe
 For CAO-backed session startup (`backend=cao_rest`), when the runtime pre-creates one bootstrap tmux window for env setup and CAO subsequently creates the real agent terminal window, the runtime SHALL best-effort make the CAO terminal window the session's current tmux window and SHALL prune the bootstrap window when it can be safely identified as distinct from the CAO terminal window.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The runtime SHALL record the bootstrap tmux `window_id` immediately after session creation and SHALL use `window_id` targeting, rather than index assumptions, for window selection and pruning.
 
 The runtime SHALL resolve the CAO terminal window id from `terminal.name` using bounded retry to tolerate transient tmux visibility races. If the CAO window cannot be resolved within the bound, startup SHALL still succeed and the runtime SHALL emit a warning diagnostic.
@@ -1399,6 +1539,11 @@ The runtime SHALL be able to make a tmux-backed session gateway-capable without 
 For runtime-owned tmux-backed sessions, the runtime SHALL publish secret-free gateway attach metadata that later attach flows can use to start a gateway for the live session.
 
 That attachability publication SHALL be additive and SHALL NOT make legacy non-gateway start or resume behavior fail by itself.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Blueprint `gateway.host` and `gateway.port` values SHALL act only as defaults after gateway attach is requested and SHALL NOT make a session gateway-capable or gateway-running by themselves.
 
@@ -1446,6 +1591,11 @@ When the runtime makes a tmux-backed session gateway-capable, it SHALL materiali
 
 Those artifacts MAY include internal bootstrap state such as `attach.json`, derived outward-facing bookkeeping such as `gateway_manifest.json`, seeded `state.json`, and queue or bootstrap assets needed by runtime or gateway internals.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For runtime-owned sessions in v1, the canonical runtime-owned session root SHALL be `<runtime_root>/sessions/<backend>/<session_id>/`, using the runtime-generated session id used for manifest storage. The session manifest SHALL live at `<session-root>/manifest.json`, and the gateway root SHALL live at `<session-root>/gateway`.
 
 Manifest-backed authority plus tmux-published manifest-first discovery SHALL remain the supported external contract. Internal gateway artifacts SHALL support runtime and gateway internals without redefining the authoritative attach or relaunch contract.
@@ -1472,6 +1622,11 @@ When a caller explicitly requests launch-time gateway attach for a supported bac
 
 When launch-time auto-attach fails, the runtime SHALL fail that auto-attach action explicitly.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 If the managed agent session has already started successfully when auto-attach fails, the runtime SHALL keep that managed session running and SHALL return a structured partial-start failure rather than tearing the session down implicitly.
 
 #### Scenario: Launch-time auto-attach starts gateway after session startup
@@ -1495,6 +1650,11 @@ The precedence order for the effective gateway host SHALL be:
 2. caller environment variable `HOUMAO_AGENT_GATEWAY_HOST`
 3. blueprint configuration value `gateway.host`
 4. default `127.0.0.1`
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Allowed effective gateway host values in this change are exactly `127.0.0.1` and `0.0.0.0`.
 
@@ -1590,6 +1750,11 @@ For runtime-owned gateway-capable sessions, the runtime SHALL treat the session 
 
 When runtime-owned recovery reconnects to the same managed-agent instance, the runtime SHALL preserve that stable session identity without allocating a new session root or gateway root.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When runtime-owned recovery rebinds the logical session to a replacement managed-agent instance, the runtime SHALL preserve the existing session root, gateway root, and stable attach identity, and SHALL publish a new managed-agent instance epoch or generation for the replacement upstream instance.
 
 Runtime-owned recovery SHALL NOT require allocating a brand-new gateway root solely because the previous managed-agent process died unexpectedly.
@@ -1607,6 +1772,11 @@ Runtime-owned recovery SHALL NOT require allocating a brand-new gateway root sol
 
 ### Requirement: Runtime seeds stable gateway state when no live gateway is attached
 When the runtime publishes gateway capability for a runtime-owned tmux session, it SHALL create or materialize the nested gateway directory under that session's runtime root and SHALL seed `state.json` with a protocol-versioned offline or not-attached snapshot even if no live gateway instance exists yet.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When a gateway instance is detached gracefully, the runtime or gateway lifecycle SHALL rewrite `state.json` to the offline or not-attached condition and SHALL clear live gateway bindings while preserving stable attachability metadata.
 
@@ -1677,6 +1847,11 @@ In v1, this requirement applies to runtime-owned prompt-submission and interrupt
 
 Read-oriented status inspection MAY read validated gateway state without entering the mutation queue.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 In v1, when a gateway-aware control path targets a gateway-capable session with no live gateway instance attached, the runtime SHALL fail with an explicit no-live-gateway error and SHALL NOT auto-attach a gateway as a side effect of that control request.
 
 When the gateway reports that the managed agent is unavailable, recovering, or blocked on reconciliation, gateway-aware runtime control paths SHALL surface those explicit gateway admission results rather than bypassing the gateway with direct concurrent control.
@@ -1739,6 +1914,11 @@ This rename SHALL preserve the existing runtime subcommands and their current se
 ### Requirement: Runtime-owned tmux-backed sessions publish shared-registry discovery records
 When the runtime starts or resumes control of a tmux-backed session whose registry launch authority is the runtime, it SHALL publish or refresh a shared-registry record for that live session under the effective shared-registry root's `live_agents/` directory.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The runtime SHALL determine whether it is the launch authority for shared-registry creation from explicit runtime-readable launch metadata associated with that live session or authority record, rather than inferring launch authority from the current registry contents alone.
 
 By default, the effective shared-registry root SHALL be `<platformdirs user config>/registry`.
@@ -1776,6 +1956,11 @@ For sessions created by another launcher such as `houmao-server`, the runtime SH
 ### Requirement: Runtime refreshes shared-registry records when runtime-owned publication state changes
 When the runtime materializes or refreshes stable gateway capability for a session, attaches or detaches a live gateway, refreshes mailbox bindings, or persists updated runtime-owned session state after prompt or control actions, it SHALL refresh the corresponding shared-registry record for that same logical session when the runtime is the launch authority for registry creation for that session.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When no live gateway is attached, the shared-registry record SHALL continue to publish stable gateway pointers when they exist, but SHALL omit live gateway connect metadata.
 
 When mailbox bindings are available, the shared-registry record SHALL reflect the active mailbox principal id and full mailbox address for that session.
@@ -1804,6 +1989,11 @@ When the runtime completes authoritative `stop-session` teardown for a tmux-back
 
 Unexpected failure MAY leave stale `live_agents/` directories behind, but runtime-owned graceful teardown SHALL clear discoverability for a session when the runtime is the actor that performed authoritative termination.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Launch authority does not exempt runtime-owned termination from cleanup. If another launcher created the record but the runtime later performs authoritative stop for that same matching session, the runtime SHALL clear or expire the record rather than leaving a live entry behind.
 
 #### Scenario: Direct runtime-owned stop clears runtime-published registry discoverability
@@ -1820,6 +2010,11 @@ Launch authority does not exempt runtime-owned termination from cleanup. If anot
 When a tmux-backed runtime action has already completed its primary control work successfully and later manifest persistence attempts to refresh shared-registry discovery metadata, the system SHALL preserve the successful primary action result even if the registry refresh fails.
 
 This applies at minimum to prompt delivery, interrupt, raw control input, mailbox-binding refresh, and other manifest-persisting runtime control flows that reuse the same live session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The system SHALL still surface the registry refresh problem through an explicit warning, diagnostic, or equivalent operator-visible reporting path.
 
@@ -1851,6 +2046,11 @@ The runtime SHALL still surface the registry cleanup failure separately so opera
 For tmux-backed managed sessions, the system SHALL expose a relaunch surface that reuses the already-built agent home and does not route through build-time `houmao-mgr agents launch` behavior.
 
 The public operator surface SHALL be `houmao-mgr agents relaunch`, and gateway-managed relaunch SHALL use the same internal runtime relaunch primitive rather than shelling out to the build-time launch command.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The persisted manifest SHALL carry secret-free `agent_launch_authority` describing the relaunch posture. Houmao-started sessions SHALL rebuild the provider environment from durable launch inputs. Joined sessions SHALL resolve explicit inherited env bindings through their adopted tmux launch contract.
 
@@ -1914,6 +2114,11 @@ For runtime-owned native headless sessions that use tmux as the durable terminal
 
 The runtime SHALL publish `HOUMAO_MANIFEST_PATH=<absolute manifest path>` and `HOUMAO_AGENT_ID=<authoritative agent id>` into that tmux session so current-session gateway attach can resolve the manifest directly and fall back through shared-registry resolution when needed.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Gateway attach SHALL NOT assume a native headless worker process is currently running. Attach targets the logical persisted session, and the manifest SHALL contain enough authority for later headless turn launch even when `runtime.agent_pid` is empty.
 
 If the runtime launches a same-session gateway surface for a native headless session, that surface SHALL live outside window `0` and SHALL NOT displace the headless console from window `0`.
@@ -1936,6 +2141,11 @@ Any native headless relaunch path SHALL reuse window `0` as the headless console
 When a resolved brain manifest requests an operator prompt policy that forbids startup operator prompts, the runtime SHALL resolve that policy against the actual installed CLI tool version and backend before starting the provider process.
 
 Tool-version detection SHALL probe the actual launch executable with a subprocess `--version` call and SHALL fail unattended launch before provider start if the executable is missing or the version output cannot be parsed for that tool family.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 Compatible strategy resolution SHALL match the detected executable version against launch-policy strategy declarations of supported version ranges rather than relying on nearest-lower or latest-known fallback.
 
@@ -1981,6 +2191,11 @@ On each provider start, Houmao SHALL apply the backend's inclusive minimum where
 
 When unattended launch is requested, the runtime SHALL start with the selected setup-projected runtime home. The selected strategy SHALL project authored native settings, fill omitted defaults, and synthesize its declared runtime-owned startup state before process start. This applies to every maintained backend that supports unattended launch.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Unattended compatibility SHALL be evaluated independently from credential readiness. The runtime SHALL provide the default unattended startup state without requiring pre-existing user-owned config or caller-supplied low-level arguments solely to suppress startup prompts.
 
 #### Scenario: Fresh runtime home launches unattended from setup baseline plus strategy-owned overrides
@@ -2011,6 +2226,11 @@ That typed provenance SHALL include at minimum:
 - selection source
 - override env var name when an override is active
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the runtime starts a session with `operator_prompt_mode = as_is`, it SHALL record the requested mode in launch-request metadata but SHALL NOT fabricate strategy provenance for a strategy that was never resolved.
 
 #### Scenario: Session metadata records resolved unattended strategy
@@ -2027,6 +2247,11 @@ When the runtime starts a session with `operator_prompt_mode = as_is`, it SHALL 
 The runtime SHALL support `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY=<strategy-id>` as a transient strategy-selection override for controlled unattended-launch experiments.
 
 For runtime-managed launches, the override SHALL be read from the launch caller's process environment during launch-plan composition even when the selected runtime env payload does not otherwise project that variable into the provider's final runtime environment.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The runtime SHALL NOT persist that override into brain recipes or resolved brain manifests, and it SHALL NOT require the override variable to be present in the selected credential-env allowlist solely for strategy resolution.
 
@@ -2123,6 +2348,11 @@ For Houmao-managed Codex launches, the runtime SHALL pass Houmao-owned non-secre
 
 The runtime SHALL still preserve the same supported non-secret preferences in the generated Codex runtime home config when those preferences already have a runtime-home projection path.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the Codex CLI override preference layer SHALL cover:
 
 - resolved launch-owned model name,
@@ -2170,6 +2400,11 @@ Optional provider launch behavior SHALL be resolved from declarative tool-launch
 ### Requirement: Runtime records effective launch-override provenance
 The system SHALL persist and surface typed launch-override provenance for started sessions rather than exposing only one flattened executable-plus-args snapshot.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 That provenance SHALL identify at minimum:
 
 - the adapter-default launch snapshot used for the build
@@ -2213,6 +2448,11 @@ For one tmux-backed headless session, runtime-controlled prompt execution SHALL 
 
 The runtime SHALL execute each runtime-controlled headless turn on the stable primary agent surface in window 0 and SHALL NOT create a separate per-turn tmux window for normal turn execution.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The runtime SHALL launch each runtime-controlled headless turn through a same-pane fresh-process execution primitive on the stable primary surface rather than typing the command into a long-lived interactive shell.
 
 A runtime-controlled headless turn SHALL reach terminal state when the managed child process for that turn exits and the runtime persists that turn's durable terminal artifact state, including the exit-status artifact.
@@ -2252,6 +2492,11 @@ For tmux-backed `local_interactive` sessions, the runtime SHALL expose a semanti
 
 The semantic prompt-submission operation SHALL mean “submit this message as one provider turn.” The raw control-input operation SHALL mean “inject these literal characters and exact special-key tokens into the live TUI.”
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 The raw control-input operation SHALL continue using the exact `<[key-name]>` contract defined by the runtime tmux-control-input capability, including explicit Enter-only submission behavior and optional literal escape mode for the entire sequence.
 
 The semantic prompt-submission operation SHALL treat the entire prompt body as literal text, SHALL NOT interpret `<[key-name]>` substrings as special keys, and SHALL automatically submit once at the end.
@@ -2284,6 +2529,11 @@ At minimum, that strategy SHALL:
 - request bracketed-paste wrappers when the target application supports them
 - send the submit action separately from text insertion
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For provider TUIs that distinguish explicit paste input from fast typed-character bursts, the runtime SHALL treat successful semantic prompt submission as requiring an actual submitted provider turn rather than leaving the prompt staged as multiline draft text in the composer.
 
 #### Scenario: Codex prompt submission becomes a real submitted turn
@@ -2307,6 +2557,11 @@ For provider TUIs that distinguish explicit paste input from fast typed-characte
 ### Requirement: Resume-only local control does not reapply unattended provider-home mutations
 For runtime-owned sessions whose resolved brain manifest requests `operator_prompt_mode = unattended`, resumed local control paths that do not start or relaunch a provider process SHALL NOT rewrite strategy-owned provider bootstrap files solely to inspect or control an already-live session.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, resumed local commands such as state queries, detail queries, prompt submission, interrupt submission, and local gateway lifecycle or status operations for an already-live session SHALL be able to reuse persisted launch metadata without re-running unattended file mutations against provider-owned bootstrap files such as Claude `settings.json` or `.claude.json`.
 
 When a resumed path must prepare a new provider start or relaunch for that session, any strategy-owned provider-home mutation SHALL run only inside an explicit pre-start mutation phase rather than as an unconditional side effect of session resume.
@@ -2325,6 +2580,11 @@ When a resumed path must prepare a new provider start or relaunch for that sessi
 When the runtime must create, patch, or repair strategy-owned provider-home files for unattended start or relaunch, it SHALL serialize that mutation per runtime home and SHALL commit each finished file atomically so concurrent processes do not observe a truncated or partially written file.
 
 This guarantee SHALL apply to every strategy-owned persisted file format used by the shared unattended launch-policy helpers, including JSON and TOML state.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 If a previously strategy-owned file is blank or malformed due to a prior interrupted write, the runtime MAY repair that file only inside the serialized pre-start mutation phase for a declared owned path.
 
@@ -2348,6 +2608,11 @@ If a previously strategy-owned file is blank or malformed due to a prior interru
 The runtime SHALL support materializing a standard Houmao session envelope around an existing tmux session that was not originally started by Houmao, so later control can use the same manifest-first contract as native launches.
 
 For joined TUI adoption, the effective backend SHALL be `local_interactive`. For joined native headless adoption, the effective backend SHALL be the provider-specific native headless backend (`claude_headless`, `codex_headless`, or `gemini_headless`).
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The join materialization path SHALL create all of the following under the effective runtime root for the adopted session:
 
@@ -2408,6 +2673,11 @@ The resulting manifest and tmux session environment SHALL remain the authoritati
 For tmux-backed joined sessions, the persisted relaunch authority SHALL record that the session origin is tmux join adoption rather than Houmao-started provider launch.
 
 For joined sessions, the persisted session manifest's `agent_launch_authority` SHALL be the source of truth for secret-free relaunch posture.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 For this change, joined-session relaunch metadata SHALL remain a backward-compatible extension of the existing session manifest v4 contract rather than requiring a new manifest version solely for joined-session posture fields.
 
@@ -2475,6 +2745,11 @@ Maintained project-aware build and launch surfaces SHALL describe overlay-local 
 
 When a maintained build or launch flow resolves runtime or jobs state from the selected project overlay, the result SHALL describe that scope as the active project runtime root or overlay-local jobs scope rather than as a generic shared-root default.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When a maintained build or launch flow implicitly bootstraps the selected overlay, the operator-facing result SHALL surface that bootstrap outcome explicitly instead of requiring the operator to infer it from created files on disk.
 
 #### Scenario: Project-aware build reports overlay-local runtime selection and bootstrap
@@ -2493,6 +2768,11 @@ When a maintained build or launch flow implicitly bootstraps the selected overla
 When managed local launch resolves a fresh live predecessor for the target managed identity, the runtime SHALL treat force takeover as predecessor replacement rather than as direct shared-registry overwrite.
 
 When no force mode is supplied, the runtime SHALL fail the launch rather than replacing that live predecessor.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When force takeover is supplied, the runtime SHALL resolve the predecessor by authoritative `agent_id` when the launch provides an explicit `agent_id`; otherwise it SHALL resolve by the managed identity selected for the current launch.
 
@@ -2524,6 +2804,11 @@ The runtime SHALL NOT choose a takeover target from tmux session name alone.
 When force mode is `keep-stale`, the runtime SHALL reuse the predecessor managed home in place and SHALL leave untouched stale runtime artifacts outside the newly written projection targets alone.
 
 When force mode is `keep-stale`, the runtime SHALL NOT promise validation, cleanup, or repair of leftover stale artifacts that the replacement launch does not touch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When force mode is `clean`, the runtime SHALL remove predecessor-owned replaceable launch artifacts before rebuilding, including the predecessor managed home and predecessor-owned session-local runtime artifacts that are safe to replace.
 
@@ -2557,6 +2842,11 @@ When managed-header policy resolves to enabled, the rendered prompt SHALL contai
 
 When non-header prompt content exists, the rendered prompt SHALL contain a `<prompt_body>` section.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Within `<prompt_body>`, the runtime SHALL render the following sections in order when they participate in the launch:
 1. `<role_prompt>`
 2. `<launch_profile_overlay>`
@@ -2583,6 +2873,11 @@ For launches created after this capability is implemented, brain construction SH
 
 For those launches, relaunch, resume, and compatibility-generated prompt construction SHALL reuse the persisted rendered prompt contract rather than inventing a separate prompt layout.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 For older manifests that do not persist `houmao_system_prompt_layout`, relaunch SHALL remain valid and MAY fall back to legacy prompt recomposition rules.
 
 #### Scenario: New build persists structured prompt layout metadata
@@ -2599,6 +2894,11 @@ For older manifests that do not persist `houmao_system_prompt_layout`, relaunch 
 For tmux-backed managed sessions, the runtime SHALL resolve memory root, memo file, and pages directory before publishing the session as live.
 
 That resolved memory state SHALL be preserved for native managed launch, managed join of an existing tmux-backed session, and managed relaunch of an existing runtime-owned tmux-backed session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When memory state resolves in the default mode, the runtime SHALL derive the memory root from the selected active overlay and authoritative `agent-id` rather than from `session-id` or runtime workdir.
 
@@ -2648,6 +2948,11 @@ The runtime SHALL NOT publish workspace-lane metadata or `HOUMAO_AGENT_STATE_DIR
 When a managed launch is started from a reusable launch profile that stores a memo seed, the runtime SHALL apply the memo seed after resolving the managed-agent identity and memo paths and before publishing or starting the runtime session.
 
 The seed target SHALL be the resolved `houmao-memo.md` and contained `pages/` directory for the authoritative agent id and active project overlay.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The runtime SHALL derive the seed application scope from the stored seed source:
 
@@ -2722,6 +3027,11 @@ When the selector is omitted, runtime relaunch SHALL behave as `new` and preserv
 
 When the selector mode is `exact`, the selector SHALL include a non-empty provider-native session id.
 
+#### Scenario: Tmux relaunch translates chat selection into native startup behavior
+
+- **GIVEN** an operator relaunches a managed tmux-backed session
+- **THEN** the runtime applies the selected or default mode using the provider's native continuation mechanism
+
 For local interactive TUI sessions, runtime relaunch SHALL translate the selector into provider-native startup args before respawning the provider process on tmux window `0`.
 
 The provider-native TUI translation SHALL be:
@@ -2795,6 +3105,11 @@ When local interactive relaunch resumes an existing provider chat, runtime SHALL
 ### Requirement: Local tmux-backed managed runtime derives authority health separately from lifecycle state
 For local tmux-backed managed-agent sessions, the runtime SHALL derive local tmux-authority health from tmux inspection rather than persisting additional shared lifecycle states.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 At minimum, the derived local authority health model SHALL distinguish:
 
 - `healthy`: the tmux session exists and the contractual primary window `0` and pane `0` exist
@@ -2817,6 +3132,11 @@ This derived health classification SHALL be host-local runtime state. The shared
 
 ### Requirement: Runtime stop preserves relaunch metadata for lifecycle-aware registry records
 For local tmux-backed managed-agent sessions with runtime-owned manifest authority, runtime stop SHALL preserve enough metadata for a later stopped-session relaunch before live process/container metadata is cleared.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 At minimum, the preserved metadata SHALL include:
 
@@ -2876,6 +3196,11 @@ The runtime SHALL provide a stopped-session revival path for relaunchable local 
 
 Stopped-session revival SHALL reuse the existing managed runtime home and logical managed-agent identity. It SHALL NOT create a fresh managed-agent identity and SHALL NOT require a fresh launch from recipe or profile.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 Stopped-session revival SHALL create a new live tmux container when the previous tmux session was removed. It SHALL update the runtime manifest and registry liveness metadata to reference the new live tmux session after successful revival.
 
 Stopped-session revival SHALL apply the effective relaunch chat-session selector using the same provider-native semantics as active relaunch:
@@ -2908,6 +3233,11 @@ Stopped-session revival SHALL apply the effective relaunch chat-session selector
 The existing active relaunch operation SHALL continue to use live tmux-backed authority for the selected managed agent when that authority is healthy.
 
 Stopped-session revival SHALL remain a separate runtime path that recreates live authority from preserved relaunch metadata when the selected lifecycle record is stopped or when active local authority has become `stale_missing_session`.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 When active local authority is `degraded_missing_primary`, active relaunch SHALL rebuild the contractual primary tmux surface inside the existing tmux session before continuing provider-start relaunch behavior. Any surviving auxiliary gateway window in that tmux session SHALL be killed before the primary surface is rebuilt, and the gateway SHALL be reprovisioned through the existing post-startup gateway launch path.
 
@@ -2951,6 +3281,11 @@ When active local authority is `stale_missing_session` and preserved manifest-ow
 
 ### Requirement: Managed local reused-home launch restarts one stopped logical agent on its preserved home
 When a local managed launch explicitly requests reused-home mode, the runtime SHALL resolve one compatible stopped preserved managed home for the current managed identity from local lifecycle metadata before provider startup.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 A preserved home SHALL be considered compatible only when all of the following are true:
 
@@ -3001,6 +3336,11 @@ Reused-home restart SHALL require the prior runtime to already be down. If a fre
 
 Reused-home restart SHALL remain non-destructive. It SHALL overwrite only the Houmao-managed projection targets selected by the current launch inputs and SHALL NOT introduce destructive `clean` semantics into this workflow.
 
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
 When the stopped lifecycle metadata carries a prior tmux session name and the caller does not supply an explicit tmux session-name override, the runtime SHALL request restart using that same tmux session name.
 
 When the caller supplies an explicit tmux session-name override, that override SHALL win over the stopped record's prior tmux session name.
@@ -3032,6 +3372,11 @@ Provider-local history that remains in the preserved home MAY stay available aft
 When brain construction runs for a managed launch, the build pipeline SHALL resolve source recipe system-skill policy and launch-profile system-skill policy into one effective managed system-skill selection before projecting Houmao-owned system skills into the managed home.
 
 The effective selection SHALL be applied after validating requested system-skill sets and names against the packaged system-skill catalog and before the final manifest is written.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The build pipeline SHALL reject selected project registered skills or profile-private skill projections whose names collide with any current packaged Houmao system-skill name.
 
@@ -3076,6 +3421,11 @@ The generated build manifest or runtime launch metadata SHALL preserve secret-fr
 The maintained direct brain-build CLI entrypoint SHALL live under `houmao-mgr internals native-agent`.
 
 The top-level `houmao-mgr brains build` command SHALL NOT be presented as a maintained public manager workflow. Ordinary project users SHALL launch through project or managed-agent launch surfaces instead of invoking brain construction directly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
 
 The internal direct build command SHALL preserve the existing build behavior for constructing brain homes from native-agent recipes, setup bundles, credential selections, launch overrides, and runtime-root options.
 
@@ -3146,7 +3496,14 @@ The brain launch runtime SHALL NOT resolve, validate, start, resume, or dispatch
 
 ### Requirement: Unattended Kimi launches pre-seed provider workspace trust
 
-When a managed Kimi Code launch resolves `operator_prompt_mode = unattended`, the runtime SHALL write the provider-native workspace-trust record for the launch working directory into the managed Kimi home before provider start, using the provider's deterministic record location and key derived from the launch working directory. Provider-start planning SHALL assert the record for the actual launch working directory before every fresh headless start, fresh TUI start, and relaunch, repairing a missing or drifted record.
+When a managed Kimi Code launch resolves `operator_prompt_mode = unattended`, the runtime SHALL write the provider-native workspace-trust record for the launch working directory into the managed Kimi home before provider start, using the provider's deterministic record location and key derived from the launch working directory.
+
+#### Scenario: Kimi launch applies workspace trust policy for the actual working directory
+
+- **GIVEN** Houmao prepares a managed Kimi provider start or relaunch
+- **THEN** the resolved operator prompt mode determines whether Houmao pre-seeds the native workspace trust record
+
+Provider-start planning SHALL assert the record for the actual launch working directory before every fresh headless start, fresh TUI start, and relaunch, repairing a missing or drifted record.
 
 The pre-seed SHALL be recorded in launch provenance with the record path, the derived workspace key, and the resulting state.
 
@@ -3211,7 +3568,14 @@ For maintained Kimi Code >=2.1.1, Houmao SHALL project the complete effective la
 
 ### Requirement: DSH Runtime Configuration Is Explicit and Isolated
 
-Managed DSH launches SHALL isolate the Harness home, shared-agent root, profile, persistence, and selected skill roots from resolved `DshToolParams` (`tool_params` layers materialized to `<DSH_HOME>/houmao-tool-params.yaml` and `<DSH_HOME>/houmao-profile.patch.json`). Provider adapter, wire protocol, credential roles, Houmao `model.name` selection, model catalog, and compatibility metadata SHALL resolve explicitly. The model catalog SHALL use `reasoning_efforts`, and secrets SHALL stay outside persisted public launch metadata. Native DeepSeek Messages and compatible routes SHALL remain distinct configurations.
+Managed DSH launches SHALL isolate the Harness home, shared-agent root, profile, persistence, and selected skill roots from resolved `DshToolParams` (`tool_params` layers materialized to `<DSH_HOME>/houmao-tool-params.yaml` and `<DSH_HOME>/houmao-profile.patch.json`). Provider adapter, wire protocol, credential roles, Houmao `model.name` selection, model catalog, and compatibility metadata SHALL resolve explicitly.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+The model catalog SHALL use `reasoning_efforts`, and secrets SHALL stay outside persisted public launch metadata. Native DeepSeek Messages and compatible routes SHALL remain distinct configurations.
 
 #### Scenario: Two Agents Use Different Model Routes
 - **WHEN** two DSH agents use different credentials, models, skill sets, `tool_params`, or endpoints in the same workspace
