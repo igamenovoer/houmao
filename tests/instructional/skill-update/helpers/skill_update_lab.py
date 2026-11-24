@@ -17,8 +17,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_MANAGER = Path("/home/huangzhe/.local/share/uv/tools/houmao/bin/houmao-mgr")
+BUNDLE_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[4]
+DEFAULT_MANAGER = Path.home() / ".local/share/uv/tools/houmao/bin/houmao-mgr"
 _TMUX_ENV_KEYS = ("TMUX", "TMUX_PANE", "TMUX_TMPDIR")
 
 
@@ -374,6 +375,9 @@ def command_configure(args: argparse.Namespace) -> int:
     write_json(peer_brief_path, peer_brief, mode=0o644)
     meta = {
         "schema_version": 1,
+        "case_slug": BUNDLE_ROOT.name,
+        "bundle_root": str(BUNDLE_ROOT),
+        "output_dir": str(BUNDLE_ROOT.parent),
         "target_run": str(target_run),
         "source_run": str(source_run),
         "target_agent_id": target_agent_id,
@@ -410,6 +414,91 @@ def command_configure(args: argparse.Namespace) -> int:
                 "mount_id": mount_id,
                 "published_commit": mount.get("published_commit"),
                 "peer_brief_path": str(peer_brief_path),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+def command_key_admin(args: argparse.Namespace) -> int:
+    """Close the target's open roster by enrolling the first admin key."""
+
+    meta_path = args.run_meta.resolve()
+    meta = load_meta(meta_path)
+    target_run = Path(str(meta["target_run"]))
+    target_agent_id = str(meta["target_agent_id"])
+    mount_id = str(meta["mount_id"])
+    env = run_env(target_run)
+    current = manager_json(
+        env,
+        [
+            "agents",
+            "single",
+            "--agent-id",
+            target_agent_id,
+            "access",
+            "explain",
+            "reviewer",
+            f"files:{mount_id}",
+            "files.push",
+        ],
+    )
+    if current.get("admin_mode") == "keyed":
+        print(
+            json.dumps({"status": "already_keyed", "admin_mode": "keyed"}, indent=2, sort_keys=True)
+        )
+        return 0
+    key_path = (args.key or (meta_path.parent / "runtime/keys/target-admin")).resolve()
+    generate_key(key_path)
+    enrolled = manager_json(
+        env,
+        [
+            "agents",
+            "single",
+            "--agent-id",
+            target_agent_id,
+            "access",
+            "admin-add",
+            "--first",
+            "--signer",
+            str(key_path),
+            "--public-key",
+            str(public_key_path(key_path)),
+            "--principal",
+            args.principal,
+        ],
+    )
+    verified = manager_json(
+        env,
+        [
+            "agents",
+            "single",
+            "--agent-id",
+            target_agent_id,
+            "access",
+            "explain",
+            "reviewer",
+            f"files:{mount_id}",
+            "files.push",
+        ],
+    )
+    if verified.get("admin_mode") != "keyed":
+        raise LabError("Admin enrollment did not close the target's open roster")
+    meta["admin_key_path"] = str(key_path)
+    meta["admin_principal"] = args.principal
+    meta["admin_mode"] = "keyed"
+    write_json(meta_path, meta)
+    print(
+        json.dumps(
+            {
+                "status": "keyed",
+                "admin_key_path": str(key_path),
+                "admin_principal": args.principal,
+                "enrollment": enrolled,
+                "reviewer_direct_grant": verified.get("direct_grant"),
+                "admin_mode": verified.get("admin_mode"),
             },
             indent=2,
             sort_keys=True,
@@ -544,10 +633,11 @@ def command_mounts(args: argparse.Namespace) -> int:
     """List target mounts with current read permission."""
 
     meta = load_meta(args.run_meta.resolve())
-    payload = manager_json(
-        run_env(Path(str(meta["target_run"]))),
-        ["agents", "single", "--agent-id", str(meta["target_agent_id"]), "files", "mounts"],
-    )
+    arguments = ["agents", "single", "--agent-id", str(meta["target_agent_id"]), "files"]
+    if args.signer:
+        arguments.extend(["--signer", str(args.signer)])
+    arguments.append("mounts")
+    payload = manager_json(run_env(Path(str(meta["target_run"]))), arguments)
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
@@ -562,11 +652,17 @@ def command_read(args: argparse.Namespace) -> int:
         "--agent-id",
         str(meta["target_agent_id"]),
         "files",
-        "--mount",
-        str(meta["mount_id"]),
-        "read",
-        args.path,
     ]
+    if args.signer:
+        arguments.extend(["--signer", str(args.signer)])
+    arguments.extend(
+        [
+            "--mount",
+            str(meta["mount_id"]),
+            "read",
+            args.path,
+        ]
+    )
     if args.revision:
         arguments.extend(["--revision", args.revision])
     payload = manager_json(run_env(Path(str(meta["target_run"]))), arguments)
@@ -584,13 +680,19 @@ def command_push_owner(args: argparse.Namespace) -> int:
         "--agent-id",
         str(meta["target_agent_id"]),
         "files",
-        "--mount",
-        str(meta["mount_id"]),
-        "push",
-        args.candidate,
-        "--expected-base",
-        args.expected_base,
     ]
+    if args.signer:
+        arguments.extend(["--signer", str(args.signer)])
+    arguments.extend(
+        [
+            "--mount",
+            str(meta["mount_id"]),
+            "push",
+            args.candidate,
+            "--expected-base",
+            args.expected_base,
+        ]
+    )
     if args.operation_id:
         arguments.extend(["--operation-id", args.operation_id])
     payload = manager_json(run_env(Path(str(meta["target_run"]))), arguments)
@@ -617,6 +719,92 @@ def _kill_private_tmux(socket_path: str | None) -> dict[str, str]:
     if socket.is_socket():
         socket.unlink(missing_ok=True)
     return {"socket": str(socket), "status": "killed" if not socket.exists() else "retained"}
+
+
+def _session_files(run_dir: Path) -> list[Path]:
+    """Return native DSH session JSONL files sorted by modification time."""
+
+    homes = run_dir / "runtime/homes"
+    if not homes.is_dir():
+        return []
+    return sorted(
+        (
+            path
+            for path in homes.rglob("session.v4.jsonl")
+            if path.is_file() and "sessions" in path.parts
+        ),
+        key=lambda path: path.stat().st_mtime,
+    )
+
+
+def _iter_embedded_json_objects(text: str) -> list[dict[str, Any]]:
+    """Extract every valid top-level JSON object embedded in tool output text."""
+
+    decoder = json.JSONDecoder()
+    objects: list[dict[str, Any]] = []
+    index = 0
+    length = len(text)
+    while index < length:
+        brace = text.find("{", index)
+        if brace == -1:
+            break
+        try:
+            value, end = decoder.raw_decode(text, brace)
+        except json.JSONDecodeError:
+            index = brace + 1
+            continue
+        if isinstance(value, dict):
+            objects.append(value)
+        index = max(end, brace + 1)
+    return objects
+
+
+def command_extract_push(args: argparse.Namespace) -> int:
+    """Extract the last matching push receipt JSON from the role's transcript."""
+
+    meta = load_meta(args.run_meta.resolve())
+    run_key = "source_run" if args.role == "source" else "target_run"
+    run_dir = Path(str(meta[run_key]))
+    sessions = _session_files(run_dir)
+    if not sessions:
+        raise LabError(f"No session.v4.jsonl found under {run_dir / 'runtime/homes'}")
+    allowed = {item.strip() for item in args.outcomes.split(",") if item.strip()}
+    last_match: dict[str, Any] | None = None
+    for session_path in sessions:
+        for raw_line in session_path.read_text().splitlines():
+            if not raw_line.strip():
+                continue
+            try:
+                event = json.loads(raw_line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(event, dict) or event.get("type") != "tool/result":
+                continue
+            message = (event.get("data") or {}).get("message")
+            if not isinstance(message, dict):
+                continue
+            for block in message.get("content") or ():
+                if not isinstance(block, dict):
+                    continue
+                text = block.get("text")
+                if not isinstance(text, str):
+                    continue
+                for obj in _iter_embedded_json_objects(text):
+                    outcome = obj.get("outcome")
+                    if (
+                        isinstance(outcome, str)
+                        and outcome in allowed
+                        and (
+                            "published_commit" in obj or "candidate" in obj or "operation_id" in obj
+                        )
+                    ):
+                        last_match = obj
+    if last_match is None:
+        raise LabError(
+            f"No push receipt with outcome in {sorted(allowed)} found for role {args.role}"
+        )
+    print(json.dumps(last_match, indent=2, sort_keys=True))
+    return 0
 
 
 def command_stop(args: argparse.Namespace) -> int:
@@ -696,6 +884,15 @@ def build_parser() -> argparse.ArgumentParser:
     configure.add_argument("--self-editor-id", default="self-editor")
     configure.set_defaults(handler=command_configure)
 
+    key_admin = subparsers.add_parser(
+        "key-admin",
+        help="Close the target's open roster by enrolling the first admin key.",
+    )
+    key_admin.add_argument("--run-meta", type=Path, required=True)
+    key_admin.add_argument("--key", type=Path)
+    key_admin.add_argument("--principal", default="target-admin")
+    key_admin.set_defaults(handler=command_key_admin)
+
     doctor = subparsers.add_parser(
         "doctor", help="Check both agents, the visible mount, and retained grants."
     )
@@ -719,12 +916,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     mounts = subparsers.add_parser("mounts", help="List target mounts.")
     mounts.add_argument("--run-meta", type=Path, required=True)
+    mounts.add_argument("--signer", type=Path)
     mounts.set_defaults(handler=command_mounts)
 
     read = subparsers.add_parser("read", help="Read one logical file from the target mount.")
     read.add_argument("--run-meta", type=Path, required=True)
     read.add_argument("--path", required=True)
     read.add_argument("--revision")
+    read.add_argument("--signer", type=Path)
     read.set_defaults(handler=command_read)
 
     push_owner = subparsers.add_parser(
@@ -734,7 +933,21 @@ def build_parser() -> argparse.ArgumentParser:
     push_owner.add_argument("--candidate", required=True)
     push_owner.add_argument("--expected-base", required=True)
     push_owner.add_argument("--operation-id")
+    push_owner.add_argument("--signer", type=Path)
     push_owner.set_defaults(handler=command_push_owner)
+
+    extract_push = subparsers.add_parser(
+        "extract-push",
+        help="Extract the latest matching push receipt JSON from an agent transcript.",
+    )
+    extract_push.add_argument("--run-meta", type=Path, required=True)
+    extract_push.add_argument("--role", choices=("source", "target"), required=True)
+    extract_push.add_argument(
+        "--outcomes",
+        default="published,queued,busy",
+        help="Comma-separated push receipt outcomes to match.",
+    )
+    extract_push.set_defaults(handler=command_extract_push)
 
     stop = subparsers.add_parser("stop", help="Stop only the pair owned by the run-meta document.")
     stop.add_argument("--run-meta", type=Path, required=True)
