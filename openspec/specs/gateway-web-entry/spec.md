@@ -8,11 +8,11 @@ Let an enrolled operator or signed client open an already-running managed Web ag
 
 ### Requirement: Gateway issues a browser entry ticket for one live Web execution
 
-`POST /v1/web/entry-ticket` SHALL verify the current owned Web binding and return an owner-local `url` and `expires_at_utc` for a ticket valid for 60 seconds. Discovery SHALL keep publishing the clean native origin and session identity. The gateway protocol reference and command help SHALL describe the entry routes.
+`POST /v1/web/entry-ticket` SHALL authorize `web.enter` for the current owned Web binding and return an owner-local `url` and `expires_at_utc` for a ticket valid for 60 seconds. Discovery SHALL keep publishing the clean native origin and session identity. The gateway protocol reference and command help SHALL describe the entry routes.
 
 #### Scenario: An enrolled administrator requests entry
 
-- **WHEN** a verified admin submits the request to the owner-local gateway of a live supported Web host
+- **WHEN** an enrolled administrator with current SSHSIG proof and `web.enter` permission submits the request to the owner-local gateway of a live supported Web host
 - **THEN** the gateway returns a fresh URL for `GET /v1/web/enter` and its expiry
 - **AND THEN** the result omits the native sign-in parameters and API credentials
 
@@ -24,18 +24,28 @@ Let an enrolled operator or signed client open an already-running managed Web ag
 
 #### Scenario: The native agent is busy
 
-- **WHEN** a verified live Web execution is busy or awaiting human input
+- **WHEN** an authorized caller requests entry to a verified live Web execution that is busy or awaiting human input
 - **THEN** the gateway can issue an entry ticket for that execution independently of prompt admission
 
 #### Scenario: An unsigned client requests entry on an open gateway
 
-- **WHEN** a direct owner-local request selects a verified live Web execution with a valid empty roster
+- **WHEN** a direct owner-local request selects a verified live Web execution and the valid empty administrator roster supplies open gateway-admin permission for `web.enter`
 - **THEN** the gateway returns the same one-time URL and 60-second expiry as signed issuance
 - **AND THEN** the result omits native sign-in data
 
+#### Scenario: A caller has scoped Web entry permission
+
+- **WHEN** a verified caller holds `web.enter` permission for the bound Web execution but holds no administrator enrollment
+- **THEN** issuance authorizes the scoped caller and returns one owner-local ticket
+
+#### Scenario: A verified caller lacks Web entry permission
+
+- **WHEN** a caller presents valid proof for a keyed target and its current policy denies `web.enter`
+- **THEN** issuance returns HTTP 403 before resolving a native sign-in destination
+
 ### Requirement: Browser redemption consumes a ticket once
 
-A bare `GET /v1/web/enter` SHALL redirect immediately with HTTP 302 for a live verified Web execution and valid empty roster. With enrolled keys it SHALL show the login page. Ticket redemption SHALL require exactly one ticket parameter, allow at most one consumption, and redirect only after live verification.
+A bare `GET /v1/web/enter` SHALL redirect with HTTP 302 for a verified live Web execution when the valid empty administrator roster supplies open `web.enter` authority. With enrolled administrators it SHALL show the login page. Ticket redemption SHALL require exactly one ticket parameter, consume it at most once, and check current `web.enter` permission and the live binding before redirecting.
 
 #### Scenario: An operator opens the shared URL without a ticket
 
@@ -63,7 +73,7 @@ A bare `GET /v1/web/enter` SHALL redirect immediately with HTTP 302 for a live v
 
 #### Scenario: A browser opens the shared URL with an empty roster
 
-- **WHEN** a browser opens the owner-local Web entry URL with an empty query and the live roster is valid and empty
+- **WHEN** a browser opens the owner-local Web entry URL with an empty query and the valid empty administrator roster supplies open `web.enter` authority
 - **THEN** it receives HTTP 302 directly to the verified native application
 - **AND THEN** the handoff requires no Houmao login page, signing challenge, or ticket
 
@@ -84,25 +94,25 @@ The page SHALL offer a copyable command that signs locally with `ssh-keygen` and
 
 #### Scenario: An administrator chooses the local key file
 
-- **WHEN** an admin enters a private key file path in the login page
-- **THEN** the generated command uses the normalized path on the admin's machine and quotes spaces within the path and shell metacharacters literally
+- **WHEN** an administrator enters a private key file path in the login page
+- **THEN** the generated command uses the normalized path on the administrator's machine and quotes spaces within the path and shell metacharacters literally
 - **AND THEN** the callback carries the proof without carrying the path, key file, or passphrase
 
 #### Scenario: The path is blank and the SSH agent holds multiple keys
 
 - **WHEN** the command can sign with several supported keys offered by the local SSH agent
 - **THEN** it submits candidate signatures for the same challenge
-- **AND THEN** one currently enrolled valid signer can approve the login even if earlier candidates are unenrolled
+- **AND THEN** one currently verified signer with `web.enter` permission can approve the login even if earlier candidates have no such authority
 
 #### Scenario: No available signer can complete the challenge
 
-- **WHEN** the terminal has no supported SSH agent key or none of its submitted signatures verifies against a current admin enrollment
+- **WHEN** the terminal has no supported SSH agent key or none of its submitted signatures establishes a current caller with `web.enter` permission
 - **THEN** the operator gets a safe failure and can select a local key path or start again
 - **AND THEN** the browser receives no entry ticket
 
 #### Scenario: An administrator pastes surrounding whitespace with an absolute path
 
-- **WHEN** the admin enters an absolute path padded with whitespace
+- **WHEN** the administrator enters an absolute path padded with whitespace
 - **THEN** the command passes the trimmed absolute path to `ssh-keygen` without a relative prefix
 
 #### Scenario: The key path field contains only whitespace
@@ -112,13 +122,13 @@ The page SHALL offer a copyable command that signs locally with `ssh-keygen` and
 
 ### Requirement: The initiating browser claims the approved login once
 
-A pending login SHALL expire and stay bound to the initiating browser attempt, gateway instance, and live native execution. A terminal approval SHALL expose only its outcome to the terminal. The waiting browser SHALL claim the approval once, receive a normal entry ticket, and navigate to the shared entry URL automatically.
+A pending login SHALL expire and stay bound to the initiating browser attempt, gateway instance, and live native execution. Approval SHALL verify SSHSIG and current `web.enter` permission and expose only its outcome to the terminal. The initiating browser SHALL recheck that permission when claiming one entry ticket and navigate to the shared entry URL.
 
 #### Scenario: The terminal approves a waiting browser
 
-- **WHEN** the terminal submits a valid admin signature for the pending login
+- **WHEN** the terminal submits a valid signature from a current caller with `web.enter` permission for the pending login
 - **THEN** the browser uses its own claim proof to obtain one ticket and continues through normal redemption
-- **AND THEN** the admin needs no signature copy or upload into the page
+- **AND THEN** the operator needs no signature copy or upload into the page
 
 #### Scenario: A different browser tries to claim an approved login
 
@@ -128,13 +138,13 @@ A pending login SHALL expire and stay bound to the initiating browser attempt, g
 
 #### Scenario: A pending login expires or changes owner before claim
 
-- **WHEN** the login expires, its gateway or native execution changes, or its approving admin is revoked
+- **WHEN** the login expires, its gateway or native execution changes, or its approving caller loses current proof authority or `web.enter` permission
 - **THEN** the browser receives safe fresh-login guidance and no ticket
 - **AND THEN** the gateway never retargets the pending login
 
 ### Requirement: A ticket applies to its current gateway and native execution
 
-Tickets SHALL be bound to one live gateway instance, execution owner, managed agent and generation, runtime session, native Web host, and native session incarnation. Redemption SHALL verify the binding and current issuing authority before redirecting. An anonymous ticket SHALL also require its original empty roster revision. The gateway SHALL discard its tickets when it exits.
+Tickets SHALL be bound to one live gateway instance, execution owner, agent generation, runtime session, native Web host, and native session incarnation. Redemption SHALL verify the binding and current `web.enter` permission with the original authority, including the exact admin enrollment or open epoch when applicable. The gateway SHALL discard its tickets when it exits.
 
 #### Scenario: Gateway restarts while the host remains live
 
@@ -149,13 +159,18 @@ Tickets SHALL be bound to one live gateway instance, execution owner, managed ag
 
 #### Scenario: The issuing administrator is revoked
 
-- **WHEN** a ticket was issued by an admin whose enrollment is no longer current
+- **WHEN** a ticket issued under named-admin authority reaches redemption after the signing credential or its admin enrollment is removed
 - **THEN** the gateway refuses redemption without releasing a native destination
 
 #### Scenario: Membership changes before anonymous ticket redemption
 
 - **WHEN** an anonymous ticket is redeemed after the roster revision changes
 - **THEN** the gateway refuses redemption, even if the roster has since become empty again
+
+#### Scenario: A signed caller's open ticket outlives its authority
+
+- **WHEN** a caller signs an entry request that relies on open admin authority and the open epoch changes before redemption
+- **THEN** the gateway refuses the ticket even if the caller's key is still valid
 
 ### Requirement: The native backend supplies a trusted browser destination
 
@@ -198,5 +213,5 @@ The gateway SHALL send `Cache-Control: no-store` and `Referrer-Policy: no-referr
 
 #### Scenario: The browser has already signed in
 
-- **WHEN** the gateway ticket expires or the gateway restarts after native browser authentication
+- **WHEN** the gateway ticket expires, the gateway restarts, or gateway entry permission is revoked after native browser authentication
 - **THEN** the native provider's own session and credential lifetime govern the existing browser connection

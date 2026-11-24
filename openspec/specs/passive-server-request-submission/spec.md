@@ -7,9 +7,7 @@ Define how clients address agents through the passive server to submit prompts, 
 
 ### Requirement: Passive server accepts gateway-mediated prompt requests
 
-The passive server SHALL expose `POST /houmao/agents/{agent_ref}/requests` for forwarding prompts to the agent's live gateway. The request body SHALL accept a JSON object with a non-empty `prompt` string.
-
-For a configured agent, the server SHALL apply the target's live admin access rule before forwarding or handling gateway availability. If an admitted caller's target has no attached gateway, the endpoint SHALL return HTTP 502 with a detail explaining that prompt delivery requires a gateway.
+The passive server SHALL expose `POST /houmao/agents/{agent_ref}/requests` with a non-empty JSON `prompt` string. The server SHALL authorize prompt submission against the resolved target domain before checking gateway availability or forwarding to the agent's live gateway. An admitted request with no live gateway SHALL return HTTP 502 explaining that delivery requires a gateway.
 
 #### Scenario: Prompt forwarded through gateway
 
@@ -30,17 +28,15 @@ For a configured agent, the server SHALL apply the target's live admin access ru
 
 #### Scenario: Self cannot use the passive prompt route for admin control
 
-- **WHEN** a caller presents only self proof to this route for a target with a nonempty admin list
+- **WHEN** a caller proves its managed identity without holding the selected agent's prompt submission permission
 - **THEN** the response is HTTP 403 before forwarding a request
 
 ### Requirement: Passive server resolves server-managed headless agents through stable managed references
-When the passive server launches a headless agent, later managed follow-up routes SHALL be able to resolve that agent through the server-owned managed authority rather than treating it as an unrelated discovered agent.
-
-The passive server SHALL accept the managed `tracked_agent_id` and the published shared-registry `agent_id` as valid references for server-managed headless follow-up operations, including turn submission, interrupt, and stop.
+For follow-up on a server-managed headless agent, the passive server SHALL resolve the `tracked_agent_id` and the published shared-registry `agent_id` through the same server-owned managed authority. Turn submission, interrupt, and stop SHALL use the same resolved target domain and resource when either reference is supplied.
 
 #### Scenario: Custom published agent id still resolves to managed headless turn submission
 - **WHEN** a caller launches a passive-server headless agent with an explicit `agent_id` different from `tracked_agent_id`
-- **THEN** a later `POST /houmao/agents/{agent_ref}/turns` using that published `agent_id` succeeds through the server-managed headless path
+- **THEN** a later `POST /houmao/agents/{agent_ref}/turns` using that published `agent_id` with the required permission succeeds through the server-managed headless path
 
 #### Scenario: Managed tracked id still resolves after launch
 - **WHEN** a caller uses the returned `tracked_agent_id` from `POST /houmao/agents/headless/launches`
@@ -48,7 +44,7 @@ The passive server SHALL accept the managed `tracked_agent_id` and the published
 
 ### Requirement: Passive server accepts interrupt requests
 
-The passive server SHALL expose `POST /houmao/agents/{agent_ref}/interrupt`. A configured target SHALL apply its current admin access rule before interruption or handling gateway availability.
+The passive server SHALL expose `POST /houmao/agents/{agent_ref}/interrupt`. The server SHALL authorize the interrupt action against the resolved configured target domain before interruption or handling gateway availability.
 
 #### Scenario: Acceptance criteria
 
@@ -81,7 +77,7 @@ For server-managed headless agents, the endpoint SHALL resolve the authoritative
 
 ### Requirement: Passive server can stop agents by killing tmux sessions
 
-The passive server SHALL expose `POST /houmao/agents/{agent_ref}/stop`. A configured target SHALL apply its current admin access rule before effects.
+The passive server SHALL expose `POST /houmao/agents/{agent_ref}/stop`. The server SHALL authorize the stop action against the resolved configured target domain before effects.
 
 #### Scenario: Acceptance criteria
 
@@ -114,7 +110,7 @@ For agents launched by this passive server, the endpoint SHALL resolve managed-h
 
 ### Requirement: Gateway attach and detach return 501 directing to houmao-mgr
 
-The passive server SHALL expose `POST /houmao/agents/{agent_ref}/gateway/attach` and `POST /houmao/agents/{agent_ref}/gateway/detach`. It SHALL apply retained admin admission for configured targets first. After admission it SHALL return HTTP 501 with a detail directing the caller to the scoped `houmao-mgr agents single ... gateway attach` or `gateway detach` command.
+The passive server SHALL expose `POST /houmao/agents/{agent_ref}/gateway/attach` and `POST /houmao/agents/{agent_ref}/gateway/detach`. It SHALL check the distinct attach or detach permission in the retained policy for the resolved configured target first. After admission it SHALL return HTTP 501 with a detail directing the caller to the scoped `houmao-mgr agents single ... gateway attach` or `gateway detach` command.
 
 #### Scenario: Gateway attach returns 501
 
@@ -130,5 +126,5 @@ The passive server SHALL expose `POST /houmao/agents/{agent_ref}/gateway/attach`
 
 #### Scenario: A detached gateway still has retained protection
 
-- **WHEN** a caller requests gateway lifecycle without signed proof after detach and the retained admin list has entries
+- **WHEN** a caller requests gateway lifecycle without the proof or permission required by retained policy after detach
 - **THEN** the server returns the target admission failure before lifecycle handling

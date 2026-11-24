@@ -320,29 +320,45 @@ Plugin event submissions SHALL remain ordinary notifications. They SHALL NOT sel
 
 ### Requirement: Plugin route authority is declared and enforced by the host
 
-Plugin HTTP routes SHALL use private or admin access through the supported SDK. Omitted declarations SHALL use the admin class. Invalid declarations, including public access, SHALL fail the instance before resource activation. The host SHALL apply the matched access class and current roster before invoking plugin code. A valid empty roster permits unsigned calls to both classes.
+Each plugin HTTP route SHALL declare a namespaced action through the SDK. The host SHALL authorize it on the selected instance resource before invoking the handler. Missing or invalid declarations SHALL fail the instance before resource activation. The host SHALL include every supported action of installed plugins in the target domain's gateway-admin role, including under a valid empty roster. It SHALL administer the self role separately.
 
 #### Scenario: Private plugin route admits self and admin
 
-- **WHEN** the agent's current self or an admin invokes a plugin route classified as private
+- **WHEN** owner policy grants an enrolled caller the action declared for the selected plugin instance
 - **THEN** the host permits normal instance and operation admission under the existing owner binding
 
 #### Scenario: Undeclared route is called by self
 
-- **WHEN** a self caller invokes a plugin route without an access declaration while the admin list has entries
-- **THEN** the host returns HTTP 403 before the plugin handler runs
+- **WHEN** a plugin registers an HTTP route without a namespaced action declaration
+- **THEN** the host rejects the affected instance before the route can be called
 
 #### Scenario: Admin plugin route follows open access
 
-- **WHEN** an anonymous caller invokes an admin plugin route while the initialized list is empty
-- **THEN** the host admits it with anonymous provenance
-- **AND** an unsigned private plugin operation also receives anonymous admission
+- **WHEN** an anonymous caller invokes a custom plugin action under a valid empty administrator roster
+- **THEN** the host authorizes it through the open gateway-admin role and applies the normal instance and operation checks
+- **AND THEN** the call retains anonymous provenance and the plugin continues to use its configured service identity
+
+#### Scenario: Enrolled admin uses an installed plugin action
+
+- **WHEN** an enrolled administrator proves its identity and invokes a supported custom action of an installed plugin in the target domain
+- **THEN** the host authorizes the action through the gateway-admin role with the same instance and operation checks as in open mode
 
 #### Scenario: Plugin declares an unsupported authority
 
-- **WHEN** staged plugin routes contain an unknown or public access value
+- **WHEN** staged plugin routes use an invalid namespace or a resource outside the selected instance
 - **THEN** the affected instance fails registration before credentials, connections, or workers activate
-- **AND** unrelated valid instances and classified core routes remain available
+- **AND** unrelated valid instances and permitted core operations remain available
+
+#### Scenario: A plugin action grant is specific to one instance
+
+- **WHEN** owner policy grants a non-admin caller in keyed mode a plugin action for one instance and the caller requests it on a different instance without a corresponding grant
+- **THEN** the host returns HTTP 403 before invoking plugin code
+
+#### Scenario: A plugin documents a required permission
+
+- **WHEN** a plugin developer declares an action needed by a client
+- **THEN** the host authorizes installed actions through the current gateway-admin role and the owner can grant the action to scoped non-admin callers for the intended instance
+- **AND THEN** the declaration gives the plugin no authority to administer principals, grants, or internal service identities
 
 ### Requirement: Authenticated plugin routes preserve owner and caller separation
 
@@ -350,13 +366,13 @@ Admitted plugin calls SHALL retain the configured owner, service binding, provid
 
 #### Scenario: Remote CCCC caller sends ordinary chat or Mail
 
-- **WHEN** current self or an admin invokes a private CCCC chat or Mail route
+- **WHEN** an authorized caller invokes a CCCC chat or Mail action for the selected instance
 - **THEN** the configured gateway owner's Group and Actor remain authoritative
 - **AND** backend-specific delivery, consumption, cursor, and uncertain-outcome semantics remain unchanged
 
 #### Scenario: Self calls plugin connection management
 
-- **WHEN** a self caller requests connect, disconnect, reconnect, or credential refresh on a key-required admin plugin route
+- **WHEN** a self caller requests connect, disconnect, reconnect, or credential refresh without the corresponding instance action grant
 - **THEN** HTTP 403 is returned before changing connection state or refreshing a source
 
 #### Scenario: Remote request claims another plugin owner
@@ -381,11 +397,11 @@ A selected plugin's activation and ordinary background dispatch SHALL use the va
 
 ### Requirement: Route admission precedes plugin lifecycle error handling
 
-The gateway SHALL apply the route's current admission policy before exposing plugin lifecycle, registration, or connection failures. Sanitized host-owned plugin status SHALL remain available to admitted callers without invoking external service code.
+The gateway SHALL apply current policy for the requested action and instance before exposing plugin lifecycle, registration, or connection failures. Sanitized host-owned plugin status SHALL remain available to admitted callers without invoking external service code.
 
 #### Scenario: Unauthenticated caller probes a failed instance
 
-- **WHEN** an uncredentialed caller requests a failed plugin's private or admin route while the roster has keys
+- **WHEN** an uncredentialed caller requests a failed plugin operation that requires proof
 - **THEN** the response is HTTP 401 without exposing its failure details
 
 #### Scenario: Authorized caller inspects a failed instance
@@ -395,5 +411,5 @@ The gateway SHALL apply the route's current admission policy before exposing plu
 
 #### Scenario: Anonymous caller inspects a failed instance
 
-- **WHEN** an unsigned caller requests the host-owned status of a failed plugin while the roster is valid and empty
+- **WHEN** an unsigned caller with open gateway-admin permission for host-owned plugin status requests a failed instance
 - **THEN** it receives the existing sanitized failure snapshot

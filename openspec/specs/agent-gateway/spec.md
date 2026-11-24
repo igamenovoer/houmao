@@ -511,28 +511,30 @@ When a gateway instance starts successfully with a system-assigned port, the sys
 - **AND** there is no live gateway publication from that attempt
 
 ### Requirement: The gateway exposes a structured HTTP API on the resolved listener address
-The gateway SHALL expose an HTTP API for health, endpoint discovery, enabled public input, status, gateway-managed request submission, reminders, notifier control, and shared mailbox operations on the resolved listener address. Route admission SHALL enforce the selected target's public, private, and admin access classes.
+The gateway SHALL expose an HTTP API for health, endpoint discovery, enabled public input, status, gateway-managed request submission, reminders, notifier control, and shared mailbox operations on the resolved listener address. Admission SHALL check current owner policy for the verified caller, target domain, canonical resource, and action.
 
 #### Scenario: Gateway HTTP routes apply resource and authority rules
 
 - **GIVEN** the gateway serves its HTTP API on the resolved listener address
-- **THEN** each route uses its resource contract and access class
+- **THEN** each operation uses the canonical resource and action for its effect, including when another surface reaches that effect
 
-The base API SHALL include public `GET /health` and `GET /v1/endpoint`, private `GET /v1/status`, and admin `POST /v1/requests`. The public input setting SHALL enable `POST /v1/messages` and `POST /v1/public/prompt`. Those two routes SHALL use the public handoff contract.
+The gateway-admin role SHALL authorize every supported client-facing action for the selected target domain. A valid empty administrator roster SHALL give every caller the same permissions as an enrolled administrator. Local policy administration, OS ownership, and internal service identities SHALL retain their own authority. Operation-specific proof, target, transport, and runtime checks SHALL still apply.
 
-The gateway SHALL expose public `POST /v1/auth/challenge` for self, admin, and first-key registration proof. Admin `POST /v1/admin/keys` and `DELETE /v1/admin/keys/{key_id}` SHALL apply the live membership contract, including first registration on a running gateway with a valid empty list.
+The base API SHALL expose uncredentialed `GET /health` and `GET /v1/endpoint`. `GET /v1/status` and `POST /v1/requests` SHALL require their respective status-read and request-submit permissions. The public input setting SHALL enable `POST /v1/messages` and `POST /v1/public/prompt` under the public handoff contract.
+
+The gateway SHALL expose the current SSHSIG challenge and live administrator enrollment operations defined by authenticated gateway access. First registration on a running gateway SHALL require the enrollment proof and a valid empty roster.
 
 The reminder HTTP API SHALL additionally expose `POST /v1/reminders`, `GET /v1/reminders`, `GET /v1/reminders/{reminder_id}`, `PUT /v1/reminders/{reminder_id}`, and `DELETE /v1/reminders/{reminder_id}`.
 
-The HTTP API SHALL expose the private dual-binding summary `GET /v1/mail/status` and channel-selected lifecycle routes `POST /v1/mail/{channel}/{operation}` for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`. Routine lifecycle operations SHALL be private and operator-origin `post` SHALL be admin. The channel SHALL be explicitly `offline` or `online`, and lifecycle requests SHALL identify the expected binding ID.
+The HTTP API SHALL expose the dual-binding summary `GET /v1/mail/status` and channel-selected lifecycle routes `POST /v1/mail/{channel}/{operation}` for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`. Each operation SHALL require its own permission, including operator-origin `post`. The channel SHALL be explicitly `offline` or `online`, and lifecycle requests SHALL identify the expected binding ID.
 
 When the gateway mail notifier capability is implemented, that HTTP API SHALL additionally expose `PUT /v1/mail-notifier/{channel}`, `GET /v1/mail-notifier/{channel}`, and `DELETE /v1/mail-notifier/{channel}`.
 
-Public `GET /health` SHALL return only process health and gateway protocol-version information in a structured response suitable for runtime launch-readiness checks.
+`GET /health` SHALL return only process health and gateway protocol-version information in a structured response suitable for runtime launch-readiness checks.
 
 `GET /health` SHALL reflect gateway-local process and control-plane health, and SHALL NOT fail solely because the managed agent is unavailable, recovering, or awaiting rebind.
 
-Private `GET /v1/status` SHALL return the same versioned status model that the gateway persists to `state.json`.
+`GET /v1/status` SHALL return the same versioned status model that the gateway persists to `state.json`.
 
 `POST /v1/requests` SHALL accept typed request-creation payloads and SHALL return the accepted queued request record.
 
@@ -552,7 +554,7 @@ Those shared mailbox routes SHALL use structured request and response payloads a
 
 That HTTP API SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write SQLite state directly.
 
-Missing or invalid required proof SHALL return HTTP `401` with applicable challenge information before request processing. Request-validation failures on admitted `POST /v1/requests` SHALL return HTTP `422`. Insufficient authority SHALL return HTTP `403`. Request-state conflicts such as reconciliation-required admission blocking SHALL return HTTP `409`. Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
+Missing required proof or any invalid supplied proof SHALL return HTTP `401` with applicable challenge information before request processing. Request-validation failures on admitted `POST /v1/requests` SHALL return HTTP `422`. A validly resolved caller lacking the operation permission SHALL receive HTTP `403`. Request-state conflicts such as reconciliation-required admission blocking SHALL return HTTP `409`. Managed-agent unavailable or recovery-blocked admission failures SHALL return HTTP `503`.
 
 Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifier behavior for sessions that cannot support it SHALL fail explicitly rather than pretending that notifier polling is active.
 
@@ -574,6 +576,28 @@ Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the termi
 - **WHEN** a caller requests `GET /v1/reminders/{reminder_id}`, `PUT /v1/reminders/{reminder_id}`, or `DELETE /v1/reminders/{reminder_id}` for a non-existent reminder
 - **THEN** the gateway rejects that call explicitly
 - **AND THEN** it does not pretend that the requested reminder still exists
+
+#### Scenario: A keyed caller has an explicit operation grant
+
+- **WHEN** an enrolled non-admin signer proves its caller identity and owner policy grants the requested operation on the selected target
+- **THEN** the operation proceeds with the caller's identity and its ordinary resource checks
+- **AND THEN** a request for an action outside the caller's effective grants and roles receives HTTP 403
+
+#### Scenario: Enrolled and open administrators can use the same operations
+
+- **WHEN** an enrolled administrator in keyed mode or an unsigned caller under a valid empty roster requests a supported client-facing action for the selected target domain
+- **THEN** both receive the same operation permissions, including owner-file attachment and installed plugin actions
+- **AND THEN** each request retains its caller provenance and applies the operation's normal proof, transport, validation, and runtime guards
+
+#### Scenario: An invalid proof accompanies an open operation
+
+- **WHEN** a caller supplies invalid proof for an operation available to unsigned callers
+- **THEN** the gateway returns HTTP 401 without processing the operation
+
+#### Scenario: Authorized request names a superseded execution
+
+- **WHEN** an admitted request refers to a gateway instance, agent generation, or resource binding that changes before the protected effect
+- **THEN** the gateway refuses the request and leaves the replacement untouched
 
 ### Requirement: Gateway status separates gateway health, upstream-agent state, recovery, admission, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent connectivity, recovery state, request-admission state, and native-surface readiness.
@@ -1646,7 +1670,7 @@ Pair-managed mail-post proxy request models that inherit the live gateway mailbo
 - **AND THEN** the resulting message has the same reply-enabled behavior as direct `/v1/mail/offline/post`
 
 ### Requirement: Shared gateway mailbox facade exposes lifecycle routes
-The shared mailbox facade SHALL expose private `GET /v1/mail/status` as a summary of both optional bindings and the derived canonical mail identity. Mailbox-disabled agents SHALL receive a normal empty-binding summary.
+The shared mailbox facade SHALL expose authorized `GET /v1/mail/status` as a summary of both optional bindings and the derived canonical mail identity. Mailbox-disabled agents SHALL receive a normal empty-binding summary.
 
 #### Scenario: Acceptance criteria
 
@@ -1657,7 +1681,7 @@ The gateway SHALL expose channel-selected lifecycle routes under `/v1/mail/{chan
 
 List SHALL return triage metadata without marking read. Peek SHALL return selected content without changing read state. Read SHALL return content and mark read. Mark SHALL support recipient-local read/answered state. Move SHALL update supported boxes. Archive SHALL close inbox work through the selected backend.
 
-All lifecycle requests SHALL identify their expected binding ID, obtained from status or current round context, and use runtime-owned authority and scoped references. A replaced binding SHALL fail explicitly even for send/post requests without a message reference. Unsupported operations, absent bindings, and backend failures SHALL be explicit. Callers SHALL NOT need filesystem indexes, mailbox scripts, or provider-native objects. Ordinary mail operations SHALL use private route admission under the live roster. Operator-origin post and mailbox binding controls SHALL use the admin route class.
+All lifecycle requests SHALL identify their expected binding ID, obtained from status or current round context, and use runtime-owned authority and scoped references. A replaced binding SHALL fail explicitly even for send/post requests without a message reference. Unsupported operations, absent bindings, and backend failures SHALL be explicit. Callers SHALL NOT need filesystem indexes, mailbox scripts, or provider-native objects. The gateway SHALL authorize each mailbox operation against the selected target and binding. Operator-origin post and mailbox binding controls SHALL each require their corresponding permission.
 
 #### Scenario: Peek does not mutate read state through the gateway
 - **WHEN** a caller peeks through the selected channel using a matching scoped reference
@@ -1687,7 +1711,7 @@ All lifecycle requests SHALL identify their expected binding ID, obtained from s
 
 #### Scenario: Authenticated remote admin uses both mail channels
 
-- **WHEN** an authenticated admin uses the explicit offline or online lifecycle route with a current expected binding ID
+- **WHEN** an authenticated administrator with the requested mailbox permission uses the explicit offline or online lifecycle route with a current expected binding ID
 - **THEN** supported ordinary operations follow the same channel, reference, pagination, and mailbox-state semantics as local access
 - **AND** the client needs no shared runtime filesystem
 
@@ -2365,7 +2389,7 @@ The gateway SHALL keep core health, status, usage, operator-control, mailbox, an
 
 ### Requirement: Plugin Service Operations Respect Gateway Access Policy
 
-Plugin custom routes, credential resolution, workers, and event intake SHALL require valid gateway deployment. A broader listener without validated access configuration SHALL fail before importing plugin code or activating resources. Plugin routes SHALL enforce their declared access class using live policy. Sanitized host-owned status SHALL remain available to admitted callers independently of plugin health.
+Plugin custom routes, credential resolution, workers, and event intake SHALL require valid gateway deployment. A broader listener without validated access configuration SHALL fail before importing plugin code or activating resources. The host SHALL enforce each declared namespaced action on the selected plugin instance using live policy. Sanitized host-owned status SHALL remain available to admitted callers independently of plugin health.
 
 #### Scenario: All-Interface Listener Has Configured Plugins
 
@@ -2377,7 +2401,7 @@ Plugin custom routes, credential resolution, workers, and event intake SHALL req
 
 - **WHEN** a broader gateway listener has valid access configuration and valid plugin selections
 - **THEN** selected plugins can activate under the normal supervised lifecycle
-- **AND** custom routes enforce caller authority while background ordinary events retain owner and readiness guards
+- **AND** custom routes apply their caller and instance grants while trusted background events use their own service identities and retain owner and readiness guards
 
 ### Requirement: Ordinary Plugin Event Refusals Are Immediate
 
@@ -2577,32 +2601,32 @@ The gateway SHALL distinguish its bind address, owner-local connect URL, and exp
 
 ### Requirement: Public endpoint discovery reports a minimal descriptor
 
-GET /v1/endpoint SHALL return a secret-free descriptor with target and presence identity, protocol, open or key-required admin access, private access requirements, enabled public operations, and the configured advertised URL if present. It SHALL report `private_proof` as `none` when open, `self_or_admin` when keyed, and `unavailable` when the policy is unavailable. Detailed status SHALL require private access.
+GET /v1/endpoint SHALL publish a secret-free descriptor with target and presence identity, protocol, current `admin_mode`, supported proof protocol and challenge location, enabled public actions, and the configured advertised URL when present. Permission to read detailed status SHALL come from current policy.
 
 #### Scenario: Anonymous caller discovers a protected gateway
 
 - **WHEN** a caller reads the endpoint descriptor without credentials
-- **THEN** it receives the current access requirements and enabled public operations
-- **AND** detailed status, owner-local paths, and roster contents are absent
+- **THEN** it receives the current administrator mode, supported proof protocol and challenge location, and enabled public actions
+- **AND** detailed status, owner-local paths, roster contents, route access labels, and per-caller grants are absent
 
 #### Scenario: The first key is registered after advertisement
 
 - **WHEN** a caller reads the endpoint descriptor after the first-key registration commits
-- **THEN** it reports key-required admin access and `private_proof: self_or_admin`
+- **THEN** it reports `admin_mode: keyed`
 
 #### Scenario: The roster is valid and empty
 
 - **WHEN** a caller reads the endpoint descriptor with a valid empty roster
-- **THEN** it reports open admin access and `private_proof: none`
+- **THEN** it reports `admin_mode: open`
 
 #### Scenario: Policy is unavailable
 
 - **WHEN** the live gateway cannot read its required access state
-- **THEN** it reports unavailable access for both route classes
+- **THEN** it reports `admin_mode: unavailable`
 
 ### Requirement: Public input accepts bounded notifications and prompts
 
-Owner enablement SHALL make both public input routes callable by anyone. POST /v1/messages SHALL accept bounded source_event_id, text, and optional metadata for a notification. POST /v1/public/prompt SHALL accept bounded source_event_id and prompt for a direct request. Both routes SHALL use strict schemas, finite envelope limits, and a bounded admission budget.
+Owner enablement in valid target policy SHALL make both public input operations available to anonymous callers. POST /v1/messages SHALL accept bounded source_event_id, text, and optional metadata for a notification. POST /v1/public/prompt SHALL accept bounded source_event_id and prompt for a direct request. Both routes SHALL use strict schemas, finite envelope limits, and a bounded admission budget.
 
 #### Scenario: Public input is disabled by default
 
@@ -2683,25 +2707,30 @@ Public success SHALL confirm handoff to the captured body and return the source 
 
 ### Requirement: Owner-file inputs on private mail routes follow current elevated access
 
-Private send and reply forms with an owner-local attachment path SHALL require current anonymous open access or verified admin proof. A current self caller can use ordinary forms that omit these inputs. The gateway SHALL check path-form authority before filesystem or provider access. Admin-class post SHALL apply its own route admission and attachment validation.
+Send, reply, and post with an owner-local attachment path SHALL require permission for both the mailbox operation and the path form. The gateway-admin role SHALL include both permissions, including under a valid empty roster. The gateway SHALL check authorization before filesystem or provider access and apply existing attachment validation in the recorded owner context.
 
 #### Scenario: Self supplies an owner-local file path
 
-- **WHEN** a self caller supplies an owner-local attachment path in send or reply while the roster has keys
+- **WHEN** a self caller in keyed mode has ordinary mailbox access and supplies an owner-local attachment path without permission for that form
 - **THEN** the gateway returns HTTP 403 before opening the path or invoking a provider
 
 #### Scenario: Self sends mail without owner-file inputs
 
-- **WHEN** a self caller supplies a valid ordinary send or reply with no owner-local attachment paths
+- **WHEN** a self caller permitted to send or reply supplies a valid ordinary form without owner-local attachment paths
 - **THEN** the operation uses the configured mailbox owner and its normal delivery semantics
 
 #### Scenario: Admitted caller attaches an owner-local file
 
-- **WHEN** an admitted caller uses an existing supported local-path attachment form
+- **WHEN** a caller with both permissions uses a supported local-path attachment form
 - **THEN** the path is interpreted in the recorded owner context under existing attachment validation
 
 #### Scenario: An anonymous caller uses an owner-file attachment
 
-- **WHEN** an unsigned caller uses a supported attachment form under a valid empty roster
-- **THEN** the gateway rechecks the open grant before applying the existing attachment validation
-- **AND THEN** delivery uses the configured mailbox binding and records anonymous caller provenance
+- **WHEN** an unsigned caller supplies a supported owner-local attachment form under a valid empty roster
+- **THEN** the gateway authorizes both the mailbox operation and the attachment form through the open gateway-admin role
+- **AND THEN** it applies existing attachment validation before any delivery with anonymous caller provenance
+
+#### Scenario: An enrolled administrator attaches an owner-local file
+
+- **WHEN** a verified administrator supplies the same supported attachment form in keyed mode
+- **THEN** the gateway authorizes both actions through the gateway-admin role and applies the same owner-context path validation

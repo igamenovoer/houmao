@@ -570,13 +570,13 @@ If owner launch succeeds but operator locator publication fails, Houmao SHALL re
 
 ### Requirement: Live gateway advertisements expose a non-secret remote descriptor
 
-Live gateway presence SHALL support an advertised URL, protocol, target and presence identity, effective private and admin access requirements, and enabled public operations. The descriptor SHALL omit key membership, signatures, challenge material, credentials, and private runtime state. Listener coordinates SHALL remain separately qualified local metadata.
+Live gateway presence SHALL support an advertised URL, protocol, target and presence identity, current `admin_mode`, supported proof protocol and challenge location, and enabled public actions. The descriptor SHALL omit key membership, per-caller grants, credentials, signatures, challenge material, and private runtime state. Listener coordinates SHALL remain separately qualified local metadata.
 
 #### Scenario: Owner exports a remote endpoint without sharing runtime files
 
 - **WHEN** an owner publishes a bound gateway with public input enabled
-- **THEN** an external hub can discover its advertised URL, available public notification and prompt operations, and whether private and admin calls are open, key-required, or unavailable
-- **AND** the descriptor identifies self or admin proof for private routes when the roster contains keys
+- **THEN** an external hub can discover the advertised URL, available public notification and prompt actions, and whether `admin_mode` is `open`, `keyed`, or `unavailable`
+- **AND THEN** it can identify the supported proof protocol and challenge location without obtaining a challenge, signature, or decision about a protected action
 
 #### Scenario: Proxy endpoint differs from local listener
 
@@ -586,7 +586,7 @@ Live gateway presence SHALL support an advertised URL, protocol, target and pres
 
 ### Requirement: Gateway advertisement follows live presence without owning access policy
 
-Advertised gateway availability SHALL be ephemeral presence metadata. Gateway stop or detach SHALL clear or invalidate live advertised availability while preserving logical identity and independently retained owner-side access configuration. Publication and discovery SHALL NOT become policy authority or infer that a protected stopped agent is anonymously controllable.
+Advertised gateway availability SHALL be ephemeral presence metadata. Gateway stop or detach SHALL clear or invalidate live advertised availability while preserving logical identity and independently retained owner-side access configuration. Publication and discovery SHALL NOT become policy authority or infer that a stopped agent is controllable from its prior advertised mode.
 
 #### Scenario: Gateway detaches while its agent remains known
 
@@ -598,12 +598,12 @@ Advertised gateway availability SHALL be ephemeral presence metadata. Gateway st
 
 - **WHEN** a published descriptor is stale or cannot be refreshed
 - **THEN** clients treat it as possibly unavailable locator metadata
-- **AND** it cannot override the gateway's actual access policy or establish current execution authority
+- **AND** the gateway applies current owner policy and verifies the exact target and execution authority independently
 
 #### Scenario: Discovery still advertises open access after first enrollment
 
 - **WHEN** discovery's last publication predates first-key registration
-- **THEN** using that descriptor cannot bypass the target's current listed-key requirement
+- **THEN** the request must satisfy the current keyed policy for the selected target and action
 
 ### Requirement: Remote descriptors grant no credentials or lifecycle rights
 
@@ -613,11 +613,11 @@ Discovery SHALL treat endpoint metadata as a locator. Protected credential selec
 
 - **WHEN** a communication-only import references a gateway with public input enabled
 - **THEN** it can locate and call the available public operations
-- **AND** private and admin calls use the live roster policy, and execution delegation follows its existing authority
+- **AND** each protected operation requires a current grant for the selected domain, resource, and action, and execution delegation requires its existing authority
 
 #### Scenario: Registry descriptor is replaced with another origin
 
-- **WHEN** discovery returns a different origin or base path for an existing private client binding
+- **WHEN** discovery returns a different origin or base path for an existing credential-bearing client binding
 - **THEN** the existing credential is not automatically attached to that replacement endpoint
 
 #### Scenario: Owner loopback port also exists on the caller host

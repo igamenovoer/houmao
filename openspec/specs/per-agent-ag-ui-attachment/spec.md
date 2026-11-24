@@ -473,36 +473,46 @@ When generated graphics are not enabled for a target, conservative capabilities 
 
 ### Requirement: AG-UI operations apply current admin access
 
-Every AG-UI route SHALL apply current admin access before handling capabilities, connect, runs, events, detach, or destination state. A valid empty list permits anonymous admission. A nonempty list requires an admin signature carried in headers. Payloads, stream URLs, events, and diagnostics SHALL omit proof material.
+Every AG-UI route SHALL apply current policy to the verified caller, target domain, canonical resource, and action before effects. Capabilities, connect, run, event publication, detach, and destination operations SHALL have distinct permissions. A run SHALL authorize prompt submission and observation of its output. Payloads, stream URLs, events, and diagnostics SHALL omit proof material.
 
 #### Scenario: Unauthenticated caller opens a stream
 
-- **WHEN** a caller without signed proof requests AG-UI connect or runs while the admin list has entries
+- **WHEN** a caller without signed proof requests AG-UI connect or runs when current policy requires proof
 - **THEN** the response is HTTP 401 before stream admission or prompt submission
 
 #### Scenario: Self uses AG-UI as a prompt path
 
-- **WHEN** a caller with only self proof posts an AG-UI run while the admin list has entries
+- **WHEN** a caller proves its managed identity and submits an AG-UI run with observation permission alone
 - **THEN** the response is HTTP 403 before submitting a gateway or native request
 
 #### Scenario: Admin attaches without starting work
 
-- **WHEN** a verified admin opens an AG-UI connect stream
+- **WHEN** an administrator with current observation permission opens an AG-UI connect stream
 - **THEN** existing sanitized snapshot and live-event semantics remain intact
-- **AND** authentication does not turn connection into agent work
+- **AND** the connection creates no agent work
 
 #### Scenario: Self probes capabilities or publishes events
 
-- **WHEN** a caller with only self proof requests AG-UI capabilities or publishes an event batch in key-required mode
+- **WHEN** a caller proves its managed identity and requests AG-UI capabilities or publishes an event batch outside its scoped permissions
 - **THEN** it receives HTTP 403 without private stream or routing effects
+
+#### Scenario: A scoped caller attaches without starting work
+
+- **WHEN** a verified caller who is not an administrator opens a stream for a resource it may observe
+- **THEN** the gateway delivers the existing sanitized snapshot and live events under that grant
+
+#### Scenario: Event publication resolves another destination
+
+- **WHEN** an event request resolves to a thread, run, or connection outside the caller's allowed resources
+- **THEN** the gateway denies publication before storing or delivering the events
 
 ### Requirement: AG-UI streams revalidate their admitted admin access
 
-AG-UI streams SHALL revalidate the admitted key and enrollment or the admitted empty-list revision, and the target, before event emission and at most every five seconds while idle. Loss of the admitted authority or policy SHALL close the stream before further protected events.
+AG-UI streams SHALL recheck caller, credential, admitted authority, target binding, and exact observation permission before event emission and at most every five seconds while idle. This includes the admitted admin key enrollment or open epoch when applicable. Loss of authority or unavailable policy SHALL close the stream before further protected events and preserve already-admitted work.
 
 #### Scenario: Connected admin key is revoked
 
-- **WHEN** an open stream observes that its credential has been removed
+- **WHEN** a stream admitted through named-admin authority observes that its credential or exact admin roster entry has been removed
 - **THEN** it closes and releases connection bookkeeping within the revalidation bound
 - **AND** underlying agent work continues under its existing execution contract
 
@@ -513,9 +523,15 @@ AG-UI streams SHALL revalidate the admitted key and enrollment or the admitted e
 
 #### Scenario: First enrollment closes an open admin stream
 
-- **WHEN** a stream was admitted anonymously and a first key is registered
+- **WHEN** a signed or anonymous stream was admitted through open authority and a first admin key is registered
 - **THEN** it closes on revalidation and releases its bookkeeping
-- **AND** a new stream uses the current admin access state
+- **AND** a new stream requires current observation permission
+
+#### Scenario: A connected caller loses observation permission
+
+- **WHEN** the current policy revokes observation of the stream's exact resource while the credential remains current
+- **THEN** the stream closes before emitting further protected events
+- **AND THEN** already-admitted agent work continues
 
 #### Scenario: Policy cannot be loaded during a stream
 
