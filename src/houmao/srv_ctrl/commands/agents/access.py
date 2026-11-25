@@ -168,8 +168,8 @@ def _update(
     *,
     selected_access: GatewayRuntimeAccess | None = None,
     **fields: object,
-) -> None:
-    """Apply a local owner mutation under the current target and policy fence."""
+) -> PolicySnapshot:
+    """Apply a fenced owner mutation and return the snapshot used in the receipt."""
 
     with _access_errors():
         access = selected_access if selected_access is not None else _owner_access()
@@ -182,6 +182,20 @@ def _update(
 
         state = access.store.update(apply, actor="owner", action=audit_action)
         emit(_summary(state, **fields))
+    return state
+
+
+def _grant_feedback(
+    state: PolicySnapshot, effect: str, principal_id: str, resource: str, action: str
+) -> None:
+    """Explain a stored direct grant change using the committed roster mode."""
+
+    message = f"Direct grant {effect} at policy revision {state.revision}."
+    if state.admin_mode == "open":
+        guidance = "The roster is open. Open admission still authorizes supported operations."
+    else:
+        guidance = f"Use `access explain {principal_id} {resource} {action}` for effective access."
+    click.echo(f"{message} {guidance}", err=True)
 
 
 @single_access_group.command(name="init")
@@ -211,6 +225,12 @@ def initialize_policy(empty: bool, seed: Path | None, manifest: Path | None) -> 
         )
         access.require_current()
         emit(_summary(state))
+        if state.admin_mode == "open":
+            click.echo(
+                "The roster is open. To enroll the first administrator, use "
+                "`access admin-add --first` with a verified attached gateway.",
+                err=True,
+            )
 
 
 @single_access_group.command(name="principal-add")
@@ -292,7 +312,10 @@ def grant_permission(principal_id: str, resource: str, action: str, expires_at: 
         )
         return state.model_copy(update={"grants": (*remaining, grant)})
 
-    _update("grant.put", change, principal_id=principal_id, resource=resource, action=action)
+    state = _update(
+        "grant.put", change, principal_id=principal_id, resource=resource, action=action
+    )
+    _grant_feedback(state, "recorded", principal_id, resource, action)
 
 
 @single_access_group.command(name="revoke")
@@ -315,7 +338,10 @@ def revoke_permission(principal_id: str, resource: str, action: str) -> None:
             raise GatewayAccessError(404, "unknown_grant")
         return state.model_copy(update={"grants": remaining})
 
-    _update("grant.revoke", change, principal_id=principal_id, resource=resource, action=action)
+    state = _update(
+        "grant.revoke", change, principal_id=principal_id, resource=resource, action=action
+    )
+    _grant_feedback(state, "removed", principal_id, resource, action)
 
 
 @single_access_group.command(name="role-put")

@@ -281,6 +281,10 @@ def test_managed_self_schema_migration_preserves_policy_and_rejects_unsafe_files
         connection.execute("DROP TABLE managed_self_keys")
         connection.execute("DROP TABLE managed_self_registrations")
         connection.execute("PRAGMA user_version = 1")
+    with pytest.raises(GatewayAccessError, match="policy is unavailable"):
+        store.snapshot(read_only=True)
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
     assert store.snapshot() == expected
     assert store.audit_entries(limit=1)[0].policy_revision == expected.revision
     registration = store.provision_self("first")

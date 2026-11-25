@@ -6,6 +6,7 @@ from functools import cache
 from html import escape
 from importlib.resources import files
 from string import Template
+from typing import Literal
 
 
 @cache
@@ -20,6 +21,7 @@ def render_dashboard(
     agent: str,
     backend: str,
     mode: str,
+    admin_mode: Literal["open", "keyed", "unavailable"],
     gateway_health: str,
     web_availability: str,
     web_entry_path: str | None,
@@ -27,14 +29,22 @@ def render_dashboard(
 ) -> str:
     """Render an escaped dashboard and the gateway's Web entry action."""
 
-    if web_entry_path is None:
+    if web_entry_path is None or admin_mode == "unavailable":
         web_entry = f"<p>{escape(web_entry_reason)}</p>"
     else:
-        web_entry = f'<a href="{escape(web_entry_path)}">Open agent Web UI</a>'
+        guidance = (
+            "The gateway opens the native Web UI directly."
+            if admin_mode == "open"
+            else "The gateway asks you to sign in before opening the native Web UI."
+        )
+        web_entry = (
+            f'<a href="{escape(web_entry_path)}">Open agent Web UI</a><p>{escape(guidance)}</p>'
+        )
     return _load_page().substitute(
         agent=escape(agent),
         backend=escape(backend),
         mode=escape(mode),
+        admin_mode=escape(admin_mode.capitalize()),
         gateway_health=escape(gateway_health),
         web_availability=escape(web_availability),
         web_entry=web_entry,

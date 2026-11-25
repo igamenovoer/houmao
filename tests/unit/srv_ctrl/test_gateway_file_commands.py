@@ -103,10 +103,11 @@ def _command(*args: str, style: str = "json", stdin: str | None = None) -> Resul
     return CliRunner().invoke(cli, [f"--print-{style}", *_SELECT, *args], input=stdin)
 
 
-def test_self_files_uses_only_the_managed_registration_for_idle_push(
-    transport: _Transport, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("outcome", ["queued", "busy"])
+def test_self_files_uses_only_the_managed_registration_for_push(
+    transport: _Transport, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, outcome: str
 ) -> None:
-    """Keep native self distinct from peer signers and surface a queued operation as accepted."""
+    """Use self proof and distinguish an accepted queue from a confirmed busy push."""
 
     manifest = tmp_path / "manifest.json"
     selected = SimpleNamespace(manifest_path=manifest)
@@ -116,7 +117,7 @@ def test_self_files_uses_only_the_managed_registration_for_idle_push(
         "candidate": _CANDIDATE,
         "expected_base": _BASE,
         "publisher": {"kind": "self", "principal_id": _TARGET.owner.agent_id},
-        "outcome": "queued",
+        "outcome": outcome,
     }
     monkeypatch.setattr(
         files, "_source_access", lambda agent_id: selected if agent_id is None else None
@@ -138,6 +139,7 @@ def test_self_files_uses_only_the_managed_registration_for_idle_push(
 
     monkeypatch.setattr(files, "owner_gateway_client_binding", managed_binding)
     runner = CliRunner()
+    scheduled = outcome == "queued"
     result = runner.invoke(
         cli,
         [
@@ -153,13 +155,25 @@ def test_self_files_uses_only_the_managed_registration_for_idle_push(
             _BASE,
             "--operation-id",
             "recorded",
-            "--when-idle",
+            *(["--when-idle"] if scheduled else []),
         ],
     )
-    assert result.exit_code == 0, result.output
-    assert json.loads(result.output)["outcome"] == "queued"
+    assert result.exit_code == (0 if scheduled else 1), result.output
+    assert json.loads(result.stdout) == file.FilePushReceipt.model_validate(
+        transport.results["push"]
+    ).model_dump(mode="json")
+    if scheduled:
+        assert not result.stderr
+    else:
+        assert "candidate remains saved" in result.stderr
+        assert "--when-idle" in result.stderr
+        assert "fresh operation ID" in result.stderr
+        assert "recorded base" in result.stderr
+    assert transport.events == ["push"]
     _, request, options = transport.calls[0]
-    assert isinstance(request, file.FilePushRequest) and request.when_idle
+    assert isinstance(request, file.FilePushRequest)
+    assert request.when_idle is scheduled
+    assert request.operation_id == "recorded"
     assert options["target_presence_id"] == _PRESENCE
     binding = options["binding"]
     assert isinstance(binding, GatewayClientBinding)
@@ -336,18 +350,60 @@ def test_trusted_remote_uses_independent_signer(
     assert len(transport.calls) == 1
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("mounts",),
+        ("--mount", _MOUNT, "read", "review/SKILL.md"),
+        ("--mount", _MOUNT, "push", _CANDIDATE, "--expected-base", _BASE),
+    ],
+)
+def test_keyed_file_preflight_explains_signer_selection(
+    transport: _Transport, command: tuple[str, ...]
+) -> None:
+    """Show signer guidance before reading or publishing without a caller selection."""
+
+    transport.endpoint = transport.endpoint.model_copy(update={"admin_mode": "keyed"})
+    keyed = _command(*_REMOTE, *command)
+    assert keyed.exit_code == 1
+    assert not keyed.stdout
+    assert "keyed admin roster" in keyed.stderr
+    assert "files --signer <key>" in keyed.stderr
+    assert "access list" in keyed.stderr
+    assert transport.events == ["verify"]
+    assert not transport.calls
+
+
+def test_file_preflight_distinguishes_unavailable_policy(transport: _Transport) -> None:
+    """Report unavailable policy without implying the roster is keyed."""
+
+    transport.endpoint = transport.endpoint.model_copy(update={"admin_mode": "unavailable"})
+    result = _command(*_REMOTE, "mounts")
+    assert result.exit_code == 1
+    assert not result.stdout
+    assert "Access policy is unavailable" in result.stderr
+    assert "--signer" not in result.stderr
+    assert transport.events == ["verify"]
+    assert not transport.calls
+
+
+def test_keyed_file_cli_honors_explicit_unsigned_selection(transport: _Transport) -> None:
+    """Let the verified gateway decide an explicitly unsigned request."""
+
+    transport.endpoint = transport.endpoint.model_copy(update={"admin_mode": "keyed"})
+    transport.results["mounts"] = {"mounts": []}
+    result = _command(*_REMOTE, "--unsigned", "mounts")
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == {"mounts": []}
+    assert transport.events == ["verify", "mounts"]
+    assert "binding" not in transport.calls[0][2]
+
+
 def test_file_cli_refuses_unverified_or_unauthorized_connection(
     transport: _Transport, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """Never downgrade to unsigned after refusal or attach a missing gateway."""
 
-    transport.endpoint = transport.endpoint.model_copy(update={"admin_mode": "keyed"})
-    keyed = _command(*_REMOTE, "mounts")
-    assert keyed.exit_code == 1
-    assert "Select an enrolled signer" in keyed.output
-    assert transport.events == ["verify"]
-
-    transport.endpoint = transport.endpoint.model_copy(update={"admin_mode": "open"})
     transport.results["mounts"] = GatewayHttpError(
         method="POST",
         url=_URL,
@@ -356,11 +412,15 @@ def test_file_cli_refuses_unverified_or_unauthorized_connection(
     )
     key = tmp_path / "invalid.key"
     key.touch(mode=0o600)
-    refused = _command(*_REMOTE, "--signer", str(key), "mounts")
+    refused = _command(*_REMOTE, "--signer", str(key), "--mount", _MOUNT, "mounts")
     assert refused.exit_code == 1
-    assert "HTTP 401" in refused.output
-    assert "private proof error" not in refused.output
-    assert transport.events == ["verify", "verify", "mounts"]
+    assert not refused.stdout
+    assert "HTTP 401" in refused.stderr
+    assert "Requested files mounts using caller selection --signer." in refused.stderr
+    assert f"files:{_MOUNT}" not in refused.stderr
+    assert "private proof error" not in refused.stderr
+    assert str(key) not in refused.stderr
+    assert transport.events == ["verify", "mounts"]
     assert "binding" in transport.calls[0][2]
 
     monkeypatch.setattr(access, "_owner_access", lambda: SimpleNamespace(manifest_path=key))
@@ -370,6 +430,43 @@ def test_file_cli_refuses_unverified_or_unauthorized_connection(
     assert "No gateway is attached" in detached.output
     assert transport.events[-1] == "mounts"
     assert len(transport.calls) == 1
+
+
+def test_denied_peer_push_reports_exact_attempted_effect(
+    transport: _Transport, tmp_path: Path
+) -> None:
+    """Use the safe gateway reason and validated mount instead of private details."""
+
+    key = tmp_path / "peer.key"
+    key.touch(mode=0o600)
+    transport.endpoint = transport.endpoint.model_copy(update={"admin_mode": "keyed"})
+    transport.results["push"] = GatewayHttpError(
+        method="POST",
+        url=_URL,
+        detail="private refusal body",
+        status_code=403,
+        error_code="insufficient_authority",
+    )
+    result = _command(
+        *_REMOTE,
+        "--signer",
+        str(key),
+        "--mount",
+        _MOUNT,
+        "push",
+        _CANDIDATE,
+        "--expected-base",
+        _BASE,
+    )
+    assert result.exit_code == 1
+    assert not result.stdout
+    assert "HTTP 403, insufficient_authority" in result.stderr
+    assert f"files.push on files:{_MOUNT}" in result.stderr
+    assert "caller selection --signer" in result.stderr
+    assert "access explain" in result.stderr
+    assert "private refusal body" not in result.stderr
+    assert str(key) not in result.stderr
+    assert transport.events == ["verify", "push"]
 
 
 @pytest.mark.parametrize("status_code", [None, 502])
@@ -386,7 +483,8 @@ def test_lost_push_reports_original_id_and_status_only(
     )
     attempted = _command(*_REMOTE, "--mount", _MOUNT, "push", _CANDIDATE, "--expected-base", _BASE)
     assert attempted.exit_code == 1
-    emitted = json.loads(attempted.output)
+    emitted = json.loads(attempted.stdout)
+    assert not attempted.stderr
     operation_id = emitted["operation_id"]
     request = transport.calls[0][1]
     assert isinstance(request, file.FilePushRequest)
@@ -443,9 +541,69 @@ def test_busy_receipt_keeps_references_without_fallback(transport: _Transport) -
         style="plain",
     )
     assert result.exit_code == 1
-    assert all(value in result.output for value in (operation_id, _CANDIDATE, "busy"))
-    assert len(result.output) < 800
+    assert all(value in result.stdout for value in (operation_id, _CANDIDATE, "busy"))
+    assert len(result.stdout) < 800
+    assert "candidate remains saved" in result.stderr
+    assert "When the target is ready" in result.stderr
+    assert "--when-idle" not in result.stderr
     assert transport.events == ["verify", "push"]
+
+
+@pytest.mark.parametrize("caller", ["peer", "owner", "unsigned self"])
+def test_non_self_busy_push_keeps_json_and_suggests_retry_after_readiness(
+    transport: _Transport, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caller: str
+) -> None:
+    """Give callers with other provenance a new attempt without scheduling advice."""
+
+    key = tmp_path / "signer.key"
+    key.touch(mode=0o600)
+    endpoint = access._VerifiedEndpoint(_URL, None, transport.endpoint)
+    publisher = {
+        "peer": {"kind": "agent", "principal_id": "reviewer"},
+        "owner": {"kind": "operator", "principal_id": "owner"},
+        "unsigned self": {"kind": "anonymous"},
+    }[caller]
+    transport.results["push"] = {
+        "operation_id": "busy-attempt",
+        "candidate": _CANDIDATE,
+        "expected_base": _BASE,
+        "publisher": publisher,
+        "outcome": "busy",
+    }
+    push_args = [
+        "--mount",
+        _MOUNT,
+        "push",
+        _CANDIDATE,
+        "--expected-base",
+        _BASE,
+        "--operation-id",
+        "busy-attempt",
+    ]
+    if caller == "unsigned self":
+        monkeypatch.setattr(files, "_source_access", lambda agent_id: object())
+        monkeypatch.setattr(files, "_local_verified_endpoint", lambda runtime: (endpoint, 1234))
+        result = CliRunner().invoke(
+            cli, ["--print-json", "agents", "self", "files", "--unsigned", *push_args]
+        )
+    elif caller == "owner":
+        monkeypatch.setattr(access, "_owner_access", object)
+        monkeypatch.setattr(access, "_local_verified_endpoint", lambda runtime: (endpoint, 1234))
+        result = _command("--signer", str(key), *push_args)
+    else:
+        result = _command(*_REMOTE, "--signer", str(key), *push_args)
+
+    assert result.exit_code == 1, result.output
+    assert json.loads(result.stdout) == file.FilePushReceipt.model_validate(
+        transport.results["push"]
+    ).model_dump(mode="json")
+    assert "When the target is ready" in result.stderr
+    assert "fresh operation ID" in result.stderr
+    assert "--when-idle" not in result.stderr
+    assert len(transport.calls) == 1
+    request = transport.calls[0][1]
+    assert isinstance(request, file.FilePushRequest)
+    assert not request.when_idle
 
 
 def test_file_subcommand_help_does_not_connect(transport: _Transport) -> None:

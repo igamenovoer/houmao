@@ -31,7 +31,7 @@ houmao-mgr --print-json agents self files --mount "$MOUNT_ID" push "$CANDIDATE_C
 
 Use `agents self files --mount "$MOUNT_ID" status "$OPERATION_ID"` to read a queued or settled receipt.
 
-If publication conflicts with a newer base, inspect the current revision and prepare a fresh draft for the intended changes. A confirmed busy result preserves the saved candidate. Any later attempt proceeds explicitly with a new operation ID after readiness.
+If publication conflicts with a newer base, inspect the current revision and prepare a fresh draft for the intended changes. A confirmed busy result preserves the saved candidate. Use the stderr hint to select an explicit new attempt with that candidate, its recorded base, and a fresh operation ID. A verified managed-self caller can request `--when-idle` explicitly. Other callers can make the new attempt once the target is ready. Use the receipt outcome to determine whether an intent was queued.
 
 ## Guardrails
 

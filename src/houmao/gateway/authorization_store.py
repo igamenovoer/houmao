@@ -299,10 +299,10 @@ class AuthorizationStore:
         except (OSError, sqlite3.Error, ValueError):
             raise GatewayAccessError(503, "policy_unavailable") from None
 
-    def snapshot(self) -> PolicySnapshot:
-        """Read and validate the latest committed policy independently of a live gateway."""
+    def snapshot(self, *, read_only: bool = False) -> PolicySnapshot:
+        """Read the latest committed policy, with schema migration disabled in read-only mode."""
 
-        with self._open() as connection:
+        with self._open(read_only=read_only) as connection:
             return self._snapshot(connection)
 
     def provision_self(self, generation_id: str) -> GatewaySelfKey:
@@ -437,16 +437,19 @@ class AuthorizationStore:
         _write_file(directory, _INITIALIZED, self.m_marker)
 
     @contextmanager
-    def _open(self) -> Iterator[sqlite3.Connection]:
+    def _open(self, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
         """Refuse missing, obsolete, unsafe, or foreign retained state."""
 
         try:
             with _private_directory(self.m_root) as directory:
                 self._require_marker(directory)
-                with _connect(directory) as connection:
+                with _connect(directory, read_only=read_only) as connection:
                     if connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID:
                         raise ValueError("invalid policy schema")
-                    if connection.execute("PRAGMA user_version").fetchone()[0] == 1:
+                    if (
+                        not read_only
+                        and connection.execute("PRAGMA user_version").fetchone()[0] == 1
+                    ):
                         self._migrate_self_schema(connection)
                     if connection.execute("PRAGMA user_version").fetchone()[0] != _DATABASE_VERSION:
                         raise ValueError("invalid policy schema")
@@ -498,7 +501,7 @@ class AuthorizationStore:
 
 
 @contextmanager
-def _connect(directory: int) -> Iterator[sqlite3.Connection]:
+def _connect(directory: int, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
     """Open SQLite under the verified directory and reject unsafe state inodes."""
 
     if stat.S_IMODE(os.fstat(directory).st_mode) != 0o700:
@@ -508,7 +511,8 @@ def _connect(directory: int) -> Iterator[sqlite3.Connection]:
         _check_database_file(directory, _DATABASE + suffix, required=False)
     # Resolve the database within the validated open directory, even if an
     # ancestor moves after validation.
-    uri = f"file:/proc/self/fd/{directory}/{_DATABASE}?mode=rw"
+    mode = "ro" if read_only else "rw"
+    uri = f"file:/proc/self/fd/{directory}/{_DATABASE}?mode={mode}"
     with closing(sqlite3.connect(uri, uri=True, timeout=2.0)) as connection:
         connection.execute("PRAGMA trusted_schema = OFF")
         connection.execute("PRAGMA synchronous = FULL")

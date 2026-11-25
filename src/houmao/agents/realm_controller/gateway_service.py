@@ -2925,8 +2925,8 @@ class GatewayServiceRuntime:
 
         return self._require_access_policy().issue(self._request_issuer(request), payload)
 
-    def endpoint_descriptor(self) -> GatewayEndpointDescriptor:
-        """Project current access requirements without exposing membership or secrets."""
+    def endpoint_descriptor(self, *, read_only: bool = False) -> GatewayEndpointDescriptor:
+        """Project current access requirements with optional read-only policy inspection."""
 
         access = self.m_access_runtime
         if access is None:
@@ -2935,7 +2935,7 @@ class GatewayServiceRuntime:
         admin: Literal["open", "keyed", "unavailable"]
         try:
             target = self._access_target()
-            admin = access.store.snapshot().admin_mode
+            admin = access.store.snapshot(read_only=read_only).admin_mode
         except GatewayAccessError:
             admin = "unavailable"
         return GatewayEndpointDescriptor(
@@ -3232,17 +3232,30 @@ class GatewayServiceRuntime:
             manifest = None
 
         agent = backend = mode = "Unavailable"
+        admin_mode: Literal["open", "keyed", "unavailable"] = "unavailable"
         availability = "Unavailable"
         reason = "The current managed agent is unavailable."
         if manifest is not None:
             agent = manifest.agent_name or manifest.agent_id
             backend, mode = manifest.backend, manifest.mode
+            try:
+                endpoint = self.endpoint_descriptor(read_only=True)
+            except GatewayAccessError:
+                pass
+            else:
+                if (
+                    endpoint.target.owner.agent_id == manifest.agent_id
+                    and endpoint.target.incarnation == manifest.registry_generation_id
+                ):
+                    admin_mode = endpoint.admin_mode
             if mode != "web":
                 availability = "Not applicable"
                 reason = "This agent's run mode has no native Web interface."
             elif self._dashboard_web_available(manifest):
                 availability = "Available"
-                reason = self._dashboard_web_entry_reason(request)
+                reason = self._dashboard_web_entry_reason(
+                    request, policy_available=admin_mode != "unavailable"
+                )
             else:
                 reason = "The native Web interface is unavailable."
 
@@ -3250,6 +3263,7 @@ class GatewayServiceRuntime:
             agent=agent,
             backend=backend,
             mode=mode,
+            admin_mode=admin_mode,
             gateway_health="Healthy" if self.health().status == "ok" else "Unavailable",
             web_availability=availability,
             web_entry_path=None if reason else WEB_ENTER_PATH,
@@ -3273,19 +3287,14 @@ class GatewayServiceRuntime:
         except (KeyError, OSError, RuntimeError, ValueError):
             return False
 
-    def _dashboard_web_entry_reason(self, request: Request) -> str:
+    def _dashboard_web_entry_reason(self, request: Request, *, policy_available: bool) -> str:
         """Explain why a live Web surface cannot be opened from this page."""
 
         try:
             require_web_entry_origin(request, self.owner_connect_url)
         except HTTPException:
             return "Open the owner-local gateway directly or through a private TCP forward."
-        try:
-            if self.endpoint_descriptor().admin_mode != "unavailable":
-                return ""
-        except GatewayAccessError:
-            pass
-        return "The gateway access policy is unavailable."
+        return "" if policy_available else "The gateway access policy is unavailable."
 
     def status(self) -> GatewayStatusV1:
         """Return the latest gateway status snapshot."""

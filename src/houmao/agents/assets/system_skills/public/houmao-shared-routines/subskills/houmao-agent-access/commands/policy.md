@@ -24,6 +24,8 @@ policy=(houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" acce
 
 Use `list` to show the retained principals, key fingerprints, grants, roles, and role assignments. `explain PRINCIPAL RESOURCE ACTION --key-id KEY_ID` limits the explanation to one enrolled key. A live-only operation can return an unresolved decision while the retained grant is present.
 
+Read the recorded change and policy revision from the `grant` or `revoke` output. The stderr guidance explains whether open admission still supplies authority at that revision. In keyed mode, use `access explain` to see the relevant grant, role, and key evidence for the action. Use `access list` for the current roster mode and default group.
+
 ## Other Operations
 
 | Intent | Scoped Access Command |

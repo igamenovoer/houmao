@@ -65,7 +65,7 @@ def _command(*args: str) -> Any:
 
     result = CliRunner().invoke(cli, [*_SELECT, *args])
     assert result.exit_code == 0, result.output
-    return json.loads(result.output)
+    return json.loads(result.stdout)
 
 
 def test_set_default_through_retained_policy(owner_access: SimpleNamespace, tmp_path: Path) -> None:
@@ -240,11 +240,88 @@ def test_empty_init_and_mismatched_owner(owner_access: SimpleNamespace) -> None:
 
     runner = CliRunner()
     assert runner.invoke(cli, [*_SELECT, "init"]).exit_code == 2
-    assert _command("init", "--empty")["admin_mode"] == "open"
+    first = runner.invoke(cli, [*_SELECT, "init", "--empty"])
+    assert first.exit_code == 0, first.output
+    assert json.loads(first.stdout)["admin_mode"] == "open"
+    assert "access admin-add --first" in first.stderr
+    assert "verified attached gateway" in first.stderr
+    snapshot = owner_access.store.snapshot()
+
+    existing = runner.invoke(cli, [*_SELECT, "init", "--empty"])
+    assert existing.exit_code == 0, existing.output
+    assert existing.stdout == first.stdout
+    assert existing.stderr == first.stderr
+    assert owner_access.store.snapshot() == snapshot
+    assert snapshot.credentials == ()
     owner_access.execution_binding = object()
     refused = runner.invoke(cli, [*_SELECT, "list"])
     assert refused.exit_code == 1
     assert "verified local execution owner" in refused.output
+
+
+@pytest.mark.parametrize("mode", ["open", "keyed"])
+def test_direct_grant_feedback_explains_committed_roster(
+    owner_access: SimpleNamespace, tmp_path: Path, mode: str
+) -> None:
+    """Report a stored row change and the policy that independently governs admission."""
+
+    runner = CliRunner()
+    if mode == "open":
+        _command("init", "--empty")
+    else:
+        admin, _, _ = _key(tmp_path, "operator")
+        seed = tmp_path / "seed.json"
+        seed.touch(mode=0o600)
+        seed.write_text(json.dumps({"schema_version": 2, "admin_keys": [admin.model_dump()]}))
+        initialized = runner.invoke(cli, [*_SELECT, "init", "--seed", str(seed)])
+        assert initialized.exit_code == 0, initialized.output
+        assert initialized.stderr == ""
+    _, _, reviewer_key = _key(tmp_path, "reviewer")
+    _command("principal-add", "reviewer", "--kind", "operator", "--label", "Reviewer")
+    _command("credential-enroll", "reviewer", "--public-key", str(reviewer_key))
+    resource = "files:" + "a" * 32
+    arguments = ["reviewer", resource, "files.push"]
+
+    for verb, effect, options in (
+        ("grant", "recorded", []),
+        ("grant", "recorded", ["--expires-at", "1"]),
+        ("revoke", "removed", []),
+    ):
+        result = runner.invoke(cli, [*_SELECT, verb, *arguments, *options])
+        assert result.exit_code == 0, result.output
+        snapshot = owner_access.store.snapshot()
+        assert json.loads(result.stdout) == {
+            "agent_id": _OWNER.agent_id,
+            "context_id": _OWNER.context_id,
+            "policy_revision": snapshot.revision,
+            "roster_revision": snapshot.roster_revision,
+            "admin_mode": mode,
+            "default_permission_group": "agent-requester",
+            "default_permission_group_version": 1,
+            "default_permission_revision": 0,
+            "principal_id": "reviewer",
+            "resource": resource,
+            "action": "files.push",
+        }
+        assert f"Direct grant {effect} at policy revision {snapshot.revision}" in result.stderr
+        if mode == "open":
+            assert "Open admission still authorizes supported operations" in result.stderr
+        else:
+            assert f"access explain reviewer {resource} files.push" in result.stderr
+        if options:
+            assert snapshot.grants[0].expires_at == 1
+        assert len(snapshot.grants) == (0 if verb == "revoke" else 1)
+
+    explained = _command("explain", *arguments)
+    assert explained["direct_grant"] is None
+    assert explained["keys"][0]["allowed"] is (mode == "open")
+    if mode == "open":
+        assert explained["keys"][0]["basis"] == "open"
+
+    missing = runner.invoke(cli, [*_SELECT, "revoke", *arguments])
+    assert missing.exit_code == 1, missing.output
+    assert missing.stdout == ""
+    assert "unknown_grant" in missing.stderr
 
 
 def test_signed_roster_rotation_reports_exact_effect(

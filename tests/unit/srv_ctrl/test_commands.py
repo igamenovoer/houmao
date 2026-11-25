@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,6 +24,10 @@ from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
     GatewayHttpError,
     SessionManifestError,
+)
+from houmao.agents.realm_controller.gateway_access_runtime import (
+    GatewayRuntimeAccess,
+    gateway_access_for_manifest,
 )
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputResultV1,
@@ -56,6 +61,7 @@ from houmao.mailbox.protocol import (
 from houmao.srv_ctrl.commands import managed_agents
 from houmao.srv_ctrl.commands.managed_agents import GatewayPromptControlCliError, ManagedAgentTarget
 from houmao.srv_ctrl.commands.main import cli, main
+from houmao.srv_ctrl.commands.output import collect_output_payloads
 from houmao.version import get_version
 from tests.unit.srv_ctrl.commands.test_self_manifest import _publish_manifest
 
@@ -1216,6 +1222,129 @@ def test_self_state_observes_runtime_read_only(
     assert response["identity"]["agent_id"] == "agent-id"
     assert response["control"]["source"] == "headless_artifacts"
     assert response["control"]["freshness"] == ("current" if has_exitcode else "unknown")
+
+
+@pytest.fixture
+def detached_state_authority(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> GatewayRuntimeAccess:
+    """Publish an agent without a live gateway using isolated owner configuration."""
+
+    _clear_self_context(monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    monkeypatch.setenv(HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, str(tmp_path / "registry"))
+    return gateway_access_for_manifest(_publish_manifest(tmp_path, "claude_headless"))
+
+
+@pytest.mark.parametrize("style", ["plain", "fancy"])
+def test_selected_state_renders_retained_owner_policy(
+    detached_state_authority: GatewayRuntimeAccess, style: str
+) -> None:
+    """Show only summary fields for a verified local agent without a live gateway."""
+
+    store = detached_state_authority.store
+    store.initialize()
+    store.update(
+        lambda snapshot: snapshot.model_copy(update={"default_permission_group": "agent-observer"}),
+        actor="owner",
+        action="admin.default-group.set",
+    )
+
+    result = CliRunner().invoke(
+        cli, [f"--print-{style}", "agents", "single", "--agent-name", "agent-name", "state"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "admin_mode" in result.stdout and "open" in result.stdout
+    assert "default_permission_group" in result.stdout and "agent-observer" in result.stdout
+    assert "default_permission_group_version" in result.stdout
+    assert "can_accept_prompt_now" in result.stdout
+    assert "credentials" not in result.stdout
+
+
+@pytest.mark.parametrize("stale_generation", [False, True])
+def test_selected_state_omits_unverified_owner_policy(
+    detached_state_authority: GatewayRuntimeAccess,
+    monkeypatch: pytest.MonkeyPatch,
+    stale_generation: bool,
+) -> None:
+    """Preserve ordinary state when owner policy is missing or from a replacement."""
+
+    if stale_generation:
+        detached_state_authority.store.initialize()
+        stale = replace(
+            detached_state_authority,
+            target=detached_state_authority.target.model_copy(
+                update={"incarnation": "replacement-generation"}
+            ),
+        )
+        monkeypatch.setattr(managed_agents, "resolve_owner_gateway_access", lambda **_: stale)
+
+    result = CliRunner().invoke(
+        cli, ["--print-plain", "agents", "single", "--agent-id", "agent-id", "state"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "can_accept_prompt_now" in result.stdout
+    assert "admin_mode" not in result.stdout
+    assert "default_permission_group" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("mode", "style", "collect"),
+    [
+        ("local", "json", False),
+        ("local", "fancy", True),
+        ("executor", "fancy", False),
+        ("server", "plain", False),
+        ("external", "plain", False),
+    ],
+)
+def test_selected_state_avoids_extra_policy_lookup(
+    detached_state_authority: GatewayRuntimeAccess,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    style: str,
+    collect: bool,
+) -> None:
+    """Keep machine-readable and non-owner paths independent of local policy."""
+
+    target = managed_agents.resolve_managed_agent_target(
+        agent_id=detached_state_authority.owner.agent_id,
+        agent_name=None,
+        port=None,
+        include_inactive=True,
+    )
+    payload = managed_agents.managed_agent_state_payload(target)
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_managed_agent_target",
+        lambda **_: replace(target, mode=mode),
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.managed_agent_state_payload", lambda _: payload
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "resolve_owner_gateway_access",
+        lambda **_: pytest.fail("Unexpected owner policy lookup"),
+    )
+    argv = [f"--print-{style}", "agents", "single", "--agent-id", "agent-id", "state"]
+
+    if collect:
+        with collect_output_payloads() as collected:
+            result = CliRunner().invoke(cli, argv)
+        assert result.exit_code == 0, result.output
+        assert collected == [payload.model_dump(mode="json")]
+        assert result.stdout == ""
+        return
+
+    result = CliRunner().invoke(cli, argv)
+    assert result.exit_code == 0, result.output
+    if style == "json":
+        assert json.loads(result.stdout) == payload.model_dump(mode="json")
+    else:
+        assert "can_accept_prompt_now" in result.stdout
+        assert "admin_mode" not in result.stdout
 
 
 def test_self_gateway_status_and_input_use_manifest_authority(

@@ -39,6 +39,7 @@ class _FileClient:
 
     endpoint: _VerifiedEndpoint
     client: GatewayClient
+    caller_selection: str
     mount: str | None
     draft: str | None
     capability: str | None
@@ -46,7 +47,7 @@ class _FileClient:
     def call(self, name: str, response: type[_Response], **fields: object) -> _Response:
         """Validate the exact local request before using the shared HTTP transport."""
 
-        model, _ = file.FILE_REQUESTS[name]
+        model, action = file.FILE_REQUESTS[name]
         common: dict[str, object] = {
             "target": self.endpoint.descriptor.target,
             "presence_id": self.endpoint.descriptor.presence_id,
@@ -60,7 +61,24 @@ class _FileClient:
                 raise click.UsageError("Select a draft with --draft.")
             common.update(draft_id=self.draft, lease_capability=self.capability)
         payload = model.model_validate({**common, **fields})
-        return self.client.request_file_edit(name, payload, response)
+        try:
+            return self.client.request_file_edit(name, payload, response)
+        except GatewayHttpError as error:
+            if error.status_code not in {401, 403}:
+                raise
+            effect = (
+                f"{action} on files:{payload.mount_id}"
+                if isinstance(payload, file.FileMountRequest)
+                else f"files {name}"
+            )
+            reason = f", {error.error_code}" if error.error_code is not None else ""
+            message = (
+                f"Gateway refused the operation (HTTP {error.status_code}{reason}). "
+                f"Requested {effect} using caller selection {self.caller_selection}."
+            )
+            if error.error_code == "insufficient_authority":
+                message += " The target owner can use 'access explain' to inspect permission."
+            raise click.ClickException(message) from None
 
     def emit(self, name: str, response: type[BaseModel], **fields: object) -> None:
         """Use the manager's existing text and JSON output modes."""
@@ -118,8 +136,10 @@ def single_files_group(
 
         endpoint = _verified_endpoint(url, context_id, generation, presence, ca_bundle)
         selected_signer = signer
+        caller_selection = "--signer" if signer is not None else "unsigned"
         if source_agent_id is not None or self_signer:
             selected_signer = _peer_signer_path(_source_access(source_agent_id))
+            caller_selection = "--self-signer" if self_signer else "--source-agent-id"
         if selected_signer is not None:
             client = endpoint.signed_client(selected_signer)
         elif unsigned or endpoint.descriptor.admin_mode == "open":
@@ -128,14 +148,20 @@ def single_files_group(
                 ca_bundle_path=endpoint.ca_bundle,
                 respect_proxy_env=False,
             )
+        elif endpoint.descriptor.admin_mode == "keyed":
+            raise click.ClickException(
+                "The verified gateway has a keyed admin roster. "
+                "Select an enrolled signer with 'files --signer <key>' before the file subcommand. "
+                "The target owner can use 'access list' to inspect enrollments."
+            )
         else:
-            raise click.ClickException("Select an enrolled signer for the verified gateway.")
+            raise click.ClickException("Access policy is unavailable on the verified gateway.")
         capability = (
             read_private_access_file(lease_capability_file, limit=64).decode("ascii").strip()
             if lease_capability_file is not None
             else None
         )
-        return _FileClient(endpoint, client, mount, draft, capability)
+        return _FileClient(endpoint, client, caller_selection, mount, draft, capability)
 
     ctx.meta["file_edit_client"] = connect
 
@@ -191,7 +217,8 @@ def self_files_group(
             if lease_capability_file is not None
             else None
         )
-        return _FileClient(endpoint, client, mount, draft, capability)
+        caller_selection = "unsigned" if unsigned else "managed self"
+        return _FileClient(endpoint, client, caller_selection, mount, draft, capability)
 
     ctx.meta["file_edit_client"] = connect
 
@@ -400,6 +427,17 @@ def _push(commit_id: str, expected_base: str, operation_id: str | None, *, when_
             emit({"operation_id": identifier, "candidate": commit_id, "outcome": "unconfirmed"})
             raise click.exceptions.Exit(1) from None
         emit(receipt)
+        if receipt.outcome == "busy":
+            recovery = (
+                "Submit an explicit 'agents self files push --when-idle' attempt"
+                if client.caller_selection == "managed self" and receipt.publisher.kind == "self"
+                else "When the target is ready, submit an explicit new push"
+            )
+            click.echo(
+                f"The candidate remains saved. {recovery} with that candidate, "
+                "its recorded base, and a fresh operation ID.",
+                err=True,
+            )
         if receipt.outcome != "published" and not (
             when_idle and receipt.outcome in {"queued", "pending"}
         ):

@@ -32,6 +32,8 @@ files=(houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" files
 
 Use the appropriate prefix with the same caller for the selected next operation. Supported actions describe the mount interface. Each action still requires the caller's current permission. A fresh home can have a different mount ID for the same display name.
 
+If a verified keyed gateway requires an explicit caller selection, put `--signer` on the `files` group before `mounts`. The target owner can use `agents single ... access list` to inspect enrollments. For a refusal, report the HTTP status and any recognized reason the CLI provides. Mount discovery has no single resource ID. For a denial on an exact mount, the target owner can use `access explain` with the principal, resource, and action.
+
 ## Guardrails
 
 - DO NOT attach a gateway or change a profile implicitly to make discovery succeed.

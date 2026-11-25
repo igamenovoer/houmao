@@ -126,6 +126,36 @@ _UNSIGNED_ROUTES = {
     "/v1/public/prompt",
 }
 _MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+_MAX_ERROR_BYTES = 64 * 1024
+_FILE_ACCESS_ERROR_CODES = {
+    401: frozenset({"proof_required", "invalid_proof"}),
+    403: frozenset(
+        {
+            "insufficient_authority",
+            "file_scheduling_requires_managed_self",
+            "file_target_changed",
+            "invalid_file_actor",
+            "lease_owner_required",
+        }
+    ),
+}
+
+
+class _GatewayAccessRefusal(BaseModel):
+    """Read the access response envelope without exposing remote error text."""
+
+    detail: dict[str, object]
+
+
+def _file_access_error_code(status: int, payload: bytes) -> str | None:
+    """Recognize an allowlisted reason associated with its actual HTTP status."""
+
+    try:
+        refusal = parse_access_document(_GatewayAccessRefusal, payload, max_bytes=_MAX_ERROR_BYTES)
+    except ValueError:
+        return None
+    code = refusal.detail.get("error_code")
+    return code if isinstance(code, str) and code in _FILE_ACCESS_ERROR_CODES[status] else None
 
 
 def gateway_client_respects_proxy_env(env: Mapping[str, str] | None = None) -> bool:
@@ -1258,16 +1288,20 @@ class GatewayClient:
     def _http_refusal(self, method: str, url: str, exc: error.HTTPError) -> GatewayHttpError:
         """Preserve safe admission outcomes and refuse any redirect."""
 
-        payload = exc.read(65537)
+        payload = exc.read(_MAX_ERROR_BYTES + 1)
+        error_code = None
         if 300 <= exc.code < 400:
             detail = "Gateway redirects are refused."
-        elif exc.code in {401, 403}:
+        elif exc.code in _FILE_ACCESS_ERROR_CODES:
             detail = "Gateway proof was refused."
-        elif len(payload) > 65536:
+            error_code = _file_access_error_code(exc.code, payload)
+        elif len(payload) > _MAX_ERROR_BYTES:
             detail = "Gateway error response exceeds its limit."
         else:
             detail = self._decode_error_body(payload)
-        return GatewayHttpError(method=method, url=url, detail=detail, status_code=exc.code)
+        return GatewayHttpError(
+            method=method, url=url, detail=detail, status_code=exc.code, error_code=error_code
+        )
 
     def _build_url(self, path: str) -> str:
         """Append an operation path without changing the selected origin or prefix."""

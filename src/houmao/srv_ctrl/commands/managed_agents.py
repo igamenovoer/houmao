@@ -2447,6 +2447,31 @@ def managed_agent_state_payload(target: ManagedAgentTarget) -> HoumaoManagedAgen
     )
 
 
+def managed_agent_state_policy_summary(target: ManagedAgentTarget) -> dict[str, str | int] | None:
+    """Read a bounded retained policy summary for the exact selected local owner."""
+
+    record = target.record
+    if target.mode != "local" or record is None:
+        return None
+    try:
+        access = resolve_owner_gateway_access(agent_id=record.agent_id, agent_name=None)
+        if (
+            access.manifest_path != Path(record.runtime.manifest_path)
+            or access.target.incarnation != record.generation_id
+            or access.execution_binding != record.execution_binding
+        ):
+            return None
+        access.require_current()
+        policy = access.store.snapshot(read_only=True)
+    except (click.ClickException, GatewayAccessError, SessionManifestError):
+        return None
+    return {
+        "admin_mode": policy.admin_mode,
+        "default_permission_group": policy.default_permission_group,
+        "default_permission_group_version": policy.default_permission_group_version,
+    }
+
+
 def managed_agent_detail_payload(target: ManagedAgentTarget) -> HoumaoManagedAgentDetailResponse:
     """Return a managed-agent detail payload for one resolved target."""
 

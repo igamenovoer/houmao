@@ -377,6 +377,56 @@ def test_direct_gateway_authentication_and_scoped_mount_visibility(
     assert fixture.post("mounts", auth=selected_admin).json()["mounts"]
 
 
+@pytest.mark.parametrize("keyed", [False, True])
+def test_direct_push_revocation_uses_current_roster_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, keyed: bool
+) -> None:
+    """Apply direct grant revocation independently of open and keyed admission."""
+
+    fixture = _Fixture(tmp_path, monkeypatch)
+    if keyed:
+        admin, admin_path = fixture_admin_key(tmp_path, "owner")
+        enroll_fixture_admin(fixture.client, admin, admin_path)
+    reviewer, reviewer_path = fixture_admin_key(tmp_path, "reviewer")
+    push_permission = Permission(resource=fixture.descriptor.resource, action=PUSH)
+    enroll_fixture_caller(
+        fixture.runtime,
+        reviewer,
+        permissions=(
+            Permission(resource=fixture.descriptor.resource, action=READ),
+            Permission(resource=fixture.descriptor.resource, action=EDIT),
+            push_permission,
+        ),
+    )
+    auth = FixtureProofAuth(reviewer_path)
+    candidate = fixture.candidate(auth=auth)
+    revoked = fixture.store.update(
+        lambda state: state.model_copy(
+            update={
+                "grants": tuple(row for row in state.grants if row.permission != push_permission)
+            }
+        ),
+        actor="owner",
+        action="grant.revoke",
+    )
+    assert {row.permission.action for row in revoked.grants} == {READ, EDIT}
+
+    result = fixture.post("push", fields=fixture.push_fields(candidate, "after-revoke"), auth=auth)
+    if keyed:
+        assert result.status_code == 403, result.text
+        assert result.json() == {"detail": {"error_code": "insufficient_authority"}}
+        assert fixture.mount.publishes == 0
+        assert fixture.mount.projection.published_marker() == fixture.descriptor.published_commit
+        diff = fixture.post("diff", fields={"commit_id": candidate}, auth=auth)
+        assert diff.is_success, diff.text
+        assert diff.json()["changes"][0]["path"] == "draft/SKILL.md"
+    else:
+        assert result.is_success, result.text
+        assert result.json()["published_commit"] == candidate
+        assert result.json()["publisher"]["principal_id"] == reviewer.principal
+        assert fixture.mount.publishes == 1
+
+
 @pytest.mark.parametrize("signed", [False, True])
 def test_open_epoch_change_refuses_pending_effect(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, signed: bool

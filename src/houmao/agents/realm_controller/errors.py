@@ -120,11 +120,15 @@ class GatewayHttpError(GatewayError):
         url: str,
         detail: str,
         status_code: int | None = None,
+        error_code: str | None = None,
     ) -> None:
+        """Keep the transport status and any recognized access reason."""
+
         self.method = method
         self.url = url
         self.detail = detail
         self.status_code = status_code
+        self.error_code = error_code
         status = f"status={status_code}" if status_code is not None else "status=unavailable"
         super().__init__(f"Gateway HTTP error for {method} {url}: {status}, detail={detail}")
 

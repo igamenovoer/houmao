@@ -4,6 +4,8 @@ Every gateway and passive ingress evaluates the retained policy for the selected
 
 First-key registration requires proof of the proposed key. Protected operations return HTTP 401 for missing or invalid proof, HTTP 403 when a verified caller lacks permission, HTTP 409 for a stale target or conflicting change, and HTTP 503 when required policy is unavailable. A 401 response includes the challenge location. Public health and endpoint metadata remain available if retained policy cannot be read. Audit records distinguish caller identity from the mailbox sender, plugin Actor, and native execution owner. [Authorization Policy](authorization-policy.md)
 
+The verified owner can run `houmao-mgr agents single --agent-id "$agent_id" access list` to inspect the roster mode, configured default group, and retained enrollments. Direct `grant` and `revoke` commands report the recorded change and policy revision on stderr. Open admission still authorizes supported operations at an open revision. For a keyed roster, use `access explain PRINCIPAL RESOURCE ACTION` to see the applicable permissions. With `--print-json`, the policy result appears on stdout.
+
 ## Provision and Retain Admin Access
 
 Use `houmao-mgr agents launch --gateway-admin-seed "$seed_file" ...` to record initial enrollment in the owner-written manifest. The seed file is owner-private JSON outside the checkout or in a purpose-specific subdirectory of its Git-ignored `tmp/` tree. Use `"schema_version": 2` and an `admin_keys` array of objects with `principal` and `public_key` fields. Use a complete OpenSSH public key line for each entry and a distinct public key for each enrollment. An omitted file or `{"schema_version":2,"admin_keys":[]}` selects the empty initial list.
@@ -11,6 +13,8 @@ Use `houmao-mgr agents launch --gateway-admin-seed "$seed_file" ...` to record i
 Each supported launch or join commits a new Ed25519 managed-self key for its generation in the execution owner's `authorization.sqlite3`. Launch commits the key before starting the native agent. Gateway readiness requires a matching private key and public registration. Gateway and passive ingress verify signatures from the public registration and its revision. Owner-local commands load the private key only for the verified live generation. Detach and reattach preserve the registration and issue fresh challenges for the new listener.
 
 The execution owner's captured configuration root locates the database. Its owner-only directory, database, and SQLite sidecars stay outside runtime manifests, shared registry artifacts, and remote file exports. Houmao stores the signing key without application-level encryption. Stable peer and admin enrollments, grants, and roles remain in the retained policy across restart and relaunch. Upgrade an existing SQLite policy in place and relaunch the managed agent to prepare its new self key. For earlier file-based roster state, explicitly initialize policy with `agents single access init --seed` or `--empty` before relaunching.
+
+When `access init` reports an open roster, its stderr guidance points to `access admin-add --first`. Initialization can use retained policy while detached. First-admin enrollment needs a verified attached gateway and proof of the proposed key. [Change a Live Admin Roster](authorization-policy.md#change-a-live-admin-roster)
 
 Run `houmao-mgr agents self access self-key rotate` to replace the current self key using its own proof. Add `--retained` when the gateway is detached. Use `revoke` to invalidate the key and keep its registration revision. An effective admin can recover a revoked or missing private key while the native runtime remains live with `houmao-mgr agents single --agent-id "$agent_id" access self-key rotate --retained --signer "$admin_key"`. Recovery and rotation commit a new revision and invalidate outstanding proofs from the previous key. These commands return the generation, key fingerprint, registration revision, and active state.
 
@@ -83,9 +87,9 @@ Use an already listed key to add another with `admin.add_admin_key(other_key)`. 
 
 ## Open a Live Web Agent
 
-On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gateway status` to find the live gateway's `gateway_port`. Open the owner-local base URL, for example `http://127.0.0.1:43123/`. The dashboard shows the agent's name or ID, backend, run mode, gateway health, and native Web availability.
+On the execution owner, use `houmao-mgr agents single --agent-id "$agent_id" gateway status` to find the live gateway's `gateway_port`. Open the owner-local base URL, for example `http://127.0.0.1:43123/`. The dashboard shows the agent's name or ID, backend, run mode, gateway health, native Web availability, and public roster mode. The roster mode is open, keyed, or unavailable. Use owner-local `access list` for enrollment details.
 
-Select **Open agent Web UI** when the dashboard offers it. The link opens `/v1/web/enter`. With a valid empty admin roster, the gateway opens the native app immediately. With enrolled keys, it opens the Houmao sign-in page.
+Select **Open agent Web UI** when the dashboard offers it. The page explains whether to expect direct entry or sign-in. The link opens `/v1/web/enter`, which checks the live policy when selected. With a valid empty admin roster, the gateway opens the native app immediately. With enrolled keys, it opens the Houmao sign-in page.
 
 For DSH Web, the handoff opens the manifest-bound conversation in the Workspace for its launch workdir. You can navigate to other native conversations. Houmao prompts and mail notifications still target the bound session. Select **Open agent Web UI** again to return to it. [DSH Browser Entry](../../run-phase/dsh-web.md#browser-entry-and-exact-session-selection)
 

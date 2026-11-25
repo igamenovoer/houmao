@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -28,6 +30,7 @@ from houmao.agents.realm_controller.owner_admission import OwnerAdmissionError
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
+    GatewayAdminKey,
     GatewayChallengeRequest,
     GatewayRequestBinding,
     load_gateway_signer,
@@ -92,7 +95,7 @@ def entry(
     return runtime, app, native, read_binding
 
 
-def _enroll(client: TestClient, tmp_path: Path) -> tuple[object, Path, FixtureProofAuth]:
+def _enroll(client: TestClient, tmp_path: Path) -> tuple[GatewayAdminKey, Path, FixtureProofAuth]:
     """Enroll a synthetic admin and select its proof for browser entry."""
 
     key, path = fixture_admin_key(tmp_path, "web-admin")
@@ -152,24 +155,38 @@ def dashboard_entry(entry, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.mark.parametrize("keyed", [False, True])
-def test_dashboard_web_link_follows_existing_admission(dashboard_entry, tmp_path, keyed):
+def test_dashboard_web_link_follows_existing_admission(
+    dashboard_entry, tmp_path, monkeypatch, keyed
+):
     """Public HTML shows a busy Web agent and lets the live entry route select the flow."""
 
     runtime, app, native, _, _, backend = dashboard_entry
     client = _client(app)
+    private_details = [_NATIVE, "synthetic-native-secret", "ticket=", "/private/example"]
+    private_details.extend(["agent-requester", "default_permission_group"])
     if keyed:
-        _enroll(client, tmp_path)
+        key, signer, _ = _enroll(client, tmp_path)
+        private_details.extend([key.principal, key.key_id, key.public_key, str(signer)])
+    endpoint = Mock(wraps=runtime.endpoint_descriptor)
+    monkeypatch.setattr(runtime, "endpoint_descriptor", endpoint)
     page = client.get("/")
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
-    _no_disclosure(page, _NATIVE, "synthetic-native-secret", "ticket=", "/private/example")
+    _no_disclosure(page, *private_details)
     assert "Agent &lt;example&gt;" in page.text
     assert "Agent <example>" not in page.text
     assert "<dd>dsh_web</dd>" in page.text
     assert "<dd>web</dd>" in page.text
     assert "<dd>Healthy</dd>" in page.text
     assert "<dd>Available</dd>" in page.text
+    expected_mode = "Keyed" if keyed else "Open"
+    assert f"<dt>Roster mode</dt><dd>{expected_mode}</dd>" in page.text
+    if keyed:
+        assert "sign in before opening the native Web UI" in page.text
+    else:
+        assert "opens the native Web UI directly" in page.text
     assert f'href="{WEB_ENTER_PATH}">Open agent Web UI</a>' in page.text
+    endpoint.assert_called_once_with(read_only=True)
     backend.observe_web_state_read_only.assert_called_once()
     backend.observe_web_state.assert_not_called()
     backend.browser_entry.assert_not_called()
@@ -201,15 +218,19 @@ def test_dashboard_non_web_shows_identity_without_entry(dashboard_entry, mode, b
     assert f"<dd>{manifest.agent_id}</dd>" in page.text
     assert f"<dd>{mode}</dd>" in page.text
     assert f"<dd>{backend}</dd>" in page.text
+    assert "<dt>Roster mode</dt><dd>Open</dd>" in page.text
     assert "has no native Web interface" in page.text
     assert "Open agent Web UI" not in page.text
     observer.observe_web_state_read_only.assert_not_called()
 
 
 @pytest.mark.parametrize(
-    "condition", ["unavailable", "stale", "different", "workspace", "owner", "policy"]
+    "condition",
+    ["unavailable", "stale", "different", "workspace", "owner", "policy", "policy_generation"],
 )
-def test_dashboard_reports_unavailable_entry(dashboard_entry, gateway_fixture_access, condition):
+def test_dashboard_reports_unavailable_entry(
+    dashboard_entry, gateway_fixture_access, monkeypatch, condition
+):
     """Unavailable authority or mismatched observations leave the public page readable."""
 
     runtime, app, native, _, _, backend = dashboard_entry
@@ -224,22 +245,66 @@ def test_dashboard_reports_unavailable_entry(dashboard_entry, gateway_fixture_ac
         state.pop("browser_workspace_id")
     elif condition == "owner":
         runtime._verified_owner_manifest.side_effect = OwnerAdmissionError("unavailable", "private")
+    elif condition == "policy_generation":
+        endpoint = runtime.endpoint_descriptor()
+        target = endpoint.target.model_copy(update={"incarnation": "replacement"})
+        monkeypatch.setattr(
+            runtime,
+            "endpoint_descriptor",
+            Mock(return_value=endpoint.model_copy(update={"target": target})),
+        )
     else:
         (gateway_fixture_access.private_root / "authorization.sqlite3").unlink()
     page = _client(app).get("/")
     assert page.status_code == 200
     assert "<dd>Healthy</dd>" in page.text
     assert "unavailable" in page.text
+    expected_mode = (
+        "Unavailable" if condition in {"owner", "policy", "policy_generation"} else "Open"
+    )
+    assert f"<dt>Roster mode</dt><dd>{expected_mode}</dd>" in page.text
     assert "Open agent Web UI" not in page.text
     native.assert_not_called()
 
 
-def test_dashboard_proxy_explains_owner_local_entry(dashboard_entry):
+def test_dashboard_policy_observation_does_not_migrate_legacy_store(
+    dashboard_entry, gateway_fixture_access
+):
+    """Treat an obsolete schema as unavailable on the public dashboard."""
+
+    _, app, native, _, _, _ = dashboard_entry
+    database = gateway_fixture_access.private_root / "authorization.sqlite3"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("DROP TABLE managed_self_keys")
+        connection.execute("DROP TABLE managed_self_registrations")
+        connection.execute("PRAGMA user_version = 1")
+
+    client = _client(app)
+    page = client.get("/")
+    assert page.status_code == 200
+    assert "<dt>Roster mode</dt><dd>Unavailable</dd>" in page.text
+    assert f'href="{WEB_ENTER_PATH}"' not in page.text
+    native.assert_not_called()
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+
+    discovery = client.get("/v1/endpoint")
+    assert discovery.status_code == 200
+    assert discovery.json()["admin_mode"] == "open"
+
+
+@pytest.mark.parametrize("keyed", [False, True])
+def test_dashboard_proxy_explains_owner_local_entry(dashboard_entry, tmp_path, keyed):
     """Proxy readers can see the summary but have no browser entry link."""
 
     _, app, native, _, _, _ = dashboard_entry
-    page = _client(app).get("https://example.test/", headers={"X-Forwarded-Proto": "https"})
+    client = _client(app)
+    if keyed:
+        _enroll(client, tmp_path)
+    page = client.get("https://example.test/", headers={"X-Forwarded-Proto": "https"})
     assert page.status_code == 200
+    expected_mode = "Keyed" if keyed else "Open"
+    assert f"<dt>Roster mode</dt><dd>{expected_mode}</dd>" in page.text
     assert "private TCP forward" in page.text
     assert "Open agent Web UI" not in page.text
     native.assert_not_called()

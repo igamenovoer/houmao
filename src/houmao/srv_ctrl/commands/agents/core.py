@@ -217,6 +217,7 @@ from ..managed_agents import (
     interrupt_managed_agent,
     list_managed_agents,
     managed_agent_state_payload,
+    managed_agent_state_policy_summary,
     managed_agent_native_home,
     managed_agent_common_plugin_state,
     open_managed_agent_browser,
@@ -2113,8 +2114,12 @@ def state_agent_command(port: int | None, agent_id: str | None, agent_name: str 
     )
     emit(
         managed_agent_state_payload(target),
-        plain_renderer=render_agent_state_plain,
-        fancy_renderer=render_agent_state_fancy,
+        plain_renderer=lambda payload: render_agent_state_plain(
+            payload, owner_policy=managed_agent_state_policy_summary(target)
+        ),
+        fancy_renderer=lambda payload: render_agent_state_fancy(
+            payload, owner_policy=managed_agent_state_policy_summary(target)
+        ),
     )
 
 

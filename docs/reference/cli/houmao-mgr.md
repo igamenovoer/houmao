@@ -137,6 +137,8 @@ Project launch can select an already-provisioned execution owner with `--executo
 | Register an external reference | `houmao-mgr agents external register --name <local-name> --api-base-url <url> --agent-ref <remote-ref>` |
 | Project-backed launch | `houmao-mgr project agents launch --profile <name>` |
 
+Plain and fancy `agents single state` output includes the retained roster mode and default permission group and version when the CLI can verify the selected local owner's policy. The gateway can be detached. Use `agents single ... access list` in the owner context for retained enrollments and signer identities. `--print-json` returns the operational state payload.
+
 A selected-agent `prompt` can reach a TUI peer with its gateway detached. Houmao checks the owner's readiness and hands off input at the recorded pane on the peer's socket. The caller needs access to that owner route. A successful TUI handoff reports delivery to the terminal.
 
 #### Migration Examples
@@ -163,6 +165,8 @@ New agents use UUIDs by default. `--agent-id` supplies an opaque stable ID; expl
 Mail lifecycle operations require `--channel offline|online`. Summary `mail status` and `resolve-live` expose both slots. Use `--expected-binding-id` from status or round context to pin an operation; stale targeting fails without retrying another mailbox. Canonical mail identity prefers configured online mail, then offline, and never routes delivery. Offline join/leave uses `mailbox offline status|join|leave` without restarting the body.
 
 Gateway commands live under both selected-agent and current-session surfaces: `agents single --agent-id <id> gateway ...`, `agents single --agent-name <name> gateway ...`, and `agents self gateway ...`. The gateway family includes `attach`, `detach`, `status`, `prompt`, `interrupt`, `send-keys`, `tui state|history|watch|note-prompt`, `mail-notifier status|enable|disable --channel <offline|online>`, and `reminders list|get|create|set|remove`. The single surface is explicit selected-agent authority; the self surface is current-session authority and does not expose explicit selectors.
+
+On a verified keyed gateway, select an enrolled signer before a versioned-file subcommand, as in `houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" files --signer "$SIGNER" mounts`. An explicitly unsigned request uses the target's unsigned admission policy. If the gateway denies the selected caller, use the attempted action, mount, and available reason from stderr. The target owner can use `access list` and `access explain PRINCIPAL RESOURCE ACTION` to inspect the enrollment and effective permission. [Versioned Gateway File Edits](../gateway/operations/versioned-file-edits.md)
 
 Mail commands also live under both selected-agent and current-session surfaces. The maintained subcommands are `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`. `resolve-live` returns structured mailbox binding data plus optional `gateway.base_url`; mailbox-specific shell export is not part of the supported contract. Verified pair-owned and manager-owned execution returns authoritative results, while local live-TUI fallback is non-authoritative submission-only. Use `status`, `list`, gateway `/v1/mail/*`, filesystem mailbox inspection, or transport-native mailbox state to verify non-authoritative outcomes.
 

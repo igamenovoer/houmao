@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
 from pathlib import Path
 import threading
 from types import SimpleNamespace
+from urllib.error import HTTPError
 from urllib.request import Request
 
 import pytest
@@ -36,6 +38,7 @@ from houmao.gateway.access import (
 
 from houmao.gateway.authorization_models import seed_snapshot
 from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.gateway.file_edits.contracts import FileReadRequest, FileReadResponse
 from houmao.gateway.operations import WEB_ENTRY
 from tests.fixtures.gateway_access import fixture_admin_key
 
@@ -66,6 +69,60 @@ class _HealthHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         """Suppress noisy test-server logs."""
+
+
+@pytest.mark.parametrize(
+    ("status", "body", "reason"),
+    [
+        (
+            401,
+            b'{"detail":{"error_code":"proof_required","challenge_path":"/v1/auth/challenge"}}',
+            "proof_required",
+        ),
+        (
+            403,
+            b'{"detail":{"error_code":"insufficient_authority","message":"private-marker"}}',
+            "insufficient_authority",
+        ),
+        (401, b'{"detail":{"error_code":"insufficient_authority"}}', None),
+        (403, b'{"detail":{"error_code":"private-marker"}}', None),
+        (403, b'{"detail":{"error_code":["private-marker"]}}', None),
+        (
+            403,
+            b'{"detail":{"error_code":"insufficient_authority","error_code":"private-marker"}}',
+            None,
+        ),
+        (403, b'{"detail":private-marker', None),
+        (403, b'{"detail":{"error_code":"insufficient_authority"}}' + b" " * 65536, None),
+    ],
+)
+def test_file_access_refusal_preserves_only_known_reason(
+    monkeypatch: pytest.MonkeyPatch, status: int, body: bytes, reason: str | None
+) -> None:
+    """Keep an allowlisted access reason without rendering the remote error body."""
+
+    def refuse(request: Request, *, timeout: float) -> None:
+        """Refuse the exact file operation at the HTTP transport boundary."""
+
+        raise HTTPError(request.full_url, status, "refused", {}, BytesIO(body))
+
+    client = GatewayClient(base_url="http://127.0.0.1:43123", respect_proxy_env=False)
+    monkeypatch.setattr(client.m_opener, "open", refuse)
+    payload = FileReadRequest(
+        target=GatewayTarget(
+            owner=GatewayOwner(agent_id="agent", context_id="context"), incarnation="current"
+        ),
+        presence_id="current",
+        mount_id="a" * 32,
+        path="release-notes/SKILL.md",
+    )
+    with pytest.raises(GatewayHttpError) as caught:
+        client.request_file_edit("read", payload, FileReadResponse)
+
+    assert caught.value.status_code == status
+    assert caught.value.error_code == reason
+    assert caught.value.detail == "Gateway proof was refused."
+    assert "private-marker" not in str(caught.value)
 
 
 def test_gateway_client_refuses_redirects_and_retargeting() -> None:

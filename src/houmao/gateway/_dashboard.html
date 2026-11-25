@@ -62,6 +62,7 @@
       font-weight: 600;
     }
     .action a:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
+    .action a + p { margin-top: .5rem; }
   </style>
 </head>
 <body>
@@ -73,6 +74,7 @@
         <div><dt>Backend</dt><dd>$backend</dd></div>
         <div><dt>Run mode</dt><dd>$mode</dd></div>
         <div><dt>Gateway health</dt><dd>$gateway_health</dd></div>
+        <div><dt>Roster mode</dt><dd>$admin_mode</dd></div>
         <div><dt>Native Web availability</dt><dd>$web_availability</dd></div>
       </dl>
       <div class="action">$web_entry</div>

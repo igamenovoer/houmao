@@ -72,7 +72,9 @@ def render_agent_list_fancy(payload: object) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _agent_state_fields(data: dict[str, Any]) -> list[tuple[str, str]]:
+def _agent_state_fields(
+    data: dict[str, Any], owner_policy: Mapping[str, str | int] | None
+) -> list[tuple[str, str]]:
     """Read recorded metadata and qualified observation fields for state renderers."""
 
     fields: list[tuple[str, str]] = []
@@ -105,6 +107,8 @@ def _agent_state_fields(data: dict[str, Any]) -> list[tuple[str, str]]:
     gateway = data.get("gateway")
     if isinstance(gateway, dict):
         fields.append(("gateway", _pv(gateway.get("gateway_health"))))
+    if owner_policy is not None:
+        fields.extend((name, str(value)) for name, value in owner_policy.items())
     mailboxes = data.get("mailboxes")
     if isinstance(mailboxes, dict):
         for channel in ("offline", "online"):
@@ -125,7 +129,9 @@ def _agent_state_fields(data: dict[str, Any]) -> list[tuple[str, str]]:
     return fields
 
 
-def render_agent_state_plain(payload: object) -> None:
+def render_agent_state_plain(
+    payload: object, *, owner_policy: Mapping[str, str | int] | None = None
+) -> None:
     """Render agent state as key-value lines with essential fields first."""
     data = _as_dict(payload)
     if not data:
@@ -142,11 +148,13 @@ def render_agent_state_plain(payload: object) -> None:
     avail = data.get("availability", "unknown")
     click.echo(f"  availability:  {avail}")
 
-    for name, value in _agent_state_fields(data):
+    for name, value in _agent_state_fields(data, owner_policy):
         click.echo(f"  {name}: {value}")
 
 
-def render_agent_state_fancy(payload: object) -> None:
+def render_agent_state_fancy(
+    payload: object, *, owner_policy: Mapping[str, str | int] | None = None
+) -> None:
     """Render agent state as a rich panel."""
     from rich.console import Console
     from rich.table import Table
@@ -171,7 +179,7 @@ def render_agent_state_fancy(payload: object) -> None:
     style = "green" if avail == "available" else "red" if avail == "error" else "yellow"
     table.add_row("availability", f"[{style}]{avail}[/{style}]")
 
-    for name, value in _agent_state_fields(data):
+    for name, value in _agent_state_fields(data, owner_policy):
         table.add_row(name, Text(value))
 
     Console().print(table)

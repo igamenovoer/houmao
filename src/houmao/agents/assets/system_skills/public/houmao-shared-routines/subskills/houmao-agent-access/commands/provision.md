@@ -29,7 +29,7 @@ houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" access init 
   --manifest "$TARGET_RUNTIME_MANIFEST" --seed "$SEED_FILE"
 ```
 
-Initialization of an already initialized target reports its current roster. For a later live roster change, follow [Admin Roster](admin-roster.md).
+Initialization of an already initialized target reports its current roster. If the result is open, stderr points to `access admin-add --first` for first-admin enrollment against a verified attached gateway. For the enrollment command and signer inputs, follow [Admin Roster](admin-roster.md).
 
 ## Guardrails
 
