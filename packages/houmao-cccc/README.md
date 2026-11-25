@@ -8,7 +8,9 @@ pixi run python -m build --wheel packages/houmao-cccc
 python -m pip install packages/houmao-cccc/dist/houmao_cccc-0.3.0-py3-none-any.whl
 ```
 
-The distribution requires Houmao `>=3.0.0rc8,<4` and CCCC external receiver protocol `2`. Its `cccc` entry point uses Houmao's public gateway SDK. In a managed agent, `houmao-cccc` can discover and authenticate to the agent's gateway. An enrolled caller can instead pass the exact `--gateway-url`, `--instance`, and `--signer-binding`. Replies use `chat reply --handle HANDLE --operation-id ID --text TEXT`. The handle identifies its plugin instance for managed-self selection. New gateway sends take `--connection-token` from `members`.
+The distribution requires Houmao `>=3.0.0rc8,<4` and CCCC external receiver protocol `2`. Its `cccc` entry point uses Houmao's public gateway SDK. In a managed agent, `houmao-cccc` can discover and authenticate to the agent's gateway. An enrolled caller can instead pass the exact `--gateway-url`, `--instance`, and `--signer-binding`. Replies use `chat reply --handle HANDLE --operation-id ID --text TEXT`. The handle identifies its plugin instance for managed-self selection and also works with `chat deliveries --handle HANDLE`. New gateway sends take `--connection-token` from `members`.
+
+The selected gateway instance or direct Actor profile determines the CCCC Group. Use `members --group GROUP_ID` to assert that selection. A mismatch returns `group_conflict`. Run `houmao-cccc --version` to see the installed version and `houmao-cccc --help` for examples in both modes.
 
 Build the pinned CCCC source with the tracked receiver patches. Each plugin instance selects one provisioned Group, Actor, and Actor generation for one Houmao owner. The gateway supports scheduled pull and two push policies. CCCC retains pending chat and delivery outcomes. A live receiver lease controls intake, and the original sender authorizes another attempt for terminal work. [Integration reference](../../docs/reference/gateway/cccc.md) · [Native example](../../examples/cccc-gateway/README.md)
 
@@ -18,6 +20,8 @@ Use `--direct-profile` to select the same private Actor profile format used by t
 
 ```bash
 houmao-cccc --direct-profile "$CCCC_PROFILE" discovery
+houmao-cccc --direct-profile "$CCCC_PROFILE" members --group "$GROUP_ID"
+houmao-cccc --direct-profile "$CCCC_PROFILE" chat deliveries --event-id "$EVENT_ID"
 houmao-cccc --direct-profile "$CCCC_PROFILE" chat pull --limit 16
 houmao-cccc --direct-profile "$CCCC_PROFILE" chat ack --receipt "$RECEIPT"
 houmao-cccc --direct-profile "$CCCC_PROFILE" chat reply \

@@ -66,6 +66,8 @@ def test_independent_wheels_in_both_gateway_process_modes(tmp_path: Path) -> Non
     assert report["checkout_imports"] is False
     assert report["offline_install"] is True
     assert report["actual_cccc"] is True
+    assert report["receiver_protocol_version"] == 2
+    assert report["cli_version_matches_metadata"] is True
     assert report["cleanup"] == "completed"
     assert {mode["execution_mode"] for mode in report["modes"]} == {
         "detached_process",
@@ -88,6 +90,9 @@ def test_independent_wheels_in_both_gateway_process_modes(tmp_path: Path) -> Non
             "live_push_batch",
             "direct_cli_with_mail",
             "gateway_absence_pending_recovery",
+            "installed_receipt_targets",
+            "limited_receipt_history",
+            "group_assertions",
         ):
             assert mode[evidence] is True
     outcomes = {mode["execution_mode"]: mode for mode in report["modes"]}

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Sequence
+from importlib.metadata import version
 import json
 import os
 from pathlib import Path
 import re
 import sys
-from typing import cast
+from typing import Any, NoReturn, cast
 from urllib.parse import quote, unquote, urlencode, urlsplit
 
 import httpx
@@ -29,6 +31,7 @@ from houmao_cccc.configuration import (
     MAIL_MAX_LIMIT,
     CcccConfiguration,
     normalize_endpoint,
+    valid_group_assertion,
 )
 from houmao_cccc.direct import invoke_direct, load_direct_profile
 from houmao_cccc.models import JSON_OBJECT
@@ -37,20 +40,117 @@ from houmao_cccc.models import JSON_OBJECT
 _INSTANCE_PATTERN = r"[a-z][a-z0-9-]{0,62}"
 _PLUGIN_ROUTE = re.compile(rf"^/v1/plugins/{_INSTANCE_PATTERN}(?:/|$)")
 _MESSAGE_HANDLE = re.compile(rf"msg_(?P<instance>{_INSTANCE_PATTERN})\.[A-Za-z0-9_-]{{1,128}}")
+_OPTION_NAME = re.compile(r"--?[A-Za-z][A-Za-z0-9-]{0,63}")
 _GATEWAY_URL_GUIDANCE = (
     "Use the gateway base URL, such as http://127.0.0.1:43000, with --gateway-url. "
     "Select the plugin with --instance."
 )
+_HISTORY_GUIDANCE = "Select the exact message in authorized CCCC chat history."
+_GATEWAY_GROUP_GUIDANCE = "Select the intended Group with --gateway-url and --instance."
+_DIRECT_GROUP_GUIDANCE = "Select a --direct-profile for the intended Group."
+_COMMON_COMMANDS = """\
+Gateway commands (verified managed self):
+  houmao-cccc binding
+  houmao-cccc members --group "$GROUP_ID"
+  houmao-cccc chat send --connection-token "$CONNECTION_TOKEN" --to "$ACTOR_ID" --operation-id "$SEND_ID" --text 'Please review this.'
+  houmao-cccc chat reply --handle "$HANDLE" --operation-id "$REPLY_ID" --text 'Reviewed.'
+  houmao-cccc chat history --limit 20
+  houmao-cccc chat deliveries --handle "$HANDLE"
+
+  The instance selects the Group. Use the connection_token from members.
+  Take the handle from the incoming request or event.handle from your send.
+  For explicit gateway selection, place --gateway-url, --instance and any
+  required --signer-binding before the command.
+
+Direct commands (explicit Actor profile):
+  houmao-cccc --direct-profile "$PROFILE" members --group "$GROUP_ID"
+  houmao-cccc --direct-profile "$PROFILE" chat pull
+  houmao-cccc --direct-profile "$PROFILE" chat reply --event-ref "$EVENT_REF" --operation-id "$REPLY_ID" --text 'Reviewed.'
+  houmao-cccc --direct-profile "$PROFILE" chat deliveries --event-id "$EVENT_ID"
+
+  Use the event_ref from direct chat pull to reply. For deliveries use the
+  native event ID from chat history or a send result. Unmanaged direct
+  callers must also set --agent-id before the command.
+"""
 
 
-class _GatewaySelectionError(ValueError):
-    """Carry a fixed diagnostic for a failure before any gateway request."""
+class _CliInputError(ValueError):
+    """Carry a fixed diagnostic for a failure before any service request."""
 
     def __init__(self, error_code: str, message: str) -> None:
         """Store a safe diagnostic for CLI output."""
 
         super().__init__(message)
         self.m_error_code: str = error_code
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    """Avoid argparse diagnostics that interpolate arbitrary input values."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Keep option identity separate from argparse's diagnostic text."""
+
+        super().__init__(exit_on_error=False, **kwargs)
+
+    def error(self, message: str) -> NoReturn:
+        """Report invalid syntax with a fixed help pointer."""
+
+        self._exit_usage("invalid_usage")
+
+    def _exit_usage(self, code: str, option: str | None = None) -> NoReturn:
+        """Emit only a fixed message and a safe option identifier."""
+
+        detail = {"error_code": code, "guidance": f"Run {self.prog} --help."}
+        if option is not None and _OPTION_NAME.fullmatch(option):
+            detail["option"] = option
+        self.exit(2, json.dumps(detail) + "\n")
+
+    def parse_cli_args(self, args: Sequence[str] | None) -> argparse.Namespace:
+        """Name an unsupported option while keeping the rest of argv private."""
+
+        try:
+            parsed, remaining = self.parse_known_args(args)
+        except argparse.ArgumentError as exc:
+            self._exit_usage("invalid_usage", exc.argument_name)
+        if remaining:
+            option = remaining[0].partition("=")[0]
+            if not _OPTION_NAME.fullmatch(option):
+                self._exit_usage("invalid_usage")
+            self._exit_usage("unsupported_option", option)
+        return parsed
+
+
+class _InstalledVersion(argparse.Action):
+    """Report the distribution version without loading connection inputs."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        """Read package metadata only when the version option is used."""
+
+        print(f"{parser.prog} {version('houmao-cccc')}")
+        parser.exit()
+
+
+class _SingleTarget(argparse.Action):
+    """Require one occurrence of a receipt selector."""
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: object,
+        option_string: str | None = None,
+    ) -> None:
+        """Reject a repeated selector before a request can be built."""
+
+        if getattr(namespace, self.dest) is not None:
+            raise argparse.ArgumentError(self, "Provide one receipt target")
+        setattr(namespace, self.dest, values)
 
 
 def _text_arguments(parser: argparse.ArgumentParser) -> None:
@@ -77,7 +177,7 @@ def _target_arguments(parser: argparse.ArgumentParser) -> None:
     target.add_argument("--event-id")
 
 
-def _mail_arguments(commands: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+def _mail_arguments(commands: argparse._SubParsersAction[_ArgumentParser]) -> None:
     """Declare explicit deferred operations and caller-selected consumption bounds."""
 
     mail = commands.add_parser("mail").add_subparsers(dest="action", required=True)
@@ -107,10 +207,17 @@ def _mail_arguments(commands: argparse._SubParsersAction[argparse.ArgumentParser
     reads.add_argument("--read-ref")
 
 
-def _parser() -> argparse.ArgumentParser:
+def _parser() -> _ArgumentParser:
     """Build the common command inventory and explicit connection selectors."""
 
-    parser = argparse.ArgumentParser(prog="houmao-cccc")
+    parser = _ArgumentParser(
+        prog="houmao-cccc",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_COMMON_COMMANDS,
+    )
+    parser.add_argument(
+        "--version", action=_InstalledVersion, nargs=0, help="Show installed version"
+    )
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument(
         "--gateway-url",
@@ -123,8 +230,18 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--instance", help="Gateway plugin instance, default cccc")
     parser.add_argument("--timeout", type=float, default=30.0)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("binding", "capabilities", "discovery", "members"):
+    for name in ("binding", "capabilities", "discovery"):
         commands.add_parser(name)
+    members = commands.add_parser(
+        "members",
+        description="List members of the Group selected by the gateway or direct profile.",
+    )
+    members.add_argument(
+        "--group",
+        action="append",
+        metavar="GROUP_ID",
+        help="Check that the selected Group matches.",
+    )
     connection = commands.add_parser("connection").add_subparsers(dest="action", required=True)
     for name in ("connect", "disconnect", "reconnect", "refresh-credentials"):
         item = connection.add_parser(name)
@@ -160,7 +277,16 @@ def _parser() -> argparse.ArgumentParser:
         description="List delivery attempts for one event, newest first by creation. "
         "The response sets has_more when older attempts were omitted.",
     )
-    _target_arguments(deliveries)
+    delivery_target = deliveries.add_mutually_exclusive_group(required=True)
+    delivery_target.add_argument(
+        "--handle", action=_SingleTarget, help="Gateway mode: short message handle"
+    )
+    delivery_target.add_argument(
+        "--event-ref", action=_SingleTarget, help="Gateway mode: scoped event reference"
+    )
+    delivery_target.add_argument(
+        "--event-id", action=_SingleTarget, help="Direct mode: native event ID"
+    )
     deliveries.add_argument(
         "--limit", type=int, default=50, help="Return up to this many newest attempts (1 to 100)."
     )
@@ -203,6 +329,27 @@ def _event_target(arguments: argparse.Namespace, direct: bool) -> dict[str, Json
     if direct:
         return {"event_id": arguments.event_id}
     return {"event_ref": arguments.event_ref}
+
+
+def _delivery_target(arguments: argparse.Namespace, direct: bool) -> dict[str, JsonValue]:
+    """Resolve the one receipt selector applicable to the chosen connection."""
+
+    if direct:
+        if arguments.event_id:
+            return {"event_id": arguments.event_id}
+        raise _CliInputError(
+            "direct_delivery_requires_event_id",
+            "Use --event-id with a native event ID in direct mode.",
+        )
+    if arguments.handle:
+        return {"handle": arguments.handle}
+    if arguments.event_ref:
+        return {"event_ref": arguments.event_ref}
+    raise _CliInputError(
+        "gateway_delivery_requires_event_ref_or_handle",
+        "Use --handle or --event-ref in gateway mode. "
+        "Use chat history --event-id to refresh a handle for a known event ID.",
+    )
 
 
 def _mail_request(
@@ -259,8 +406,17 @@ def _request(
     """Translate a CLI action into the selected connection's operation and fields."""
 
     command = cast(str, arguments.command)
-    if command in {"binding", "capabilities", "discovery", "members"}:
+    if command in {"binding", "capabilities", "discovery"}:
         return "GET", "/" + command, {}
+    if command == "members":
+        groups = cast(list[str] | None, arguments.group)
+        if groups is None:
+            return "GET", "/members", {}
+        if len(groups) != 1 or not valid_group_assertion(groups[0]):
+            raise _CliInputError(
+                "invalid_group_assertion", "Use --group once with an exact Group ID from binding."
+            )
+        return "GET", "/members", {"expected_group_id": groups[0]}
     if command == "mail":
         return _mail_request(arguments, direct=direct)
     action = cast(str, arguments.action)
@@ -289,19 +445,24 @@ def _request(
         if direct:
             raise ValueError("Inspect a direct message with chat history --event-ref")
         return "GET", "/messages/" + quote(arguments.handle, safe=""), {}
-    if action in {"history", "deliveries"}:
-        if action == "deliveries":
-            params = _event_target(arguments, direct)
-        else:
-            params = {
-                key: value
-                for key, value in (
-                    ("event_ref", arguments.event_ref),
-                    ("event_id", arguments.event_id),
-                )
-                if value is not None
-            }
-        if not params or action == "deliveries":
+    if action == "deliveries":
+        params = _delivery_target(arguments, direct)
+        if not 1 <= arguments.limit <= 100:
+            raise _CliInputError(
+                "invalid_delivery_limit", "Use --limit with an integer from 1 to 100."
+            )
+        params["limit"] = arguments.limit
+        return "GET", "/chat/deliveries", params
+    if action == "history":
+        params = {
+            key: value
+            for key, value in (
+                ("event_ref", arguments.event_ref),
+                ("event_id", arguments.event_id),
+            )
+            if value is not None
+        }
+        if not params:
             if not 1 <= arguments.limit <= 100:
                 raise ValueError("History limit must be between 1 and 100")
             params["limit"] = arguments.limit
@@ -342,7 +503,7 @@ def _request(
 
 
 def _failure_detail(
-    raw: dict[str, JsonValue], status: int, operation_id: JsonValue = None
+    raw: dict[str, JsonValue], status: int, operation_id: JsonValue = None, *, direct: bool = False
 ) -> dict[str, JsonValue]:
     """Preserve allowlisted uncertainty metadata without echoing error bodies."""
 
@@ -356,6 +517,9 @@ def _failure_detail(
             "stale_connection_token",
             "message_handle_stale",
             "reference_scope_error",
+            "invalid_delivery_target",
+            "invalid_group_assertion",
+            "group_conflict",
             "unsupported_query",
             "plugin_unavailable",
             "connection_retired",
@@ -368,8 +532,14 @@ def _failure_detail(
         }
         if isinstance(code, str) and code in known:
             result["error_code"] = code
-            if code == "message_handle_stale":
-                result["guidance"] = "Select the exact message in authorized CCCC chat history."
+            if code in {"message_handle_stale", "reference_scope_error"}:
+                result["guidance"] = _HISTORY_GUIDANCE
+            elif code == "group_conflict":
+                result["guidance"] = _DIRECT_GROUP_GUIDANCE if direct else _GATEWAY_GROUP_GUIDANCE
+            elif code == "invalid_group_assertion":
+                result["guidance"] = "Use --group once with an exact Group ID from binding."
+            elif code == "invalid_delivery_target":
+                result["guidance"] = "Use exactly one --handle or --event-ref in gateway mode."
         if isinstance(detail.get("retryable"), bool):
             result["retryable"] = detail["retryable"]
         outcome = detail.get("dispatch_outcome")
@@ -395,7 +565,7 @@ def run(
 ) -> int:
     """Run one selected operation, printing JSON and a stable exit status."""
 
-    arguments = _parser().parse_args(argv)
+    arguments = _parser().parse_cli_args(argv)
     body: dict[str, JsonValue] = {}
     method = "GET"
     request_started = False
@@ -446,7 +616,7 @@ def run(
         result = JSON_OBJECT.validate_python(raw, strict=True)
         print(json.dumps(result, ensure_ascii=True, allow_nan=False))
         return 0
-    except _GatewaySelectionError as exc:
+    except _CliInputError as exc:
         print(json.dumps({"error_code": exc.m_error_code, "message": str(exc)}), file=sys.stderr)
         return 1
     except ProviderError as exc:
@@ -454,6 +624,7 @@ def run(
             exc.to_detail(),
             exc.status_code,
             body.get("operation_id", getattr(arguments, "operation_id", None)),
+            direct=arguments.direct_profile is not None,
         )
         failure["error_code"] = exc.code
         if arguments.command == "mail" and (
@@ -514,10 +685,10 @@ def _plugin_instance(arguments: argparse.Namespace) -> str:
         return explicit or "cccc"
     match = _MESSAGE_HANDLE.fullmatch(handle)
     if match is None:
-        raise _GatewaySelectionError("invalid_message_handle", "Use the exact message handle.")
+        raise _CliInputError("invalid_message_handle", "Use the exact message handle.")
     selected = match.group("instance")
     if explicit is not None and explicit != selected:
-        raise _GatewaySelectionError(
+        raise _CliInputError(
             "handle_instance_mismatch", "Use the message handle with its own CCCC plugin instance."
         )
     return selected
@@ -531,16 +702,16 @@ def _direct_profile(arguments: argparse.Namespace) -> tuple[CcccConfiguration, s
         try:
             verified = managed_self_agent_id()
         except ValueError:
-            raise _GatewaySelectionError(
+            raise _CliInputError(
                 "managed_self_authority_unavailable", "Verify the current managed generation."
             ) from None
         if owner is not None and owner != verified:
-            raise _GatewaySelectionError(
+            raise _CliInputError(
                 "direct_owner_mismatch", "Select the current managed agent's private CCCC profile."
             )
         owner = verified
     if not owner:
-        raise _GatewaySelectionError(
+        raise _CliInputError(
             "direct_owner_required", "Supply the selected profile's owner with --agent-id."
         )
     try:
@@ -548,7 +719,7 @@ def _direct_profile(arguments: argparse.Namespace) -> tuple[CcccConfiguration, s
             Path.cwd() / arguments.direct_profile, agent_id=owner, timeout_seconds=arguments.timeout
         )
     except ValueError:
-        raise _GatewaySelectionError(
+        raise _CliInputError(
             "invalid_direct_profile", "Select a valid owner-bound private CCCC profile."
         ) from None
 
@@ -562,7 +733,7 @@ def _bound_client(arguments: argparse.Namespace) -> GatewayClient:
         try:
             base_url = validate_gateway_base_url(selector)
         except ValueError:
-            raise _GatewaySelectionError("invalid_gateway_url", _GATEWAY_URL_GUIDANCE) from None
+            raise _CliInputError("invalid_gateway_url", _GATEWAY_URL_GUIDANCE) from None
     binding = (
         load_gateway_client_binding(Path.cwd() / arguments.signer_binding)
         if arguments.signer_binding is not None
@@ -580,7 +751,7 @@ def _bound_client(arguments: argparse.Namespace) -> GatewayClient:
         try:
             return managed_self_gateway_client(base_url=base_url, timeout_seconds=arguments.timeout)
         except ValueError:
-            raise _GatewaySelectionError(
+            raise _CliInputError(
                 "managed_self_authority_unavailable",
                 "Verify the current managed generation and its owning gateway base URL. "
                 "For direct CCCC use, select an Actor profile with --direct-profile.",
@@ -597,7 +768,7 @@ def _reject_plugin_route(base_url: str, signer_base_url: str | None) -> None:
     local_path = endpoint.path if endpoint.scheme == "http" else ""
     signer_suffix = base_url.removeprefix(signer_base_url) if signer_base_url else ""
     if any(_PLUGIN_ROUTE.match(unquote(path)) for path in (local_path, signer_suffix)):
-        raise _GatewaySelectionError("invalid_gateway_url", _GATEWAY_URL_GUIDANCE)
+        raise _CliInputError("invalid_gateway_url", _GATEWAY_URL_GUIDANCE)
 
 
 def _shared_request(

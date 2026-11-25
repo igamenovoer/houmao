@@ -7,6 +7,7 @@ import importlib
 import json
 import os
 from pathlib import Path
+import shlex
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -404,6 +405,189 @@ def test_delivery_lookup_preserves_provider_order(
     assert response.status_code == 200
     assert response.json()["deliveries"] == deliveries
     assert response.json()["has_more"] is True
+
+
+@pytest.mark.parametrize(
+    ("option", "target", "instance", "parameter"),
+    [
+        ("--handle", "msg_team.receipt", "team", "handle"),
+        ("--event-ref", "scoped-reference", "cccc", "event_ref"),
+    ],
+)
+def test_cli_gateway_delivery_targets(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    target: str,
+    instance: str,
+    parameter: str,
+) -> None:
+    """Use the verified gateway and the exact receipt selector."""
+
+    client = Mock()
+    client.request_plugin_json.return_value = {"deliveries": [], "has_more": False}
+    select = Mock(return_value=client)
+    monkeypatch.setattr(modules.cli, "managed_self_gateway_client", select)
+    args = ["chat", "deliveries", option, target, "--limit", "3"]
+
+    assert modules.cli.run(args) == 0
+    client.request_plugin_json.assert_called_once_with(
+        "GET", f"/v1/plugins/{instance}/chat/deliveries?{parameter}={target}&limit=3", body=None
+    )
+    assert json.loads(capsys.readouterr().out) == {"deliveries": [], "has_more": False}
+    if option == "--handle":
+        select.reset_mock()
+        assert modules.cli.run(["--instance", "other", *args]) == 1
+        assert json.loads(capsys.readouterr().err)["error_code"] == "handle_instance_mismatch"
+        select.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("direct", "option", "code", "guidance"),
+    [
+        (False, "--event-id", "gateway_delivery_requires_event_ref_or_handle", "--handle"),
+        (True, "--handle", "direct_delivery_requires_event_id", "--event-id"),
+        (True, "--event-ref", "direct_delivery_requires_event_id", "--event-id"),
+    ],
+)
+def test_cli_rejects_wrong_mode_delivery_target_before_connection(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    direct: bool,
+    option: str,
+    code: str,
+    guidance: str,
+) -> None:
+    """Diagnose an inapplicable selector without loading any identity or profile."""
+
+    select = Mock(side_effect=AssertionError("usage failures must not select a connection"))
+    monkeypatch.setattr(modules.cli, "_bound_client", select)
+    monkeypatch.setattr(modules.cli, "_direct_profile", select)
+    mode = ["--direct-profile", "/private/profile.json"] if direct else []
+    assert modules.cli.run([*mode, "chat", "deliveries", option, "private-target"]) == 1
+    output = capsys.readouterr().err
+    detail = json.loads(output)
+    assert detail["error_code"] == code
+    assert guidance in detail["message"]
+    assert "private" not in output
+    select.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("option", "target", "code", "status"),
+    [
+        ("--handle", "msg_team.stale", "message_handle_stale", 409),
+        ("--event-ref", "mistyped-ref", "reference_scope_error", 422),
+    ],
+)
+def test_cli_delivery_scope_errors_guide_to_authorized_history(
+    modules: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    option: str,
+    target: str,
+    code: str,
+    status: int,
+) -> None:
+    """Use fixed recovery text and discard arbitrary gateway error contents."""
+
+    transport = httpx.MockTransport(
+        lambda _: httpx.Response(
+            status, json={"detail": {"error_code": code, "guidance": "private-guidance"}}
+        )
+    )
+    args = ["--gateway-url", "http://127.0.0.1:9000", "chat", "deliveries", option, target]
+    assert modules.cli.run(args, transport=transport) == 1
+    output = capsys.readouterr().out
+    assert json.loads(output) == {
+        "error_code": code,
+        "status": status,
+        "guidance": "Select the exact message in authorized CCCC chat history.",
+    }
+    assert target not in output and "private-guidance" not in output
+
+
+def test_cli_help_and_version_are_local(
+    modules: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify help commands parse and the version uses installed metadata only."""
+
+    select = Mock(side_effect=AssertionError("discovery must not read connection configuration"))
+    monkeypatch.setattr(modules.cli, "_bound_client", select)
+    monkeypatch.setattr(modules.cli, "_direct_profile", select)
+    metadata = Mock(return_value="1.2.3")
+    monkeypatch.setattr(modules.cli, "version", metadata)
+
+    with pytest.raises(SystemExit) as help_exit:
+        modules.cli.run(["--help"])
+    assert help_exit.value.code == 0
+    help_text = capsys.readouterr().out
+    gateway, direct = help_text.split("Direct commands", maxsplit=1)
+    assert "Gateway commands" in gateway and "--signer-binding" in gateway
+    assert "The instance selects the Group" in gateway and "event.handle" in gateway
+    assert len([line for line in gateway.splitlines() if line.startswith("  houmao-cccc ")]) == 6
+    assert "chat reply --event-ref" in direct and "chat deliveries --event-id" in direct
+    for line in help_text.splitlines():
+        if line.startswith("  houmao-cccc "):
+            arguments = modules.cli._parser().parse_args(shlex.split(line)[1:])
+            modules.cli._request(arguments, direct=arguments.direct_profile is not None)
+
+    for command, expected in [
+        (["chat", "deliveries"], ["Gateway mode", "--handle", "--event-ref", "Direct mode"]),
+        (["members"], ["--group", "selected Group"]),
+    ]:
+        with pytest.raises(SystemExit) as command_help:
+            modules.cli.run([*command, "--help"])
+        assert command_help.value.code == 0
+        command_help_text = capsys.readouterr().out
+        assert all(item in command_help_text for item in expected)
+    metadata.assert_not_called()
+
+    with pytest.raises(SystemExit) as version_exit:
+        modules.cli.run(["--version"])
+    assert version_exit.value.code == 0
+    assert capsys.readouterr().out == "houmao-cccc 1.2.3\n"
+    metadata.assert_called_once_with("houmao-cccc")
+    select.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("arguments", "code", "option"),
+    [
+        (["members", "--unknown", "private-value"], "unsupported_option", "--unknown"),
+        (["members", "--unknown=private-value"], "unsupported_option", "--unknown"),
+        (["chat", "history", "--limit", "private-value"], "invalid_usage", "--limit"),
+        (
+            ["chat", "deliveries", "--handle", "a", "--handle", "private-value"],
+            "invalid_usage",
+            "--handle",
+        ),
+        (
+            ["chat", "deliveries", "--handle", "a", "--event-id", "private-value"],
+            "invalid_usage",
+            "--event-id",
+        ),
+    ],
+)
+def test_cli_parser_errors_are_safe(
+    modules: SimpleNamespace,
+    capsys: pytest.CaptureFixture[str],
+    arguments: list[str],
+    code: str,
+    option: str | None,
+) -> None:
+    """Retain the syntax exit code while withholding raw argv and parser errors."""
+
+    with pytest.raises(SystemExit) as result:
+        modules.cli.run(arguments)
+    assert result.value.code == 2
+    output = capsys.readouterr().err
+    assert "private-value" not in output
+    detail = json.loads(output)
+    assert detail["error_code"] == code
+    assert detail.get("option") == option
+    assert "--help" in detail["guidance"]
 
 
 @pytest.mark.parametrize(
@@ -1203,6 +1387,119 @@ _PROVIDER_BINDING = {
     "actor_id": "actor-1",
     "actor_generation": "generation-1",
 }
+
+
+def test_cli_gateway_members_asserts_selected_group(
+    modules: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Send only the optional assertion and keep mismatch diagnostics fixed."""
+
+    requests: list[httpx.Request] = []
+    members = {"members": [{"id": "actor-1"}], "connection_token": "connection"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.params.get("expected_group_id") == "private-group":
+            return httpx.Response(409, json={"detail": {"error_code": "group_conflict"}})
+        return httpx.Response(200, json=members)
+
+    transport = httpx.MockTransport(handler)
+    args = ["--gateway-url", "http://127.0.0.1:9000", "--instance", "team", "members"]
+    for optional in ([], ["--group", "group-1"]):
+        assert modules.cli.run([*args, *optional], transport=transport) == 0
+        assert json.loads(capsys.readouterr().out) == members
+    assert dict(requests[0].url.params) == {}
+    assert dict(requests[1].url.params) == {"expected_group_id": "group-1"}
+    assert all(request.url.path == "/v1/plugins/team/members" for request in requests)
+
+    assert modules.cli.run([*args, "--group", "private-group"], transport=transport) == 1
+    output = capsys.readouterr().out
+    assert "private-group" not in output
+    assert json.loads(output) == {
+        "error_code": "group_conflict",
+        "status": 409,
+        "guidance": "Select the intended Group with --gateway-url and --instance.",
+    }
+
+
+@pytest.mark.parametrize(
+    "assertion",
+    [
+        ["--group", ""],
+        ["--group", "private-group\n"],
+        ["--group", "x" * 257],
+        ["--group", "private-group", "--group", "group-1"],
+    ],
+)
+def test_cli_rejects_malformed_group_before_connection(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    assertion: list[str],
+) -> None:
+    """Reject malformed or repeated assertions for each connection mode."""
+
+    selected = Mock(side_effect=AssertionError("invalid Group must not select a connection"))
+    monkeypatch.setattr(modules.cli, "_bound_client", selected)
+    monkeypatch.setattr(modules.cli, "_direct_profile", selected)
+    for mode in ([], ["--direct-profile", "/private/profile.json"]):
+        assert modules.cli.run([*mode, "members", *assertion]) == 1
+        output = capsys.readouterr().err
+        assert "private" not in output
+        assert json.loads(output)["error_code"] == "invalid_group_assertion"
+    selected.assert_not_called()
+
+
+def test_cli_direct_members_and_native_delivery_target(
+    modules: SimpleNamespace, direct_profile: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Keep Group verification local and pass only the native ID to delivery lookup."""
+
+    calls: list[tuple[str, dict[str, Any]]] = []
+    replies = {
+        "binding": _PROVIDER_BINDING,
+        "capabilities": {"protocol_version": 2, "operations": ["members", "chat.deliveries"]},
+        "members": {"members": [{"id": "actor-1"}]},
+        "chat.deliveries": {"deliveries": [], "has_more": False},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raw = json.loads(request.content)
+        operation = raw["operation"]
+        calls.append((operation, raw["arguments"]))
+        return httpx.Response(200, json={"ok": True, "result": replies[operation]})
+
+    transport = httpx.MockTransport(handler)
+    for optional in ([], ["--group", "group-1"]):
+        assert (
+            modules.cli.run([*direct_profile, "members", *optional], provider_transport=transport)
+            == 0
+        )
+        assert json.loads(capsys.readouterr().out) == replies["members"]
+        assert calls[-1] == ("members", {})
+
+    calls.clear()
+    assert (
+        modules.cli.run(
+            [*direct_profile, "members", "--group", "private-group"], provider_transport=transport
+        )
+        == 1
+    )
+    output = capsys.readouterr().err
+    error = json.loads(output)
+    assert "private-group" not in output
+    assert error["error_code"] == "group_conflict" and "--direct-profile" in error["guidance"]
+    assert [operation for operation, _ in calls] == ["binding"]
+
+    assert (
+        modules.cli.run(
+            [*direct_profile, "chat", "deliveries", "--event-id", "native-event", "--limit", "2"],
+            provider_transport=transport,
+        )
+        == 0
+    )
+    assert calls[-1] == ("chat.deliveries", {"event_id": "native-event", "limit": 2})
+    assert json.loads(capsys.readouterr().out) == replies["chat.deliveries"]
 
 
 def test_direct_pull_keeps_batch_order_and_reference_across_invocations(

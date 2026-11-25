@@ -66,6 +66,8 @@ houmao-cccc --gateway-url http://127.0.0.1:PORT capabilities
 houmao-cccc --gateway-url http://127.0.0.1:PORT members
 ```
 
+`houmao-cccc --version` reports the installed CLI version. Use `houmao-cccc --help` for common gateway and direct commands.
+
 `binding` reports the current owner, instance, binding ID, selected Actor descriptors, connection phase, and a sanitized error code. A provider outage can leave the host healthy while the plugin reconnects. `connected` means this receiver negotiated the protocol and holds a lease. A conflicting active receiver must release or expire before another normal receiver acquires it. The default lease lasts 45 seconds.
 
 Before a CCCC chat exercise, follow the gateway readiness procedure for the attached Web or headless agent. Separately, check `binding` on the selected plugin instance. Require the expected `agent_id` and `binding_id` and check that `connection` is `connected`. A connected plugin still depends on the body's live admission at handoff. [Readiness for Web and Headless Agents](contracts/protocol-and-state.md#readiness-for-web-and-headless-agents)
@@ -74,10 +76,10 @@ Before a CCCC chat exercise, follow the gateway readiness procedure for the atta
 
 ## Send, Reply, and Inspect Receipts
 
-Run `members` to get the current `connection_token` and select explicit Actor recipients in the bound Group. Use `@user` by itself for a human audience.
+Run `members` to get the current `connection_token` and select explicit Actor recipients in the bound Group. The selected gateway instance determines the Group. You can pass `members --group GROUP_ID` to check that it matches the Group you expect. A mismatch reports `group_conflict`. Use `@user` by itself for a human audience.
 
 ```bash
-houmao-cccc --instance team members
+houmao-cccc --instance team members --group GROUP_ID
 houmao-cccc --instance team chat send \
   --connection-token CONNECTION_TOKEN --operation-id UNIQUE_OPERATION_ID \
   --to PEER_ACTOR_ID --mode request_reply --text 'Please review this result.'
@@ -91,13 +93,18 @@ houmao-cccc chat reply --handle "$HANDLE" \
   --operation-id "$NEW_OPERATION_ID" --text="$REPLY_TEXT"
 ```
 
-The CLI selects the instance from the handle when you omit `--instance`. For HTTP, append the relative endpoint from the notification to its gateway base URL. Send `handle`, `operation_id`, and `text` as JSON to the reply endpoint. Replies preserve the exact native parent. If a handle expires after time passes or the connection changes, select the exact Actor-visible event in history to get a fresh handle.
+The CLI selects the instance from the handle when you omit `--instance`. For HTTP, append the relative endpoint from the notification to its gateway base URL. Send `handle`, `operation_id`, and `text` as JSON to the reply endpoint. Replies preserve the exact native parent.
 
 The provider stores chat and its per-recipient pending attempts durably. An attempt may be pending or staged while the gateway is absent or the body is busy. `accepted` confirms ordinary gateway handoff, `direct_read` confirms a later direct acknowledgment, and `uncertain` records possible exposure without confirmed handoff. These receipts are separate from task completion.
 
+For a message you sent or a reply you posted, use `event.handle` from the result. For an incoming message, use its handle from the request fence.
+
 ```bash
-houmao-cccc --instance team chat deliveries --event-ref EVENT_REF --limit 20
+houmao-cccc chat deliveries --handle "$SENT_HANDLE" --limit 20
+houmao-cccc chat deliveries --handle "$INCOMING_HANDLE" --limit 20
 ```
+
+The HTTP route takes the same target as `GET /v1/plugins/{instance}/chat/deliveries?handle=HANDLE`. Gateway callers can also use `chat deliveries --event-ref EVENT_REF`. If a handle expires after time passes or the connection changes, use `chat history --event-id EVENT_ID` on the owning instance to obtain a fresh handle for the exact Actor-visible event.
 
 The provider returns the newest attempts first and includes `has_more` when older matching attempts exceed the limit. An expired lease releases unstarted deliveries for the next receiver and reconciles or classifies started work. An uncertain attempt requires an explicit sender decision before a fresh delivery.
 
@@ -113,6 +120,8 @@ houmao-cccc --instance team chat retry \
 `houmao-cccc --instance team discovery` returns the CCCC endpoint, Group, Actor registration, and advertised Actor operations. For advanced calls, use that scope and the privately provisioned Actor grant against CCCC. The qualified Actor bearer works on the receiver interface and CCCC enforces authority per operation. The operator handles operations requiring broader CCCC permissions.
 
 When a gateway is unavailable, explicitly select the private Actor profile with `--direct-profile PATH`. Direct mode supports common chat and qualified Mail operations and one ordered chat snapshot per `chat pull`. A current gateway receiver lease must expire or release before direct pull can acquire it. The [package guide](../../../packages/houmao-cccc/README.md) gives the direct pull and acknowledgment workflow.
+
+The profile determines the Group in direct mode. Use `houmao-cccc --direct-profile PATH members --group GROUP_ID` to check the selection, and `houmao-cccc --direct-profile PATH chat deliveries --event-id EVENT_ID` to inspect receipts for an Actor-visible native event.
 
 ## Recover History Without Redelivery
 

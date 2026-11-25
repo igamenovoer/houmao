@@ -26,7 +26,7 @@ from houmao.gateway.plugins import (
     plugin_route_action,
 )
 from houmao_cccc.client import ProviderClient, ProviderError
-from houmao_cccc.configuration import CcccConfiguration, validate_credentials
+from houmao_cccc.configuration import CcccConfiguration, valid_group_assertion, validate_credentials
 from houmao_cccc.delivery import ChatOffer, DeliveryBuffer, DeliverySettings
 from houmao_cccc.mail import MAIL_OPERATIONS, MailService
 from houmao_cccc.references import ReferenceCodec, ReferenceError
@@ -136,6 +136,7 @@ class DeliveryUpdate(BaseModel):
 
 _HANDLE_TTL_SECONDS = 3600.0
 _HANDLE_LIMIT = 4096
+_HISTORY_TARGET_GUIDANCE = "Select the exact message in authorized CCCC chat history."
 _STAGING_COUNT = 32
 _OFFER_FRAME_RESERVE_BYTES = 128
 
@@ -1025,7 +1026,7 @@ class CcccPlugin:
                 detail={
                     "error_code": "message_handle_stale",
                     "retryable": False,
-                    "guidance": "Select the exact message in authorized CCCC chat history.",
+                    "guidance": _HISTORY_TARGET_GUIDANCE,
                 },
             )
         return entry[0]
@@ -1044,7 +1045,13 @@ class CcccPlugin:
             value = self._references().decode(event_ref, "event")
             return _string(_object(value).get("event_id"))
         except (ReferenceError, ProviderError):
-            raise HTTPException(422, detail={"error_code": "reference_scope_error"}) from None
+            raise HTTPException(
+                422,
+                detail={
+                    "error_code": "reference_scope_error",
+                    "guidance": _HISTORY_TARGET_GUIDANCE,
+                },
+            ) from None
 
     def _decorate_event(self, value: JsonValue) -> dict[str, JsonValue]:
         """Preserve native event provenance and attach an owner-scoped handle."""
@@ -1226,10 +1233,24 @@ class CcccPlugin:
             "success_means": "provider_storage_acceptance; per-recipient handoff is separate",
         }
 
-    async def members(self, request: Request) -> dict[str, JsonValue]:
+    async def members(
+        self, request: Request, expected_group_id: str | None = None
+    ) -> dict[str, JsonValue]:
         """Return public Actor-visible membership without private runtime settings."""
 
-        self._queries(request, set())
+        self._queries(request, {"expected_group_id"})
+        if expected_group_id is not None:
+            assertions = request.query_params.getlist("expected_group_id")
+            if len(assertions) != 1 or not valid_group_assertion(expected_group_id):
+                raise HTTPException(422, detail={"error_code": "invalid_group_assertion"})
+            if expected_group_id != self._config().group_id:
+                raise HTTPException(
+                    409,
+                    detail={
+                        "error_code": "group_conflict",
+                        "guidance": "Select the intended Group using the gateway URL and instance.",
+                    },
+                )
         try:
             connection_token = self.m_connection_token
             result = await self._call("members", {})
@@ -1512,13 +1533,32 @@ class CcccPlugin:
     async def deliveries(
         self,
         request: Request,
-        event_ref: str = Query(max_length=8192),
+        event_ref: str | None = None,
+        handle: str | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> dict[str, JsonValue]:
         """Read authoritative handoff receipts without acknowledging another event."""
 
-        self._queries(request, {"event_ref", "limit"})
-        event_id = self._event_id(event_ref)
+        self._queries(request, {"event_ref", "handle", "limit"})
+        queries = request.query_params
+        target_count = len(queries.getlist("handle")) + len(queries.getlist("event_ref"))
+        if (
+            target_count != 1
+            or (handle is not None and not 1 <= len(handle) <= 128)
+            or (event_ref is not None and not 1 <= len(event_ref) <= 8192)
+        ):
+            raise HTTPException(
+                422,
+                detail={
+                    "error_code": "invalid_delivery_target",
+                    "guidance": "Supply exactly one message handle or scoped event reference.",
+                },
+            )
+        if handle is not None:
+            event_id = self._handle_event_id(handle)
+        else:
+            assert event_ref is not None
+            event_id = self._event_id(event_ref)
         try:
             return self._decorate_result(
                 await self._call("chat.deliveries", {"event_id": event_id, "limit": limit})

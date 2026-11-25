@@ -170,7 +170,13 @@ class Client:
             if service.m_block_send is not None:
                 await service.m_block_send.wait()
             return {"stored": True, "event": event("outgoing"), "deliveries": []}
-        if operation in {"chat.retry", "chat.deliveries"}:
+        if operation == "chat.deliveries":
+            return {
+                "event_id": arguments["event_id"],
+                "deliveries": [{"state": "uncertain", "actor_id": "a2"}],
+                "has_more": False,
+            }
+        if operation == "chat.retry":
             return {"deliveries": [{"state": "uncertain", "actor_id": "a2"}]}
         raise AssertionError(operation)
 
@@ -398,6 +404,153 @@ def test_status_members_and_capabilities_are_safe(
             }
             rejected = await h.http.get("/v1/plugins/team/binding?sender=other")
             assert rejected.status_code == 422
+
+    asyncio.run(exercise())
+
+
+def test_members_asserts_the_selected_group_without_switching_provider_scope(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Compare an optional Group assertion before reading the existing membership."""
+
+    async def exercise() -> None:
+        """Check both successful calls and the requests rejected before provider access."""
+
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            route = "/v1/plugins/team/members"
+            plain = await h.http.get(route)
+            matching = await h.http.get(route, params={"expected_group_id": "g1"})
+            assert plain.status_code == matching.status_code == 200
+            assert matching.json() == plain.json()
+            mismatch = await h.http.get(route, params={"expected_group_id": "private-other-group"})
+            assert mismatch.status_code == 409
+            assert mismatch.json()["detail"]["error_code"] == "group_conflict"
+            assert "gateway URL and instance" in mismatch.json()["detail"]["guidance"]
+            assert "private-other-group" not in mismatch.text
+            for params in (
+                [("expected_group_id", "")],
+                [("expected_group_id", " g1")],
+                [("expected_group_id", "g\x00private")],
+                [("expected_group_id", "g" * 257)],
+                [("expected_group_id", "g1"), ("expected_group_id", "g1")],
+            ):
+                rejected = await h.http.get(route, params=params)
+                assert rejected.status_code == 422
+                assert rejected.json()["detail"]["error_code"] == "invalid_group_assertion"
+            assert [args for op, args in h.service.m_calls if op == "members"] == [{}, {}]
+
+    asyncio.run(exercise())
+
+
+def test_delivery_receipts_select_the_same_events_by_handle_or_reference(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Incoming, outgoing, and history handles all use the original receipt operation."""
+
+    async def exercise() -> None:
+        """Compare both target forms against the recorded provider calls."""
+
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            await h.service.m_offers.put(offer())
+            await eventually(lambda: len(h.service.m_outcomes) == 1)
+            ingress = h.context.events.dispatch.call_args.args[0]
+            incoming_handle = ingress.presentation.messages[0].handle
+            h.service.m_history = {"messages": [event("event1")], "has_more": False}
+            selected = await h.http.get("/v1/plugins/team/chat/history?event_id=event1")
+            historical = selected.json()["messages"][0]
+            sent = await h.http.post(
+                "/v1/plugins/team/chat/send",
+                json={
+                    "connection_token": h.plugin.m_connection_token,
+                    "operation_id": "send1",
+                    "to": ["a2"],
+                    "text": "Synthetic",
+                },
+            )
+            replied = await h.http.post(
+                "/v1/plugins/team/chat/reply",
+                json={"handle": incoming_handle, "operation_id": "reply1", "text": "Synthetic"},
+            )
+            assert selected.status_code == sent.status_code == replied.status_code == 200
+            assert incoming_handle != historical["handle"]
+            route = "/v1/plugins/team/chat/deliveries"
+            for handle, target in (
+                (incoming_handle, historical),
+                (historical["handle"], historical),
+                (sent.json()["event"]["handle"], sent.json()["event"]),
+                (replied.json()["event"]["handle"], replied.json()["event"]),
+            ):
+                by_handle = await h.http.get(route, params={"handle": handle, "limit": 1})
+                by_ref = await h.http.get(
+                    route, params={"event_ref": target["event_ref"], "limit": 1}
+                )
+                assert by_handle.status_code == by_ref.status_code == 200
+                assert by_handle.json() == by_ref.json()
+                assert by_handle.json()["event_id"] == target["event_id"]
+            assert [args for op, args in h.service.m_calls if op == "chat.deliveries"] == [
+                {"event_id": target, "limit": 1} for target in ["event1"] * 4 + ["outgoing"] * 4
+            ]
+            assert len(h.service.m_outcomes) == 1
+
+    asyncio.run(exercise())
+
+
+def test_delivery_receipts_reject_invalid_or_foreign_targets_before_provider_read(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reject malformed, expired, or foreign selectors with scope-specific diagnostics."""
+
+    async def exercise() -> None:
+        """Check the gateway route directly, including duplicate HTTP parameters."""
+
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            route = "/v1/plugins/team/chat/deliveries"
+            reference = h.plugin._references().encode("event", {"event_id": "event1"})
+            handle = h.plugin._mint_handle("event1")
+            for params in (
+                [],
+                [("handle", "")],
+                [("event_ref", "")],
+                [("handle", "h" * 129)],
+                [("event_ref", "r" * 8193)],
+                [("handle", handle), ("event_ref", reference)],
+                [("handle", handle), ("handle", handle)],
+                [("event_ref", reference), ("event_ref", reference)],
+            ):
+                invalid = await h.http.get(route, params=params)
+                assert invalid.status_code == 422
+                assert invalid.json()["detail"]["error_code"] == "invalid_delivery_target"
+            native = await h.http.get(route, params={"event_id": "event1"})
+            assert native.status_code == 422
+            assert native.json()["detail"]["error_code"] == "unsupported_query"
+
+            foreign_context = SimpleNamespace(
+                **{
+                    **vars(h.context),
+                    "owner": PluginOwner(agent_id="other", runtime_session_id="other-runtime"),
+                    "binding_id": "other-binding",
+                }
+            )
+            foreign = implementation.CcccPlugin.from_config(
+                foreign_context, h.plugin.m_config.model_copy(update={"group_id": "other-group"})
+            )
+            foreign_handle = foreign._mint_handle("event1")
+            foreign_ref = implementation.ReferenceCodec.from_context(foreign_context).encode(
+                "event", {"event_id": "event1"}
+            )
+            monkeypatch.setattr(implementation, "_HANDLE_TTL_SECONDS", 0.0)
+            expired_handle = h.plugin._mint_handle("event1")
+            for stale in (foreign_handle, expired_handle):
+                result = await h.http.get(route, params={"handle": stale})
+                assert result.status_code == 409
+                assert result.json()["detail"]["error_code"] == "message_handle_stale"
+                assert "authorized CCCC chat history" in result.json()["detail"]["guidance"]
+            for invalid_ref in (foreign_ref, "mistyped"):
+                result = await h.http.get(route, params={"event_ref": invalid_ref})
+                assert result.status_code == 422
+                assert result.json()["detail"]["error_code"] == "reference_scope_error"
+                assert "authorized CCCC chat history" in result.json()["detail"]["guidance"]
+            assert all(op != "chat.deliveries" for op, _ in h.service.m_calls)
 
     asyncio.run(exercise())
 
@@ -989,6 +1142,7 @@ def test_rotation_preserves_reference_scope_and_retires_old_client(
             old_client = h.plugin.m_client
             old_epoch = h.plugin.m_epoch
             old_ref = h.plugin._references().encode("event", {"event_id": "before-rotation"})
+            old_handle = h.plugin._mint_handle("before-rotation")
             h.context.credentials.read.return_value["token"] = "synthetic-rotated-grant"
             response = await h.http.post(
                 "/v1/plugins/team/connection/refresh-credentials",
@@ -1002,6 +1156,14 @@ def test_rotation_preserves_reference_scope_and_retires_old_client(
                 "event_id": "before-rotation"
             }
             assert h.context.credentials.read.call_count == 2
+            route = "/v1/plugins/team/chat/deliveries"
+            stale = await h.http.get(route, params={"handle": old_handle})
+            assert stale.status_code == 409
+            assert stale.json()["detail"]["error_code"] == "message_handle_stale"
+            assert all(op != "chat.deliveries" for op, _ in h.service.m_calls)
+            valid = await h.http.get(route, params={"event_ref": old_ref})
+            assert valid.status_code == 200
+            assert valid.json()["event_id"] == "before-rotation"
 
     asyncio.run(exercise())
 
@@ -1067,16 +1229,19 @@ def test_malformed_mutation_result_preserves_uncertainty_and_operation_id(
     asyncio.run(exercise())
 
 
-@pytest.mark.parametrize("unavailable", [True, False])
-def test_real_host_keeps_core_health_during_cccc_startup_failure(
-    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, unavailable: bool
+@pytest.mark.parametrize("condition", ["unavailable", "wrong_owner", "connected"])
+def test_real_host_keeps_core_health_and_protects_receipts(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, condition: str
 ) -> None:
-    """Mount the actual CCCC definition in the real host and preserve unrelated routes."""
+    """Mount CCCC behind real host route guards and action admission."""
 
     async def exercise() -> None:
         """Use actual host discovery, credential checks, lifecycle, and route guards."""
 
+        from houmao.agents.realm_controller.gateway_admission import GatewayAdmissionMiddleware
         import houmao.agents.realm_controller.gateway_plugin_host as host_module
+        from houmao.gateway.access import GatewayAccessError
+        from houmao.gateway.operations import GatewayOperation
         from houmao.gateway.plugins import (
             GatewayPluginConfiguration,
             PluginCredentialReference,
@@ -1085,9 +1250,10 @@ def test_real_host_keeps_core_health_during_cccc_startup_failure(
         from houmao.gateway.plugins.discovery import LoadedPluginDefinition
 
         service = Service()
-        service.m_failures["binding"] = implementation.ProviderError(
-            "provider_unavailable", 503, True
-        )
+        if condition == "unavailable":
+            service.m_failures["binding"] = implementation.ProviderError(
+                "provider_unavailable", 503, True
+            )
         monkeypatch.setattr(implementation.ProviderClient, "from_config", service.new_client)
         config = implementation.CcccConfiguration(
             endpoint="http://127.0.0.1:8848",
@@ -1100,7 +1266,7 @@ def test_real_host_keeps_core_health_during_cccc_startup_failure(
         credentials.write_text(
             json.dumps(
                 {
-                    "agent_id": "owner1" if unavailable else "wrong-owner",
+                    "agent_id": "wrong-owner" if condition == "wrong_owner" else "owner1",
                     "endpoint": config.endpoint,
                     "group_id": "g1",
                     "actor_id": "a1",
@@ -1135,7 +1301,7 @@ def test_real_host_keeps_core_health_during_cccc_startup_failure(
             listener_host="127.0.0.1",
             dispatch=Mock(),
         )
-        app = FastAPI()
+        app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
 
         @app.get("/health")
         async def health() -> dict[str, bool]:
@@ -1144,25 +1310,58 @@ def test_real_host_keeps_core_health_during_cccc_startup_failure(
             return {"ok": True}
 
         host.stage(app)
+        allow_receipts = True
+
+        def admit(*, operation: GatewayOperation, **_kwargs: Any) -> None:
+            """Use a scoped test policy at the runtime admission boundary."""
+
+            permission = operation.permission
+            if permission is not None and permission.action == "plugin.cccc.chat.deliveries.read":
+                assert permission.resource == host.instance_resource("team")
+                if not allow_receipts:
+                    raise GatewayAccessError(403, "insufficient_authority")
+
+        app.add_middleware(
+            GatewayAdmissionMiddleware,
+            gateway=app,
+            plugin_host=host,
+            admit=admit,
+            reserve_public_input=Mock(),
+            log_denial=Mock(),
+        )
         await host.start(port=12345)
         try:
-            wanted = "running" if unavailable else "failed"
+            wanted = "failed" if condition == "wrong_owner" else "running"
             await eventually(lambda: host.status_for("team").lifecycle == wanted)
-            if unavailable:
+            if condition == "unavailable":
                 await eventually(lambda: host.status_for("team").connection == "reconnecting")
+            if condition == "connected":
+                await eventually(lambda: host.status_for("team").connection == "connected")
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app), base_url="http://local"
             ) as http:
                 assert (await http.get("/health")).json() == {"ok": True}
                 status = await http.get("/v1/plugins/team/_status")
                 assert status.status_code == 200 and status.json()["lifecycle"] == wanted
-                if not unavailable:
+                if condition == "wrong_owner":
                     assert (await http.get("/v1/plugins/team/binding")).status_code == 503
+                if condition == "connected":
+                    service.m_history = {"messages": [event("event1")], "has_more": False}
+                    history = await http.get("/v1/plugins/team/chat/history?event_id=event1")
+                    handle = history.json()["messages"][0]["handle"]
+                    route = "/v1/plugins/team/chat/deliveries"
+                    allow_receipts = False
+                    denied = await http.get(route, params={"handle": handle})
+                    assert denied.status_code == 403
+                    assert all(op != "chat.deliveries" for op, _ in service.m_calls)
+                    allow_receipts = True
+                    receipt = await http.get(route, params={"handle": handle})
+                    assert receipt.status_code == 200 and receipt.json()["event_id"] == "event1"
                 assert "synthetic-grant" not in status.text
                 assert str(credentials) not in status.text
         finally:
             await host.stop()
-        if unavailable:
+        if condition != "wrong_owner":
             stopped = host.status_for("team")
             assert stopped is not None
             assert stopped.lifecycle == "stopped"

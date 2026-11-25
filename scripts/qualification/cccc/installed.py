@@ -7,6 +7,7 @@ wheelhouse only and copies its utility runner outside the source checkout.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import hashlib
 import http.client
 import importlib.metadata
@@ -375,6 +376,135 @@ def _receipt(
     return result
 
 
+def _refuse_pending_chat(profile: Path, event_id: str) -> str:
+    """Settle one exact offered attempt as refused without handing it to a body."""
+
+    import httpx
+
+    credential = json.loads(profile.read_text())
+    with httpx.Client(
+        base_url=credential["endpoint"],
+        headers={"Authorization": "Bearer " + credential["token"]},
+        trust_env=False,
+    ) as recipient:
+
+        def rpc(operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
+            """Use the recipient's existing grant on the v2 compatibility interface."""
+
+            return _provider_result(
+                recipient.post(
+                    "/api/v1/external-receiver/v2/rpc",
+                    json={"operation": operation, "arguments": arguments},
+                )
+            )
+
+        lease = rpc("lease.acquire", {"transport": "pull", "receiver": "gateway"})
+        scope = {field: lease[field] for field in ("lease_id", "lease_generation")}
+        try:
+            offers = rpc("lease.next", {**scope, "limit": 1})["offers"]
+            _require(
+                len(offers) == 1 and offers[0]["event_id"] == event_id,
+                "Refusal fixture did not select the expected pending event",
+            )
+            attempt_id = str(offers[0]["attempt_id"])
+            dispatch_id = uuid.uuid4().hex
+            started = rpc(
+                "lease.start",
+                {**scope, "dispatch_id": dispatch_id, "attempt_ids": [attempt_id]},
+            )
+            _require(started["outcome"] == "started", "Refusal fixture did not start")
+            rpc(
+                "lease.settle",
+                {**scope, "dispatch_id": dispatch_id, "outcome": "refused", "retryable": True},
+            )
+            return attempt_id
+        finally:
+            rpc("lease.release", scope)
+
+
+def _qualify_receipt_discovery(
+    support: ModuleType,
+    work: Path,
+    sender: dict[str, Any],
+    receiver: dict[str, Any],
+    direct: Callable[..., dict[str, Any]],
+) -> int:
+    """Exercise each installed receipt selector against the same two attempts."""
+
+    root = receiver["root"]
+    baseline = _invocations(root)
+    print(json.dumps({"qualification_stage": "installed-receipt-discovery"}), flush=True)
+    url = receiver["url"]
+    admin = support._ADMIN_CLIENTS[url]
+    selection = {"expected_binding_id": receiver["binding"]["binding_id"]}
+    status, _ = support._request(
+        url, "/v1/plugins/cccc/connection/disconnect", selection, client=admin
+    )
+    _require(status == 200, "Receipt setup did not release gateway intake")
+    event = _send(support, sender, "Synthetic receipt retry")["event"]
+    _receipt(support, sender, event["event_ref"], {"pending"})
+    refused_id = _refuse_pending_chat(root / "actor-credential.json", event["id"])
+    _gateway_cli(
+        work,
+        sender,
+        [
+            "chat",
+            "retry",
+            "--binding-id",
+            sender["binding"]["binding_id"],
+            "--event-ref",
+            event["event_ref"],
+            "--to",
+            "receiver",
+        ],
+    )
+    status, _ = support._request(
+        url, "/v1/plugins/cccc/connection/connect", selection, client=admin
+    )
+    _require(status == 200, "Receipt setup did not reconnect gateway intake")
+    accepted = _receipt(support, sender, event["event_ref"], {"accepted"}, seconds=60)
+    via_handle = _gateway_cli(work, sender, ["chat", "deliveries", "--handle", event["handle"]])
+    via_ref = _gateway_cli(work, sender, ["chat", "deliveries", "--event-ref", event["event_ref"]])
+    via_id = direct("chat", "deliveries", "--event-id", event["id"])
+    _require(
+        via_handle == via_ref
+        and via_id["event_id"] == via_handle["event_id"] == event["id"]
+        and via_id["deliveries"] == via_handle["deliveries"],
+        "Installed receipt selectors returned different results for one event",
+    )
+    attempts = via_handle["deliveries"]
+    limited = _gateway_cli(
+        work, sender, ["chat", "deliveries", "--handle", event["handle"], "--limit", "1"]
+    )
+    _require(
+        [(row["attempt_id"], row["state"]) for row in attempts]
+        == [(accepted["attempt_id"], "accepted"), (refused_id, "refused")]
+        and via_handle["has_more"] is False
+        and via_id["has_more"] is False
+        and limited["deliveries"] == attempts[:1]
+        and limited["has_more"] is True,
+        "Installed receipts did not retain the newest attempts in order",
+    )
+    group_arguments = ["members", "--group", receiver["binding"]["group_id"]]
+    _require(
+        _gateway_cli(work, sender, group_arguments) == _gateway_cli(work, sender, ["members"])
+        and direct(*group_arguments) == direct("members"),
+        "Group assertion changed the selected member projection",
+    )
+    conflict = _gateway_cli(work, sender, ["members", "--group", "different-group"], success=False)
+    _require(
+        conflict.get("error_code") == "group_conflict" and conflict.get("status") == 409,
+        "Gateway did not report a typed Group conflict",
+    )
+    direct_conflict = direct(
+        "members", "--group", "different-group", expected_error="group_conflict"
+    )
+    _require(direct_conflict.get("status") == 409, "Direct Group conflict lost its status")
+    support._wait(lambda: support._ready(receiver["url"]), "Receipt retry did not finish")
+    _require(_invocations(root) == baseline + 1, "Receipt retry did not hand off exactly once")
+    return baseline + 1
+
+
 def _failure_cases(
     support: ModuleType,
     work: Path,
@@ -463,7 +593,7 @@ def _failure_cases(
     absent = [_send(support, sender, f"Direct pull order {index}") for index in range(2)]
     profile = root / "actor-credential.json"
 
-    def direct(*arguments: str) -> dict[str, Any]:
+    def direct(*arguments: str, expected_error: str | None = None) -> dict[str, Any]:
         """Use an independent CLI invocation and the explicit selected Actor profile."""
 
         deadline = time.monotonic() + 50.0
@@ -484,11 +614,16 @@ def _failure_cases(
                 check=False,
             )
             if result.returncode == 0:
+                _require(expected_error is None, "Expected direct CCCC operation to fail")
                 return dict(json.loads(result.stdout))
             try:
-                code = json.loads(result.stderr).get("error_code", "unexpected_result")
+                failure = json.loads(result.stderr)
+                code = failure.get("error_code", "unexpected_result")
             except (ValueError, AttributeError):
+                failure = {}
                 code = "unexpected_result"
+            if expected_error is not None and code == expected_error:
+                return dict(failure)
             if (
                 arguments[:2] == ("chat", "pull")
                 and code == "receiver_lease_conflict"
@@ -526,7 +661,7 @@ def _failure_cases(
         reply["event"]["data"]["reply_to"] == absent[0]["event"]["id"],
         "Direct reply parent changed",
     )
-    sent_mail = _mail_cli(
+    sent_mail = _gateway_cli(
         work,
         sender,
         [
@@ -581,6 +716,8 @@ def _failure_cases(
     baseline = _invocations(root)
     _require(baseline == batch_baseline + 2, "Recovery did not deliver exactly the pending chat")
 
+    baseline = _qualify_receipt_discovery(support, work, sender, receiver, direct)
+
     replaced = root.parent.name == "detached_process"
     scenario = "generation_replaced" if replaced else "body_window_died"
     print(json.dumps({"qualification_stage": scenario}), flush=True)
@@ -616,11 +753,14 @@ def _failure_cases(
         "live_push_batch": True,
         "gateway_absence_pending_recovery": True,
         "direct_cli_with_mail": True,
+        "installed_receipt_targets": True,
+        "limited_receipt_history": True,
+        "group_assertions": True,
         ("body_replacement_fenced" if replaced else "body_death_fenced"): True,
     }
 
 
-def _mail_cli(
+def _gateway_cli(
     work: Path,
     gateway: dict[str, Any],
     arguments: list[str],
@@ -651,7 +791,7 @@ def _mail_cli(
             if isinstance(raw_code, str) and raw_code.replace("_", "").isalnum()
             else "unexpected_result"
         )
-        raise QualificationError("Installed Mail CLI operation failed: " + code[:128])
+        raise QualificationError("Installed gateway CCCC operation failed: " + code[:128])
     return document
 
 
@@ -666,7 +806,7 @@ def _qualify_current_mail(
     sender_binding = sender["binding"]["binding_id"]
     receiver_binding = receiver["binding"]["binding_id"]
     prefix = "/v1/plugins/cccc"
-    sent = _mail_cli(
+    sent = _gateway_cli(
         work,
         sender,
         [
@@ -698,7 +838,7 @@ def _qualify_current_mail(
 
     support._wait(pending, "Signed recipient did not see the CCCC Mail")
     _, cursor = support._request(receiver["url"], prefix + "/mail/cursor")
-    consumed = _mail_cli(
+    consumed = _gateway_cli(
         work,
         receiver,
         [
@@ -804,7 +944,7 @@ def _mail_recovery_cases(
         )
     sender, receiver = gateways
     print(json.dumps({"qualification_stage": "mail-inspection-and-send"}), flush=True)
-    preserved = _mail_cli(
+    preserved = _gateway_cli(
         work, sender, ["chat", "history", "--event-ref", sender["existing_chat_ref"]]
     )
     _require(
@@ -816,7 +956,7 @@ def _mail_recovery_cases(
     def send_mail(text: str = "Synthetic deferred Mail") -> dict[str, Any]:
         """Send one explicit deferred operation through the installed CLI."""
 
-        return _mail_cli(
+        return _gateway_cli(
             work,
             sender,
             [
@@ -843,7 +983,7 @@ def _mail_recovery_cases(
     ) -> dict[str, Any]:
         """Read exactly one caller-authorized bounded next batch."""
 
-        return _mail_cli(
+        return _gateway_cli(
             work,
             receiver,
             [
@@ -862,7 +1002,7 @@ def _mail_recovery_cases(
             success=success,
         )
 
-    caps = _mail_cli(work, receiver, ["capabilities"])
+    caps = _gateway_cli(work, receiver, ["capabilities"])
     _require(
         isinstance(caps.get("mail"), dict) and caps["mail"].get("qualified") is True,
         "Reconnected gateway did not negotiate the complete Mail contract",
@@ -873,19 +1013,19 @@ def _mail_recovery_cases(
         first.get("consumed") is False and first["event"]["data"]["message_mode"] == "mail",
         "Mail send did not remain deferred",
     )
-    cursor = _mail_cli(work, receiver, ["mail", "cursor"])
+    cursor = _gateway_cli(work, receiver, ["mail", "cursor"])
     before = cursor["cursor_ref"]
-    peek = _mail_cli(work, receiver, ["mail", "peek", "--limit", "1", "--max-bytes", "1048576"])
-    repeated_peek = _mail_cli(work, receiver, ["mail", "peek", "--limit", "1"])
+    peek = _gateway_cli(work, receiver, ["mail", "peek", "--limit", "1", "--max-bytes", "1048576"])
+    repeated_peek = _gateway_cli(work, receiver, ["mail", "peek", "--limit", "1"])
     _require(
         peek["messages"][0]["id"] == repeated_peek["messages"][0]["id"] == first["event"]["id"],
         "Mail peek changed the ordered pending batch",
     )
     _require(
-        _mail_cli(work, receiver, ["mail", "cursor"])["cursor_ref"] == before,
+        _gateway_cli(work, receiver, ["mail", "cursor"])["cursor_ref"] == before,
         "Non-consuming Mail inspection advanced the cursor",
     )
-    reply = _mail_cli(
+    reply = _gateway_cli(
         work,
         receiver,
         [
@@ -906,7 +1046,7 @@ def _mail_recovery_cases(
         "Mail reply lost deferred ancestry",
     )
     _require(
-        _mail_cli(work, receiver, ["mail", "cursor"])["cursor_ref"] == before,
+        _gateway_cli(work, receiver, ["mail", "cursor"])["cursor_ref"] == before,
         "Reply without read consumed the incoming batch",
     )
     operation_id = uuid.uuid4().hex
@@ -918,12 +1058,12 @@ def _mail_recovery_cases(
         and consumed["messages"][0]["id"] == first["event"]["id"],
         "Bounded Mail read lost append order",
     )
-    receipt = _mail_cli(work, receiver, ["mail", "reads", "--operation-id", operation_id])
+    receipt = _gateway_cli(work, receiver, ["mail", "reads", "--operation-id", operation_id])
     _require(
         receipt.get("found") is True and receipt["receipt"]["event_ids"] == [first["event"]["id"]],
         "Read receipt did not preserve the exact consumed prefix",
     )
-    wrong_receipt = _mail_cli(
+    wrong_receipt = _gateway_cli(
         work,
         sender,
         ["mail", "reads", "--operation-id", operation_id, "--read-ref", receipt["read_ref"]],
@@ -938,14 +1078,14 @@ def _mail_recovery_cases(
         repeated["outcome"] == "already_completed" and repeated["messages"] == [],
         "Matching Mail read repeated consumption",
     )
-    following = _mail_cli(work, receiver, ["mail", "peek", "--limit", "1"])
+    following = _gateway_cli(work, receiver, ["mail", "peek", "--limit", "1"])
     _require(
         following["messages"][0]["id"] == second["event"]["id"],
         "Receipt reconciliation consumed the following batch",
     )
     stale = read_mail(uuid.uuid4().hex, before, success=False)
     _require(stale.get("error_code") == "cursor_conflict", "Stale Mail cursor did not conflict")
-    wrong_owner = _mail_cli(
+    wrong_owner = _gateway_cli(
         work,
         sender,
         [
@@ -964,7 +1104,7 @@ def _mail_recovery_cases(
         wrong_owner.get("error_code") == "reference_scope_error",
         "Another owner reused a Mail cursor",
     )
-    recovered = _mail_cli(
+    recovered = _gateway_cli(
         work, receiver, ["chat", "history", "--event-ref", consumed["messages"][0]["event_ref"]]
     )
     _require(
@@ -1001,7 +1141,9 @@ def _mail_recovery_cases(
         def read_committed() -> bool:
             """Reconcile only the known operation without accepting its lost response."""
 
-            result = _mail_cli(work, receiver, ["mail", "reads", "--operation-id", lost_operation])
+            result = _gateway_cli(
+                work, receiver, ["mail", "reads", "--operation-id", lost_operation]
+            )
             saved.update(result)
             return result.get("found") is True
 
@@ -1010,7 +1152,7 @@ def _mail_recovery_cases(
         connection.close()
     print(json.dumps({"qualification_stage": "mail-receipt-after-reconnect"}), flush=True)
     _reconnect_mail_gateway(support, receiver, controllers[1], snapshots[1])
-    recovered_receipt = _mail_cli(
+    recovered_receipt = _gateway_cli(
         work, receiver, ["mail", "reads", "--operation-id", lost_operation]
     )
     _require(
@@ -1022,20 +1164,20 @@ def _mail_recovery_cases(
         "Lost response reconciliation changed the consumed batch",
     )
     _require(len(saved["receipt"]["event_refs"]) == 1, "Receipt omitted scoped recovery references")
-    lost_content = _mail_cli(
+    lost_content = _gateway_cli(
         work, receiver, ["chat", "history", "--event-ref", saved["receipt"]["event_refs"][0]]
     )
     _require(
         lost_content["messages"][0]["id"] == second["event"]["id"],
         "Receipt reference did not recover lost content",
     )
-    after_loss = _mail_cli(work, receiver, ["mail", "peek", "--limit", "1"])
+    after_loss = _gateway_cli(work, receiver, ["mail", "peek", "--limit", "1"])
     _require(
         after_loss["messages"][0]["id"] == after_lost_batch["event"]["id"],
         "Lost-response recovery consumed the following batch",
     )
     read_mail(uuid.uuid4().hex, after_loss["cursor_ref"])
-    empty_cursor = _mail_cli(work, receiver, ["mail", "cursor"])["cursor_ref"]
+    empty_cursor = _gateway_cli(work, receiver, ["mail", "cursor"])["cursor_ref"]
     empty_id = uuid.uuid4().hex
     _require(
         read_mail(empty_id, empty_cursor)["outcome"] == "empty", "Empty Mail read was not recorded"
@@ -1045,7 +1187,7 @@ def _mail_recovery_cases(
         read_mail(empty_id, empty_cursor)["outcome"] == "already_completed",
         "Empty read identity was reused as new consumption",
     )
-    pending = _mail_cli(work, receiver, ["mail", "peek", "--limit", "200"])
+    pending = _gateway_cli(work, receiver, ["mail", "peek", "--limit", "200"])
     _require(
         pending["messages"][0]["id"] == third["event"]["id"],
         "Repeating an empty read consumed later Mail",
@@ -1053,17 +1195,17 @@ def _mail_recovery_cases(
     read_mail(uuid.uuid4().hex, pending["cursor_ref"])
     send_mail("Synthetic oversized first Mail " + "x" * 5000)
     print(json.dumps({"qualification_stage": "mail-precommit-byte-bound"}), flush=True)
-    large_cursor = _mail_cli(work, receiver, ["mail", "cursor"])["cursor_ref"]
+    large_cursor = _gateway_cli(work, receiver, ["mail", "cursor"])["cursor_ref"]
     too_large = read_mail(uuid.uuid4().hex, large_cursor, max_bytes=4096, success=False)
     _require(
         too_large.get("error_code") == "content_limit",
         "Oversized head Mail did not fail before commit",
     )
     _require(
-        _mail_cli(work, receiver, ["mail", "cursor"])["cursor_ref"] == large_cursor,
+        _gateway_cli(work, receiver, ["mail", "cursor"])["cursor_ref"] == large_cursor,
         "Oversized read advanced the cursor",
     )
-    unknown = _mail_cli(work, receiver, ["mail", "reads", "--operation-id", uuid.uuid4().hex])
+    unknown = _gateway_cli(work, receiver, ["mail", "reads", "--operation-id", uuid.uuid4().hex])
     _require(
         unknown.get("found") is False and unknown.get("outcome") == "unknown",
         "Missing receipt was misreported as a failed read",
@@ -1139,6 +1281,25 @@ def _installed(
                 not resolved.is_relative_to(source) or resolved in allowed,
                 "Checkout path entered the installed import search path",
             )
+    versions = {
+        name: importlib.metadata.version(name)
+        for name in ("Houmao", "houmao-cccc", "houmao-gateway-qualification-fixtures")
+    }
+    if not mail_recovery:
+        cli_version = subprocess.run(
+            [str(work / "venv/bin/houmao-cccc"), "--version"],
+            cwd=work,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        _require(
+            cli_version.returncode == 0
+            and cli_version.stdout.strip() == f"houmao-cccc {versions['houmao-cccc']}"
+            and not cli_version.stderr,
+            "Installed CLI version did not match wheel distribution metadata",
+        )
     results: list[dict[str, object]] = []
     with httpx.Client(
         base_url=endpoint,
@@ -1448,10 +1609,8 @@ def _installed(
         "stand_in_bodies": True,
         "real_agent_smoke": "separate_required_qualification",
         "cleanup": "completed",
-        "versions": {
-            name: importlib.metadata.version(name)
-            for name in ("Houmao", "houmao-cccc", "houmao-gateway-qualification-fixtures")
-        },
+        "versions": versions,
+        **({"cli_version_matches_metadata": True} if not mail_recovery else {}),
         "modes": results,
     }
     (work / "qualification.json").write_text(json.dumps(report, indent=2) + "\n")

@@ -16,6 +16,7 @@ from houmao_cccc.configuration import (
     MAIL_DEFAULT_BYTES,
     MAIL_MAX_LIMIT,
     CcccConfiguration,
+    valid_group_assertion,
     validate_credentials,
 )
 from houmao_cccc.mail import (
@@ -303,6 +304,13 @@ async def invoke_direct(
         binding = await client.verify_binding()
         if route == "/binding":
             return binding.model_dump(mode="json")
+        if route == "/members" and "expected_group_id" in body:
+            expected_group_id = body["expected_group_id"]
+            if not valid_group_assertion(expected_group_id):
+                raise ProviderError("invalid_group_assertion", 422)
+            if expected_group_id != binding.group_id:
+                raise ProviderError("group_conflict", 409)
+            body = {key: value for key, value in body.items() if key != "expected_group_id"}
         capabilities = await client.capabilities()
         if route == "/capabilities":
             return capabilities
