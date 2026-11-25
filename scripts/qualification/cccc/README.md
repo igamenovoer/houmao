@@ -41,6 +41,8 @@ Each run requires a fresh work root. Its retained `venv/bin/python` and `venv/bi
 
 The current-wheel run connects to the selected CCCC service with distinct Actor grants. It verifies ordinary Chat and Mail using signed self and admin calls, verifies the connection control before and after first-key registration, and dispatches to a broader receiver with explicit settings and a seeded admin. The installed Mail CLI uses `--signer-binding` with an owner-private fixture file.
 
+When the selected receiver advertises gateway queue reads, the installed run peeks and pops during active turns in scheduled pull, push ASAP, and timed push. It verifies exact receipt acknowledgment, ordinary notification after a selection loses its claim, and recovery through a replacement gateway. For a release qualification that requires these checks, set `HOUMAO_CCCC_REQUIRE_QUEUE_ACCESS=1` in the installed distribution pytest invocation. Against an ordinary v2 service, the same test verifies the typed unsupported queue response and ordinary delivery.
+
 ## Run Two Real Coding Agents
 
 Use the supported [local agent fixture configuration](../../agents/test-fixtures/README.md) and choose a real client/profile explicitly. For the cloud-api DeepSeek example, keep `DEEPSEEK_API_KEY` and the matching client base URL in the selected private `.env`; the driver delegates credential loading to the fixture helper.

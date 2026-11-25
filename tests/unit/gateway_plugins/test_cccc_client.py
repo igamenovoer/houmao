@@ -715,6 +715,177 @@ def test_cli_uses_unsigned_loopback_https_proxy_prefix(
     assert json.loads(capsys.readouterr().out) == {}
 
 
+@pytest.mark.parametrize("managed_self", [True, False])
+def test_cli_queue_routes_keep_the_selected_gateway(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    managed_self: bool,
+) -> None:
+    """Send exact queue fields through the selected instance's authorized HTTP client."""
+
+    client = Mock()
+    selected = Mock(return_value=client)
+    direct = AsyncMock(side_effect=AssertionError("queue access must not start direct intake"))
+    monkeypatch.setattr(modules.cli, "managed_self_gateway_client", selected)
+    monkeypatch.setattr(modules.cli, "invoke_direct", direct)
+    args = ["--instance", "team"]
+    if not managed_self:
+        base_url = "https://gateway.example/agents/alpha"
+        signer = tmp_path / "signer.json"
+        signer.write_text(
+            json.dumps(
+                {
+                    "base_url": base_url,
+                    "owner": {"agent_id": "agent", "context_id": "context"},
+                    "purpose": "caller",
+                    "private_key_path": str(tmp_path / "key"),
+                }
+            )
+        )
+        signer.chmod(0o600)
+        args.extend(["--gateway-url", base_url, "--signer-binding", str(signer)])
+        monkeypatch.setattr(
+            modules.cli.GatewayClient, "request_plugin_json", client.request_plugin_json
+        )
+    cases = [
+        (
+            ["peek", "--min-messages", "2", "--wait-seconds", "1.5"],
+            "GET",
+            "/chat/queue?min_messages=2&wait_seconds=1.5",
+            None,
+            {
+                "snapshot": "opaque-snapshot",
+                "batches": [[{"sender": "one", "text": "request", "handle": "msg_team.reply"}]],
+            },
+        ),
+        (
+            ["pop", "--snapshot", "opaque-snapshot", "--operation-id", "read-1"],
+            "POST",
+            "/chat/queue/pop",
+            {"snapshot": "opaque-snapshot", "operation_id": "read-1"},
+            {"operation_id": "read-1", "receipt": "opaque-receipt"},
+        ),
+        (
+            ["pop-result", "--operation-id", "read-1"],
+            "GET",
+            "/chat/queue/pops/read-1",
+            None,
+            {"operation_id": "read-1", "found": True, "receipt": "opaque-receipt"},
+        ),
+        (
+            ["ack", "--receipt", "opaque-receipt"],
+            "POST",
+            "/chat/queue/ack",
+            {"receipt": "opaque-receipt"},
+            {"receipt": "opaque-receipt", "acknowledged": True},
+        ),
+    ]
+    for flags, method, path, body, response in cases:
+        client.request_plugin_json.reset_mock(return_value=True)
+        client.request_plugin_json.return_value = response
+        assert modules.cli.run([*args, "chat", *flags]) == 0
+        client.request_plugin_json.assert_called_once_with(
+            method, "/v1/plugins/team" + path, body=body
+        )
+        assert json.loads(capsys.readouterr().out) == response
+    assert selected.call_count == (len(cases) if managed_self else 0)
+    direct.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["peek", "--min-messages", "2"],
+        ["pop", "--snapshot", "private-snapshot", "--operation-id", "read-1"],
+        ["pop-result", "--operation-id", "read-1"],
+    ],
+)
+def test_cli_gateway_queue_actions_require_gateway_before_direct_profile(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+) -> None:
+    """A queue command cannot become a competing Actor-profile pull."""
+
+    load = Mock(side_effect=AssertionError("unexpected profile access"))
+    monkeypatch.setattr(modules.cli, "_direct_profile", load)
+    assert modules.cli.run(["--direct-profile", "/private/profile", "chat", *flags]) == 1
+    error = capsys.readouterr().err
+    assert json.loads(error)["error_code"] == "gateway_queue_requires_gateway"
+    assert "private" not in error
+    load.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("flags", "error_code"),
+    [
+        (["peek", "--min-messages", "0"], "invalid_queue_threshold"),
+        (["peek", "--wait-seconds", "nan"], "invalid_queue_wait"),
+        (["peek", "--wait-seconds", "21"], "invalid_queue_wait"),
+        (["pop", "--snapshot", "", "--operation-id", "read-1"], "invalid_snapshot"),
+        (["pop-result", "--operation-id", "private/value"], "invalid_operation_id"),
+        (["ack", "--receipt", ""], "invalid_receipt"),
+    ],
+)
+def test_cli_rejects_invalid_queue_arguments_before_transport(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flags: list[str],
+    error_code: str,
+) -> None:
+    """Keep queue bounds, exact IDs, and private token inputs local."""
+
+    load = Mock(side_effect=AssertionError("unexpected gateway resolution"))
+    monkeypatch.setattr(modules.cli, "_bound_client", load)
+    assert modules.cli.run(["chat", *flags]) == 1
+    error = capsys.readouterr().err
+    assert json.loads(error)["error_code"] == error_code and "private" not in error
+    load.assert_not_called()
+
+
+def test_cli_pop_loss_keeps_operation_id_for_same_gateway_lookup(
+    modules: SimpleNamespace, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Return uncertainty without retrying or disclosing the snapshot."""
+
+    calls = []
+
+    def lose_response(request: httpx.Request) -> httpx.Response:
+        """Simulate a lost response after the single pop request."""
+
+        calls.append(request.url.path)
+        raise httpx.ReadError("private-error", request=request)
+
+    result = modules.cli.run(
+        [
+            "--gateway-url",
+            "http://127.0.0.1:9000",
+            "--instance",
+            "team",
+            "chat",
+            "pop",
+            "--operation-id",
+            "read-1",
+            "--snapshot",
+            "private-snapshot",
+        ],
+        transport=httpx.MockTransport(lose_response),
+    )
+    assert result == 1 and calls == ["/v1/plugins/team/chat/queue/pop"]
+    error = capsys.readouterr().err
+    assert json.loads(error) == {
+        "error_code": "gateway_unavailable",
+        "retryable": True,
+        "dispatch_outcome": "unknown",
+        "operation_id": "read-1",
+    }
+    assert "private" not in error
+
+
 def test_cli_retains_safe_uncertainty_and_caller_operation_id(
     modules: SimpleNamespace, capsys: pytest.CaptureFixture[str]
 ) -> None:

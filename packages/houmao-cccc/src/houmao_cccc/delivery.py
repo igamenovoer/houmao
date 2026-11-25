@@ -51,6 +51,10 @@ class ChatOffer:
     size: int
 
 
+ChatBatch = tuple[ChatOffer, ...]
+ChatSelection = tuple[ChatBatch, ...]
+
+
 class DeliveryBuffer:
     """Stage bounded provider work and preserve sealed batch membership in FIFO order."""
 
@@ -64,7 +68,8 @@ class DeliveryBuffer:
         self.m_bytes: int = 0
         self.m_highest_sequence: int = 0
         self.m_open: list[ChatOffer] = []
-        self.m_sealed: deque[tuple[ChatOffer, ...]] = deque()
+        self.m_sealed: deque[ChatBatch] = deque()
+        self.m_reservation: ChatSelection | None = None
         self.m_first: float = 0.0
         self.m_last: float = 0.0
 
@@ -104,10 +109,51 @@ class DeliveryBuffer:
         return min(self.m_last + quiet, self.m_first + maximum)
 
     @property
-    def head(self) -> tuple[ChatOffer, ...] | None:
+    def head(self) -> ChatBatch | None:
         """Read the oldest sealed batch without freeing its capacity."""
 
         return self.m_sealed[0] if self.m_sealed else None
+
+    @property
+    def sealed(self) -> ChatSelection:
+        """Read the sealed batches in delivery order."""
+
+        return tuple(self.m_sealed)
+
+    @property
+    def open_count(self) -> int:
+        """Return the number of messages still collecting in the timed batch."""
+
+        return len(self.m_open)
+
+    @property
+    def reserved(self) -> bool:
+        """Report whether a prompt or tool read currently owns the queue head."""
+
+        return self.m_reservation is not None
+
+    def reserve(self, selection: ChatSelection) -> bool:
+        """Reserve an unchanged prefix without waiting or releasing staging credit."""
+
+        if (
+            self.reserved
+            or not selection
+            or len(selection) > len(self.m_sealed)
+            or any(batch is not self.m_sealed[index] for index, batch in enumerate(selection))
+        ):
+            return False
+        self.m_reservation = selection
+        return True
+
+    def release(self, selection: ChatSelection, *, consume: bool) -> None:
+        """Release one head owner after its authoritative decision."""
+
+        if self.m_reservation is not selection:
+            raise ValueError("Only the reservation owner may release the current delivery head")
+        if consume:
+            for batch in selection:
+                self.finish(batch)
+        self.m_reservation = None
 
     def _seal(self) -> None:
         """Close the current open batch without altering its members."""
@@ -159,7 +205,7 @@ class DeliveryBuffer:
             self.m_open.extend(fresh)
             self.m_last = now
 
-    def finish(self, batch: tuple[ChatOffer, ...]) -> None:
+    def finish(self, batch: ChatBatch) -> None:
         """Release credit only after the head batch is settled or expired."""
 
         if self.head is not batch:

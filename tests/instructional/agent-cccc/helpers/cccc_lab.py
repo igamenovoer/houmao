@@ -246,6 +246,7 @@ def live_observation(meta: dict[str, Any], role: str) -> dict[str, Any]:
     return {
         "availability": web.get("availability") or state.get("managed_agent_connectivity"),
         "active_execution": state.get("active_execution"),
+        "request_admission": state.get("request_admission"),
         "gateway_health": state.get("gateway_health"),
         "native_surface_eligibility": state.get("native_surface_eligibility"),
         "host_process_alive": web.get("host_process_alive", state.get("host_process_alive")),
@@ -367,12 +368,19 @@ def service_identity(runtime_path: Path, binary_path: Path) -> dict[str, Any]:
     if build.get("receiver_protocol_version") != _RECEIVER_PROTOCOL_VERSION:
         raise LabError("CCCC build does not provide external-receiver protocol 2")
     patches = build.get("receiver_patches")
-    if not isinstance(patches, list) or not any(
-        isinstance(item, dict)
-        and str(item.get("path", "")).endswith("0001-external-receiver.patch")
-        for item in patches
+    required_patches = (
+        "0001-external-receiver.patch",
+        "0002-explicit-deferred-mail.patch",
+        "0003-queued-receiver-v2.patch",
+    )
+    if not isinstance(patches, list) or not all(
+        any(
+            isinstance(item, dict) and str(item.get("path", "")).endswith(required)
+            for item in patches
+        )
+        for required in required_patches
     ):
-        raise LabError("CCCC build lacks the external-receiver patch")
+        raise LabError("CCCC build lacks the complete external-receiver patch series")
     return {
         "runtime_path": str(runtime_path),
         "binary_path": str(binary_path),
@@ -726,8 +734,21 @@ def command_wait_execution(args: argparse.Namespace) -> int:
         if args.mode == "busy" and state.get("active_execution") == "running":
             print(json.dumps({"role": args.role, "state": "busy"}, indent=2))
             return 0
-        if args.mode == "ready" and state.get("can_accept_prompt_now") is True:
-            print(json.dumps({"role": args.role, "state": "ready"}, indent=2))
+        if (
+            args.mode == "ready"
+            and state.get("can_accept_prompt_now") is True
+            and (
+                not args.require_open
+                or (
+                    state.get("active_execution") == "idle"
+                    and state.get("request_admission") == "open"
+                )
+            )
+        ):
+            result = {"role": args.role, "state": "ready"}
+            if args.require_open:
+                result.update(active_execution="idle", request_admission="open")
+            print(json.dumps(result, indent=2))
             return 0
         time.sleep(args.interval)
     raise LabError(f"Timed out waiting for role {args.role} to become {args.mode}")
@@ -766,7 +787,11 @@ def matching_events(
         text = data.get("text")
         if not isinstance(text, str) or token not in text:
             continue
-        if event.get("by") == meta["actors"]["a"] and not data.get("reply_to"):
+        if (
+            event.get("by") == meta["actors"]["a"]
+            and data.get("message_mode") == "request_reply"
+            and not data.get("reply_to")
+        ):
             requests.append(event)
         if event.get("by") == meta["actors"]["b"] and data.get("reply_to"):
             replies.append(event)
@@ -876,7 +901,7 @@ def command_verify_batch(args: argparse.Namespace) -> int:
 
     meta = load_meta(args.run_meta)
     run_dir, _ = role_run(meta, "b")
-    selected: list[tuple[str, str]] = []
+    candidates: list[tuple[str, str]] = []
     for path in session_files(run_dir):
         for line in path.read_text().splitlines():
             try:
@@ -895,19 +920,35 @@ def command_verify_batch(args: argparse.Namespace) -> int:
                     and _REQUEST_BEGIN in text
                     and any(token in text for token in args.tokens)
                 ):
-                    selected.append((str(data["id"]), text))
+                    candidates.append((str(data["id"]), text))
+    selected: list[tuple[str, str, str, list[dict[str, Any]]]] = []
+    for native_id, text in candidates:
+        if text.count(_REQUEST_BEGIN) != 1 or text.count(_REQUEST_END) != 1:
+            continue
+        header, _, content = text.partition(_REQUEST_BEGIN)
+        try:
+            entries = json.loads(content.split(_REQUEST_END, 1)[0])["messages"]
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not isinstance(entries, list) or not any(
+            isinstance(entry, dict)
+            and entry.get("mode") == "request_reply"
+            and isinstance(entry.get("text"), str)
+            and any(token in entry["text"] for token in args.tokens)
+            for entry in entries
+        ):
+            continue
+        selected.append((native_id, text, header, entries))
     if len(selected) != 1:
         raise LabError(f"Expected one native request for the selected batch, found {len(selected)}")
-    native_id, text = selected[0]
-    if text.count(_REQUEST_BEGIN) != 1 or text.count(_REQUEST_END) != 1:
-        raise LabError("The selected native request does not contain exactly one fence")
-    header, _, content = text.partition(_REQUEST_BEGIN)
-    try:
-        entries = json.loads(content.split(_REQUEST_END, 1)[0])["messages"]
-    except (TypeError, ValueError, KeyError) as exc:
-        raise LabError("The selected request fence does not contain the CCCC message list") from exc
+    native_id, text, header, entries = selected[0]
     binding = str(meta["bindings"]["b"]["binding_id"])
-    if binding in text or header.count(str(meta["gateways"]["b"])) != 1:
+    private_markers = ("binding_id=", "event_id=", "event_ref=", "connection_token=")
+    if (
+        binding in text
+        or any(marker in text for marker in private_markers)
+        or header.count(str(meta["gateways"]["b"])) != 1
+    ):
         raise LabError("The selected request header exposes private routing or repeats its URL")
     if not isinstance(entries, list) or len(entries) != len(args.tokens):
         raise LabError("The selected request fence does not contain the expected count")
@@ -925,6 +966,8 @@ def command_verify_batch(args: argparse.Namespace) -> int:
             or entry["timestamp"] != request["ts"]
             or entry["mode"] != "request_reply"
             or not entry["handle"].startswith("msg_")
+            or str(request.get("event_ref") or "") in text
+            or str(request.get("id") or "") in text
         ):
             raise LabError("The selected batch has unexpected order, attribution, or handles")
         handles.add(entry["handle"])
@@ -1311,6 +1354,7 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--run-meta", type=Path, required=True)
     wait.add_argument("--role", choices=_ROLES, required=True)
     wait.add_argument("--mode", choices=("busy", "ready"), required=True)
+    wait.add_argument("--require-open", action="store_true", help="Require idle and open admission")
     wait.add_argument("--timeout", type=float, default=60)
     wait.add_argument("--interval", type=float, default=0.25)
     wait.set_defaults(handler=command_wait_execution)

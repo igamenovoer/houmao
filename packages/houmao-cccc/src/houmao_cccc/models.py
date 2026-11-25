@@ -5,6 +5,9 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 JSON_OBJECT = TypeAdapter(dict[str, JsonValue])
+QUEUE_OPERATION_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._~-]{0,127}$"
+QUEUE_TOKEN_MAX_LENGTH = 16384
+QUEUE_MAX_WAIT_SECONDS = 20
 
 
 class ProviderBinding(BaseModel):

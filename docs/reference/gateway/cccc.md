@@ -33,11 +33,11 @@ Each CCCC route has an action on its installed instance, such as `plugin.cccc.bi
 
 ## Select Delivery Mode
 
-Each selected CCCC instance defaults to scheduled pull. It can receive a launch override with an explicit configuration file or with its retained plugin selection. Nested values overlay the selected config in argument order. Each scheduled pull with staging capacity sets one notification boundary.
+Each selected CCCC instance defaults to push ASAP. It can receive a launch override with an explicit configuration file or with its retained plugin selection. Nested values overlay the selected config in argument order.
 
 ```bash
 houmao-mgr agents single --agent-id AGENT_UUID gateway attach --background \
-  --plugin-config-override 'team={"delivery":{"transport":"push","push_policy":"asap"}}'
+  --plugin-config-override 'team={"delivery":{"transport":"pull","pull_interval":2.0}}'
 ```
 
 Push ASAP stages each arrival as one prompt and waits for ordinary readiness before starting the next. Timed push batches arrivals until the quiet interval after the latest arrival or the maximum wait after the first, whichever occurs first. The batch then waits intact until the agent is ready. Times are in seconds. Use `quiet_interval` and `max_wait` for `batch`, and set them to null when clearing an existing timed-push configuration.
@@ -56,7 +56,7 @@ Push ASAP stages each arrival as one prompt and waits for ordinary readiness bef
 }
 ```
 
-For pull, use `transport: pull` and a positive `pull_interval` (default one second). Set `push_policy`, `quiet_interval`, and `max_wait` to null when a launch override replaces retained push settings with pull. A policy edit closes the open push batch. A transport edit reports `applying` while the previous lease retires, then `active` after the replacement begins intake. Runtime edits apply to the current gateway run.
+For pull, use `transport: pull` and a positive `pull_interval` (default one second). Each scheduled pull with staging capacity sets one notification boundary. Set `push_policy`, `quiet_interval`, and `max_wait` to null when a launch override replaces retained push settings with pull. A policy edit closes the open push batch. A transport edit reports `applying` while the previous lease retires, then `active` after the replacement begins intake. Runtime edits apply to the current gateway run.
 
 ## Inspect Connection State
 
@@ -122,6 +122,25 @@ houmao-cccc --instance team chat retry \
 When a gateway is unavailable, explicitly select the private Actor profile with `--direct-profile PATH`. Direct mode supports common chat and qualified Mail operations and one ordered chat snapshot per `chat pull`. A current gateway receiver lease must expire or release before direct pull can acquire it. The [package guide](../../../packages/houmao-cccc/README.md) gives the direct pull and acknowledgment workflow.
 
 The profile determines the Group in direct mode. Use `houmao-cccc --direct-profile PATH members --group GROUP_ID` to check the selection, and `houmao-cccc --direct-profile PATH chat deliveries --event-id EVENT_ID` to inspect receipts for an Actor-visible native event.
+
+## Inspect Staged Chat During a Turn
+
+An agent can yield its turn and receive ordinary notifications under the configured delivery policy. While it stays active, it can use `chat peek` to inspect the gateway's staged chat. `capabilities` reports `chat_queue` when the selected receiver supports these operations. An older version 2 receiver can still deliver ordinary chat.
+
+| Gateway route under `/v1/plugins/{instance}` | CLI |
+| --- | --- |
+| `GET /chat/queue` with optional `min_messages` and `wait_seconds` | `chat peek --min-messages 2 --wait-seconds 10` |
+| `POST /chat/queue/pop` with `snapshot` and `operation_id` | `chat pop --snapshot "$SNAPSHOT" --operation-id "$OPERATION_ID"` |
+| `GET /chat/queue/pops/{operation_id}` | `chat pop-result --operation-id "$OPERATION_ID"` |
+| `POST /chat/queue/ack` with `receipt` | `chat ack --receipt "$RECEIPT"` |
+
+A peek returns `batches` as an array of message arrays in delivery order. Each message includes its sender, original timestamp, mode, text, and reply handle. A timed batch still collecting messages contributes `open_batch_count` until it seals. The `additional_queued` flag indicates more staged chat beyond the returned prefix. If no whole batch is eligible, the response has a null snapshot and an empty batch list. The wait ends at the requested eligible count or deadline, up to 20 seconds. A timed-out wait returns the current selection if one exists.
+
+Pop takes the exact bounded FIFO prefix announced by the snapshot, including any earlier whole batches. The result is available to the current turn. Acknowledge its receipt after receiving it. CCCC records `gateway_tool_read` for the selected attempts. Unacknowledged claims expire to `uncertain` and require an explicit sender retry before another delivery attempt.
+
+If the pop response is lost or returns `queue_claim_unknown`, retry the same snapshot and operation ID or use `chat pop-result` with that operation ID. A result with `found: false` means there is no recorded claim for that operation at the time of the lookup. A recovered result gives current reply handles and the original receipt, even after gateway reattachment to the same binding. `operation_conflict` indicates that the operation ID already belongs to a different snapshot. `queue_read_expired` means the recovery period ended and the operation ID cannot make a fresh claim.
+
+Peek uses `plugin.cccc.chat.queue.read`. Pop, recovery, and acknowledgment use `plugin.cccc.chat.queue.consume`. The errors `queue_access_unsupported`, `queue_snapshot_stale`, and `content_limit` indicate missing provider support, a retired or replaced selection, and a head batch that exceeds the tool result budget, respectively. A stale selection cannot consume the next batch. The head remains eligible for ordinary delivery when its batch exceeds the tool result budget.
 
 ## Recover History Without Redelivery
 

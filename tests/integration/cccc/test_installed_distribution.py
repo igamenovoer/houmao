@@ -95,6 +95,10 @@ def test_independent_wheels_in_both_gateway_process_modes(tmp_path: Path) -> Non
             "group_assertions",
         ):
             assert mode[evidence] is True
+        assert mode["gateway_queue_access"] in {"qualified", "unsupported"}
+    assert len({mode["gateway_queue_access"] for mode in report["modes"]}) == 1
+    if os.environ.get("HOUMAO_CCCC_REQUIRE_QUEUE_ACCESS") == "1":
+        assert all(mode["gateway_queue_access"] == "qualified" for mode in report["modes"])
     outcomes = {mode["execution_mode"]: mode for mode in report["modes"]}
     assert outcomes["detached_process"]["body_replacement_fenced"] is True
     assert outcomes["tmux_auxiliary_window"]["body_death_fenced"] is True

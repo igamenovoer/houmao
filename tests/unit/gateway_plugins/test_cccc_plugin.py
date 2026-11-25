@@ -47,6 +47,12 @@ class Service:
         self.m_failures: dict[str, Exception] = {}
         self.m_clients: list[Client] = []
         self.m_history: dict[str, Any] = {"messages": [], "has_more": False}
+        self.m_queue_enabled: bool = False
+        self.m_chat: dict[str, dict[str, Any]] = {}
+        self.m_reads: dict[tuple[str, str], dict[str, Any]] = {}
+        self.m_claim_started: asyncio.Event = asyncio.Event()
+        self.m_block_claim: asyncio.Event | None = None
+        self.m_lose_claim_result: bool = False
         self.m_block_send: asyncio.Event | None = None
         self.m_send_started: asyncio.Event = asyncio.Event()
         self.m_binding: dict[str, Any] = {
@@ -85,7 +91,7 @@ class Client:
         if operation == "binding":
             return service.m_binding
         if operation == "capabilities":
-            return {
+            capabilities: dict[str, Any] = {
                 "protocol_version": 2,
                 "operations": [
                     "binding",
@@ -123,12 +129,19 @@ class Client:
                     "lease_seconds": 45,
                 },
             }
+            if service.m_queue_enabled:
+                capabilities["features"]["chat_gateway_queue_reads"] = True
+                capabilities["operations"].extend(
+                    ["chat.gateway-read.claim", "chat.gateway-read.result", "chat.ack"]
+                )
+            return capabilities
         if operation == "lease.acquire":
             return {"lease_id": "lease1", "lease_generation": 1, "expires_in_seconds": 45}
         if operation == "lease.next":
             batch = []
             while not service.m_offers.empty() and len(batch) < arguments["limit"]:
                 batch.append(service.m_offers.get_nowait())
+            service.m_chat.update({item["attempt_id"]: item for item in batch})
             return {"offers": batch}
         if operation == "lease.notice.next":
             return {"offer": None if service.m_notices.empty() else service.m_notices.get_nowait()}
@@ -176,6 +189,54 @@ class Client:
                 "deliveries": [{"state": "uncertain", "actor_id": "a2"}],
                 "has_more": False,
             }
+        if operation == "chat.gateway-read.claim":
+            service.m_claim_started.set()
+            if service.m_block_claim is not None:
+                await service.m_block_claim.wait()
+            message_fields = (
+                "attempt_id",
+                "event_id",
+                "sequence",
+                "sender",
+                "timestamp",
+                "message_mode",
+                "text",
+            )
+            result = {
+                "found": True,
+                "operation_id": arguments["operation_id"],
+                "snapshot_fingerprint": arguments["snapshot_fingerprint"],
+                "receipt": "f" * 32,
+                "status": "pending",
+                "groups": [
+                    [
+                        {key: service.m_chat[attempt][key] for key in message_fields}
+                        for attempt in batch
+                    ]
+                    for batch in arguments["groups"]
+                ],
+            }
+            service.m_reads[(arguments["binding_tag"], arguments["operation_id"])] = result
+            if service.m_lose_claim_result:
+                from houmao_cccc.client import ProviderError
+
+                raise ProviderError("provider_unavailable", 503, True, "unknown")
+            return result
+        if operation == "chat.gateway-read.result":
+            key = (arguments["binding_tag"], arguments["operation_id"])
+            return service.m_reads.get(key, {"found": False, "operation_id": key[1]})
+        if operation == "chat.ack":
+            result = next(
+                result
+                for (binding, _), result in service.m_reads.items()
+                if binding == arguments["binding_tag"] and result["receipt"] == arguments["receipt"]
+            )
+            result["status"] = "acknowledged"
+            return {
+                "receipt": result["receipt"],
+                "acknowledged": True,
+                "attempt_ids": [item["attempt_id"] for batch in result["groups"] for item in batch],
+            }
         if operation == "chat.retry":
             return {"deliveries": [{"state": "uncertain", "actor_id": "a2"}]}
         raise AssertionError(operation)
@@ -209,6 +270,8 @@ class Client:
             except TimeoutError:
                 return
             if result["sequence"] > kwargs["after_sequence"]:
+                if kwargs["kind"] == "chat":
+                    self.m_service.m_chat[result["attempt_id"]] = result
                 yield result
 
     async def aclose(self) -> None:
@@ -260,18 +323,25 @@ async def eventually(predicate: Any) -> None:
 
 @asynccontextmanager
 async def harness(
-    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, start: bool = True
+    implementation: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    *,
+    start: bool = True,
+    queue: bool = False,
+    delivery: Any = None,
 ) -> AsyncIterator[SimpleNamespace]:
     """Activate the real plugin lifespan against isolated public SDK capabilities."""
 
     service = Service()
+    service.m_queue_enabled = queue
     monkeypatch.setattr(implementation.ProviderClient, "from_config", service.new_client)
     config = implementation.CcccConfiguration(
         endpoint="http://127.0.0.1:8848",
         group_id="g1",
         actor_id="a1",
         actor_generation="gen1",
-        delivery=implementation.DeliverySettings(pull_interval=0.02),
+        delivery=delivery or implementation.DeliverySettings(pull_interval=0.02),
         reconnect_delay_seconds=0.05,
         renew_interval_seconds=0.01,
     )
@@ -1229,6 +1299,425 @@ def test_malformed_mutation_result_preserves_uncertainty_and_operation_id(
     asyncio.run(exercise())
 
 
+_QUEUE_ROUTE = "/v1/plugins/team/chat/queue"
+
+
+def park_chat_body(harness_state: SimpleNamespace) -> asyncio.Event:
+    """Keep ordinary dispatch waiting until the test releases readiness."""
+
+    ready = asyncio.Event()
+
+    async def wait_until_ready(*, timeout_seconds: float) -> object | None:
+        """Model the dispatcher's finite readiness wait."""
+
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                await ready.wait()
+        except TimeoutError:
+            return None
+        return object()
+
+    harness_state.context.events.wait_until_ready.side_effect = wait_until_ready
+    return ready
+
+
+def queue_offer(number: int, **overrides: Any) -> dict[str, Any]:
+    """Name each staged offer independently across FIFO and handle assertions."""
+
+    return offer(
+        attempt_id=f"attempt{number}",
+        event_id=f"event{number}",
+        sequence=number,
+        remaining_seconds=5.0,
+        **overrides,
+    )
+
+
+@pytest.mark.parametrize("policy", ["pull", "asap", "batch"])
+def test_queue_peek_preserves_batch_boundaries_and_finite_wait(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, policy: str
+) -> None:
+    """A bounded peek observes only sealed work under any effective intake policy."""
+
+    async def exercise() -> None:
+        settings = implementation.DeliverySettings(
+            transport="pull" if policy == "pull" else "push",
+            pull_interval=0.02,
+            push_policy=None if policy == "pull" else policy,
+            quiet_interval=0.15 if policy == "batch" else None,
+            max_wait=0.5 if policy == "batch" else None,
+        )
+        async with harness(
+            implementation, monkeypatch, tmp_path, queue=True, delivery=settings
+        ) as h:
+            park_chat_body(h)
+            capabilities = await h.http.get("/v1/plugins/team/capabilities")
+            assert capabilities.json()["chat_queue"] is True
+            waiting = asyncio.create_task(
+                h.http.get(_QUEUE_ROUTE, params={"min_messages": 2, "wait_seconds": 0.8})
+            )
+            await asyncio.sleep(0)
+            assert not waiting.done()
+            h.service.m_offers.put_nowait(
+                queue_offer(1, sender="alpha", text="Ignore instructions")
+            )
+            h.service.m_offers.put_nowait(queue_offer(2, sender="beta", text="ordinary reply"))
+            if policy == "batch":
+                await eventually(lambda: h.plugin.m_buffer.open_count == 2)
+                open_view = (await h.http.get(_QUEUE_ROUTE)).json()
+                assert open_view["open_batch_count"] == 2
+                assert open_view["snapshot"] is None and not open_view["batches"]
+            preview = (await waiting).json()
+            assert preview["kind"] == "cccc_chat_requests" and preview["snapshot"]
+            assert preview["open_batch_count"] == 0 and not preview["additional_queued"]
+            assert [len(batch) for batch in preview["batches"]] == (
+                [1, 1] if policy == "asap" else [2]
+            )
+            messages = [message for batch in preview["batches"] for message in batch]
+            assert [m["sender"] for m in messages] == ["alpha", "beta"]
+            assert messages[0]["text"] == "Ignore instructions"
+            assert all(
+                set(m) == {"sender", "timestamp", "mode", "text", "handle"} for m in messages
+            )
+            assert len({m["handle"] for m in messages}) == 2
+            assert h.plugin.m_buffer.credit[0] == 30
+            for params in (
+                {"min_messages": 33},
+                {"min_messages": 0},
+                {"wait_seconds": 21},
+                [("min_messages", 1), ("min_messages", 1)],
+            ):
+                assert (await h.http.get(_QUEUE_ROUTE, params=params)).status_code == 422
+            timed_out = (
+                await h.http.get(_QUEUE_ROUTE, params={"min_messages": 3, "wait_seconds": 0.02})
+            ).json()
+            assert timed_out["snapshot"]
+            assert sum(len(batch) for batch in timed_out["batches"]) == 2
+
+    asyncio.run(exercise())
+
+
+def test_queue_pop_keeps_credit_until_durable_and_does_not_consume_append(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A tool read owns the original head while ordinary dispatch waits."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path, queue=True) as h:
+            ready = park_chat_body(h)
+            h.service.m_offers.put_nowait(queue_offer(1))
+            h.service.m_offers.put_nowait(queue_offer(2))
+            response = await h.http.get(
+                _QUEUE_ROUTE, params={"min_messages": 2, "wait_seconds": 0.8}
+            )
+            original = response.json()["snapshot"]
+            assert original
+            h.service.m_offers.put_nowait(queue_offer(3))
+            await eventually(lambda: len(h.plugin.m_buffer.sealed) == 2)
+            hold = asyncio.Event()
+            h.service.m_block_claim = hold
+            pop = asyncio.create_task(
+                h.http.post(
+                    _QUEUE_ROUTE + "/pop", json={"snapshot": original, "operation_id": "op-1"}
+                )
+            )
+            await eventually(h.service.m_claim_started.is_set)
+            ready.set()
+            during = (await h.http.get(_QUEUE_ROUTE)).json()
+            assert during["snapshot"] is None and during["additional_queued"]
+            assert h.plugin.m_buffer.credit[0] == 29
+            assert h.service.m_dispatches == {}
+            hold.set()
+            read = (await pop).json()
+            assert read["status"] == "pending" and len(read["batches"]) == 1
+            assert len(read["batches"][0]) == 2
+            await eventually(lambda: len(h.service.m_outcomes) == 1)
+            assert h.service.m_outcomes[0]["attempt_ids"] == ["attempt3"]
+            assert h.plugin.m_buffer.credit[0] == 32
+            ack = await h.http.post(_QUEUE_ROUTE + "/ack", json={"receipt": read["receipt"]})
+            assert ack.json() == {"acknowledged": True, "receipt": read["receipt"]}
+            recovered = (await h.http.get(_QUEUE_ROUTE + "/pops/op-1")).json()
+            assert recovered["status"] == "acknowledged" and recovered["receipt"] == read["receipt"]
+            handle = recovered["batches"][0][1]["handle"]
+            reply = await h.http.post(
+                "/v1/plugins/team/chat/reply",
+                json={"handle": handle, "operation_id": "reply1", "text": "Confirmed"},
+            )
+            assert reply.status_code == 200
+            assert [args["event_id"] for op, args in h.service.m_calls if op == "chat.reply"] == [
+                "event2"
+            ]
+            repeated = await h.http.post(
+                _QUEUE_ROUTE + "/pop", json={"snapshot": original, "operation_id": "op-1"}
+            )
+            assert repeated.json()["receipt"] == read["receipt"]
+            assert len([op for op, _ in h.service.m_calls if op == "chat.gateway-read.claim"]) == 1
+
+    asyncio.run(exercise())
+
+
+def test_queue_stale_pop_loses_to_ordinary_prompt(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An already-started prompt fences stale previews before a provider claim."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path, queue=True) as h:
+            ready = park_chat_body(h)
+            hold = asyncio.Event()
+
+            async def dispatch(*_args: Any, **_kwargs: Any) -> PluginDispatchResult:
+                """Leave the ordinary start reserved while a stale pop competes."""
+
+                await hold.wait()
+                return PluginDispatchResult(source_event_id="event1")
+
+            h.context.events.dispatch.side_effect = dispatch
+            h.service.m_offers.put_nowait(queue_offer(1))
+            snapshot = (await h.http.get(_QUEUE_ROUTE, params={"wait_seconds": 0.8})).json()[
+                "snapshot"
+            ]
+            ready.set()
+            await eventually(lambda: h.context.events.dispatch.await_count == 1)
+            denial = await h.http.post(
+                _QUEUE_ROUTE + "/pop", json={"snapshot": snapshot, "operation_id": "too-late"}
+            )
+            assert denial.status_code == 409
+            assert denial.json()["detail"]["error_code"] == "queue_snapshot_stale"
+            assert not h.service.m_claim_started.is_set()
+            hold.set()
+            await eventually(lambda: len(h.service.m_outcomes) == 1)
+            assert h.service.m_outcomes[0]["outcome"] == "accepted"
+            assert h.service.m_outcomes[0]["attempt_ids"] == ["attempt1"]
+
+    asyncio.run(exercise())
+
+
+def test_queue_pop_can_claim_a_definitively_deferred_prompt_batch(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A pre-handoff refusal releases its exact unchanged batch for tool access."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path, queue=True) as h:
+            ready = park_chat_body(h)
+
+            async def dispatch(*_args: Any, **_kwargs: Any) -> PluginDispatchResult:
+                """Reject this ready-only handoff before dispatching any content."""
+
+                ready.clear()
+                raise PluginDispatchError(error_code="not_ready", status_code=409, retryable=True)
+
+            h.context.events.dispatch.side_effect = dispatch
+            h.service.m_offers.put_nowait(queue_offer(1))
+            h.service.m_offers.put_nowait(queue_offer(2))
+            peek = (
+                await h.http.get(_QUEUE_ROUTE, params={"min_messages": 2, "wait_seconds": 0.8})
+            ).json()
+            ready.set()
+            await eventually(lambda: len(h.service.m_outcomes) == 1)
+            assert h.service.m_outcomes[0]["outcome"] == "deferred"
+            read = (
+                await h.http.post(
+                    _QUEUE_ROUTE + "/pop",
+                    json={"snapshot": peek["snapshot"], "operation_id": "deferred"},
+                )
+            ).json()
+            assert [len(batch) for batch in read["batches"]] == [2]
+            assert h.context.events.dispatch.await_count == 1
+            claim = next(args for op, args in h.service.m_calls if op == "chat.gateway-read.claim")
+            assert claim["groups"] == [h.service.m_outcomes[0]["attempt_ids"]]
+
+    asyncio.run(exercise())
+
+
+def test_queue_canceled_claim_reconciles_after_lost_response_and_rotation(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """One abandoned transport can finish without re-exposing the claimed work."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path, queue=True) as h:
+            park_chat_body(h)
+            h.service.m_offers.put_nowait(queue_offer(1))
+            peek = (await h.http.get(_QUEUE_ROUTE, params={"wait_seconds": 0.8})).json()
+            hold = asyncio.Event()
+            h.service.m_block_claim = hold
+            h.service.m_lose_claim_result = True
+            request = {"snapshot": peek["snapshot"], "operation_id": "recover-me"}
+            abandoned = asyncio.create_task(h.http.post(_QUEUE_ROUTE + "/pop", json=request))
+            await eventually(h.service.m_claim_started.is_set)
+            abandoned.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await abandoned
+            assert h.plugin.m_buffer.reserved and h.plugin.m_buffer.credit[0] == 31
+            hold.set()
+            await eventually(lambda: h.plugin.m_buffer.credit[0] == 32)
+            read = (await h.http.get(_QUEUE_ROUTE + "/pops/recover-me")).json()
+            first_handle = read["batches"][0][0]["handle"]
+            current_token = h.plugin.m_connection_token
+            rotated = await h.http.post(
+                "/v1/plugins/team/connection/reconnect", json={"expected_binding_id": "binding1"}
+            )
+            assert rotated.status_code == 200
+            await eventually(
+                lambda: (
+                    h.plugin.m_phase == "connected" and h.plugin.m_connection_token != current_token
+                )
+            )
+            assert (
+                await h.http.get(f"/v1/plugins/team/messages/{first_handle}")
+            ).status_code == 409
+            recovered = (await h.http.post(_QUEUE_ROUTE + "/pop", json=request)).json()
+            assert recovered["receipt"] == read["receipt"]
+            assert recovered["batches"][0][0]["handle"] != first_handle
+            conflict = await h.http.post(
+                _QUEUE_ROUTE + "/pop", json={**request, "snapshot": "changed"}
+            )
+            assert conflict.status_code == 409
+            assert conflict.json()["detail"]["error_code"] == "operation_conflict"
+            ack = await h.http.post(_QUEUE_ROUTE + "/ack", json={"receipt": recovered["receipt"]})
+            assert ack.json()["acknowledged"] is True
+            stale = await h.http.post(
+                _QUEUE_ROUTE + "/pop", json={**request, "operation_id": "new-operation"}
+            )
+            assert stale.status_code == 409
+            assert stale.json()["detail"]["error_code"] == "queue_snapshot_stale"
+            assert len([op for op, _ in h.service.m_calls if op == "chat.gateway-read.claim"]) == 1
+            h.context.events.dispatch.assert_not_awaited()
+
+    asyncio.run(exercise())
+
+
+def test_queue_unresolved_claim_retires_lease_before_releasing_credit(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Failure to determine a commit cannot resume dispatch on the same lease."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path, queue=True) as h:
+            park_chat_body(h)
+            initial_token = h.plugin.m_connection_token
+            h.service.m_failures["chat.gateway-read.claim"] = implementation.ProviderError(
+                "provider_unavailable", 503, True, "unknown"
+            )
+            h.service.m_offers.put_nowait(queue_offer(1))
+            peek = (await h.http.get(_QUEUE_ROUTE, params={"wait_seconds": 0.8})).json()
+            response = await h.http.post(
+                _QUEUE_ROUTE + "/pop",
+                json={"snapshot": peek["snapshot"], "operation_id": "unknown"},
+            )
+            assert response.status_code == 503
+            assert response.json()["detail"]["error_code"] == "queue_claim_unknown"
+            assert response.json()["detail"]["dispatch_outcome"] == "unknown"
+            assert response.json()["detail"]["operation_id"] == "unknown"
+            await eventually(
+                lambda: (
+                    h.plugin.m_phase == "connected" and h.plugin.m_connection_token != initial_token
+                )
+            )
+            h.context.events.dispatch.assert_not_awaited()
+            result = await h.http.get(_QUEUE_ROUTE + "/pops/unknown")
+            assert result.json() == {"found": False, "operation_id": "unknown"}
+
+    asyncio.run(exercise())
+
+
+def test_queue_wait_ends_when_lease_retires(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A waiting peek returns a typed error without crossing connection generations."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path, queue=True) as h:
+            waiting = asyncio.create_task(
+                h.http.get(_QUEUE_ROUTE, params={"min_messages": 2, "wait_seconds": 20})
+            )
+            await asyncio.sleep(0.01)
+            assert not waiting.done()
+            response = await h.http.post(
+                "/v1/plugins/team/connection/disconnect", json={"expected_binding_id": "binding1"}
+            )
+            assert response.status_code == 200
+            async with asyncio.timeout(0.5):
+                retired = await waiting
+            assert retired.status_code == 503
+            assert retired.json()["detail"]["error_code"] == "receiver_unavailable"
+
+    asyncio.run(exercise())
+
+
+def test_queue_budget_rejects_oversized_head_without_consuming_it(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The response bound includes handles and both complete result envelopes."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path, queue=True) as h:
+            ready = park_chat_body(h)
+            h.plugin.m_provider_capabilities["limits"]["max_response_bytes"] = 1300
+            h.service.m_offers.put_nowait(queue_offer(1, text="π" * 480))
+            failure = await h.http.get(_QUEUE_ROUTE, params={"wait_seconds": 0.8})
+            assert failure.status_code == 422
+            assert failure.json()["detail"]["error_code"] == "content_limit"
+            assert h.plugin.m_buffer.credit[0] == 31
+            ready.set()
+            await eventually(lambda: len(h.service.m_outcomes) == 1)
+            assert h.service.m_outcomes[0]["attempt_ids"] == ["attempt1"]
+
+    asyncio.run(exercise())
+
+
+def test_queue_peek_leaves_later_whole_batches_when_budget_is_exhausted(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A useful prefix fits both the public and provider envelopes under credit."""
+
+    async def exercise() -> None:
+        settings = implementation.DeliverySettings(transport="push", push_policy="asap")
+        async with harness(
+            implementation, monkeypatch, tmp_path, queue=True, delivery=settings
+        ) as h:
+            park_chat_body(h)
+            h.plugin.m_provider_capabilities["limits"]["max_response_bytes"] = 1300
+            for number in range(1, 4):
+                h.service.m_offers.put_nowait(queue_offer(number, text=str(number) * 475))
+            await eventually(lambda: len(h.plugin.m_buffer.sealed) == 3)
+            peek = (await h.http.get(_QUEUE_ROUTE)).json()
+            assert peek["additional_queued"] and len(peek["batches"]) == 1
+            assert peek["batches"][0][0]["text"] == "1" * 475
+            read = (
+                await h.http.post(
+                    _QUEUE_ROUTE + "/pop",
+                    json={"snapshot": peek["snapshot"], "operation_id": "short-prefix"},
+                )
+            ).json()
+            assert len(read["batches"]) == 1
+            later = (await h.http.get(_QUEUE_ROUTE)).json()
+            assert later["batches"][0][0]["text"] == "2" * 475
+
+    asyncio.run(exercise())
+
+
+def test_ordinary_v2_provider_keeps_automatic_delivery_without_queue_access(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A missing additive capability disables only the queue routes."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            capabilities = (await h.http.get("/v1/plugins/team/capabilities")).json()
+            assert capabilities["chat_queue"] is False
+            rejection = await h.http.get(_QUEUE_ROUTE)
+            assert rejection.status_code == 422
+            assert rejection.json()["detail"]["error_code"] == "queue_access_unsupported"
+            h.service.m_offers.put_nowait(queue_offer(1))
+            await eventually(lambda: len(h.service.m_outcomes) == 1)
+            assert h.service.m_outcomes[0]["outcome"] == "accepted"
+
+    asyncio.run(exercise())
+
+
 @pytest.mark.parametrize("condition", ["unavailable", "wrong_owner", "connected"])
 def test_real_host_keeps_core_health_and_protects_receipts(
     implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, condition: str
@@ -1250,6 +1739,7 @@ def test_real_host_keeps_core_health_and_protects_receipts(
         from houmao.gateway.plugins.discovery import LoadedPluginDefinition
 
         service = Service()
+        service.m_queue_enabled = True
         if condition == "unavailable":
             service.m_failures["binding"] = implementation.ProviderError(
                 "provider_unavailable", 503, True
@@ -1320,6 +1810,9 @@ def test_real_host_keeps_core_health_and_protects_receipts(
                 assert permission.resource == host.instance_resource("team")
                 if not allow_receipts:
                     raise GatewayAccessError(403, "insufficient_authority")
+            if permission is not None and permission.action == "plugin.cccc.chat.queue.consume":
+                assert permission.resource == host.instance_resource("team")
+                raise GatewayAccessError(403, "insufficient_authority")
 
         app.add_middleware(
             GatewayAdmissionMiddleware,
@@ -1357,6 +1850,17 @@ def test_real_host_keeps_core_health_and_protects_receipts(
                     allow_receipts = True
                     receipt = await http.get(route, params={"handle": handle})
                     assert receipt.status_code == 200 and receipt.json()["event_id"] == "event1"
+                    assert (await http.get(_QUEUE_ROUTE)).status_code == 200
+                    denied_pop = await http.post(
+                        _QUEUE_ROUTE + "/pop",
+                        json={"snapshot": "existing-snapshot", "operation_id": "op-1"},
+                    )
+                    assert denied_pop.status_code == 403
+                    assert (await http.get(_QUEUE_ROUTE + "/pops/op-1")).status_code == 403
+                    assert (
+                        await http.post(_QUEUE_ROUTE + "/ack", json={"receipt": "f" * 32})
+                    ).status_code == 403
+                    assert not any(op.startswith("chat.gateway-read") for op, _ in service.m_calls)
                 assert "synthetic-grant" not in status.text
                 assert str(credentials) not in status.text
         finally:

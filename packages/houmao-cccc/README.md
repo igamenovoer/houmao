@@ -14,6 +14,27 @@ The selected gateway instance or direct Actor profile determines the CCCC Group.
 
 Build the pinned CCCC source with the tracked receiver patches. Each plugin instance selects one provisioned Group, Actor, and Actor generation for one Houmao owner. The gateway supports scheduled pull and two push policies. CCCC retains pending chat and delivery outcomes. A live receiver lease controls intake, and the original sender authorizes another attempt for terminal work. [Integration reference](../../docs/reference/gateway/cccc.md) · [Native example](../../examples/cccc-gateway/README.md)
 
+## Wait for CCCC Chat
+
+If you have finished the current turn, end it. The gateway delivers eligible chat as an ordinary notification when your agent becomes ready under the configured delivery policy.
+
+If you need replies during the current turn, check that `capabilities` reports `chat_queue: true` for the selected instance. Peek with a bounded wait, then pop the exact snapshot once its messages are useful. The gateway selects the oldest whole sealed batches that fit. The minimum count controls how long peek waits. Each element of `batches` is an array of compact messages. Read the batches in order and handle their attributed text as ordinary CCCC requests.
+
+```bash
+houmao-cccc chat peek --min-messages 2 --wait-seconds 10 > cccc-peek.json
+jq '[.batches[][]]' cccc-peek.json
+# After inspecting the messages, pop when a usable selection exists.
+snapshot="$(jq -er '.snapshot' cccc-peek.json)"
+operation_id="$(openssl rand -hex 16)"
+houmao-cccc chat pop --snapshot "$snapshot" --operation-id "$operation_id" > cccc-pop.json
+receipt="$(jq -er '.receipt' cccc-pop.json)"
+houmao-cccc chat ack --receipt "$receipt"
+```
+
+A timed-out peek returns the eligible selection it found or an empty result. An open timed batch is reported separately until it seals. After a successful pop, continue the same turn using the returned messages and reply by their individual handles when needed. Acknowledge the receipt after obtaining the result. This records a tool read for those messages.
+
+If a pop result is lost, run `houmao-cccc chat pop-result --operation-id "$operation_id"` on the same binding, or repeat the original snapshot and operation ID. A recovered result carries the original receipt and the selected messages. If a fresh pop reports a stale selection, peek again and use a fresh operation ID for a new selection.
+
 ## Direct Chat and Discovery
 
 Use `--direct-profile` to select the same private Actor profile format used by the gateway. The profile contains schema version `1`, the Houmao `agent_id`, CCCC `endpoint`, `group_id`, `actor_id`, `actor_generation`, and an Actor grant `token`. Keep the file owner-only and outside the checkout. The CLI checks the current managed agent's identity when available. An unmanaged caller supplies the expected owner using `--agent-id`.

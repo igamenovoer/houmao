@@ -13,6 +13,18 @@ The `add-cccc-push-pull-delivery` change introduces pending chat, scheduled pull
 | Installed Mail | Houmao `3.0.0rc8` and `houmao-cccc` `0.3.0` wheels passed both gateway process modes. The installed CLI recovered authoritative read receipts after a discarded response and gateway restart. [Mail recovery evidence](cccc-mail-acceptance.md) |
 | Two real managed agents | Two DSH Web agents used self-hosted `Qwen/Qwen3.8-27B-FP8`. Their native transcript recorded one fenced prompt with two messages, two handles, and the original ordered timestamps. Each reply used its exact native parent and each incoming message had one accepted receipt. The same real pair also verified ASAP waiting through a busy turn and pending delivery after gateway reattachment. [Instructional suite](../../../tests/instructional/agent-cccc/README.md) |
 
+## Gateway Queue Access
+
+On 2026-11-25, two fixture-managed DSH Web agents exercised both waiting paths on self-hosted `Qwen/Qwen3.8-27B-FP8`. Both gateways used independently installed Houmao `3.0.0rc8` and `houmao-cccc` `0.3.0`. The optional wheel SHA-256 was `7dee348098e40433c579946564379d9c3e1f34eb1beb1b024723562807a0b391`. The queue-capable protocol-v2 receiver was prepared from upstream `d12732ebd6dfdbc260a59a286bd5e510d04d4832` with the four tracked patches. Its executable SHA-256 was `45332b80e52d0e1e07428726d2163fae0e6263e4323a570b91d4d536c877d68a`. [Maintained scenario](../../../tests/instructional/agent-cccc/cases/gateway-queue-wait-and-read.md)
+
+| Check | Observed result |
+| --- | --- |
+| Yield for ordinary notification | B finished an operator turn with idle, open admission. The next request entered B's native conversation in one compact fence, recorded one accepted attempt, and received an exact-parent reply containing the requested file's word. |
+| Read two staged replies while active | In a later native turn, B timed out one empty peek and then obtained a selection of two sealed ASAP batches. Its pop returned both replies in provider order. B acknowledged the receipt, recovered the same selection by operation ID, and replied using each message's handle in the same turn. Provider receipts recorded exactly two `gateway_tool_read` attempts with both confirmation parents correct. Neither popped message appeared in an ordinary request fence. |
+| Resume ordinary delivery | The next request's attempt was offered while B remained busy. Its marker reached the native conversation only after B was released. The same attempt became accepted and received an exact-parent reply. B returned to idle, open admission. |
+
+The channel audit passed. Evidence under `tmp/instructional-tests/20261125T135306Z-cccc-queue-live-r3-1aqSkq/evidence/agent-cccc/gateway-queue-wait-and-read/` includes the native transcripts, exact queue results, before-release provider receipt, and `queue-proof.json`. The long active turn used the fixture's managed gateway prompt path and the exact native completion record. Cleanup stopped both owned agents and their private tmux servers, removed the run Group and credentials, and stopped the isolated provider. All 53 evidence files survived.
+
 ## Protocol v1 Evidence
 
 This historical section maps all 75 scenarios in `cccc-01-add-owner-bound-chat-plugin` to executed checks. Native-provider tests, actual-provider integration, expanded independent-wheel checks in both gateway modes, and the final-wheel two-real-agent smoke passed on 2026-11-15 for that release.

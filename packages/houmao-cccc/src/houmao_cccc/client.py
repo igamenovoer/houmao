@@ -39,6 +39,8 @@ _OPERATIONS = frozenset(
         "chat.retry",
         "chat.history",
         "chat.deliveries",
+        "chat.gateway-read.claim",
+        "chat.gateway-read.result",
         "mail.send",
         "mail.reply",
         "mail.peek",
@@ -54,6 +56,7 @@ _READ_OPERATIONS = frozenset(
         "members",
         "chat.history",
         "chat.deliveries",
+        "chat.gateway-read.result",
         "mail.peek",
         "mail.cursor",
         "mail.read-receipts",
@@ -123,6 +126,9 @@ _SAFE_CODES = frozenset(
         "dispatch_not_found",
         "receipt_not_found",
         "direct_ack_expired",
+        "queue_snapshot_stale",
+        "queue_read_expired",
+        "receipt_scope_error",
     }
 )
 

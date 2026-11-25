@@ -34,7 +34,12 @@ from houmao_cccc.configuration import (
     valid_group_assertion,
 )
 from houmao_cccc.direct import invoke_direct, load_direct_profile
-from houmao_cccc.models import JSON_OBJECT
+from houmao_cccc.models import (
+    JSON_OBJECT,
+    QUEUE_MAX_WAIT_SECONDS,
+    QUEUE_OPERATION_ID_PATTERN,
+    QUEUE_TOKEN_MAX_LENGTH,
+)
 
 
 _INSTANCE_PATTERN = r"[a-z][a-z0-9-]{0,62}"
@@ -293,7 +298,19 @@ def _parser() -> _ArgumentParser:
     pull = chat.add_parser("pull", help="Claim one direct pull batch")
     pull.add_argument("--limit", type=int)
     pull.add_argument("--max-bytes", type=int)
-    ack = chat.add_parser("ack", help="Acknowledge the receipt from a direct pull")
+    peek = chat.add_parser("peek", help="Inspect staged gateway chat in the current turn")
+    peek.add_argument("--min-messages", type=int, help="Minimum eligible messages to wait for")
+    peek.add_argument(
+        "--wait-seconds",
+        type=float,
+        help=f"Wait up to this many seconds (0 to {QUEUE_MAX_WAIT_SECONDS})",
+    )
+    pop = chat.add_parser("pop", help="Claim the gateway-selected whole batches from peek")
+    pop.add_argument("--snapshot", required=True, help="Exact snapshot token from chat peek")
+    _mutation_arguments(pop)
+    result = chat.add_parser("pop-result", help="Recover a recorded gateway pop by operation ID")
+    result.add_argument("--operation-id", required=True)
+    ack = chat.add_parser("ack", help="Acknowledge a gateway pop or direct pull receipt")
     ack.add_argument("--receipt", required=True)
     _mail_arguments(commands)
     return parser
@@ -400,6 +417,53 @@ def _mail_request(
     return "POST", "/mail/" + action, body
 
 
+def _queue_request(
+    action: str, arguments: argparse.Namespace, *, direct: bool
+) -> tuple[str, str, dict[str, JsonValue]]:
+    """Build one queue operation without switching authority or starting direct intake."""
+
+    if action == "ack":
+        receipt = cast(str, arguments.receipt)
+        if not 1 <= len(receipt) <= QUEUE_TOKEN_MAX_LENGTH:
+            raise _CliInputError("invalid_receipt", "Use the exact receipt from chat pop or pull.")
+        return "POST", "/chat/ack" if direct else "/chat/queue/ack", {"receipt": receipt}
+    if direct:
+        raise _CliInputError(
+            "gateway_queue_requires_gateway",
+            "Use the selected gateway for chat peek, pop, and pop-result. "
+            "A direct Actor profile supports chat pull.",
+        )
+    if action == "peek":
+        params: dict[str, JsonValue] = {}
+        minimum = cast(int | None, arguments.min_messages)
+        if minimum is not None:
+            if not 1 <= minimum <= MAX_BATCH_MESSAGES:
+                raise _CliInputError(
+                    "invalid_queue_threshold",
+                    "Use --min-messages within the selected gateway's message limit.",
+                )
+            params["min_messages"] = minimum
+        wait = cast(float | None, arguments.wait_seconds)
+        if wait is not None:
+            if not 0 <= wait <= QUEUE_MAX_WAIT_SECONDS:
+                raise _CliInputError(
+                    "invalid_queue_wait", f"Use --wait-seconds from 0 to {QUEUE_MAX_WAIT_SECONDS}."
+                )
+            params["wait_seconds"] = wait
+        return "GET", "/chat/queue", params
+    operation_id = cast(str, arguments.operation_id)
+    if not re.fullmatch(QUEUE_OPERATION_ID_PATTERN, operation_id):
+        raise _CliInputError(
+            "invalid_operation_id", "Use a URL-safe --operation-id such as a UUID."
+        )
+    if action == "pop-result":
+        return "GET", "/chat/queue/pops/" + operation_id, {}
+    snapshot = cast(str, arguments.snapshot)
+    if not 1 <= len(snapshot) <= QUEUE_TOKEN_MAX_LENGTH:
+        raise _CliInputError("invalid_snapshot", "Use the exact snapshot from chat peek.")
+    return "POST", "/chat/queue/pop", {"operation_id": operation_id, "snapshot": snapshot}
+
+
 def _request(
     arguments: argparse.Namespace, *, direct: bool = False
 ) -> tuple[str, str, dict[str, JsonValue]]:
@@ -437,10 +501,8 @@ def _request(
                 raise ValueError("Invalid pull byte limit")
             selected["max_bytes"] = arguments.max_bytes
         return "POST", "/chat/pull", selected
-    if action == "ack":
-        if not direct or not 1 <= len(arguments.receipt) <= 16384:
-            raise ValueError("Acknowledge a direct pull using its receipt")
-        return "POST", "/chat/ack", {"receipt": arguments.receipt}
+    if action in {"peek", "pop", "pop-result", "ack"}:
+        return _queue_request(action, arguments, direct=direct)
     if action == "details":
         if direct:
             raise ValueError("Inspect a direct message with chat history --event-ref")
@@ -529,6 +591,13 @@ def _failure_detail(
             "invalid_provider_response",
             "incompatible_history_parameters",
             "receiver_incompatible",
+            "queue_access_unsupported",
+            "invalid_queue_threshold",
+            "invalid_queue_wait",
+            "queue_snapshot_stale",
+            "queue_claim_unknown",
+            "queue_read_expired",
+            "receipt_scope_error",
         }
         if isinstance(code, str) and code in known:
             result["error_code"] = code
@@ -540,6 +609,13 @@ def _failure_detail(
                 result["guidance"] = "Use --group once with an exact Group ID from binding."
             elif code == "invalid_delivery_target":
                 result["guidance"] = "Use exactly one --handle or --event-ref in gateway mode."
+            elif code == "queue_snapshot_stale":
+                result["guidance"] = (
+                    "Look up the original operation ID if a pop may have committed. "
+                    "Use chat peek for a new selection."
+                )
+            elif code == "queue_claim_unknown":
+                result["guidance"] = "Use chat pop-result with the original operation ID."
         if isinstance(detail.get("retryable"), bool):
             result["retryable"] = detail["retryable"]
         outcome = detail.get("dispatch_outcome")

@@ -185,7 +185,7 @@ CCCC SHALL operate through the validated gateway plugin deployment policy. The p
 
 - **WHEN** an operator launches a gateway and supplies delivery options for one of its two CCCC instances
 - **THEN** the selected instance uses its launch settings and the other uses its own configured settings
-- **AND THEN** an instance with no transport selection defaults to scheduled pull
+- **AND THEN** an instance with no delivery settings defaults to push with the `asap` policy
 
 #### Scenario: An Operator Inspects the Effective Settings
 

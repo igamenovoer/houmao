@@ -365,6 +365,8 @@ def _receipt(
                 "failed",
                 "uncertain",
                 "direct_read",
+                "gateway_tool_retrieved",
+                "gateway_tool_read",
             }
         ]
         raise QualificationError(
@@ -505,13 +507,169 @@ def _qualify_receipt_discovery(
     return baseline + 1
 
 
+def _qualify_gateway_queue(
+    support: ModuleType,
+    work: Path,
+    sender: dict[str, Any],
+    receiver: dict[str, Any],
+    policy: str,
+    *,
+    restart: Any = None,
+) -> int:
+    """Exercise exact tool reads and ordinary prompt claims against the same FIFO."""
+
+    stage = "queue-restart" if restart is not None else f"queue-{policy}"
+    print(json.dumps({"qualification_stage": stage}), flush=True)
+    root = receiver["root"]
+    control_path = root / "control.json"
+    control = json.loads(control_path.read_text())
+    baseline = _invocations(root)
+
+    def chat(*args: str, success: bool = True) -> dict[str, Any]:
+        """Use the selected receiver's signed installed CLI."""
+
+        return _gateway_cli(work, receiver, ["chat", *args], success=success)
+
+    def texts(document: dict[str, Any]) -> list[list[str]]:
+        """Compare batch order without comparing ephemeral reply handles."""
+
+        return [[message["text"] for message in batch] for batch in document["batches"]]
+
+    control_path.write_text(json.dumps({**control, "turn_seconds": 12.0}))
+    try:
+        busy = _send(support, sender, f"Synthetic active turn for {stage}")
+        _receipt(support, sender, busy["event"]["event_ref"], {"accepted"})
+        support._wait(lambda: _invocations(root) == baseline + 1, "Queue fixture never got busy")
+        expected = [f"Synthetic staged {stage} {index}" for index in range(2)]
+        stored = [_send(support, sender, text)["event"] for text in expected]
+        peek = chat("peek", "--min-messages", "2", "--wait-seconds", "8")
+        grouped = texts(peek)
+        _require(
+            [text for batch in grouped for text in batch] == expected
+            and isinstance(peek.get("snapshot"), str)
+            and _invocations(root) == baseline + 1,
+            "Peek did not preserve the complete staged prefix during an active turn",
+        )
+        if policy == "asap":
+            _require(len(grouped) == 2, "Queue pop would coalesce ASAP batch boundaries")
+        elif policy == "batch":
+            _require(len(grouped) == 1, "Queue peek split a sealed timed batch")
+        op_id = uuid.uuid4().hex
+        pop_args = ("pop", "--snapshot", peek["snapshot"], "--operation-id", op_id)
+        popped = chat(*pop_args)
+        _require(texts(popped) == grouped, "Pop changed the advertised batch boundaries")
+        for event in stored:
+            _receipt(support, sender, event["event_ref"], {"gateway_tool_retrieved"})
+    finally:
+        control_path.write_text(json.dumps(control))
+
+    if restart is not None:
+        old_handle = popped["batches"][0][0]["handle"]
+        support._wait(
+            lambda: support._ready(receiver["url"]),
+            "The active turn did not finish before replacing its gateway",
+            seconds=25,
+        )
+        _require(_invocations(root) == baseline + 1, "A popped message started another turn")
+        _require(restart.detach_gateway().status == "ok", "Queue restart could not detach")
+        _require(restart.attach_gateway().status == "ok", "Queue restart could not reattach")
+        _record_live_gateway(support, restart, receiver)
+        support._wait(
+            lambda: (
+                support._request(receiver["url"], "/v1/plugins/cccc/binding")[1].get("connection")
+                == "connected"
+            ),
+            "Restarted gateway did not recover its Actor binding",
+            seconds=60,
+        )
+        stale_handle = chat("details", "--handle", old_handle, success=False)
+        _require(
+            stale_handle.get("error_code") == "message_handle_stale",
+            "A reply handle survived its retired gateway",
+        )
+    recovered = chat("pop-result", "--operation-id", op_id)
+    repeated = chat(*pop_args)
+    _require(
+        recovered.get("found") is True
+        and texts(recovered) == texts(repeated) == grouped
+        and recovered["receipt"] == repeated["receipt"] == popped["receipt"],
+        "Lookup or same-operation replay changed the recorded pop",
+    )
+    if restart is not None:
+        _require(
+            recovered["batches"][0][0]["handle"] != old_handle,
+            "Recovered pop did not mint a current gateway handle",
+        )
+    ack_args = ("ack", "--receipt", recovered["receipt"])
+    acknowledged = chat(*ack_args)
+    _require(
+        acknowledged.get("acknowledged") is True and chat(*ack_args) == acknowledged,
+        "The exact tool-read receipt did not acknowledge idempotently",
+    )
+    for event in stored:
+        _receipt(support, sender, event["event_ref"], {"gateway_tool_read"})
+    reply = chat(
+        "reply",
+        "--handle",
+        recovered["batches"][0][0]["handle"],
+        "--operation-id",
+        uuid.uuid4().hex,
+        "--text",
+        f"Synthetic exact tool reply for {stage}",
+    )
+    _require(
+        reply["event"]["data"]["reply_to"] == stored[0]["id"],
+        "Queue-supplied handle changed the exact native reply parent",
+    )
+    stale = chat(
+        "pop", "--snapshot", peek["snapshot"], "--operation-id", uuid.uuid4().hex, success=False
+    )
+    _require(stale.get("error_code") == "queue_snapshot_stale", "Consumed snapshot was not stale")
+    support._wait(lambda: support._ready(receiver["url"]), "Queue fixture did not finish")
+    _require(_invocations(root) == baseline + 1, "A popped attempt also activated the body")
+    if restart is not None:
+        return baseline + 1
+
+    # Hold another active turn long enough for the next ordinary batch to seal.
+    control_path.write_text(json.dumps({**control, "turn_seconds": 6.0}))
+    try:
+        active = _send(support, sender, f"Synthetic ordinary contender for {stage}")
+        _receipt(support, sender, active["event"]["event_ref"], {"accepted"})
+        tail = _send(support, sender, f"Synthetic next eligible for {stage}")["event"]
+        next_selection = chat("peek", "--wait-seconds", "5")
+        _require(
+            texts(next_selection) == [[tail["data"]["text"]]],
+            "The next eligible message did not become the queue head",
+        )
+    finally:
+        control_path.write_text(json.dumps(control))
+    _receipt(support, sender, tail["event_ref"], {"accepted"})
+    conflict = chat(
+        "pop",
+        "--snapshot",
+        next_selection["snapshot"],
+        "--operation-id",
+        uuid.uuid4().hex,
+        success=False,
+    )
+    _require(
+        conflict.get("error_code") == "queue_snapshot_stale",
+        "A peek whose head was claimed by a prompt could still pop",
+    )
+    support._wait(
+        lambda: support._ready(receiver["url"]), "Ordinary queue contender did not finish"
+    )
+    _require(_invocations(root) == baseline + 3, "Ordinary prompt claim count changed")
+    return baseline + 3
+
+
 def _failure_cases(
     support: ModuleType,
     work: Path,
     sender: dict[str, Any],
     receiver: dict[str, Any],
     controller: Any,
-) -> dict[str, bool]:
+) -> dict[str, bool | str]:
     """Qualify scheduled pull, live push policies, direct intake, and recovery."""
 
     from houmao.agents.realm_controller.errors import GatewayHttpError
@@ -537,6 +695,16 @@ def _failure_cases(
     _receipt(support, sender, waiting["event"]["event_ref"], {"accepted"})
     support._wait(lambda: support._ready(receiver["url"]), "Waiting batch did not finish")
     _require(_invocations(root) == baseline + 2, "Waiting chat handoff count differs")
+    _, capabilities = support._request(receiver["url"], prefix + "/capabilities")
+    queue_supported = capabilities.get("chat_queue") is True
+    if queue_supported:
+        _qualify_gateway_queue(support, work, sender, receiver, "pull")
+    else:
+        unsupported = _gateway_cli(work, receiver, ["chat", "peek"], success=False)
+        _require(
+            unsupported.get("error_code") == "queue_access_unsupported",
+            "An older provider did not return the typed queue capability error",
+        )
 
     print(json.dumps({"qualification_stage": "live-push"}), flush=True)
     url = receiver["url"]
@@ -576,6 +744,8 @@ def _failure_cases(
         _receipt(support, sender, stored["event"]["event_ref"], {"accepted"})
     support._wait(lambda: support._ready(url), "ASAP deliveries did not finish")
     _require(_invocations(root) == asap_baseline + 2, "ASAP coalesced distinct offers")
+    if queue_supported:
+        _qualify_gateway_queue(support, work, sender, receiver, "asap")
 
     update(
         {"transport": "push", "push_policy": "batch", "quiet_interval": 2.0, "max_wait": 6.0},
@@ -587,8 +757,11 @@ def _failure_cases(
         _receipt(support, sender, stored["event"]["event_ref"], {"accepted"})
     support._wait(lambda: support._ready(url), "Timed push batch did not finish")
     _require(_invocations(root) == batch_baseline + 1, "Timed push did not group the burst")
+    if queue_supported:
+        _qualify_gateway_queue(support, work, sender, receiver, "batch")
 
     print(json.dumps({"qualification_stage": "direct-and-reconnect"}), flush=True)
+    before_absence = _invocations(root)
     _require(controller.detach_gateway().status == "ok", "Gateway absence setup failed")
     absent = [_send(support, sender, f"Direct pull order {index}") for index in range(2)]
     profile = root / "actor-credential.json"
@@ -714,9 +887,13 @@ def _failure_cases(
     _receipt(support, sender, recovering["event"]["event_ref"], {"accepted"})
     support._wait(lambda: support._ready(receiver["url"]), "Recovered batch did not finish")
     baseline = _invocations(root)
-    _require(baseline == batch_baseline + 2, "Recovery did not deliver exactly the pending chat")
+    _require(baseline == before_absence + 1, "Recovery did not deliver exactly the pending chat")
 
     baseline = _qualify_receipt_discovery(support, work, sender, receiver, direct)
+    if queue_supported:
+        baseline = _qualify_gateway_queue(
+            support, work, sender, receiver, "pull", restart=controller
+        )
 
     replaced = root.parent.name == "detached_process"
     scenario = "generation_replaced" if replaced else "body_window_died"
@@ -756,6 +933,7 @@ def _failure_cases(
         "installed_receipt_targets": True,
         "limited_receipt_history": True,
         "group_assertions": True,
+        "gateway_queue_access": "qualified" if queue_supported else "unsupported",
         ("body_replacement_fenced" if replaced else "body_death_fenced"): True,
     }
 

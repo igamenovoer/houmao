@@ -20,6 +20,7 @@ from houmao.gateway.plugins import (
     PluginContext,
     PluginDispatchError,
     PluginEvent,
+    PluginPromptReadiness,
     PluginRequestBinding,
     PluginRequestMessage,
     PluginRequestPresentation,
@@ -27,8 +28,9 @@ from houmao.gateway.plugins import (
 )
 from houmao_cccc.client import ProviderClient, ProviderError
 from houmao_cccc.configuration import CcccConfiguration, valid_group_assertion, validate_credentials
-from houmao_cccc.delivery import ChatOffer, DeliveryBuffer, DeliverySettings
+from houmao_cccc.delivery import ChatBatch, ChatOffer, DeliveryBuffer, DeliverySettings
 from houmao_cccc.mail import MAIL_OPERATIONS, MailService
+from houmao_cccc.queue_access import QUEUE_OPERATIONS, QueueAccess
 from houmao_cccc.references import ReferenceCodec, ReferenceError
 
 _CHAT_OPERATIONS = frozenset(
@@ -180,6 +182,7 @@ class CcccPlugin:
         self.m_session_task: asyncio.Task[None] | None = None
         self.m_operations: set[asyncio.Task[object]] = set()
         self.m_mail: MailService | None = None
+        self.m_queue: QueueAccess | None = None
         self.m_desired: DeliverySettings = DeliverySettings()
         self.m_effective: DeliverySettings | None = None
         self.m_delivery_revision: int = 0
@@ -198,6 +201,7 @@ class CcccPlugin:
         plugin.m_config = config
         plugin.m_desired = config.delivery
         plugin.m_mail = MailService.from_plugin(plugin)
+        plugin.m_queue = QueueAccess.from_plugin(plugin)
         plugin._register_routes()
         return plugin
 
@@ -330,6 +334,8 @@ class CcccPlugin:
                     max_count=cast(int, limits["max_batch_messages"]),
                     max_bytes=cast(int, limits["max_batch_bytes"]),
                 )
+                assert self.m_queue is not None
+                self.m_queue.start_lease()
                 self.m_connection_token = secrets.token_urlsafe(18)
                 self._report("connected")
                 self.m_session_task = asyncio.create_task(
@@ -354,6 +360,7 @@ class CcccPlugin:
                 self.m_effective = None
                 self.m_buffer = None
                 self.m_handles.clear()
+                self._signal_delivery_change()
                 if lease is not None:
                     await self._release(client, lease)
                 if epoch == self.m_epoch:
@@ -734,7 +741,7 @@ class CcccPlugin:
         while self._intaking(epoch):
             buffer.close_due(loop.time())
             batch = buffer.head
-            if batch is None:
+            if batch is None or buffer.reserved:
                 await self._wait_for_delivery_change(1.0)
                 continue
             event = self._batch_event(batch)
@@ -744,10 +751,11 @@ class CcccPlugin:
                 events.validate(event)
             except PluginDispatchError as error:
                 validation_error = error
-            while self._intaking(epoch):
+            while self._intaking(epoch) and buffer.head is batch and not buffer.reserved:
                 remaining = limit - loop.time()
                 if remaining <= 0:
                     self.m_rotate.set()
+                    self._signal_delivery_change()
                     return
                 readiness = None
                 if validation_error is None:
@@ -762,77 +770,106 @@ class CcccPlugin:
                         continue
                 if not self._intaking(epoch):
                     return
-                dispatch_id = secrets.token_urlsafe(18)
-                key = {**self._lease_arguments(lease), "dispatch_id": dispatch_id}
-                ids: list[JsonValue] = [offer.attempt_id for offer in batch]
-                handoff_deadline = loop.time() + cast(int, self._limits()["max_handoff_seconds"])
-                start = await self._decision(client, "lease.start", {**key, "attempt_ids": ids})
-                if (
-                    start.get("dispatch_id") != dispatch_id
-                    or start.get("attempt_ids") != ids
-                    or start.get("outcome") != "started"
-                ):
-                    raise ProviderError("invalid_provider_response", 503, False)
-                outcome = "deferred"
-                code: str | None = "connection_retired"
-                retryable = True
-                try:
-                    if validation_error is not None:
-                        raise validation_error
-                    remaining = min(limit, handoff_deadline) - loop.time()
-                    if self._intaking(epoch) and remaining > 0:
-                        async with asyncio.timeout(
-                            min(self._config().request_timeout_seconds, remaining)
-                        ):
-                            await events.dispatch(event, readiness=readiness)
-                        outcome, code, retryable = "accepted", None, False
-                except PluginDispatchError as error:
-                    if error.dispatch_outcome == "unknown":
-                        outcome = "uncertain"
-                    elif error.error_code in {"not_ready", "body_replaced", "plugin_unavailable"}:
-                        outcome = "deferred"
-                    else:
-                        outcome = "failed"
-                    code, retryable = error.error_code, error.retryable
-                except TimeoutError:
-                    outcome, code, retryable = "uncertain", "dispatch_timeout", True
-                except asyncio.CancelledError:
-                    try:
-                        async with asyncio.timeout(1.0):
-                            await client.request(
-                                "lease.settle",
-                                {
-                                    **key,
-                                    "outcome": "uncertain",
-                                    "retryable": True,
-                                    "error_code": "dispatch_cancelled",
-                                },
-                            )
-                    except (ProviderError, TimeoutError):
-                        pass
-                    raise
-                except Exception:
-                    outcome, code, retryable = "uncertain", "dispatch_failed", True
-                settled = await self._decision(
-                    client,
-                    "lease.settle",
-                    {
-                        **key,
-                        "outcome": outcome,
-                        "retryable": retryable,
-                        "error_code": code,
-                    },
-                )
-                if (
-                    settled.get("dispatch_id") != dispatch_id
-                    or settled.get("attempt_ids") != ids
-                    or settled.get("outcome") != outcome
-                ):
-                    raise ProviderError("invalid_provider_response", 503, False)
-                if outcome != "deferred":
-                    buffer.finish(batch)
-                    self._signal_delivery_change()
+                selection = (batch,)
+                if not buffer.reserve(selection):
                     break
+                consume = False
+                try:
+                    if limit <= loop.time():
+                        self.m_rotate.set()
+                        return
+                    consume = await self._dispatch_claimed(
+                        client, lease, epoch, batch, event, readiness, validation_error
+                    )
+                except (Exception, asyncio.CancelledError):
+                    # A possibly started or unsettled dispatch is resolved by CCCC on retirement.
+                    self.m_rotate.set()
+                    raise
+                finally:
+                    buffer.release(selection, consume=consume)
+                    self._signal_delivery_change()
+                if consume:
+                    break
+
+    async def _dispatch_claimed(
+        self,
+        client: ProviderClient,
+        lease: dict[str, JsonValue],
+        epoch: int,
+        batch: ChatBatch,
+        event: PluginEvent,
+        readiness: PluginPromptReadiness | None,
+        validation_error: PluginDispatchError | None,
+    ) -> bool:
+        """Settle the reserved head and return whether it left automatic delivery."""
+
+        loop = asyncio.get_running_loop()
+        dispatch_id = secrets.token_urlsafe(18)
+        key = {**self._lease_arguments(lease), "dispatch_id": dispatch_id}
+        ids: list[JsonValue] = [offer.attempt_id for offer in batch]
+        handoff_deadline = loop.time() + cast(int, self._limits()["max_handoff_seconds"])
+        start = await self._decision(client, "lease.start", {**key, "attempt_ids": ids})
+        if (
+            start.get("dispatch_id") != dispatch_id
+            or start.get("attempt_ids") != ids
+            or start.get("outcome") != "started"
+        ):
+            raise ProviderError("invalid_provider_response", 503, False)
+        outcome = "deferred"
+        code: str | None = "connection_retired"
+        retryable = True
+        try:
+            if validation_error is not None:
+                raise validation_error
+            remaining = min(handoff_deadline, *(offer.expires_at for offer in batch)) - loop.time()
+            if self._intaking(epoch) and remaining > 0:
+                async with asyncio.timeout(min(self._config().request_timeout_seconds, remaining)):
+                    await self._context().events.dispatch(event, readiness=readiness)
+                outcome, code, retryable = "accepted", None, False
+        except PluginDispatchError as error:
+            if error.dispatch_outcome == "unknown":
+                outcome = "uncertain"
+            elif error.error_code in {"not_ready", "body_replaced", "plugin_unavailable"}:
+                outcome = "deferred"
+            else:
+                outcome = "failed"
+            code, retryable = error.error_code, error.retryable
+        except TimeoutError:
+            outcome, code, retryable = "uncertain", "dispatch_timeout", True
+        except asyncio.CancelledError:
+            try:
+                async with asyncio.timeout(1.0):
+                    await client.request(
+                        "lease.settle",
+                        {
+                            **key,
+                            "outcome": "uncertain",
+                            "retryable": True,
+                            "error_code": "dispatch_cancelled",
+                        },
+                    )
+            except (ProviderError, TimeoutError):
+                pass
+            raise
+        except Exception:
+            outcome, code, retryable = "uncertain", "dispatch_failed", True
+        settled = await self._decision(
+            client,
+            "lease.settle",
+            {
+                **key,
+                "outcome": outcome,
+                "retryable": retryable,
+                "error_code": code,
+            },
+        )
+        if (
+            settled.get("dispatch_id") != dispatch_id
+            or settled.get("attempt_ids") != ids
+            or settled.get("outcome") != outcome
+        ):
+            raise ProviderError("invalid_provider_response", 503, False)
+        return outcome != "deferred"
 
     async def _offer(
         self,
@@ -942,6 +979,7 @@ class CcccPlugin:
         self.m_want_connected = False
         self.m_epoch += 1
         self.m_change.set()
+        self._signal_delivery_change()
         session = self.m_session_task
         if session is not None:
             session.cancel()
@@ -1188,6 +1226,8 @@ class CcccPlugin:
         )
         assert self.m_mail is not None
         self.m_router.include_router(self.m_mail.router)
+        assert self.m_queue is not None
+        self.m_router.include_router(self.m_queue.router)
 
     async def binding(self, request: Request) -> dict[str, JsonValue]:
         """Read a safe maintained binding snapshot without provider requests."""
@@ -1220,6 +1260,10 @@ class CcccPlugin:
         mail = self.m_mail.capabilities()
         if mail["qualified"] is True:
             effective.extend(sorted(MAIL_OPERATIONS))
+        assert self.m_queue is not None
+        queue_qualified = self.m_queue.qualified()
+        if queue_qualified:
+            effective.extend(sorted(QUEUE_OPERATIONS))
         return {
             "backend": "cccc-chat",
             "binding_id": self._context().binding_id,
@@ -1230,6 +1274,7 @@ class CcccPlugin:
             "recipient_scope": "bound-group",
             "modes": ["send", "request_reply"],
             "mail": mail,
+            "chat_queue": queue_qualified,
             "success_means": "provider_storage_acceptance; per-recipient handoff is separate",
         }
 
@@ -1328,6 +1373,7 @@ class CcccPlugin:
                 if self.m_effective is not None:
                     if self.m_effective.transport != update.settings.transport:
                         self.m_rotate.set()
+                        self._signal_delivery_change()
                     elif not self.m_rotate.is_set():
                         assert self.m_buffer is not None
                         self.m_buffer.configure(update.settings)

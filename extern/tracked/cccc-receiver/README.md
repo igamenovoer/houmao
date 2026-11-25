@@ -6,4 +6,4 @@ Prepare a disposable source checkout and build it through the native Pixi worksp
 
 The source license is preserved in `LICENSE.upstream`; the patch series modifies that licensed upstream source. This compatibility extension has not been accepted upstream. A future upstream replacement must pass the same receiver conformance, owner-isolation, delivery-fencing, and installed-plugin qualification checks before replacing these patches.
 
-The series introduces external chat in `0001-external-receiver.patch`, adds deferred Mail in `0002-explicit-deferred-mail.patch`, and upgrades intake and handoff to protocol v2 in `0003-queued-receiver-v2.patch`. Prepare all three patches together in a fresh source checkout.
+The series introduces external chat in `0001-external-receiver.patch`, adds deferred Mail in `0002-explicit-deferred-mail.patch`, upgrades intake and handoff to protocol v2 in `0003-queued-receiver-v2.patch`, and adds durable gateway tool-read claims in `0004-gateway-queue-reads.patch`. The preparation helper applies the complete ordered series to a fresh source checkout.

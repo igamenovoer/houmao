@@ -5,6 +5,7 @@
   "patches": [
     "patches/0001-external-receiver.patch",
     "patches/0002-explicit-deferred-mail.patch",
-    "patches/0003-queued-receiver-v2.patch"
+    "patches/0003-queued-receiver-v2.patch",
+    "patches/0004-gateway-queue-reads.patch"
   ]
 }
