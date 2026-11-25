@@ -337,6 +337,17 @@ A representative configured hook channel on status:
 
 `provider` names the active adapter, `"claude"`, `"codex"`, or `"kimi"`. Counter fields omitted from the example keep their zero defaults; the full counter set is documented under [`observation_channels`](../../../developer/houmao-server/state-reference.md#observation_channels). `state` is one of `active`, `unavailable`, `stale`, `disabled_by_policy`, `untrusted_workspace`, `error`, or `stopped`. Only `active` grants hook lifecycle authority. See [Hook Observation Channel](../../../developer/houmao-server/state-tracking.md#hook-observation-channel) for the state machine and thresholds.
 
+#### Readiness for Web and Headless Agents
+
+Before sending a ready-only prompt or exercising an ordinary plugin handoff, read `GET /v1/status` with a caller authorized for `agent.status.read`. Positive preflight evidence requires `gateway_health: healthy`, `observation.freshness: current`, and `observation.can_accept_prompt_now: true`. Gateway health reports whether the control plane is alive. The observation uses the selected surface's readiness and the gateway's execution, queue, and admission state.
+
+Treat missing or stale observations and unknown readiness as unconfirmed. Use the attached agent's mode to select diagnostics.
+
+- For Web, inspect `web.availability`, `web.host_process_alive`, and `web.can_accept_prompt_now` in the same response.
+- For headless, read `GET /v1/control/headless/state` for `tmux_session_live`, `active_execution`, `active_turn_id`, and `request_admission`.
+
+Check the plugin connection separately for plugin exercises. Each ready-only prompt or ordinary event still faces live admission at handoff. A body that becomes busy after the status read can refuse the request. [CCCC Binding Check](../cccc.md#inspect-connection-state) · [Gateway status projection](../../../../src/houmao/agents/realm_controller/gateway_service.py#L9724)
+
 ### `GET /v1/usage`
 
 This read-only route returns finalized accounting for the attached runtime session. It uses the same page contract for headless turns and TUI turns whose structured native logs establish usage and turn identity. Usage reads do not acquire the terminal-mutation lock, wait for an idle agent, or scan provider logs. Background collection and recovery update the ledger independently.

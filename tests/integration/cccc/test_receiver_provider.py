@@ -189,8 +189,19 @@ def test_handoff_receipt_retry_and_no_reconnect_replay(actors: tuple[Any, ...]) 
             {**lease_args, "attempt_id": retried["attempt_id"], "outcome": "accepted"},
         )
     )
-    receipts = _result(_rpc(client, sender, "chat.deliveries", {"event_id": event_id, "limit": 1}))
-    assert len(receipts["deliveries"]) == 1
+    receipts = _result(_rpc(client, sender, "chat.deliveries", {"event_id": event_id}))
+    assert receipts["event_id"] == event_id
+    assert receipts["has_more"] is False
+    assert [
+        (row["event_id"], row["attempt_id"], row["state"]) for row in receipts["deliveries"]
+    ] == [
+        (event_id, retried["attempt_id"], "accepted"),
+        (event_id, offer["attempt_id"], "refused"),
+    ]
+
+    latest = _result(_rpc(client, sender, "chat.deliveries", {"event_id": event_id, "limit": 1}))
+    assert latest["deliveries"] == receipts["deliveries"][:1]
+    assert latest["has_more"] is True
 
 
 def test_recipient_scope_and_history_limits(actors: tuple[Any, ...]) -> None:

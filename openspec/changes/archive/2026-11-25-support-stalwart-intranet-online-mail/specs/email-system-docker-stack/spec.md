@@ -15,7 +15,7 @@ JMAP discovery on the bundled stack SHALL advertise API and upload URLs on the p
 - **THEN** verification checks that discovery advertises the configured port for JMAP requests and uploads
 
 ### Requirement: Bundled stack docs provide a send-capable JMAP sandbox path
-The setup guide SHALL document the seeded `houmao.localhost` Cypht, IMAP, and SMTP mailboxes and an explicit provisioning path for JMAP test accounts on a domain that the pinned Stalwart release accepts for sending identities.
+The setup guide SHALL document access to the seeded `houmao.localhost` mailboxes through Bulwark, IMAP, and SMTP. It SHALL document explicit provisioning for JMAP test accounts on a domain that the pinned Stalwart release accepts for sending identities.
 
 #### Scenario: Developer prepares accounts for agent mail verification
 - **WHEN** a developer follows the online JMAP mail test setup

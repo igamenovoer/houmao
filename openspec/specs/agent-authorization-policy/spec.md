@@ -8,7 +8,7 @@ Let an agent's execution owner control who can use individual Houmao operations 
 
 ### Requirement: Policy Evaluates a Verified Caller and a Concrete Operation
 
-Houmao SHALL authorize an operation using a verified caller, the target agent's observed ownership domain, a canonical resource, and a declared action. Direct grants and role assignments SHALL be scoped to one domain. A protected operation SHALL require a matching permission for every distinct protected effect it requests.
+Houmao SHALL authorize the canonical resource and declared action under the target agent's observed owner domain. It SHALL preserve verified caller provenance or explicit anonymous provenance. Direct grants and role assignments SHALL be scoped to one domain. A protected operation SHALL require a matching permission for every distinct protected effect it requests.
 
 #### Scenario: One caller has different rights on two agents
 
@@ -29,7 +29,7 @@ Houmao SHALL authorize an operation using a verified caller, the target agent's 
 
 ### Requirement: Credentials Establish Principals Independently of Permissions
 
-Owner-enrolled keys SHALL identify stable operator, service, or logical agent principals. A managed self credential SHALL identify the current generation of the selected target agent. Credential enrollment, permission assignment, and target ownership SHALL remain separately attributable.
+Owner-enrolled keys SHALL identify stable operator, service, or logical agent principals. A `managed-self` credential SHALL identify the current generation of the selected target agent through verified runtime registration. Credential enrollment, permission assignment, and target ownership SHALL remain separately attributable.
 
 #### Scenario: An operator rotates an enrolled key
 
@@ -39,8 +39,8 @@ Owner-enrolled keys SHALL identify stable operator, service, or logical agent pr
 
 #### Scenario: A managed source changes generation
 
-- **WHEN** a managed caller presents self proof from an ended or replaced generation
-- **THEN** the target rejects the retired self credential
+- **WHEN** a managed caller presents managed-self proof from an ended or replaced generation
+- **THEN** the target rejects the retired managed-self credential
 - **AND THEN** the logical agent's independently enrolled peer credentials and grants follow their own enrollment lifecycle
 
 #### Scenario: Two principals use the same display label
@@ -51,11 +51,11 @@ Owner-enrolled keys SHALL identify stable operator, service, or logical agent pr
 
 ### Requirement: Owner Policy Has One Retained Authority
 
-Houmao SHALL retain a versioned policy bound to each agent's observed owner domain. The policy SHALL retain principal and credential bindings, roster membership, grants, and revisions across same-domain lifecycle changes. Every gateway and passive operation acting on that domain SHALL use the same authority.
+Houmao SHALL retain a versioned policy bound to each agent's observed owner domain. It SHALL retain principal and credential bindings, roster membership, grants, the default permission group, and revisions across same-domain lifecycle changes. Gateway, passive, and policy-governed mail delivery operations SHALL use the same authority.
 
 #### Scenario: The gateway is reattached or absent
 
-- **WHEN** gateway reattachment or a supported direct passive operation resolves the retained owner domain
+- **WHEN** gateway reattachment, a supported direct passive operation, or an applicable mail delivery resolves the retained owner domain
 - **THEN** it applies the latest policy for that domain
 - **AND THEN** discovery and runtime absence cannot substitute a different policy
 
@@ -67,30 +67,30 @@ Houmao SHALL retain a versioned policy bound to each agent's observed owner doma
 
 ### Requirement: A Verified Empty Roster Enables Gateway Administration
 
-The gateway-admin role SHALL grant every declared permission for supported client-facing operations in the selected owner domain. A valid empty roster SHALL confer that role on all callers. In a keyed domain it SHALL require proof from a key explicitly enrolled in the admin roster. Admission SHALL preserve caller provenance and enforce operation and runtime prerequisites.
+`agent-admin` SHALL grant every declared permission for supported client-facing operations in the selected owner domain. An empty verified roster SHALL supply this authority to every reachable caller. A qualified roster key SHALL supply direct `agent-admin` authority in a keyed domain. The configured default group can supply permissions separately. Admission SHALL preserve caller provenance and enforce operation, transport, and runtime prerequisites.
 
 #### Scenario: An ordinary admin operation uses an empty roster
 
 - **WHEN** the retained policy has a verified empty admin roster and a caller invokes a supported client-facing operation
-- **THEN** the gateway-admin role authorizes the operation subject to its normal prerequisites
+- **THEN** `agent-admin` authorizes the operation subject to its normal prerequisites
 - **AND THEN** the caller remains anonymous or the independently verified principal in diagnostics
 
 #### Scenario: Admin authority covers all declared client-facing effects
 
 - **WHEN** a current admin or a caller admitted under an empty roster requests a supported mail attachment, plugin operation, or peer file operation
-- **THEN** the same role supplies every declared permission for the operation and its effects
+- **THEN** the same authority supplies every declared permission for the operation and its effects
 - **AND THEN** the selected target, declared capabilities, and native readiness still govern execution
 
 #### Scenario: A nonadmin uses scoped permissions
 
-- **WHEN** a verified nonadmin calls a target with a nonempty admin roster
-- **THEN** public and applicable scoped permissions govern the call without conferring the gateway-admin role
+- **WHEN** a verified nonadmin with an explicit non-admin group calls a target with a nonempty admin roster
+- **THEN** public route policy and applicable scoped permissions govern the call without applying the default group
 
 #### Scenario: Two keys identify one principal
 
 - **WHEN** a principal with one admin-enrolled key signs with a separately enrolled ordinary key on the keyed target
-- **THEN** the request uses the principal's scoped grants
-- **AND THEN** the ordinary key does not acquire the other key's admin authority
+- **THEN** the request uses the principal's applicable scoped or default permissions
+- **AND THEN** any default permissions remain separate from the other key's roster qualification
 
 #### Scenario: A caller supplies bad proof in open mode
 
@@ -99,18 +99,18 @@ The gateway-admin role SHALL grant every declared permission for supported clien
 
 ### Requirement: Roster Transitions Change Open Admission Atomically
 
-First admin enrollment SHALL require proposed-key proof and atomic confirmation of the current empty roster. Current admin keys and verified local owner authority SHALL be able to add or remove per-key admin enrollment. Removing the final admin enrollment by roster change or credential revocation SHALL reopen the role to all callers. Earlier open admissions SHALL remain bound to their open epoch.
+First admin enrollment SHALL require proposed-key proof and atomic confirmation of the current empty roster. Current admin keys and verified local owner authority SHALL be able to add or remove per-key admin enrollment. Removing the final admin enrollment by roster change or credential revocation SHALL reopen administrator authority to all callers. Earlier open admissions SHALL remain bound to their open epoch.
 
 #### Scenario: Two first-key enrollments compete
 
-- **WHEN** two callers present valid first-key proof for the same empty revision
+- **WHEN** two callers present valid first-key proof against the same empty revision
 - **THEN** only one enrollment commits
-- **AND THEN** the other attempt cannot enroll a second admin using the earlier empty roster
+- **AND THEN** the other attempt cannot enroll a second admin using the earlier revision
 
 #### Scenario: The last admin removes its enrollment
 
 - **WHEN** the final admin key enrollment is removed from a valid retained policy, even if ordinary keys remain
-- **THEN** new requests can use the full gateway-admin role through open admission
+- **THEN** new requests can use full `agent-admin` authority through open admission
 - **AND THEN** an earlier open admission cannot regain authority after an intervening keyed epoch
 
 #### Scenario: An owner rotates the final admin key
@@ -121,7 +121,7 @@ First admin enrollment SHALL require proposed-key proof and atomic confirmation 
 #### Scenario: Anonymous access attempts routine roster management
 
 - **WHEN** an unsigned caller invokes roster management without the first-enrollment proof for an empty roster
-- **THEN** the gateway refuses the mutation because the enrollment prerequisites are unmet
+- **THEN** the gateway refuses the mutation before changing the roster
 
 ### Requirement: The Owner Manages Scoped Policy Independently of Gateway Control
 
@@ -129,13 +129,13 @@ The verified local execution owner SHALL be able to initialize policy and enroll
 
 #### Scenario: The owner narrows an existing caller
 
-- **WHEN** the owner replaces a nonadmin's operator role with a status-read grant on a target with a nonempty admin roster
+- **WHEN** the owner replaces a nonadmin's operator role with an explicit observer assignment on a target with a nonempty admin roster
 - **THEN** the same current credential can still read the status for the granted target
 - **AND THEN** a later prompt or interrupt requires an applicable permission
 
 #### Scenario: A gateway admin attempts to create a scoped grant
 
-- **WHEN** a caller relies on the gateway-admin role for a scoped-policy mutation requiring verified local owner authority
+- **WHEN** a caller relies on `agent-admin` for a scoped-policy mutation requiring verified local owner authority
 - **THEN** the mutation is refused before changing the policy
 
 #### Scenario: An existing installation has only retired authorization data
@@ -152,7 +152,7 @@ The verified local execution owner SHALL be able to initialize policy and enroll
 
 #### Scenario: A scoped grant reaches its expiration
 
-- **WHEN** the only permission for a nonadmin's requested action on a target with a nonempty roster expires
+- **WHEN** the only permission for a nonadmin's requested action on a target with a nonempty admin roster expires
 - **THEN** new use of that action is refused without requiring a policy edit, service restart, or credential revocation
 
 ### Requirement: Managed Peers Use the Same Scoped Policy
@@ -211,7 +211,7 @@ Houmao SHALL recheck sensitive mutations at the owner-controlled point of handof
 
 ### Requirement: Existing Execution Authority Remains Independent of Gateway Grants
 
-Direct local manager, executor, and policy operations SHALL use verified execution owner authority. Internal backing entrances SHALL require their bound service authority. The gateway-admin role SHALL apply to supported client-facing operations in the selected owner domain.
+Direct local manager and executor operations, and owner-scoped policy administration, SHALL use verified execution owner authority. Internal backing entrances SHALL require their bound service authority. `agent-admin` SHALL apply to supported client-facing operations in the selected owner domain.
 
 #### Scenario: An owner operates a target without an attached gateway
 
@@ -225,5 +225,394 @@ Direct local manager, executor, and policy operations SHALL use verified executi
 
 #### Scenario: A caller reaches an internal backing entrance
 
-- **WHEN** a caller presents only gateway-admin authority, including under an empty admin roster, to a service backing entrance
+- **WHEN** a caller presents only `agent-admin` authority, including under an empty admin roster, to a service backing entrance
 - **THEN** the entrance requires its own bound service credential before dispatch
+
+### Requirement: The System Controls Built-In Group Membership
+
+The built-in catalog SHALL contain the four assignable agent roles, `managed-self`, and `agent-admin`. The system SHALL control membership in `managed-self` and `agent-admin`. Public routes SHALL follow their deployment settings. The former `gateway-admin` name SHALL refer to the same roster authority as `agent-admin`. Managed-self registration SHALL leave the roster and open epoch unchanged.
+
+#### Scenario: Self registration leaves Bob open
+
+- **WHEN** Bob registers a managed-self key while his verified admin roster is empty
+- **THEN** Bob and anonymous callers retain open `agent-admin` permissions on supported client-facing operations
+- **AND THEN** a request signed by Bob's managed-self key records Bob's managed runtime as the caller
+
+#### Scenario: A first administrator enrolls after Bob registers
+
+- **WHEN** Bob's first administrator enrolls after Bob registers his managed-self key
+- **THEN** new requests signed by Bob's key use `managed-self` and applicable public route policy
+- **AND THEN** admission under the preceding open epoch remains subject to the roster transition fence
+
+#### Scenario: An owner attempts to assign a system-controlled group
+
+- **WHEN** an owner attempts to create, overwrite, or assign a system-controlled group through ordinary role administration
+- **THEN** the command rejects the operation and identifies the group's system-controlled membership mechanism
+
+### Requirement: Managed Runtime Registration Uses Verified Local Authority
+
+The verified execution owner SHALL prepare a fresh Ed25519 key and its public registration for each managed generation. Provisioning SHALL work independently of any listener. Registration SHALL bind the key to its owner, target, and generation. Gateway and passive ingress SHALL accept managed-self proof only for the live current generation and its current registration revision.
+
+#### Scenario: A combined launch prepares registration before startup
+
+- **WHEN** the owner reserves a new generation to launch Bob and attach his gateway
+- **THEN** Houmao commits the private key record and public registration before starting Bob's native runtime or attaching his gateway
+
+#### Scenario: A supported join adopts an existing live session
+
+- **WHEN** Bob's verified execution owner joins a supported session and establishes a managed generation
+- **THEN** Houmao prepares its key and public registration before making the generation available for managed-self proof
+
+#### Scenario: A gateway attaches after the runtime starts
+
+- **WHEN** Bob starts with the gateway detached and an operator later attaches it
+- **THEN** the gateway uses the registration prepared by Bob's verified execution owner
+- **AND THEN** another detach and reattach within that generation uses the same registration with fresh proof for the new listener
+
+#### Scenario: The passive server serves the live runtime without a gateway
+
+- **WHEN** the current managed-self signer proves a qualified operation on its own target through the passive server while the agent gateway is detached
+- **THEN** the passive server resolves the current runtime registration and checks the target's retained policy
+- **AND THEN** the operation neither starts a gateway nor uses a backing service credential as client proof
+
+#### Scenario: A prepared generation is unavailable for self proof
+
+- **WHEN** the owner creates the key and registration before the generation becomes live and current
+- **THEN** the prepared registration becomes usable for self proof only after Houmao verifies that generation as live and current
+
+#### Scenario: The current key is unavailable on a keyed target
+
+- **WHEN** a managed-self call selects a keyed gateway but the current runtime's registration or private key record is unavailable
+- **THEN** the call reports unavailable self authorization without substituting an enrolled peer or administrator credential
+
+#### Scenario: A managed-self key collides with an enrolled key
+
+- **WHEN** an enrollment attempts to qualify the current managed-self public key as a peer or administrator, or registration presents a public key already enrolled for those purposes
+- **THEN** the gateway or owner policy operation rejects the conflicting use
+
+### Requirement: Managed-Self Private Keys Use the Owner's SQLite Store
+
+`authorization.sqlite3` SHALL hold `managed-self` private keys in a separate table keyed by generation and key ID. Verified owner execution alone SHALL load a private key and check it against its active public registration in the same snapshot. Houmao SHALL validate ownership, `0700` directories, and `0600` database and sidecar files before use. Environment variables SHALL carry only runtime locators. The database and sidecars SHALL stay outside shared artifacts and remote exports.
+
+#### Scenario: A fresh worker signs for its current generation
+
+- **WHEN** a headless turn starts a fresh worker or Bob recovers under the same verified generation
+- **THEN** the self client resolves the current registration and loads the same owner-private key record to sign its bound request challenge
+
+#### Scenario: Different owners run on the same host
+
+- **WHEN** Bob and Carol run under different Linux user IDs and Carol supplies Bob's runtime locator
+- **THEN** the lookup requires Bob's execution-owner authority and access to his private key record
+- **AND THEN** Carol's process cannot obtain managed-self proof from the locator
+
+#### Scenario: Two agents share an execution account
+
+- **WHEN** Bob and Carol run under the same Linux user ID
+- **THEN** normal key selection scopes each agent's key to its own target and generation
+- **AND THEN** their credential stores share the trust boundary of that user ID
+
+#### Scenario: A remote operation attempts to export a key
+
+- **WHEN** a remote artifact, file, or owner-file attachment operation selects `authorization.sqlite3` or a SQLite sidecar containing credential data
+- **THEN** Houmao refuses the export
+
+#### Scenario: An ingress verifies a managed-self signature
+
+- **WHEN** the gateway or passive server checks managed-self proof for the live current generation
+- **THEN** it verifies the signature using the active public registration and its revision
+
+### Requirement: Managed Self Registration Is Exclusive
+
+A gateway target SHALL allow at most one active `managed-self` key for its current generation. Replacement or revocation SHALL require effective `agent-admin` authority or proof from the current key. Recovery of a committed key that is unavailable or revoked SHALL require effective `agent-admin` authority. Replacement SHALL verify candidate possession and generation binding.
+
+#### Scenario: Two keys try to register for the same generation
+
+- **WHEN** two distinct keys attempt initial registration for the same verified generation
+- **THEN** at most one key is registered and the other attempt cannot change it without current replacement authority
+
+#### Scenario: The current signer rotates its key
+
+- **WHEN** Bob proves the currently registered key and the replacement candidate proves possession for the same verified runtime
+- **THEN** the registrar atomically replaces the binding
+- **AND THEN** the predecessor cannot authorize further effects under its retired registration
+
+#### Scenario: The default grants managed-self permissions
+
+- **WHEN** a caller with permissions solely through a `managed-self` default attempts to replace the registered key
+- **THEN** the caller has no key replacement authority and the current registration remains active
+
+#### Scenario: A committed key record is missing or its registration is revoked
+
+- **WHEN** the committed private key record is unavailable or the active public registration has been revoked within the same generation
+- **THEN** an admin can recover the binding subject to the current runtime and candidate checks
+- **AND THEN** the generation retains the recorded registration state and requires recovery authority after restart
+
+#### Scenario: An authorized relaunch establishes a new generation
+
+- **WHEN** an authorized relaunch establishes a new verified runtime generation
+- **THEN** the verified execution owner prepares a fresh key for the new generation
+- **AND THEN** the gateway rejects outstanding proof for the previous generation
+
+### Requirement: Managed-Self Registration Changes Commit with Owner Policy
+
+Houmao SHALL validate and commit the private key record, active public registration, and its revision in one durable owner policy transaction against the expected generation and revision. A revocation SHALL atomically invalidate the key record and retain the generation's registration history and revocation marker.
+
+#### Scenario: Key replacement stops before the registration commits
+
+- **WHEN** the policy transaction for a replacement key is interrupted or fails before commit
+- **THEN** the prior registration and key remain active
+- **AND THEN** receipt of proof under the staged key cannot activate that key
+
+#### Scenario: A replacement commits before an interruption
+
+- **WHEN** the owner policy transaction commits a key replacement and the process exits before returning its result
+- **THEN** reopening the owner store resolves the new private key and matching active public registration and revision together
+- **AND THEN** proof tied to the predecessor remains invalid
+
+#### Scenario: The committed credential store cannot be read
+
+- **WHEN** a committed database is missing or corrupt, or its active registration references missing or invalid private material
+- **THEN** the affected signing operation reports unavailable self authority and retains the selected caller
+- **AND THEN** recovery requires verified owner action without automatically creating a key, registration, or policy
+
+### Requirement: Managed Self Authorizes Its Own Runtime Effects
+
+The catalog SHALL classify every supported client-facing effect as non-admin or admin-exclusive. In keyed mode `managed-self` SHALL authorize every supported non-admin effect on the caller's verified own target. Admin-exclusive effects SHALL require `agent-admin` authority. All effects SHALL retain their resource, transport, and runtime prerequisites.
+
+#### Scenario: Bob checks and refreshes his common resources
+
+- **WHEN** Bob requests native home or refresh operations against his own attached gateway with current managed-self proof
+- **THEN** authorization supplies `native.observe`, `native.refresh.observe`, and `native.refresh.apply` on the `native` resource as required
+- **AND THEN** native capabilities and idle admission still determine whether refresh can run
+
+#### Scenario: Bob sends his own ordinary mail
+
+- **WHEN** Bob sends ordinary email from his current mailbox binding using managed-self proof
+- **THEN** the gateway admits the declared sender operation for that binding
+- **AND THEN** delivery to another agent remains subject to that recipient's authority
+
+#### Scenario: Bob uses a supported direct native operation on himself
+
+- **WHEN** Bob invokes a non-admin effect on his own target with verified `managed-self` proof
+- **THEN** admission applies the registered effect and the usual native prerequisites without requiring a peer role assignment
+
+#### Scenario: Bob attempts to administer his own roster
+
+- **WHEN** Bob invokes a key enrollment or removal effect using only his `managed-self` key on his keyed target
+- **THEN** the admin-exclusive effect is refused before the roster changes
+- **AND THEN** an applicable `agent-admin` key can use the supported roster operation
+
+#### Scenario: Alice targets Bob with a managed runtime key
+
+- **WHEN** Alice calls Bob using the key registered for Alice's managed runtime
+- **THEN** that proof supplies no managed-self or peer authority on Bob's target
+- **AND THEN** Alice's independently enrolled peer key is eligible for Bob's explicit assignments
+
+### Requirement: Owners Assign Versioned Built-In Agent Roles
+
+The owner SHALL be able to assign `builtin:agent-observer`, `builtin:agent-requester`, `builtin:agent-maintainer`, and `builtin:agent-operator` to enrolled principals on one target. The four roles SHALL form a cumulative sequence in that order. Each assignment SHALL preserve its catalog version or exact effect set until the owner changes it. Local roles, direct grants, expiry, and revocation SHALL remain available.
+
+#### Scenario: Alice observes Bob's operational state
+
+- **WHEN** Alice proves the identity assigned only `builtin:agent-observer` on keyed Bob with public prompting disabled
+- **THEN** the role supplies only `agent.status.read` on `agent`
+- **AND THEN** Bob refuses mail and protected mutations under Alice's verified identity when she has no additional authority
+
+#### Scenario: Alice can request work without direct control
+
+- **WHEN** Alice holds only `builtin:agent-requester` on keyed Bob
+- **THEN** she can read his status, send him mail from her verified sender binding under `agent.mail.deliver`, and submit a wrapped work request under `agent.request.submit`
+- **AND THEN** verbatim prompt, command invocation, interruption, and private output effects require other authority
+
+#### Scenario: Alice maintains Bob's common plugins
+
+- **WHEN** Alice holds only `builtin:agent-maintainer` on keyed Bob
+- **THEN** she retains requester effects and can inspect, draft, and publish updates to Bob's qualified owner-exposed common skills and MCP resources
+- **AND THEN** direct prompts, command invocation, interruption, native extension packages, and gateway integration configuration require other authority
+
+#### Scenario: Alice operates Bob's turn
+
+- **WHEN** Alice holds only `builtin:agent-operator` on keyed Bob
+- **THEN** she retains maintainer effects and receives `agent.prompt.direct`, `agent.command.invoke`, and `agent.interrupt` on `agent`
+- **AND THEN** raw terminal input, override admission, model or session selection, stop, Web entry, private history, and owner-file attachment access retain their own applicable permissions
+
+#### Scenario: A preexisting local role shares a built-in display name
+
+- **WHEN** the owner has a local role called `agent-observer` at upgrade
+- **THEN** assignments to that role retain its declared rows
+- **AND THEN** the owner uses `builtin:agent-observer` to select the separate built-in definition
+
+#### Scenario: A new release expands a built-in role definition
+
+- **WHEN** the installed catalog gains a new role version
+- **THEN** an earlier assignment continues to apply its previously approved permissions
+- **AND THEN** inspection identifies the assigned version and the exact effect set
+
+### Requirement: Each Agent Retains a Configurable Default Permission Group
+
+The target policy SHALL retain one `default_permission_group` initialized to `agent-requester`. It SHALL accept any of the six built-in groups. The setting SHALL pin the chosen catalog version or exact definition and retain it across same-domain lifecycle changes. Selecting a group SHALL confer its applicable effects without creating credentials, memberships, or roster entries.
+
+#### Scenario: The administrator sets a different default on Bob
+
+- **WHEN** Bob's administrator sets Bob's default to `agent-observer`
+- **THEN** subsequent fallback admission uses Bob's observer permissions and inspection reports the configured group and version
+- **AND THEN** the change affects only Bob's policy
+
+#### Scenario: The default is a system-controlled group
+
+- **WHEN** an authorized administrator selects `managed-self` or `agent-admin` as Bob's default
+- **THEN** the setting accepts the selection and its applicable permission effects
+- **AND THEN** admission preserves actual caller provenance and each effect's proof, resource, and runtime prerequisites
+
+### Requirement: The Default Covers Callers Without an Explicit Group
+
+After open-roster, roster-key, and verified `managed-self` precedence, keyed policy SHALL use the default for eligible unsigned requests and callers without a retained `builtin:` group assignment. A retained `builtin:` assignment SHALL suppress fallback for its verified principal even after expiry. Active owner-defined roles, template roles, and direct grants SHALL add their effects. Fallback SHALL require no target enrollment. Invalid supplied proof SHALL fail before fallback.
+
+#### Scenario: Unenrolled Carol contacts Bob
+
+- **WHEN** Carol calls keyed Bob while `agent-requester` is configured and she has no group assignment on Bob
+- **THEN** Bob can admit status, qualified inbound mail, and wrapped work requests under the default without any Bob-local enrollment
+- **AND THEN** Bob records Carol's independently verified identity when available, or anonymous provenance where the transport permits unsigned admission
+
+#### Scenario: Alice has an explicit observer group
+
+- **WHEN** Bob resolves Alice's verified identity to a retained observer assignment
+- **THEN** Bob evaluates Alice's request using the observer assignment and any additional applicable grants
+- **AND THEN** the observer assignment suppresses fallback for that verified request
+
+#### Scenario: Alice holds only an exact skill reviewer role
+
+- **WHEN** keyed Bob retains `agent-requester` as the default and assigns verified Alice a `skill-reviewer` role on one exact mount without a `builtin:` group assignment
+- **THEN** Alice receives `files.read` on that mount from the reviewer role
+- **AND THEN** her verified mail and work requests still qualify for the requester default
+- **AND THEN** explicitly assigning `builtin:agent-observer` removes default contact effects for her verified identity and preserves her exact review grant
+
+#### Scenario: An assigned observer originates a separate unsigned request
+
+- **WHEN** Alice holds an explicit observer assignment and separately submits an eligible unsigned request to keyed Bob with the requester default
+- **THEN** Bob applies the default's applicable effects with anonymous provenance
+- **AND THEN** Bob derives no caller identity or grant from names supplied in the request
+
+#### Scenario: Alice's explicit assignment expires
+
+- **WHEN** Alice's retained `builtin:agent-observer` assignment expires while her exact review role remains active
+- **THEN** the observer assignment supplies no effects and continues to suppress fallback
+- **AND THEN** Alice retains the review role's exact permissions
+- **AND THEN** removing Alice's last retained `builtin:` group assignment makes fallback applicable to subsequent calls
+
+#### Scenario: A caller supplies invalid proof on keyed Bob
+
+- **WHEN** a caller presents expired, malformed, or mismatched proof to keyed Bob
+- **THEN** admission refuses it before selecting the default or applying anonymous permissions
+
+### Requirement: Changing the Default Permission Group Is Admin-Exclusive
+
+Updating the retained default SHALL require `admin.default-group.set` on `policy` and current effective `agent-admin` authority, including eligible open-roster or admin-default admission. Houmao SHALL support the update while the agent is stopped or its gateway is detached, given verified retained owner authority. The update SHALL recheck admission and commit the setting, revision, and audit record together. It SHALL preserve the roster.
+
+#### Scenario: A default requester tries to change the setting
+
+- **WHEN** a caller relying on Bob's `agent-requester` default requests a different default
+- **THEN** Bob refuses the change before updating the retained policy
+
+#### Scenario: Bob has delegated admin effects through the default
+
+- **WHEN** Bob's default is `agent-admin` and an otherwise unassigned caller qualifies for fallback and requests a new default
+- **THEN** the caller is authorized to change it under the current default decision
+- **AND THEN** the mutation does not enroll the caller's key or satisfy independent proof requirements for roster operations
+
+#### Scenario: An admin changes Bob's default while he is stopped
+
+- **WHEN** Bob is stopped and an authorized administrator selects his verified retained policy and sets the default to `agent-observer`
+- **THEN** the update commits without starting Bob or attaching a gateway
+- **AND THEN** new mail decisions use the current retained revision
+- **AND THEN** pending mail relying on the superseded default is refused before deposit
+
+#### Scenario: The retained authority changes before the admin mutation
+
+- **WHEN** the selected owner binding or the admitted admin authority becomes invalid before a default change commits
+- **THEN** the mutation fails and neither the earlier nor the replacement policy is updated by that attempt
+
+### Requirement: Default Permission Decisions Are Fenced at Handoff
+
+Houmao SHALL bind fallback admission to the target's current default-setting revision and selected definition. It SHALL recheck that authorization before a protected handoff, continuing disclosure, or mail deposit. A replaced setting SHALL retire earlier fallback decisions even if the configured value is later restored.
+
+#### Scenario: Bob narrows the default before a queued request runs
+
+- **WHEN** a queued work request or pending mail delivery relied on Bob's default and Bob changes that setting before handoff
+- **THEN** Houmao refuses the old admission before the protected effect
+- **AND THEN** restoring the old group value still requires a fresh admission
+
+#### Scenario: Bob explicitly assigns the sender before mail deposit
+
+- **WHEN** Bob admitted Alice's mail through fallback and then retains an observer assignment for Alice's verified identity before inbox publication
+- **THEN** recipient admission rechecks Alice's current authority and refuses the delivery before the message becomes visible or triggers notification
+
+### Requirement: Inbound Mail Uses the Recipient's Current Policy
+
+Every policy-governed inbound mail route SHALL check the recipient's retained policy for `agent.mail.deliver` on `agent` before visibility or notification. Keyed admission SHALL use the applicable group and additive permissions. The transport SHALL preserve its sender authenticity requirements and verified sender provenance when available. Inbound authority SHALL convey no permission to send as the recipient.
+
+#### Scenario: Bob is stopped or has no gateway
+
+- **WHEN** Alice attempts to deliver mail to keyed Bob while his runtime is stopped or his gateway is detached
+- **THEN** the delivery path applies Bob's current retained policy before depositing the message
+- **AND THEN** delivery succeeds only with current explicit or default delivery authority and the transport's required sender evidence
+
+#### Scenario: The sender presents a forged display identity
+
+- **WHEN** mail carries Alice's name or address in a caller-controlled header without independent proof for the admitted sender binding
+- **THEN** delivery refuses to treat the header as Alice's authority on keyed Bob
+
+#### Scenario: The transport verifies an unenrolled sender
+
+- **WHEN** a qualified transport independently verifies Carol's sender identity and Bob has no enrollment or retained `builtin:` group assignment for her
+- **THEN** delivery evaluates Bob's default while preserving Carol's verified transport provenance
+
+#### Scenario: Delivery rights or policy change before deposit
+
+- **WHEN** Alice's delivery grant expires, the roster closes, or Bob's policy becomes unavailable before a pending delivery is committed
+- **THEN** the delivery path applies the current authority and refuses any effect it cannot establish
+- **AND THEN** denied mail is absent from Bob's inbox and cannot trigger its notifier
+
+#### Scenario: A transport cannot enforce recipient policy
+
+- **WHEN** a transport path cannot check Bob's policy before delivery or cannot substantiate sender evidence that the operation or transport requires
+- **THEN** the path is unavailable for policy-governed delivery
+- **AND THEN** the caller receives no successful policy-governed delivery outcome
+
+### Requirement: Owners Bind Role Templates to Exact Resources
+
+An owner SHALL be able to instantiate a named template into a target-local role using one exact canonical resource. Instantiation SHALL store the resolved action rows so later catalog changes do not widen assignments. Each expanded row SHALL use an effect declared for the selected resource kind. Wildcards, display names, and implicit cross-target bindings SHALL be rejected.
+
+#### Scenario: The owner installs a mailbox role on one binding
+
+- **WHEN** the owner instantiates `mailbox-reader` or `mailbox-sender` on an exact `mailbox:<channel>:<binding-digest>` resource
+- **THEN** the reader template supplies `mail.list` and `mail.peek`, and the sender template supplies `mail.send`
+- **AND THEN** delegated sending acts as that mailbox and requires a separate authorization for owner-file attachments
+
+#### Scenario: The owner installs an AG-UI role on one thread
+
+- **WHEN** the owner instantiates `ag-ui-viewer` or `ag-ui-runner` on an exact thread resource
+- **THEN** the viewer template supplies `ag-ui.output.read` and the runner template supplies `ag-ui.output.read` and `ag-ui.input.submit`
+- **AND THEN** other threads and verbatim direct execution still require their own applicable permissions
+
+#### Scenario: The owner selects plugin actions for one instance
+
+- **WHEN** the owner instantiates `plugin-actions` with explicit actions on a registered gateway plugin instance resource
+- **THEN** the role contains only the selected valid actions on that instance binding
+- **AND THEN** an action from another plugin or an undeclared action is rejected
+
+#### Scenario: The owner reviews a template assignment
+
+- **WHEN** the owner inspects a template-created role or explains an effect for an assigned principal
+- **THEN** the result identifies the template, the exact resource and effects, and the assignment's expiry if set
+- **AND THEN** inspection distinguishes retained permissions from live applicability where the provider is unavailable
+
+### Requirement: The Former Prompt Grant Requires Explicit Replacement
+
+The former broad `agent.prompt` action SHALL confer no work-request or native control permission after the policy split. Inspection SHALL identify any retained row that uses the retired action. The owner SHALL be able to replace it with explicitly selected current effects or supported built-in assignments.
+
+#### Scenario: Alice retains Bob's old prompt grant
+
+- **WHEN** Bob's retained policy contains only the former prompt grant for Alice's text and control operations
+- **THEN** that grant does not authorize request, verbatim prompt, native command, or interrupt effects
+- **AND THEN** Alice's enrollment, separately granted current effects, and applicable default remain independently evaluated

@@ -10,8 +10,9 @@ set -a
 set +a
 
 docker compose --env-file "${SCRIPT_DIR}/.env" -f "${SCRIPT_DIR}/compose.yaml" ps
-curl --noproxy '*' --fail --silent --show-error "http://127.0.0.1:${STALWART_WEBADMIN_PORT:-10082}/login" >/dev/null
-curl --noproxy '*' --fail --silent --show-error "http://127.0.0.1:${CYPHT_HTTP_PORT}/" >/dev/null
+curl --noproxy '*' --fail --silent --show-error --insecure "https://127.0.0.1:${STALWART_WEBADMIN_PORT:-10082}/admin/" >/dev/null
+curl --noproxy '*' --fail --silent --show-error "http://127.0.0.1:${BULWARK_HTTP_PORT:-10081}/" >/dev/null
+curl --noproxy '*' --fail --silent --show-error "http://127.0.0.1:${BULWARK_HTTP_PORT:-10081}/api/health/ready" >/dev/null
 
 cd "${REPO_ROOT}"
 pixi run python "${SCRIPT_DIR}/provision_stalwart.py" --env-file "${SCRIPT_DIR}/.env" verify-defaults

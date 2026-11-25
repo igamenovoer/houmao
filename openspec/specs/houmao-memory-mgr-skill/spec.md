@@ -172,3 +172,13 @@ Live memory commands such as memo show/set/append and memory page read/write ope
 - **WHEN** a user asks to append to the live memo of an existing agent
 - **THEN** the skill may use the maintained live memory command directly
 - **AND THEN** it does not require a profile config-draft generation step
+
+### Requirement: Memory guidance separates memo write confirmation from reading
+
+The packaged memory skill SHALL use the receipt to confirm one memo write and direct subsequent content inspection through `memo show` on the same scope.
+
+#### Scenario: The caller wants to verify appended text
+
+- **WHEN** a managed agent needs the resulting text after a successful memo append
+- **THEN** the skill directs it to `memory memo show` in the same agent scope
+- **AND THEN** it uses the append receipt for write confirmation

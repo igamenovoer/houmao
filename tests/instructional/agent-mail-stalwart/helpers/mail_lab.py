@@ -360,20 +360,21 @@ def _deprovision(mail: dict[str, Any]) -> dict[str, Any]:
             try:
                 StalwartJmapClient(
                     jmap_url=mail["jmap_url"],
-                    login_identity=principal["name"],
+                    login_identity=principal.get("login", principal["name"]),
                     credential_file=Path(recorded["credential_file"]),
                     allowed_api_origins=tuple(mail["trusted_jmap_origins"]),
                 ).primary_account_id()
             except StalwartError:
                 results[name] = {"status": "ownership-unverified"}
                 continue
-        encoded = urllib.parse.quote(principal["name"], safe="")
-        status = _http_status(
-            f"{mail['management_url'].rstrip('/')}/principal/{encoded}",
-            method="DELETE",
-            headers=admin_headers,
-        )
-        results[name] = {"principal": principal["name"], "http_status": status}
+        try:
+            management.delete_mailbox_account(
+                name=principal["name"], provider_id=str(principal["id"])
+            )
+        except StalwartError:
+            results[name] = {"principal": principal["name"], "status": "delete-failed"}
+        else:
+            results[name] = {"principal": principal["name"], "status": "delete-requested"}
 
     remaining = _principal_index(management)
     for name, result in results.items():
@@ -1021,13 +1022,35 @@ def command_stop(args: argparse.Namespace) -> int:
         role: _kill_private_tmux(_role_run(meta, role)[0], sockets.get(role)) for role in ("a", "b")
     }
     mail = load_mail_config(Path(meta["mail_config_path"]), require_accounts=False)
-    deprovision = _deprovision(mail)
+    keep_accounts = bool(args.keep_accounts)
+    deprovision = (
+        {"status": "retained", "reason": "--keep-accounts selected"}
+        if keep_accounts
+        else _deprovision(mail)
+    )
     cleaned = (
-        deprovision["status"] != "failed"
+        (keep_accounts or deprovision["status"] != "failed")
         and all(
             result["status"] in {"killed", "already-absent"} for result in private_tmux.values()
         )
         and all(not result.get("error") for result in stopped.values())
+    )
+    account_retention = (
+        {
+            "action": "retained",
+            "reason": "--keep-accounts selected; accounts and mail are left for review",
+            "mail_config": str(meta["mail_config_path"]),
+            "accounts": {
+                role: {
+                    "address": _mail_account(meta, role)["address"],
+                    "login": _mail_account(meta, role)["login"],
+                    "credential_file": _mail_account(meta, role)["credential_file"],
+                }
+                for role in ("a", "b")
+            },
+        }
+        if keep_accounts
+        else {"action": "deleted"}
     )
     domain = meta.get("provisioned_domain")
     domain_retention = (
@@ -1051,6 +1074,7 @@ def command_stop(args: argparse.Namespace) -> int:
                 "agents": stopped,
                 "private_tmux_servers_cleaned": private_tmux,
                 "provisioned_accounts": deprovision,
+                "account_retention": account_retention,
                 "domain_retention": domain_retention,
                 "evidence_root": meta.get("evidence_root"),
             },
@@ -1190,6 +1214,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     stop = subparsers.add_parser("stop", help="Stop only the recorded agent pair.")
     _add_run_meta(stop)
+    stop.add_argument(
+        "--keep-accounts",
+        action="store_true",
+        help="Stop agents but retain the run-owned accounts and mail for review.",
+    )
     stop.set_defaults(func=command_stop)
 
     return parser

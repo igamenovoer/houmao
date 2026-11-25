@@ -1,12 +1,12 @@
 # CCCC Chat Integration
 
-The optional `houmao-cccc` distribution connects a running Houmao agent to one external CCCC Actor through gateway SDK version `1`. The gateway authenticates as that Actor. Callers prove their gateway identity separately. CCCC chat is independent of both Houmao email slots and the agent's canonical email identity.
+The optional `houmao-cccc` distribution connects a running Houmao agent to one external CCCC Actor through gateway SDK version `2`. The gateway authenticates as that Actor. Callers prove their gateway identity separately. CCCC chat is independent of both Houmao email slots and the agent's canonical email identity. [CCCC plugin declaration](../../../packages/houmao-cccc/src/houmao_cccc/__init__.py)
 
 ## Install and Provision
 
-Build the distribution with `pixi run python -m build --wheel packages/houmao-cccc`, then install the resulting wheel in the gateway environment. Its supported Houmao range is `>=2.4,<3`. Installation discovers the `cccc` entry point; an explicit plugin selection enables it.
+Build the distribution with `pixi run python -m build --wheel packages/houmao-cccc`, then install the resulting wheel in the gateway environment. Its supported Houmao range is `>=3.0.0rc1,<4`. Installation makes the `cccc` entry point discoverable. An explicit plugin selection enables it. [Package metadata](../../../packages/houmao-cccc/pyproject.toml)
 
-Stock CCCC does not expose the required Actor receiver API. Use the pinned revision and patch series in [the receiver dependency](../../../extern/tracked/cccc-receiver/README.md). [Native tooling](../../../tools/cccc/README.md) prepares a separate reproducible source checkout, builds it through Pixi, and runs an isolated loopback service. The selected protocol is version `1`, with a fixed Actor bearer at `POST /api/v1/external-receiver/v1/rpc`.
+Use the pinned CCCC revision and patch series to provide the Actor receiver API. The native tooling prepares a separate source checkout, builds it through Pixi, and runs an isolated loopback service. The CCCC external-receiver protocol is version `1`. It uses a fixed Actor bearer at `POST /api/v1/external-receiver/v1/rpc`. [Receiver dependency](../../../extern/tracked/cccc-receiver/README.md) · [Native tooling](../../../tools/cccc/README.md) · [Receiver protocol](../../../extern/tracked/cccc-receiver/PROTOCOL.md)
 
 The CCCC operator creates the Group and Actor, then explicitly issues an external-receiver grant. Grant issuance cannot adopt a running native body. The private export helper binds the grant to a Houmao agent UUID and writes a new owner-only `0600` JSON file outside the checkout. See [the deployment example](../../../examples/cccc-gateway/README.md). A remote operator selects an explicit caller credential with permission for the operation and uses HTTPS. Runtime plugin operations always use the normal Actor grant.
 
@@ -23,7 +23,11 @@ houmao-mgr agents single --agent-id AGENT_UUID gateway attach \
 
 Detach and reattach the gateway when changing that selection or upgrading code. The agent body can keep running. A live connection operation cannot change the owner, Group, Actor, generation, or credential path. Creating a new Actor generation requires a new selection and grant. Rotating a grant for the same registration replaces the selected private file, followed by `connection refresh-credentials --binding-id BINDING_ID`.
 
-Use `--instance NAME` when selecting a different instance. All routes are relative to `/v1/plugins/NAME`. The CLI requires `--gateway-url` and accepts verified HTTPS or numeric loopback HTTP. The CLI can use the current managed self key when invoked from a managed generation. A keyed roster requires an explicitly authorized caller for CCCC operations. An external caller supplies `--signer-binding PATH` with private client binding JSON containing the exact `base_url`, `owner` (agent and context IDs), `purpose: caller`, `private_key_path`, and optional `ca_bundle_path`. The configured Actor credentials stay with the gateway worker.
+Pass the gateway base URL to `--gateway-url` and the instance name to `--instance` (default `cccc`). The CLI appends `/v1/plugins/NAME` and the operation path to the base. Use a numeric loopback HTTP base such as `http://127.0.0.1:PORT` or a verified HTTPS base with its configured proxy prefix.
+
+The CLI can use the current managed self key when invoked from a managed generation. A keyed roster requires an explicitly authorized caller for CCCC operations. An external caller supplies `--signer-binding PATH` with private client binding JSON containing the exact `base_url`, `owner` (agent and context IDs), `purpose: caller`, `private_key_path`, and optional `ca_bundle_path`. The configured Actor credentials stay with the gateway worker.
+
+For `invalid_gateway_url`, check the gateway base and pass the plugin name through `--instance`. For `managed_self_authority_unavailable`, verify the current managed generation and its owning gateway. Both errors end the call before it makes an HTTP request.
 
 Each CCCC route has an action on its installed instance, such as `plugin.cccc.binding.read`, `plugin.cccc.chat.send`, or `plugin.cccc.connection.refresh-credentials`. A valid empty administrator roster admits anonymous callers to all supported routes. With a keyed roster, an administrator can use all routes and an enrolled caller needs a grant for the selected action on that instance. Worker delivery uses the configured Actor credential independently. [Plugin Authorization](plugins.md)
 
@@ -37,6 +41,8 @@ houmao-cccc --gateway-url http://127.0.0.1:PORT members
 
 `binding` reports the current owner, instance, binding ID, selected Actor descriptors, connection phase, and a sanitized error code. A provider outage can leave the host healthy while the plugin reconnects. `connected` means this receiver negotiated the protocol and holds a lease. A conflicting active receiver must release or expire before another normal receiver acquires it. The default lease lasts 45 seconds.
 
+Before a CCCC chat exercise, follow the gateway readiness procedure for the attached Web or headless agent. Separately, check `binding` on the selected plugin instance. Require the expected `agent_id` and `binding_id` and check that `connection` is `connected`. A connected plugin still depends on the body's live admission at handoff. [Readiness for Web and Headless Agents](contracts/protocol-and-state.md#readiness-for-web-and-headless-agents)
+
 `connection connect`, `disconnect`, `reconnect`, and `refresh-credentials` require the current `--binding-id`. Reconnect restores transport and lease state; it does not replay history. Normal Actor grants and plugin routes cannot force takeover. An explicitly authenticated CCCC operator can fence an old receiver through `/api/v1/external-receiver/v1/takeover`; that action does not retry unsettled events.
 
 ## Send, Reply, and Inspect Receipts
@@ -45,16 +51,25 @@ houmao-cccc --gateway-url http://127.0.0.1:PORT members
 houmao-cccc --gateway-url http://127.0.0.1:PORT chat send \
   --binding-id BINDING_ID --operation-id UNIQUE_OPERATION_ID \
   --to PEER_ACTOR_ID --mode request_reply --text 'Please review this result.'
-houmao-cccc --gateway-url http://127.0.0.1:PORT chat reply \
-  --binding-id BINDING_ID --operation-id NEW_OPERATION_ID \
-  --event-ref INCOMING_EVENT_REF --text 'Reviewed.'
 houmao-cccc --gateway-url http://127.0.0.1:PORT chat deliveries \
   --event-ref EVENT_REF --limit 20
 ```
 
+When the incoming chat hint includes listener details, set `GATEWAY_BASE_URL`, `PLUGIN_INSTANCE`, `BINDING_ID`, and `EVENT_REF` from its `gateway_base_url`, `plugin_instance`, `binding_id`, and `event_ref`. Choose a fresh `NEW_OPERATION_ID` and set `REPLY_TEXT` to your reply.
+
+```bash
+houmao-cccc --gateway-url "$GATEWAY_BASE_URL" --instance "$PLUGIN_INSTANCE" chat reply \
+  --binding-id "$BINDING_ID" --event-ref "$EVENT_REF" \
+  --operation-id "$NEW_OPERATION_ID" --text="$REPLY_TEXT"
+```
+
+For an HTTP reply, use the hint's `local_plugin_url` as the plugin base and append `/chat/reply`. Send a JSON POST with `expected_binding_id`, `event_ref`, `operation_id`, and `text`.
+
 Use explicit Actor recipients in the bound Group; `@user` must be the sole recipient for a human audience. Mixed human/Actor recipients and email addresses are rejected. Replies retain native `reply_to` ancestry. A `request_reply` mode obligates the receiving agent to author a reply; the gateway does not synthesize one.
 
 The provider stores the chat event before attempting recipient handoff. Each recipient receives a separate persisted attempt. `accepted` confirms immediate ordinary gateway handoff, `refused` describes admission refusal, `failed` describes a known unsuccessful handoff, and `uncertain` preserves the possibility of delivery without confirmation. Storage success alone does not confirm handoff or task completion. There is no exactly-once guarantee.
+
+`chat deliveries` calls `GET /v1/plugins/NAME/chat/deliveries` for the selected `event_ref`. The provider returns `deliveries` in reverse creation order, and the gateway preserves that order. An accepted retry therefore precedes its refused original. The `limit` selects the newest matching attempts and defaults to 50 (allowed range 1 to 100). `has_more: true` indicates that older matching attempts were omitted. For chronological display, reverse the returned list. [Provider lookup](../../../extern/tracked/cccc-receiver/PROTOCOL.md#actor-rpc)
 
 The provider claims an attempt before offering it. The plugin checks the current lease and local connection generation, then dispatches once within the remaining deadline. Busy or unavailable bodies return errors. Body death/replacement or a lost acknowledgement can produce uncertainty. Neither layer caches prompt payloads for later dispatch. Lease expiration or daemon recovery settles old work; it never authorizes replay.
 

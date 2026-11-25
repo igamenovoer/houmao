@@ -38,6 +38,7 @@ from houmao.mailbox.stalwart_models import (
 _JMAP_CORE = "urn:ietf:params:jmap:core"
 _JMAP_MAIL = "urn:ietf:params:jmap:mail"
 _JMAP_SUBMISSION = "urn:ietf:params:jmap:submission"
+_STALWART_REGISTRY = "urn:stalwart:jmap"
 _METADATA_PROPERTIES = (
     "id",
     "threadId",
@@ -251,6 +252,9 @@ def ensure_stalwart_mailbox(
             if principal is None:
                 raise StalwartError("The selected account is unavailable after principal creation.")
             principal_name = _require_string(principal, "name")
+            principal_login = (
+                _require_string(principal, "login") if "login" in principal else principal_name
+            )
             provider_id = principal.get("id")
             if type(provider_id) not in {str, int} or not str(provider_id):
                 raise StalwartError("The selected account has no management principal ID.")
@@ -259,18 +263,18 @@ def ensure_stalwart_mailbox(
 
         login = (
             login_identity
-            if login_identity is not None and login_identity.lower() != principal_name.lower()
-            else principal_name
+            if login_identity is not None and login_identity.lower() != principal_id.lower()
+            else principal_login
         )
         client = StalwartJmapClient(
             jmap_url=jmap_url,
-            login_identity=principal_name,
+            login_identity=principal_login,
             credential_file=credential_source,
             sender_address=normalized_address,
             allowed_api_origins=trusted_jmap_origins,
         )
         try:
-            if login != principal_name:
+            if login != principal_login:
                 account_id = client.primary_account_id()
                 api_origin = jmap_origin(_require_string(client.session(), "apiUrl"))
                 client = StalwartJmapClient(
@@ -350,6 +354,7 @@ class StalwartManagementClient:
         if "?" in base_url:
             raise StalwartError("Management base URL cannot contain a query.")
         self.m_base_url: str = base_url.rstrip("/")
+        self.m_registry: bool = parse.urlsplit(self.m_base_url).path.endswith("/jmap")
         self.m_timeout_seconds: float = _finite_timeout(timeout_seconds)
         self.m_auth_headers: dict[str, str] = (
             _management_auth_headers() if auth_headers is None else dict(auth_headers)
@@ -358,6 +363,8 @@ class StalwartManagementClient:
     def list_principals(self, *, types: Sequence[str] | None = None) -> list[dict[str, Any]]:
         """List management principals."""
 
+        if self.m_registry:
+            return self._list_registry_principals(types)
         query = ""
         if types:
             query = "?" + parse.urlencode({"types": ",".join(types)})
@@ -408,6 +415,11 @@ class StalwartManagementClient:
             name = principal.get("name")
             emails = principal.get("emails")
             same_name = isinstance(name, str) and name.lower() == principal_id.lower()
+            if self.m_registry:
+                login = _require_string(principal, "login").lower()
+                domain = address.rsplit("@", 1)[1].lower()
+                lookup = principal_id.lower()
+                same_name = login == (lookup if "@" in lookup else f"{lookup}@{domain}")
             same_address = isinstance(emails, list) and any(
                 isinstance(email, str) and email.lower() == address.lower() for email in emails
             )
@@ -445,8 +457,189 @@ class StalwartManagementClient:
     def create_principal(self, payload: Mapping[str, object]) -> object:
         """Create one management principal."""
 
+        if self.m_registry:
+            return self._create_registry_principal(payload)
         response_payload = self._request_json("POST", "/principal", body=payload)
         return response_payload.get("data")
+
+    def delete_mailbox_account(self, *, name: str, provider_id: str) -> None:
+        """Delete the selected mailbox by its provider identifier or legacy name."""
+
+        if self.m_registry:
+            self.registry_request("Account/set", {"destroy": [provider_id]})
+        else:
+            self._request_json("DELETE", "/principal/" + parse.quote(name, safe=""))
+
+    def registry_request(self, method: str, arguments: Mapping[str, object]) -> dict[str, Any]:
+        """Call one Stalwart registry method and check method and object errors."""
+
+        wire_method = f"x:{method}"
+        return self.jmap_request(wire_method, arguments, capability=_STALWART_REGISTRY)
+
+    def jmap_request(
+        self, method: str, arguments: Mapping[str, object], *, capability: str = _JMAP_MAIL
+    ) -> dict[str, Any]:
+        """Call a JMAP method using the configured administrative credentials."""
+
+        if not self.m_registry:
+            raise StalwartError("Select a /jmap management URL for Stalwart registry requests.")
+        payload = self._request_json(
+            "POST",
+            "/",
+            body={"using": [_JMAP_CORE, capability], "methodCalls": [[method, arguments, "0"]]},
+        )
+        responses = payload.get("methodResponses")
+        if not isinstance(responses, list) or len(responses) != 1:
+            raise StalwartError(f"Stalwart returned an invalid response to {method}.")
+        response = responses[0]
+        if (
+            not isinstance(response, list)
+            or len(response) != 3
+            or not isinstance(response[1], dict)
+        ):
+            raise StalwartError(f"Stalwart returned an invalid response to {method}.")
+        result: dict[str, Any] = response[1]
+        if response[0] == "error":
+            raise StalwartMethodError(method=method, error_type=str(result.get("type", "unknown")))
+        if response[0] != method or response[2] != "0":
+            raise StalwartError(f"Stalwart returned an unexpected response to {method}.")
+        for key in ("notCreated", "notUpdated", "notDestroyed"):
+            failures = result.get(key)
+            if isinstance(failures, dict) and failures:
+                first = next(iter(failures.values()))
+                kind = first.get("type", "unknown") if isinstance(first, dict) else "unknown"
+                raise StalwartMethodError(method=method, error_type=str(kind))
+        return result
+
+    def list_registry_objects(
+        self,
+        object_name: str,
+        *,
+        properties: Sequence[str],
+        filters: Mapping[str, object] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Read registry objects with bounded query and get batches."""
+
+        position = 0
+        objects: list[dict[str, Any]] = []
+        while True:
+            query = self.registry_request(
+                f"{object_name}/query",
+                {"filter": filters or {}, "position": position, "limit": 100},
+            )
+            ids = query.get("ids")
+            if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):
+                raise StalwartError(f"Stalwart {object_name}/query returned invalid IDs.")
+            if not ids:
+                return objects
+            fetched = self.registry_request(
+                f"{object_name}/get", {"ids": ids, "properties": list(properties)}
+            ).get("list")
+            if not isinstance(fetched, list) or not all(isinstance(item, dict) for item in fetched):
+                raise StalwartError(f"Stalwart {object_name}/get returned invalid objects.")
+            objects.extend(fetched)
+            if len(ids) < 100:
+                return objects
+            position += len(ids)
+
+    def _list_registry_principals(self, types: Sequence[str] | None) -> list[dict[str, Any]]:
+        """Map Stalwart registry users and domains to the provisioning principal shape."""
+
+        domains = self.list_registry_objects("Domain", properties=("id", "name"))
+        principals = (
+            [{**row, "type": "domain"} for row in domains]
+            if types is None or "domain" in types
+            else []
+        )
+        if types is not None and "individual" not in types:
+            return principals
+        domains_by_id = {row["id"]: row["name"] for row in domains}
+        accounts = self.list_registry_objects(
+            "Account",
+            properties=(
+                "id",
+                "@type",
+                "name",
+                "emailAddress",
+                "aliases",
+                "roles",
+                "permissions",
+                "description",
+            ),
+        )
+        for account in accounts:
+            if account.get("@type") != "User":
+                continue
+            login = _require_string(account, "emailAddress")
+            emails = [login]
+            for alias in account.get("aliases", {}).values():
+                domain = domains_by_id.get(alias.get("domainId"))
+                if domain and alias.get("enable", True):
+                    emails.append(f"{alias['name']}@{domain}")
+            principals.append({**account, "type": "individual", "login": login, "emails": emails})
+        return principals
+
+    def _create_registry_principal(self, payload: Mapping[str, object]) -> str:
+        """Create a domain or mailbox on Stalwart's JMAP management API."""
+
+        kind = _require_string(payload, "type")
+        name = _require_string(payload, "name")
+        description = payload.get("description")
+        if kind == "domain":
+            object_name = "Domain"
+            record = {
+                "name": name,
+                "description": description,
+                "certificateManagement": {"@type": "Manual"},
+                "dkimManagement": {"@type": "Manual"},
+                "dnsManagement": {"@type": "Manual"},
+            }
+        elif kind == "individual":
+            object_name = "Account"
+            emails = payload.get("emails")
+            passwords = payload.get("secrets")
+            roles = payload.get("roles")
+            if not isinstance(emails, list) or not emails or not isinstance(passwords, list):
+                raise StalwartError("Stalwart mailbox creation requires an address and password.")
+            addresses = [validate_mailbox_address(address) for address in emails]
+            primary_domain = addresses[0].rsplit("@", 1)[1]
+            domains = {
+                row["name"]: row["id"]
+                for row in self.list_registry_objects("Domain", properties=("id", "name"))
+            }
+            local_name, separator, domain = name.partition("@")
+            if separator and domain.casefold() != primary_domain.casefold():
+                raise StalwartError(
+                    "Stalwart login and primary mailbox address must share a domain."
+                )
+            if any(address.rsplit("@", 1)[1] not in domains for address in addresses):
+                raise StalwartError(
+                    "A Stalwart mailbox domain must exist before creating the account."
+                )
+            aliases = {
+                str(index): {"name": local, "domainId": domains[domain_name]}
+                for index, (local, domain_name) in enumerate(a.rsplit("@", 1) for a in addresses)
+                if f"{local_name}@{primary_domain}".casefold()
+                != f"{local}@{domain_name}".casefold()
+            }
+            record = {
+                "@type": "User",
+                "name": local_name,
+                "domainId": domains[primary_domain],
+                "description": description,
+                "credentials": {
+                    str(index): {"@type": "Password", "secret": password}
+                    for index, password in enumerate(passwords)
+                },
+                "roles": {
+                    "@type": "Admin" if isinstance(roles, list) and "admin" in roles else "User"
+                },
+                "aliases": aliases,
+            }
+        else:
+            raise StalwartError(f"Unsupported Stalwart registry principal type {kind}.")
+        reply = self.registry_request(f"{object_name}/set", {"create": {"new": record}})
+        return _require_string(reply.get("created", {}).get("new", {}), "id")
 
     def _request_json(
         self,

@@ -9,7 +9,7 @@ Agent-driven verification for a managed DSH Web agent that receives and answers 
 - Model lane: self-hosted Qwen at `http://127.0.0.1:14888/v1`, model `Qwen/Qwen3.8-27B-FP8`, context window `262144`, maximum output tokens `8192`, reasoning map `{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}`, compatibility `{"supports_developer_role":false}`.
 - DSH executable: the qualified build `0.2.2-rc.3` at `$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`.
 - Mail service: select an already-running Stalwart deployment. The bundled stack publishes JMAP discovery at `http://127.0.0.1:10080/.well-known/jmap` by default. [Local stack setup](../../../dockers/email-system/README.md)
-- Accounts: select a sandbox domain that supports JMAP sending identities. The product provisioner creates two run-owned mailboxes with verified sending identities and Archive roles. Use a separate domain from the bundled Cypht accounts on `houmao.localhost`.
+- Accounts: select a sandbox domain that supports JMAP sending identities. The product provisioner creates two run-owned mailboxes with verified sending identities and Archive roles. Use a separate domain from the bundled development accounts on `houmao.localhost`.
 - Endpoints: provide `trusted_jmap_origins` only for the exact origins approved for this run. Default loopback discovery and same-origin advertised endpoints require no extra approvals.
 - Project-local temporary root: `$REPO_ROOT/tmp/instructional-tests/<run-id>/`. Store temporary scripts, runtime state, and proof artifacts under this Git-ignored directory.
 - Isolation: each fixture prepares with `--tmux-server new` and owns a separate tmux socket, registry, runtime root, home, gateway port, and native Web origin. The run-owned mail accounts have unique fixture prefixes. Never touch the caller's default tmux server or any agent this run did not create.
@@ -51,7 +51,7 @@ Select the provider in an owner-private `$RUN_TMP/runtime/mail/service.json`. Fo
 ```json
 {
   "jmap_url": "http://127.0.0.1:10080/.well-known/jmap",
-  "management_url": "http://127.0.0.1:10080/api",
+  "management_url": "http://127.0.0.1:10080/jmap",
   "admin_credential_file": "admin.json"
 }
 ```
@@ -185,7 +185,23 @@ pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" stop \
 find "$EVIDENCE" -type f | sort > "$EVIDENCE/evidence-check.txt"
 ```
 
-`stop` targets the recorded pair and their verified private tmux servers. It checks that the run-owned principals are absent and preserves the evidence and shared domain. After partial setup, stop any launched fixtures and run `mail_lab.py deprovision --mail-config "$MAIL_CONFIG"` to verify provider cleanup.
+`stop` targets the recorded pair and their verified private tmux servers. By default it deletes the run-owned principals, checks that they are absent, and preserves the evidence and shared domain. After partial setup, stop any launched fixtures and run `mail_lab.py deprovision --mail-config "$MAIL_CONFIG"` to verify provider cleanup.
+
+To stop the agents but retain the accounts and mail for operator review, pass `--keep-accounts`:
+
+```bash
+pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" stop   --run-meta "$RUN_META" --keep-accounts | tee "$EVIDENCE/stop.json"
+```
+
+The stop receipt records `account_retention` with each address, login, and credential-file path. Review provider mail without relaunching agents:
+
+```bash
+pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" observe   --run-meta "$RUN_META" --role a --box inbox
+pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" observe   --run-meta "$RUN_META" --role a --box archive
+pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" content   --run-meta "$RUN_META" --role a --email-id "<provider id from observe>"
+```
+
+Retained accounts are intentional test state. Delete them with `deprovision` and the selected mail config when review is complete.
 
 ## Helpers
 
@@ -212,3 +228,11 @@ Both cases passed on 2026-11-25 with `houmao-mgr 3.0.0rc7` from the development 
 - Cleanup verified absence of all four run-owned principals and stopped all four private tmux servers. The second pair required the existing sandbox domain. A separate mixed-case cleanup check resolved canonical provider names and verified absence on repeat.
 
 Evidence is under `tmp/instructional-tests/jmap-direct-proof.bLwJ0l/`. Find the case-specific provider proofs and transcripts under `round1/evidence/agent-mail-stalwart/` and `round2/evidence/agent-mail-stalwart/`. Each run includes a `stop.json` cleanup receipt, and `transcript-proof.json` records checks across the transcripts.
+
+### Live-Service Rerun
+
+Both cases were rerun on 2026-11-25 against the running project Stalwart at `http://127.0.0.1:10080` with `houmao-mgr 3.0.0rc7` at commit `e20dc9b8`. The service advertises `http://mail.houmao.localhost:10080`; the run approved that exact origin through `trusted_jmap_origins`, attached directly with `--trust-jmap-origin`, and used no proxy. The product provisioner created both account pairs with verified sending identities and Archive roles.
+
+- Round 1 (`tmp/instructional-tests/20261125T042120Z-agent-mail-e2e/`): `provision` created `houmao-jmap.example.com`. Provider message `eaaaaab` reached the recipient; the notifier advanced at `2026-11-25T04:22:20Z`; reply `eaaaaac` carried body `confirmed` with matching `In-Reply-To` and `References`; the original moved to Archive. The recipient transcript shows the list, read, reply, and archive operations. Cleanup verified both run-owned principals absent.
+- Round 2 (`tmp/instructional-tests/20261125T042259Z-agent-mail-e2e-r2/`): provisioning used `--require-existing-domain` and reported `domain_created=false`. Agent A sent subject `Mailbox path path-98b815`; agent B replied and archived the request; agent A's notifier archived the reply without another send. Both transcripts show their mail operations, and each side produced at most one reply. Cleanup verified both run-owned principals absent.
+- `doctor` exited zero in both rounds with direct discovery, both JMAP identities valid, both agents `available`, and both online bindings `configured`. The shared domain `houmao-jmap.example.com` was retained by both rounds.

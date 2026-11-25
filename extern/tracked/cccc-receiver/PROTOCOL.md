@@ -20,7 +20,9 @@ This tracked compatibility patch extends CCCC `d12732ebd6dfdbc260a59a286bd5e510d
 | `chat.reply` | `operation_id`, `event_id`, `text`, optional `mode: send` | Same mutation result with native reply ancestry |
 | `chat.retry` | `event_id`, explicit `actor_ids`, optional `allow_uncertain_retry` | Existing source event and new provider attempt receipts |
 | `chat.history` | `limit` (1 to 100), optional `before_event_id` or exact `event_id`, optional `max_bytes` | Native `messages`, `has_more`; exact lookup cannot mix filters |
-| `chat.deliveries` | `event_id`, optional `limit` | Provider attempt metadata for an Actor-visible source |
+| `chat.deliveries` | `event_id`, optional `limit` (1 to 100, default 50) | `event_id`, newest-first `deliveries`, `has_more` |
+
+The `chat.deliveries` lookup selects retained attempts for the Actor-visible event in reverse creation order. The limit takes the newest matching attempts. `has_more: true` indicates older matching attempts were omitted. An accepted retry appears before its refused original, and both attempts reference the same event.
 
 An offer has `attempt_id`, `event_id`, `group_id`, `actor_id`, `actor_generation`, `lease_generation`, `message_mode`, `text`, `sender`, `reply_to`, and `remaining_seconds`. The plugin must acknowledge only after actual ordinary handoff to the current ready body. Outcomes are `accepted`, `refused`, `failed`, or `uncertain`. Only the live lease/attempt may settle an outcome. Repeating settlement never invokes body dispatch again.
 

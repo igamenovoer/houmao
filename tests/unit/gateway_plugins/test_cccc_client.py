@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -375,6 +375,160 @@ def test_cli_retry_round_trip_matches_actual_plugin_schema(
         {"event_id": "event-1", "actor_ids": ["actor-2"], "allow_uncertain_retry": True},
         mutation=True,
     )
+
+
+def test_delivery_lookup_preserves_provider_order(
+    modules: SimpleNamespace,
+    tmp_path: Path,
+) -> None:
+    """Return newest-first provider receipts and the provider's count indicator."""
+
+    plugin_module = importlib.import_module("houmao_cccc.plugin")
+    context = _context(tmp_path)
+    plugin = plugin_module.CcccPlugin.from_config(context, _configuration(modules))
+    plugin.m_codec = modules.references.ReferenceCodec.from_context(context)
+    event_ref = plugin.m_codec.encode("event", {"event_id": "event-1"})
+    deliveries = [
+        {"attempt_id": "z", "state": "accepted"},
+        {"attempt_id": "a", "state": "refused"},
+    ]
+    plugin._call = AsyncMock(return_value={"deliveries": deliveries, "has_more": True})
+    app = FastAPI()
+    app.include_router(plugin.router, prefix="/v1/plugins/team")
+    with TestClient(app) as gateway:
+        response = gateway.get(
+            "/v1/plugins/team/chat/deliveries", params={"event_ref": event_ref, "limit": 2}
+        )
+
+    plugin._call.assert_awaited_once_with("chat.deliveries", {"event_id": "event-1", "limit": 2})
+    assert response.status_code == 200
+    assert response.json()["deliveries"] == deliveries
+    assert response.json()["has_more"] is True
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1:9000/v1/plugins/team",
+        "http://127.0.0.1:9000/v1/plugins/team/chat/reply",
+        "http://127.0.0.1:invalid",
+        "http://user:redacted-value@127.0.0.1:9000",
+    ],
+)
+def test_cli_rejects_bad_gateway_url_before_selecting_managed_self(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    url: str,
+) -> None:
+    """Diagnose a malformed base or pasted route before authority or network work."""
+
+    monkeypatch.setenv("HOUMAO_MANIFEST_PATH", "/private/manifest.json")
+    select_self = Mock()
+    open_request = Mock()
+    monkeypatch.setattr(modules.cli, "managed_self_gateway_client", select_self)
+    monkeypatch.setattr(modules.cli.GatewayClient, "_open_request", open_request)
+
+    assert modules.cli.run(["--gateway-url", url, "binding"]) == 1
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+    assert error["error_code"] == "invalid_gateway_url"
+    assert "--gateway-url" in error["message"] and "--instance" in error["message"]
+    assert url not in captured.err
+    assert "redacted-value" not in captured.err
+    assert captured.out == ""
+    select_self.assert_not_called()
+    open_request.assert_not_called()
+
+
+def test_cli_reports_unavailable_managed_self_without_a_request(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Keep unavailable current-generation authority distinct from bad URL input."""
+
+    monkeypatch.setenv("HOUMAO_MANIFEST_PATH", "/private/manifest.json")
+    resolve = Mock(side_effect=ValueError("private-manifest-diagnostic"))
+    open_request = Mock()
+    monkeypatch.setattr("houmao.agents.instance_state.resolve_verified_self", resolve)
+    monkeypatch.setattr(modules.cli.GatewayClient, "_open_request", open_request)
+
+    assert modules.cli.run(["--gateway-url", "http://127.0.0.1:9000", "binding"]) == 1
+    captured = capsys.readouterr()
+    error = json.loads(captured.err)
+    assert error["error_code"] == "managed_self_authority_unavailable"
+    assert "owning gateway base URL" in error["message"]
+    assert "private" not in captured.err
+    assert captured.out == ""
+    resolve.assert_called_once_with()
+    open_request.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    ["https://gateway.example/agents/alex", "https://127.0.0.1/v1/plugins/proxy-prefix"],
+)
+def test_cli_uses_exact_signer_bound_https_base(
+    modules: SimpleNamespace,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    base_url: str,
+) -> None:
+    """Preserve a configured proxy prefix and reject a plugin route appended to it."""
+
+    signer_binding = tmp_path / "signer.json"
+    signer_binding.write_text(
+        json.dumps(
+            {
+                "base_url": base_url,
+                "owner": {"agent_id": "agent", "context_id": "context"},
+                "purpose": "caller",
+                "private_key_path": str(tmp_path / "key"),
+            }
+        )
+    )
+    signer_binding.chmod(0o600)
+    monkeypatch.setenv("HOUMAO_MANIFEST_PATH", "/private/manifest.json")
+    proof = Mock(return_value={})
+    open_request = Mock(return_value=b"{}")
+    monkeypatch.setattr(modules.cli.GatewayClient, "caller_proof_headers", proof)
+    monkeypatch.setattr(modules.cli.GatewayClient, "_open_request", open_request)
+    args = ["--signer-binding", str(signer_binding), "--instance", "team", "binding"]
+
+    assert modules.cli.run(["--gateway-url", base_url, *args]) == 0
+    proof.assert_called_once_with("GET", "/v1/plugins/team/binding", b"")
+    assert open_request.call_args.kwargs["request_obj"].full_url == (
+        base_url + "/v1/plugins/team/binding"
+    )
+    assert json.loads(capsys.readouterr().out) == {}
+    open_request.reset_mock()
+    proof.reset_mock()
+
+    assert modules.cli.run(["--gateway-url", base_url + "/v1/plugins/team", *args]) == 1
+    assert json.loads(capsys.readouterr().err)["error_code"] == "invalid_gateway_url"
+    proof.assert_not_called()
+    open_request.assert_not_called()
+
+
+def test_cli_uses_unsigned_loopback_https_proxy_prefix(
+    modules: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Allow an HTTPS proxy prefix that resembles an advertised local HTTP plugin route."""
+
+    monkeypatch.delenv("HOUMAO_MANIFEST_PATH", raising=False)
+    open_request = Mock(return_value=b"{}")
+    monkeypatch.setattr(modules.cli.GatewayClient, "_open_request", open_request)
+    base_url = "https://127.0.0.1/v1/plugins/gateway-prefix"
+
+    assert modules.cli.run(["--gateway-url", base_url, "--instance", "team", "binding"]) == 0
+    assert open_request.call_args.kwargs["request_obj"].full_url == (
+        base_url + "/v1/plugins/team/binding"
+    )
+    assert json.loads(capsys.readouterr().out) == {}
 
 
 def test_cli_retains_safe_uncertainty_and_caller_operation_id(

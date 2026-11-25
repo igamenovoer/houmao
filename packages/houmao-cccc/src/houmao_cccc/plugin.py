@@ -459,7 +459,7 @@ class CcccPlugin:
             event_ref = self._references().encode("event", {"event_id": event_id})
             context = self._context()
             listener = context.listener
-            operation_hint = (
+            endpoint_hint = (
                 f"local_plugin_url={listener.base_url}/v1/plugins/{context.instance_id}\n"
                 if listener is not None
                 else ""
@@ -471,6 +471,17 @@ class CcccPlugin:
                 else "To reply, use this local plugin's POST /chat/reply with expected_binding_id, "
                 "a new operation_id, this event_ref, and text.\n\n"
             )
+            if listener is not None and not notice:
+                endpoint_hint = f"gateway_base_url={listener.base_url}\n{endpoint_hint}"
+                reply_hint = (
+                    "Use gateway_base_url for the CLI and local_plugin_url for HTTP.\n"
+                    "Set the CLI variables from the fields above and supply a new operation ID "
+                    "and reply text.\n"
+                    'houmao-cccc --gateway-url "$GATEWAY_BASE_URL" --instance "$PLUGIN_INSTANCE" '
+                    'chat reply --binding-id "$BINDING_ID" --event-ref "$EVENT_REF" '
+                    '--operation-id "$NEW_OPERATION_ID" --text="$REPLY_TEXT"\n'
+                    f"{reply_hint}"
+                )
             metadata: dict[str, JsonValue] = {
                 "backend": "cccc-mail" if notice else "cccc-chat",
                 "event_ref": event_ref,
@@ -487,7 +498,7 @@ class CcccPlugin:
                     f"binding_id={context.binding_id}\n"
                     f"event_id={event_id}\nevent_ref={event_ref}\n"
                     f"sender={sender}\nmessage_mode={offer.get('message_mode')}\n"
-                    f"reply_to={reply_to}\n{operation_hint}"
+                    f"reply_to={reply_to}\n{endpoint_hint}"
                     f"{reply_hint}"
                     f"{text}"
                 ),

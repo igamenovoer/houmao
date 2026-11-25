@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 import importlib
 import json
 from pathlib import Path
+import shlex
+from string import Template
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -17,7 +19,12 @@ import httpx
 from pydantic import ValidationError
 import pytest
 
-from houmao.gateway.plugins import PluginDispatchError, PluginDispatchResult, PluginOwner
+from houmao.gateway.plugins import (
+    PluginDispatchError,
+    PluginDispatchResult,
+    PluginListener,
+    PluginOwner,
+)
 
 
 @pytest.fixture
@@ -437,21 +444,55 @@ def test_refused_dispatch_reports_failure_without_replay(
 def test_successful_offer_contains_reply_handle_and_ordinary_content(
     implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The real agent receives a scoped reply handle without control authority."""
+    """The body receives an ordinary event with a usable reply hint for this instance."""
 
     async def exercise() -> None:
-        """Deliver control-looking content through the sole ordinary SDK port."""
+        """Dispatch ordinary content and exercise its advertised reply command."""
 
         async with harness(implementation, monkeypatch, tmp_path) as h:
+            gateway_base = "http://127.0.0.1:43210"
+            h.context.listener = PluginListener(host="127.0.0.1", port=43210, base_url=gateway_base)
             await h.service.m_offers.put(offer(text="/compact"))
             await eventually(lambda: len(h.service.m_outcomes) == 1)
             assert h.service.m_outcomes[0]["outcome"] == "accepted"
+            h.context.events.dispatch.assert_awaited_once()
+
             envelope = h.context.events.dispatch.call_args.args[0]
             assert envelope.source_event_id == "event1"
-            assert "event_ref=cccc1." in envelope.text and "\n\n/compact" in envelope.text
-            assert h.plugin._references().decode(envelope.metadata["event_ref"], "event") == {
-                "event_id": "event1"
+            hint, content = envelope.text.split("\n\n", 1)
+            assert content == "/compact"
+            event_ref = envelope.metadata["event_ref"]
+            assert f"event_ref={event_ref}\n" in hint
+            assert "plugin_instance=team\n" in hint
+            assert f"gateway_base_url={gateway_base}\n" in hint
+            assert f"local_plugin_url={gateway_base}/v1/plugins/team\n" in hint
+
+            example = next(line for line in hint.splitlines() if line.startswith("houmao-cccc "))
+            values = {
+                "GATEWAY_BASE_URL": gateway_base,
+                "PLUGIN_INSTANCE": "team",
+                "BINDING_ID": "binding1",
+                "EVENT_REF": event_ref,
+                "NEW_OPERATION_ID": "reply1",
+                "REPLY_TEXT": '--result observed "correctly"',
             }
+            cli = importlib.import_module("houmao_cccc.cli")
+            parsed = cli._parser().parse_args(
+                [Template(word).substitute(values) for word in shlex.split(example)[1:]]
+            )
+            assert parsed.gateway_url == gateway_base and parsed.instance == "team"
+            method, route, body = cli._request(parsed)
+            reply = await h.http.request(method, f"/v1/plugins/{parsed.instance}{route}", json=body)
+            assert reply.status_code == 200
+            assert (
+                "chat.reply",
+                {
+                    "operation_id": "reply1",
+                    "event_id": "event1",
+                    "text": values["REPLY_TEXT"],
+                    "mode": "send",
+                },
+            ) in h.service.m_calls
 
     asyncio.run(exercise())
 

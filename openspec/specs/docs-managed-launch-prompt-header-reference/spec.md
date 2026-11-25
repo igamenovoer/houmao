@@ -65,7 +65,7 @@ The docs site index entry for that reference page (`docs/index.md`) SHALL mentio
 - **AND THEN** they reach `docs/reference/run-phase/role-injection.md` for the per-backend role injection mechanism
 
 ### Requirement: Managed prompt header reference documents section controls and automation notice
-The managed prompt header reference page SHALL document the named managed-header section model, the default-enabled automation notice, and the default-disabled task reminder and mail acknowledgement sections.
+The managed prompt header reference page SHALL document the named managed-header section model, the skill-first runtime guidance order, the default-enabled automation notice, and the default-disabled task reminder and mail acknowledgement sections.
 
 #### Scenario: Acceptance criteria
 
@@ -74,14 +74,16 @@ The managed prompt header reference page SHALL document the named managed-header
 
 At minimum, the page SHALL explain:
 
-- the defined section names `identity`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`,
-- that `identity`, `houmao-runtime-guidance`, and `automation-notice` default to enabled whenever the whole managed header is enabled,
+- the defined section names `identity`, `memo-cue`, `houmao-runtime-guidance`, `automation-notice`, `task-reminder`, and `mail-ack`,
+- that `identity`, `memo-cue`, `houmao-runtime-guidance`, and `automation-notice` default to enabled whenever the whole managed header is enabled,
 - that `task-reminder` and `mail-ack` default to disabled unless explicitly enabled,
+- that `MANAGED_PROMPT_HEADER_VERSION = 2` tracks the revised header prose while `HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1` tracks the unchanged XML tag structure,
+- that `houmao-runtime-guidance` directs Houmao-related actions to look for installed `houmao-*` skills (particularly entrypoint skills) for guidance first before executing via `houmao-mgr` and supported Houmao manifests or service interfaces,
 - that `operator_prompt_mode = as_is` controls provider startup behavior only and does not disable the automation notice,
 - that whole-header `--no-managed-header` disables every managed-header section,
 - that section-level policy can disable individual sections without disabling the whole managed header,
 - that section-level policy can enable default-disabled sections such as `task-reminder` and `mail-ack`,
-- that the automation notice tells agents not to call Claude's `AskUserQuestion` tool or equivalent interactive user-question tools that would open or focus an operator TUI panel,
+- that the automation notice tells agents not to call Claude's `AskUserQuestion` tool or equivalent interactive question tools that block waiting for user input,
 - that mailbox-driven clarification should be sent by replying to the relevant mailbox thread when that thread is reply-enabled rather than by asking the interactive operator,
 - that mailbox-driven ambiguity on non-reply-enabled threads should be resolved by the agent making its own decision with available context,
 - that the task reminder section is for explicit self-reminding requests or concrete supervision/finalization checks rather than generic long-running work,
@@ -92,9 +94,14 @@ At minimum, the page SHALL explain:
 
 #### Scenario: Reader sees section default behavior
 - **WHEN** a reader opens the managed prompt header reference page
-- **THEN** the page states that identity, Houmao runtime guidance, and automation notice default to enabled
+- **THEN** the page states that identity, memo cue, Houmao runtime guidance, and automation notice default to enabled
 - **AND THEN** the page states that task reminder and mail acknowledgement default to disabled unless explicitly enabled
 - **AND THEN** the page states that `as_is` provider startup policy does not disable the automation notice
+
+#### Scenario: Reader sees skill-first runtime guidance and header version
+- **WHEN** a reader opens the managed prompt header reference page
+- **THEN** the page documents that `houmao-runtime-guidance` instructs agents to look for installed `houmao-*` skills, particularly entrypoint skills, for guidance first on Houmao-related actions before using `houmao-mgr`
+- **AND THEN** the page documents `MANAGED_PROMPT_HEADER_VERSION = 2` alongside `HOUMAO_SYSTEM_PROMPT_LAYOUT_VERSION = 1`
 
 #### Scenario: Reader sees the automation notice rule
 - **WHEN** a reader opens the managed prompt header reference page
@@ -107,7 +114,7 @@ At minimum, the page SHALL explain:
 - **THEN** the page documents that `task-reminder` is default-disabled
 - **AND THEN** the page documents that enabling it narrows reminder use to explicit self-reminding requests or concrete supervision/finalization checks
 - **AND THEN** the page documents that it does not prescribe a fixed generic default reminder delay
-- **AND THEN** the page documents that it tells agents to avoid ceremonial reminders and keep using local working state when no concrete reminder target exists
+- **AND THEN** the page documents that it tells agents to keep using local working state when no concrete reminder target exists
 
 #### Scenario: Reader sees the mail acknowledgement rule
 - **WHEN** a reader opens the managed prompt header reference page

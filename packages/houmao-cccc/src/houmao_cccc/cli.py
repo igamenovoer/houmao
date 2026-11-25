@@ -9,10 +9,11 @@ from pathlib import Path
 import re
 import sys
 from typing import cast
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, unquote, urlencode, urlsplit
 
 import httpx
 from pydantic import JsonValue, ValidationError
+from houmao.gateway.access import validate_gateway_base_url
 from houmao.gateway.client import (
     GatewayClient,
     GatewayHttpError,
@@ -27,6 +28,24 @@ from houmao_cccc.configuration import (
     normalize_endpoint,
 )
 from houmao_cccc.models import JSON_OBJECT
+
+
+_INSTANCE_PATTERN = r"[a-z][a-z0-9-]{0,62}"
+_PLUGIN_ROUTE = re.compile(rf"^/v1/plugins/{_INSTANCE_PATTERN}(?:/|$)")
+_GATEWAY_URL_GUIDANCE = (
+    "Use the gateway base URL, such as http://127.0.0.1:43000, with --gateway-url. "
+    "Select the plugin with --instance."
+)
+
+
+class _GatewaySelectionError(ValueError):
+    """Carry a fixed diagnostic for a failure before any gateway request."""
+
+    def __init__(self, error_code: str, message: str) -> None:
+        """Store a safe diagnostic for CLI output."""
+
+        super().__init__(message)
+        self.m_error_code: str = error_code
 
 
 def _text_arguments(parser: argparse.ArgumentParser) -> None:
@@ -78,7 +97,12 @@ def _parser() -> argparse.ArgumentParser:
     """Build the local HTTP command inventory."""
 
     parser = argparse.ArgumentParser(prog="houmao-cccc")
-    parser.add_argument("--gateway-url", required=True)
+    parser.add_argument(
+        "--gateway-url",
+        required=True,
+        help="Gateway base URL, including any configured HTTPS proxy prefix. "
+        "Select the plugin with --instance.",
+    )
     parser.add_argument("--signer-binding", type=Path, help="Private gateway signer binding JSON")
     parser.add_argument("--instance", default="cccc")
     parser.add_argument("--timeout", type=float, default=30.0)
@@ -108,9 +132,15 @@ def _parser() -> argparse.ArgumentParser:
     history.add_argument("--limit", type=int, default=50)
     history.add_argument("--cursor")
     history.add_argument("--event-ref")
-    deliveries = chat.add_parser("deliveries")
+    deliveries = chat.add_parser(
+        "deliveries",
+        description="List delivery attempts for one event, newest first by creation. "
+        "The response sets has_more when older attempts were omitted.",
+    )
     deliveries.add_argument("--event-ref", required=True)
-    deliveries.add_argument("--limit", type=int, default=50)
+    deliveries.add_argument(
+        "--limit", type=int, default=50, help="Return up to this many newest attempts (1 to 100)."
+    )
     _mail_arguments(commands)
     return parser
 
@@ -253,7 +283,7 @@ def run(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None 
     method = "GET"
     request_started = False
     try:
-        if not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", arguments.instance):
+        if not re.fullmatch(_INSTANCE_PATTERN, arguments.instance):
             raise ValueError("Invalid plugin instance")
         if not 0 < arguments.timeout <= 300:
             raise ValueError("Invalid request timeout")
@@ -286,6 +316,9 @@ def run(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None 
         result = JSON_OBJECT.validate_python(raw, strict=True)
         print(json.dumps(result, ensure_ascii=True, allow_nan=False))
         return 0
+    except _GatewaySelectionError as exc:
+        print(json.dumps({"error_code": exc.m_error_code, "message": str(exc)}), file=sys.stderr)
+        return 1
     except (httpx.HTTPError, GatewayHttpError):
         connection_failure: dict[str, JsonValue] = {
             "error_code": "gateway_unavailable",
@@ -326,18 +359,43 @@ def run(argv: list[str] | None = None, *, transport: httpx.BaseTransport | None 
 def _bound_client(arguments: argparse.Namespace) -> GatewayClient:
     """Select an explicit signer, managed self, or the current open admin path."""
 
-    options = {
-        "base_url": arguments.gateway_url,
-        "timeout_seconds": arguments.timeout,
-    }
-    if arguments.signer_binding is not None:
-        return GatewayClient(
-            **options,
-            binding=load_gateway_client_binding(Path.cwd() / arguments.signer_binding),
-        )
-    if arguments.command != "connection" and os.environ.get("HOUMAO_MANIFEST_PATH"):
-        return managed_self_gateway_client(**options)
-    return GatewayClient(**options)
+    try:
+        base_url = validate_gateway_base_url(arguments.gateway_url)
+    except ValueError:
+        raise _GatewaySelectionError("invalid_gateway_url", _GATEWAY_URL_GUIDANCE) from None
+    binding = (
+        load_gateway_client_binding(Path.cwd() / arguments.signer_binding)
+        if arguments.signer_binding is not None
+        else None
+    )
+    _reject_plugin_route(base_url, binding.base_url if binding else None)
+    if (
+        binding is None
+        and arguments.command != "connection"
+        and os.environ.get("HOUMAO_MANIFEST_PATH")
+    ):
+        try:
+            return managed_self_gateway_client(
+                base_url=arguments.gateway_url, timeout_seconds=arguments.timeout
+            )
+        except ValueError:
+            raise _GatewaySelectionError(
+                "managed_self_authority_unavailable",
+                "Verify the current managed generation and use its owning gateway base URL.",
+            ) from None
+    return GatewayClient(base_url=base_url, timeout_seconds=arguments.timeout, binding=binding)
+
+
+def _reject_plugin_route(base_url: str, signer_base_url: str | None) -> None:
+    """Recognize a pasted plugin route while honoring an exact signer binding."""
+
+    if base_url == signer_base_url:
+        return
+    endpoint = urlsplit(base_url)
+    local_path = endpoint.path if endpoint.scheme == "http" else ""
+    signer_suffix = base_url.removeprefix(signer_base_url) if signer_base_url else ""
+    if any(_PLUGIN_ROUTE.match(unquote(path)) for path in (local_path, signer_suffix)):
+        raise _GatewaySelectionError("invalid_gateway_url", _GATEWAY_URL_GUIDANCE)
 
 
 def _shared_request(

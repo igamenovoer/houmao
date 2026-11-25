@@ -2,7 +2,7 @@
 
 This guide is for an operator with a running Houmao agent and an existing normal Stalwart account. Attach the account through its gateway companion. Account attachment does not require management credentials, provision an account, rotate its password, or restart the body.
 
-To start Stalwart and Cypht from a fresh checkout, follow the bundled development stack setup. [Local Email System](https://github.com/igamenovoer/houmao/blob/main/dockers/email-system/README.md)
+To start Stalwart and Bulwark Webmail from a fresh checkout, follow the bundled development stack setup. [Local Email System](https://github.com/igamenovoer/houmao/blob/main/dockers/email-system/README.md)
 
 ## Identity and Storage Authority
 
@@ -105,7 +105,7 @@ pixi run houmao-mgr project profile create \
   --name research-online --specialist worker --agent-name research --mode headless \
   --mail-transport stalwart --mail-address research@example.com \
   --mail-jmap-url http://127.0.0.1:10080/.well-known/jmap \
-  --mail-management-url http://127.0.0.1:10080/api
+  --mail-management-url http://127.0.0.1:10080/jmap
 pixi run houmao-mgr project agents launch --profile research-online --name research --mode headless
 ```
 
@@ -118,12 +118,12 @@ mailboxes:
     transport: stalwart
     address: research@example.com
     jmap_url: http://127.0.0.1:10080/.well-known/jmap
-    management_url: http://127.0.0.1:10080/api
+    management_url: http://127.0.0.1:10080/jmap
 ```
 
 Launch declarations accept `trusted_jmap_origins` under `mailboxes.online` for approved intranet endpoints. A base URL derives the standard discovery path, and a supplied `jmap_url` selects the exact endpoint.
 
-Select a mail domain that the running Stalwart release accepts for JMAP sending identities. Stalwart v0.15.5 requires a recognized public suffix and rejects `.localhost` and `.test` senders for JMAP provisioning. The local `houmao.localhost` accounts serve Cypht, IMAP, and SMTP. Choose a separate send-capable domain for JMAP agent qualification.
+Select a mail domain that the running Stalwart release accepts for JMAP sending identities. Stalwart v0.15.5 requires a recognized public suffix and rejects `.localhost` and `.test` senders for JMAP provisioning. Use a separate send-capable domain from the bundled `houmao.localhost` accounts for JMAP agent qualification.
 
 Explicit provisioning uses administrative access to ensure the principal, then uses the mailbox credential to verify or create the sender identity and Archive role. Launch publishes the verified account, identity, and API origin with the new binding. Resume loads this configuration. Existing launch-created bindings that lack these pins record them at their first validated connection.
 

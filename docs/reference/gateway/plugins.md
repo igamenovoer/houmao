@@ -2,18 +2,18 @@
 
 This page is for Python package authors who want to add an HTTP or external-service integration to a Houmao gateway, and operators who enable those packages. Plugins run as trusted Python code in the gateway process. Install them in the same Python environment as Houmao; changing Houmao's source code is unnecessary.
 
-The public SDK is `houmao.gateway.plugins`, contract version `1`. A plugin owns a relative FastAPI router and an asynchronous resource lifespan. The gateway owns discovery, route admission, credentials, worker supervision, status, and dispatch to its single managed agent.
+The public SDK is `houmao.gateway.plugins`, contract version `2`. A plugin owns a relative FastAPI router and an asynchronous resource lifespan. The gateway owns discovery, route admission, credentials, worker supervision, status, and dispatch to its single managed agent. [Gateway SDK declaration](../../../src/houmao/gateway/plugins/models.py)
 
 ## Install and Enable a Package
 
-The [independent notification example](https://github.com/igamenovoer/houmao/tree/main/examples/gateway-plugin) is a complete distribution. Its source imports only the public SDK and declares both a Houmao dependency range and an entry point:
+The independent notification example is a complete distribution. It imports only the public SDK. Its package metadata declares the Houmao dependency range and entry point below. [Example distribution](../../../examples/gateway-plugin/) · [Package metadata](../../../examples/gateway-plugin/pyproject.toml)
 
 ```toml
 [project]
 name = "houmao-example-notifications"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["houmao>=2.4,<3"]
+dependencies = ["houmao>=3.0.0rc1,<4"]
 
 [project.entry-points."houmao.gateway_plugins"]
 example-notifications = "houmao_example_plugin:definition"
@@ -54,7 +54,7 @@ The file is a complete replacement selection, rather than a patch. Omitting `--p
 
 ## Implement the Public Contract
 
-Return a `PluginDefinition` from the selected entry point:
+Return a `PluginDefinition` from the selected entry point. [Example plugin declaration](../../../examples/gateway-plugin/src/houmao_example_plugin/__init__.py)
 
 ```python
 definition = PluginDefinition(
