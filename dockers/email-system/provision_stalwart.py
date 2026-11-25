@@ -37,10 +37,16 @@ class StackConfig:
     operator_mailbox_password: str
 
     @property
+    def http_origin(self) -> str:
+        """Return the published Stalwart HTTP origin."""
+
+        return f"http://127.0.0.1:{self.http_port}"
+
+    @property
     def api_base_url(self) -> str:
         """Return the Stalwart management API base URL."""
 
-        return f"http://127.0.0.1:{self.http_port}/api"
+        return self.http_origin + "/api"
 
     @property
     def operator_mailbox_email(self) -> str:
@@ -399,6 +405,37 @@ def verify_defaults(config: StackConfig) -> None:
     )
 
 
+def verify_jmap_origin(config: StackConfig) -> None:
+    """Check which API and upload origins the published JMAP session advertises."""
+
+    discovery_url = config.http_origin + "/.well-known/jmap"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(discovery_url, timeout=5) as response:
+            session_url = response.geturl()
+            session = json.load(response)
+    except (OSError, ValueError) as exc:
+        raise ApiRequestError(f"Unable to read the JMAP session at {discovery_url}.") from exc
+
+    if not isinstance(session, dict):
+        raise ApiRequestError("Stalwart JMAP discovery returned an invalid session document.")
+
+    expected = urllib.parse.urlsplit(config.http_origin)
+    for name, url in (
+        ("session URL", session_url),
+        ("apiUrl", session.get("apiUrl")),
+        ("uploadUrl", session.get("uploadUrl")),
+    ):
+        parts = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+        if parts is None or (parts.scheme, parts.netloc) != (expected.scheme, expected.netloc):
+            raise ApiRequestError(
+                f"Stalwart JMAP {name} must use {config.http_origin}. "
+                "Check the active Stalwart configuration and published port."
+            )
+
+    print(f"Verified JMAP API and upload origin at {config.http_origin}.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
 
@@ -470,6 +507,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify the configured development domain and default mailboxes.",
     )
 
+    subparsers.add_parser(
+        "verify-jmap-origin",
+        help="Verify the origins advertised by the published JMAP discovery endpoint.",
+    )
+
     return parser
 
 
@@ -534,6 +576,8 @@ def main() -> int:
         elif args.command == "verify-defaults":
             wait_for_api(config, 30)
             verify_defaults(config)
+        elif args.command == "verify-jmap-origin":
+            verify_jmap_origin(config)
         else:
             parser.error(f"Unsupported command: {args.command}")
     except (ApiRequestError, ValueError) as exc:

@@ -5,14 +5,13 @@ from __future__ import annotations
 from dataclasses import replace
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 from houmao.agents.mailbox_runtime_models import StalwartMailboxResolvedConfig
 from houmao.agents.mailbox_runtime_support import (
     mailboxes_resolved_config_from_payload,
     safe_registry_mailboxes_projection,
+    stalwart_discovery_url,
 )
 from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
 from houmao.agents.realm_controller.manifest import (
@@ -36,7 +35,28 @@ from houmao.mailbox.online_models import (
     OnlineControlRequest,
 )
 from houmao.mailbox.online_secrets import prepare_online_credential, retire_online_credential
-from houmao.mailbox.stalwart import StalwartError, StalwartJmapClient
+from houmao.mailbox.stalwart import (
+    StalwartConnectionPolicyError,
+    StalwartError,
+    StalwartJmapClient,
+    StalwartReadinessError,
+    is_plaintext_jmap_origin,
+    jmap_origin,
+    normalize_jmap_origins,
+)
+from houmao.mailbox.stalwart_models import ValidatedJmapBinding
+
+
+def _pin_binding(
+    config: StalwartMailboxResolvedConfig, validated: ValidatedJmapBinding
+) -> StalwartMailboxResolvedConfig:
+    """Record the verified provider scope with the candidate revision."""
+    return replace(
+        config,
+        account_id=validated.account_id,
+        identity_id=validated.identity_id,
+        api_origin=jmap_origin(validated.api_url),
+    )
 
 
 class OnlineBindingService:
@@ -60,6 +80,17 @@ class OnlineBindingService:
 
         slot, binding = self.m_authority.snapshot()
         state = self.m_authority.state()
+        approvals = list(binding.trusted_jmap_origins) if binding else []
+        details = list(warnings or [])
+        if any(is_plaintext_jmap_origin(origin) for origin in approvals):
+            details.append("Approved plaintext HTTP exposes mailbox credentials in transit.")
+        discovery_origin = api_origin = None
+        if binding is not None:
+            try:
+                discovery_origin = jmap_origin(binding.jmap_url)
+                api_origin = binding.pinned_api_origin
+            except StalwartError:
+                details.append("Configured JMAP discovery endpoint is invalid.")
         available = (
             binding is not None
             and binding.account_id is not None
@@ -74,6 +105,9 @@ class OnlineBindingService:
             provider="stalwart" if binding else None,
             account_id=binding.account_id if binding else None,
             identity_id=binding.identity_id if binding else None,
+            discovery_origin=discovery_origin,
+            api_origin=api_origin,
+            trusted_jmap_origins=approvals,
             epoch_id=state.get("epoch_id"),
             state="retiring"
             if state.get("closing")
@@ -84,25 +118,18 @@ class OnlineBindingService:
             else "degraded",
             available=available,
             committed=committed,
-            warnings=warnings or [],
+            warnings=details,
         )
 
-    def _validate(self, config: StalwartMailboxResolvedConfig, timeout: float) -> Any:
+    def _validate(
+        self, config: StalwartMailboxResolvedConfig, timeout: float
+    ) -> ValidatedJmapBinding:
         """Validate exact account/address through mailbox access without management calls."""
 
         if config.credential_file is None:
             raise OnlineBindingError(
                 "credential_source_invalid", "A private credential snapshot is required"
             )
-        parsed = urlsplit(config.jmap_url)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username
-            or parsed.password
-            or parsed.fragment
-        ):
-            raise OnlineBindingError("endpoint_invalid", "JMAP discovery endpoint is invalid")
         try:
             client = StalwartJmapClient(
                 jmap_url=config.jmap_url,
@@ -112,8 +139,12 @@ class OnlineBindingService:
                 sender_address=config.address,
                 account_id=config.account_id,
                 identity_id=config.identity_id,
+                allowed_api_origins=config.trusted_jmap_origins,
+                api_origin=config.pinned_api_origin,
             )
             return client.validate_binding(sender_address=config.address)
+        except (StalwartConnectionPolicyError, StalwartReadinessError) as exc:
+            raise OnlineBindingError(exc.code, str(exc)) from None
         except (StalwartError, OSError, ValueError):
             raise OnlineBindingError(
                 "candidate_validation_failed",
@@ -215,7 +246,17 @@ class OnlineBindingService:
         slot, old = self.m_authority.snapshot()
         if slot.revision != request.expected_revision:
             raise OnlineBindingError("mail_binding_conflict", "Online slot revision changed")
-        url = request.jmap_url or ((request.base_url or "").rstrip("/") + "/.well-known/jmap")
+        try:
+            url = (
+                request.jmap_url
+                if request.jmap_url is not None
+                else stalwart_discovery_url(request.base_url or "")
+            )
+            origins = normalize_jmap_origins(request.trusted_jmap_origins)
+        except StalwartConnectionPolicyError as exc:
+            raise OnlineBindingError(exc.code, str(exc)) from None
+        except ValueError:
+            raise OnlineBindingError("endpoint_invalid", "JMAP base URL is invalid.") from None
         source = Path(request.credential_source_ref).expanduser().resolve()
         reference, credential = prepare_online_credential(
             source, session_root=self.m_authority.context.manifest_path.parent
@@ -234,25 +275,24 @@ class OnlineBindingService:
             credential_source_ref=str(source),
             bindings_version=slot.revision,
             account_id=request.account_id,
+            trusted_jmap_origins=origins,
         )
         try:
             validated = self._validate(candidate, request.timeout_seconds)
-            candidate = replace(
-                candidate, account_id=validated.account_id, identity_id=validated.identity_id
-            )
+            candidate = _pin_binding(candidate, validated)
             if old is not None:
-                old_account = old.account_id
-                if old_account is None and not request.replace:
-                    old_account = self._validate(old, request.timeout_seconds).account_id
-                same = (old.jmap_url.rstrip("/"), old_account) == (
+                if old.account_id is None and not request.replace:
+                    old = _pin_binding(old, self._validate(old, request.timeout_seconds))
+                same = (old.jmap_url.rstrip("/"), old.account_id, old.pinned_api_origin) == (
                     candidate.jmap_url.rstrip("/"),
                     candidate.account_id,
+                    candidate.api_origin,
                 )
                 if not same:
                     if not request.replace:
                         raise OnlineBindingError(
                             "replacement_required",
-                            "A different online account requires explicit replacement",
+                            "A different online account or JMAP endpoint requires --replace.",
                         )
                     candidate = replace(candidate, binding_id=uuid4().hex)
             return self._commit(candidate, expected=slot.revision, timeout=request.timeout_seconds)
@@ -295,9 +335,7 @@ class OnlineBindingService:
                 raise OnlineBindingError(
                     "account_mismatch", "Credential refresh cannot select another account"
                 )
-            candidate = replace(
-                candidate, account_id=validated.account_id, identity_id=validated.identity_id
-            )
+            candidate = _pin_binding(candidate, validated)
             return self._commit(candidate, expected=slot.revision, timeout=request.timeout_seconds)
         except Exception:
             retire_online_credential(
@@ -352,9 +390,7 @@ class OnlineBindingService:
         candidate = replace(binding, credential_ref=reference, credential_file=credential)
         try:
             validated = self._validate(candidate, timeout_seconds)
-            candidate = replace(
-                candidate, account_id=validated.account_id, identity_id=validated.identity_id
-            )
+            candidate = _pin_binding(candidate, validated)
             self._commit(candidate, expected=slot.revision, timeout=timeout_seconds)
         except Exception:
             retire_online_credential(

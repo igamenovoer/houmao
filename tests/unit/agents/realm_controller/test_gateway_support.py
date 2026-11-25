@@ -6724,7 +6724,10 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
 
         def validate_binding(self, *, sender_address: str | None = None) -> SimpleNamespace:
             return SimpleNamespace(
-                account_id="acc-1", identity_id="identity-test", sender_address=sender_address
+                account_id="acc-1",
+                identity_id="identity-test",
+                sender_address=sender_address,
+                api_url=self.m_jmap_url,
             )
 
         def primary_account_id(self) -> str:
@@ -6948,14 +6951,17 @@ def test_gateway_mail_mark_route_rejects_malformed_stalwart_message_normalizatio
         def __init__(
             self, *, jmap_url: str, login_identity: str, credential_file: Path, **kwargs: object
         ) -> None:
-            del jmap_url, login_identity, credential_file
+            self.m_jmap_url = jmap_url
 
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
 
         def validate_binding(self, *, sender_address: str | None = None) -> SimpleNamespace:
             return SimpleNamespace(
-                account_id="acc-1", identity_id="identity-test", sender_address=sender_address
+                account_id="acc-1",
+                identity_id="identity-test",
+                sender_address=sender_address,
+                api_url=self.m_jmap_url,
             )
 
         def mark(

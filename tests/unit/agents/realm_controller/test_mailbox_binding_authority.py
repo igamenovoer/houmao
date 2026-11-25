@@ -339,8 +339,9 @@ def test_wrong_persisted_channel_is_rejected(tmp_path: Path) -> None:
         mailboxes_resolved_config_from_payload(payload)
 
 
+@pytest.mark.parametrize("explicit_discovery", [None, "http://127.0.0.1:10080/jmap/session"])
 def test_launch_prepares_both_slots_for_one_owner(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, explicit_discovery: str | None
 ) -> None:
     """Launch-time provisioning keeps independent offline and online registrations."""
 
@@ -369,6 +370,9 @@ def test_launch_prepares_both_slots_for_one_owner(
             login_identity=kwargs["login_identity"],
             credential_ref="private-online-ref",
             credential_file=tmp_path / "private-online.json",
+            account_id="provider-account",
+            identity_id="provider-identity",
+            api_origin="http://127.0.0.1:10080",
         )
 
     monkeypatch.setattr(
@@ -384,8 +388,10 @@ def test_launch_prepares_both_slots_for_one_owner(
             online=StalwartMailboxDeclarativeConfig(
                 transport="stalwart",
                 address="alice@example.test",
-                jmap_url="http://127.0.0.1:10080/.well-known/jmap",
+                base_url="http://127.0.0.1:10080",
+                jmap_url=explicit_discovery,
                 management_url="http://127.0.0.1:10080/api",
+                trusted_jmap_origins=("https://api.internal",),
             ),
         ),
         agent_id="agent-a",
@@ -405,6 +411,13 @@ def test_launch_prepares_both_slots_for_one_owner(
         "address": "alice@example.test",
     }
     assert len(provisioning_calls) == 1
+    assert provisioning_calls[0]["jmap_url"] == (
+        explicit_discovery or "http://127.0.0.1:10080/.well-known/jmap"
+    )
+    assert provisioning_calls[0]["login_identity"] == "agent-a"
+    assert provisioning_calls[0]["trusted_jmap_origins"] == ("https://api.internal",)
+    assert mailboxes.online.binding.redacted_payload()["account_id"] == "provider-account"
+    assert mailboxes.online.binding.redacted_payload()["api_origin"] == "http://127.0.0.1:10080"
     assert "credential_file" not in mailboxes.online.binding.redacted_payload()
 
 

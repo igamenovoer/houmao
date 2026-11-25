@@ -10,6 +10,7 @@ from pathlib import Path
 import os
 import re
 import sys
+from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 from typing import Any, Callable, Literal, Mapping, cast
 
@@ -28,8 +29,11 @@ from houmao.mailbox.managed import RegisterMailboxRequest, register_mailbox
 from houmao.mailbox.protocol import HOUMAO_MAILBOX_DOMAIN, is_houmao_reserved_mailbox_local_part
 from houmao.mailbox.stalwart import (
     STALWART_BASE_URL_ENV_VAR,
+    StalwartError,
     build_stalwart_credential_ref,
     ensure_stalwart_mailbox,
+    jmap_origin,
+    normalize_jmap_origins,
     session_stalwart_credential_path,
 )
 from houmao.owned_paths import resolve_mailbox_root, resolve_registry_root
@@ -350,6 +354,7 @@ def parse_declarative_mailbox_config(
             base_url=base_url,
             jmap_url=jmap_url,
             management_url=management_url,
+            trusted_jmap_origins=_parse_trusted_jmap_origins(payload, source=source),
         )
 
     raise ValueError(
@@ -378,6 +383,8 @@ def serialize_declarative_mailbox_config(config: MailboxDeclarativeConfig) -> di
         payload["jmap_url"] = config.jmap_url
     if config.management_url is not None:
         payload["management_url"] = config.management_url
+    if config.trusted_jmap_origins:
+        payload["trusted_jmap_origins"] = list(config.trusted_jmap_origins)
     return payload
 
 
@@ -498,6 +505,10 @@ def resolved_mailbox_config_from_payload(
             account_id=payload.get("account_id"),
             identity_id=payload.get("identity_id"),
             credential_source_ref=payload.get("credential_source_ref"),
+            trusted_jmap_origins=_parse_trusted_jmap_origins(
+                payload, source="launch_plan.mailboxes.online"
+            ),
+            api_origin=payload.get("api_origin"),
         )
 
     if transport == "registry":
@@ -604,15 +615,18 @@ def resolve_effective_mailbox_config(
         )
 
     if transport == MAILBOX_TRANSPORT_STALWART:
-        base_url, jmap_url, management_url = _resolve_stalwart_endpoints(
-            declared_config=declared_config
+        stalwart_config = (
+            declared_config
             if isinstance(declared_config, StalwartMailboxDeclarativeConfig)
-            else None,
+            else None
+        )
+        _, jmap_url, management_url = _resolve_stalwart_endpoints(
+            declared_config=stalwart_config,
             base_url_override=stalwart_base_url_override,
             jmap_url_override=stalwart_jmap_url_override,
             management_url_override=stalwart_management_url_override,
         )
-        login_identity = stalwart_login_identity_override or address
+        login_identity = stalwart_login_identity_override or principal_id
         return StalwartMailboxResolvedConfig(
             transport="stalwart",
             principal_id=principal_id,
@@ -625,6 +639,9 @@ def resolve_effective_mailbox_config(
             agent_id=agent_id,
             binding_id=uuid4().hex,
             credential_file=None,
+            trusted_jmap_origins=(
+                stalwart_config.trusted_jmap_origins if stalwart_config is not None else ()
+            ),
         )
 
     raise ValueError(
@@ -1117,6 +1134,7 @@ def bootstrap_resolved_mailbox(
         jmap_url=config.jmap_url,
         management_url=config.management_url,
         login_identity=config.login_identity,
+        trusted_jmap_origins=config.trusted_jmap_origins,
     )
     return replace(
         config,
@@ -1125,6 +1143,9 @@ def bootstrap_resolved_mailbox(
         login_identity=binding.login_identity,
         credential_ref=binding.credential_ref,
         credential_file=binding.credential_file,
+        account_id=binding.account_id,
+        identity_id=binding.identity_id,
+        api_origin=binding.api_origin,
         bindings_version=mailbox_bindings_version_now(),
     )
 
@@ -1302,6 +1323,26 @@ def _resolve_declared_mailbox_root(*, declared_root: str | None, runtime_root: P
     return (runtime_root.resolve() / candidate).resolve()
 
 
+def stalwart_discovery_url(base_url: str) -> str:
+    """Derive the JMAP session endpoint from a server base, preserving its path prefix."""
+    jmap_origin(base_url)
+    parsed = urlsplit(base_url)
+    if "?" in base_url:
+        raise ValueError("JMAP base URL cannot contain a query.")
+    return urlunsplit(parsed._replace(path=parsed.path.rstrip("/") + "/.well-known/jmap"))
+
+
+def _parse_trusted_jmap_origins(payload: dict[str, Any], *, source: str) -> tuple[str, ...]:
+    """Read persisted and declarative approvals in their JSON array form."""
+    origins = payload.get("trusted_jmap_origins", [])
+    if not isinstance(origins, list) or any(not isinstance(origin, str) for origin in origins):
+        raise ValueError(f"{source}.trusted_jmap_origins must be a list of JMAP origins")
+    try:
+        return normalize_jmap_origins(origins)
+    except StalwartError as exc:
+        raise ValueError(f"{source}.trusted_jmap_origins: {exc}") from None
+
+
 def _resolve_stalwart_endpoints(
     *,
     declared_config: StalwartMailboxDeclarativeConfig | None,
@@ -1321,7 +1362,7 @@ def _resolve_stalwart_endpoints(
         declared_config.management_url if declared_config is not None else None
     )
     if jmap_url is None and base_url is not None:
-        jmap_url = f"{base_url.rstrip('/')}/jmap"
+        jmap_url = stalwart_discovery_url(base_url)
     if management_url is None and base_url is not None:
         management_url = f"{base_url.rstrip('/')}/api"
     if jmap_url is None or management_url is None:

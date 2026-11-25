@@ -6,6 +6,7 @@ from houmao.execution.tmux import tmux_server_scope
 
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
+    OnlineControlFailure,
     OnlineControlRequest,
     OnlineBindingStatus,
 )
@@ -1259,7 +1260,7 @@ class PassiveServerService:
         try:
             return client.attach_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def online_binding_refresh(
         self, agent_ref: str, request: OnlineControlRequest
@@ -1275,7 +1276,7 @@ class PassiveServerService:
         try:
             return client.refresh_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def online_binding_reconnect(
         self, agent_ref: str, request: OnlineControlRequest
@@ -1291,7 +1292,7 @@ class PassiveServerService:
         try:
             return client.reconnect_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def online_binding_detach(
         self, agent_ref: str, request: OnlineControlRequest
@@ -1307,7 +1308,7 @@ class PassiveServerService:
         try:
             return client.detach_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def gateway_mail_status(
         self, agent_ref: str
@@ -2268,6 +2269,18 @@ class PassiveServerService:
         threading.Thread(target=_deferred, daemon=True).start()
 
     # -- internal -------------------------------------------------------------
+
+    def _online_control_error_tuple(self, exc: GatewayHttpError) -> tuple[int, dict[str, Any]]:
+        """Relay recognized online control errors from the selected agent gateway."""
+        status = exc.status_code
+        if status is not None and status in {400, 409, 502}:
+            try:
+                detail = OnlineControlFailure.model_validate_json(exc.detail)
+            except ValueError:
+                pass
+            else:
+                return status, {"detail": detail.model_dump(mode="json")}
+        return self._gateway_http_error_tuple(exc)
 
     def _gateway_http_error_tuple(self, exc: GatewayHttpError) -> tuple[int, dict[str, Any]]:
         """Project one gateway HTTP error into a passive proxy response tuple."""

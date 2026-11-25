@@ -13,6 +13,7 @@ from houmao.gateway.deployment import owner_gateway_base_url, validate_gateway_a
 
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
+    OnlineControlFailure,
     OnlineControlRequest,
     OnlineBindingStatus,
 )
@@ -4664,7 +4665,15 @@ def control_online_mailbox(
     if _target_uses_pair_api(target):
         assert target.client is not None
         method = getattr(target.client, f"{operation}_managed_agent_online_binding")
-        result = pair_request(method, target.agent_ref, request)
+        try:
+            result = method(target.agent_ref, request)
+        except CaoApiError as exc:
+            detail = exc.payload.get("detail") if isinstance(exc.payload, dict) else None
+            try:
+                failure = OnlineControlFailure.model_validate(detail)
+            except ValidationError:
+                raise click.ClickException(exc.detail) from exc
+            raise click.ClickException(failure.detail) from exc
         return OnlineBindingStatus.model_validate(result.model_dump(mode="json"))
     controller = _require_live_local_controller(target, operation="control online mailbox binding")
     client = _require_live_gateway_client_for_controller(controller)

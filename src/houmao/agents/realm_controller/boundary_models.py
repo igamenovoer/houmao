@@ -152,6 +152,8 @@ class LaunchPlanMailboxStalwartV1(_StrictBoundaryModel):
     management_url: str | None = None
     account_id: str | None = None
     identity_id: str | None = None
+    trusted_jmap_origins: list[str] = Field(default_factory=list)
+    api_origin: str | None = None
     credential_source_ref: str | None = None
     login_identity: str
     credential_ref: str

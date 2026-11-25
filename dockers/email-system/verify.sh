@@ -15,6 +15,7 @@ curl --noproxy '*' --fail --silent --show-error "http://127.0.0.1:${CYPHT_HTTP_P
 
 cd "${REPO_ROOT}"
 pixi run python "${SCRIPT_DIR}/provision_stalwart.py" --env-file "${SCRIPT_DIR}/.env" verify-defaults
+pixi run python "${SCRIPT_DIR}/provision_stalwart.py" --env-file "${SCRIPT_DIR}/.env" verify-jmap-origin
 pixi run python "${SCRIPT_DIR}/smoke_mail_flow.py" --env-file "${SCRIPT_DIR}/.env"
 
 printf 'Verified stack endpoints and default Stalwart mailboxes.\n'

@@ -4,6 +4,12 @@ lookup.default.domain = "%{env:MAIL_DOMAIN}%"
 server.listener.http.bind = ["[::]:%{env:STALWART_HTTP_PORT}%"]
 server.listener.http.protocol = "http"
 
+# Houmao discovers JMAP through the published loopback port.
+http.url = [
+    { if = "url_path == '/jmap/session' || url_path == '/jmap/session/'", then = "'http://127.0.0.1:' + local_port" },
+    { else = "protocol + '://' + config_get('server.hostname') + ':' + local_port" },
+]
+
 server.listener.imap.bind = ["[::]:%{env:STALWART_IMAP_PORT}%"]
 server.listener.imap.protocol = "imap"
 server.listener.imap.tls.enable = false

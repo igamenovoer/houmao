@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ import httpx
 import pytest
 
 from houmao.agents.mailbox_runtime_models import RemoteRegistryMailboxResolvedConfig
+from houmao.agents.mailbox_runtime_support import mailboxes_resolved_config_from_payload
 from houmao.agents.realm_controller.errors import GatewayHttpError
 from houmao.agents.realm_controller.gateway_client import GatewayClient
 from houmao.agents.realm_controller.gateway_models import GatewayStatusV1
@@ -38,9 +40,14 @@ from houmao.mailbox.models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
 )
-from houmao.mailbox.online_models import OnlineAttachRequest, OnlineControlRequest
+from houmao.mailbox.online_models import (
+    OnlineAttachRequest,
+    OnlineAuthorityContext,
+    OnlineControlRequest,
+)
 from houmao.mailbox.registry_client import OfflineRegistryClient
-from houmao.mailbox.stalwart import StalwartJmapClient
+from houmao.mailbox.services import build_scoped_mailbox_adapter
+from houmao.mailbox.stalwart import StalwartJmapClient, ensure_stalwart_mailbox
 from houmao.mailbox.stalwart_models import JmapMetadataQuery
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from tests.integration.agents.realm_controller.test_gateway_https_access import (
@@ -130,6 +137,8 @@ def _deployed_gateway(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
     mode: Literal["foreground", "detached"],
+    *,
+    keyed: bool = True,
 ) -> Iterator[_Gateway]:
     """Serve the live gateway read and control routes through verified HTTPS."""
 
@@ -161,6 +170,18 @@ def _deployed_gateway(
             try:
                 unsigned = GatewayClient(base_url=remote_url, ca_bundle_path=ca_bundle)
                 target = unsigned.describe_endpoint().target
+                own = GatewayClient(
+                    binding=GatewayClientBinding(
+                        base_url=owner_url,
+                        owner=target.owner,
+                        purpose="caller",
+                        managed_self_manifest_path=str(manifest),
+                    ),
+                    target_incarnation=generation,
+                )
+                if not keyed:
+                    yield _Gateway(manifest, unsigned, own, own)
+                    return
                 key_file = root / "remote-operator.key"
                 signer = Ed25519PrivateKey.generate()
                 _write_private_key(key_file, signer)
@@ -180,15 +201,6 @@ def _deployed_gateway(
                 assert first.add_admin_key(key) == key.key_id
                 admin = GatewayClient(
                     binding=enrollment.model_copy(update={"purpose": "caller"}),
-                    target_incarnation=generation,
-                )
-                own = GatewayClient(
-                    binding=GatewayClientBinding(
-                        base_url=owner_url,
-                        owner=target.owner,
-                        purpose="caller",
-                        managed_self_manifest_path=str(manifest),
-                    ),
                     target_incarnation=generation,
                 )
                 yield _Gateway(manifest, unsigned, own, admin)
@@ -333,6 +345,7 @@ class _OnlineAccount:
     login: str
     address: str
     source: Path
+    api_origin: str
 
     def connect(self) -> StalwartJmapClient:
         """Use JMAP with the test account's normal provider authority."""
@@ -343,6 +356,7 @@ class _OnlineAccount:
             sender_address=self.address,
             credential_file=self.source,
             timeout_seconds=2.0,
+            allowed_api_origins=(self.api_origin,),
         )
 
 
@@ -355,13 +369,14 @@ def _disposable_stalwart(
     root.mkdir(mode=0o700)
     url = _loopback_url()
     port = url.rsplit(":", 1)[1]
+    api_origin = f"http://localhost:{port}"
     administrator = secrets.token_hex(32)
     config = _credential(
         root / "provider.toml",
         f'''\
 server.hostname = "mail.example.com"
 lookup.default.domain = "example.com"
-http.url = "'{url}'"
+http.url = "'{api_origin}'"
 server.listener.http.bind = ["127.0.0.1:{port}"]
 server.listener.http.protocol = "http"
 storage.data = "rocksdb"
@@ -400,25 +415,32 @@ authentication.fallback-admin.secret = "{administrator}"
                 time.sleep(0.1)
             else:
                 pytest.fail("The disposable Stalwart management API did not become available")
-            domain = manager.post("/api/principal", json={"type": "domain", "name": "example.com"})
-            assert domain.status_code == 200 and "data" in domain.json()
-            accounts = []
-            for name in ("gateway-worker", "gateway-peer"):
-                address = f"{name}@example.com"
-                password = secrets.token_hex(32)
-                created = manager.post(
-                    "/api/principal",
-                    json={
-                        "type": "individual",
-                        "name": name,
-                        "emails": [address],
-                        "secrets": [password],
-                        "roles": ["user"],
-                    },
+        accounts = []
+        token = base64.b64encode(f"fixture-admin:{administrator}".encode()).decode("ascii")
+        for name in ("gateway-worker", "gateway-peer"):
+            address = f"{name}@example.com"
+            discovery = f"{url}/.well-known/jmap"
+            provisioned = ensure_stalwart_mailbox(
+                runtime_root=root / "runtime",
+                session_root=root / name,
+                principal_id=name,
+                address=address,
+                jmap_url=discovery,
+                management_url=f"{url}/api",
+                management_auth_headers={"Authorization": f"Basic {token}"},
+                trusted_jmap_origins=(api_origin,),
+            )
+            assert provisioned.api_origin == api_origin
+            assert {"inbox", "sent", "archive"} <= provisioned.mailbox_roles.keys()
+            accounts.append(
+                _OnlineAccount(
+                    discovery,
+                    provisioned.login_identity,
+                    address,
+                    provisioned.credential_file,
+                    api_origin,
                 )
-                assert created.status_code == 200 and "data" in created.json()
-                source = _credential(root / f"{name}.json", json.dumps({"password": password}))
-                accounts.append(_OnlineAccount(f"{url}/.well-known/jmap", name, address, source))
+            )
         yield accounts[0], accounts[1]
     finally:
         process.terminate()
@@ -435,7 +457,7 @@ def test_authenticated_online_gateway_reaches_disposable_stalwart(
     monkeypatch: pytest.MonkeyPatch,
     mode: Literal["foreground", "detached"],
 ) -> None:
-    """Complete signed gateway operations against a running selected Stalwart binary."""
+    """Complete owner gateway operations against a provisioned Stalwart account."""
 
     selected = os.environ.get("HOUMAO_TEST_STALWART_BIN")
     if selected is None:
@@ -444,25 +466,11 @@ def test_authenticated_online_gateway_reaches_disposable_stalwart(
     assert executable.is_file() and os.access(executable, os.X_OK)
     with (
         _disposable_stalwart(tmp_path / "provider", executable) as (owner, peer),
-        _deployed_gateway(tmp_path / "g", monkeypatch, mode) as gateway,
+        _deployed_gateway(tmp_path / "g", monkeypatch, mode, keyed=False) as gateway,
     ):
         owner_jmap = owner.connect()
         binding = owner_jmap.validate_binding()
-        if "archive" not in binding.mailbox_roles:
-            result = owner_jmap.call(
-                [
-                    [
-                        "Mailbox/set",
-                        {
-                            "accountId": binding.account_id,
-                            "create": {"archive": {"name": "Archive", "role": "archive"}},
-                        },
-                        "archive",
-                    ]
-                ]
-            )
-            assert result["methodResponses"][0][0] == "Mailbox/set"
-            assert "archive" in result["methodResponses"][0][1]["created"]
+        assert "archive" in binding.mailbox_roles
         peer_jmap = peer.connect()
         peer_jmap.validate_binding()
         initial = gateway.admin.online_binding_status()
@@ -472,20 +480,20 @@ def test_authenticated_online_gateway_reaches_disposable_stalwart(
             login_identity=owner.login,
             credential_source_ref=str(owner.source),
             jmap_url=owner.url,
+            trusted_jmap_origins=[owner.api_origin],
             timeout_seconds=2.0,
         )
-        with _expect_http(401):
-            gateway.unsigned.attach_online_binding(attach)
-        with _expect_http(403):
-            gateway.self_client.attach_online_binding(attach)
+        with _expect_http(400):
+            gateway.admin.attach_online_binding(
+                attach.model_copy(update={"trusted_jmap_origins": []})
+            )
         current = gateway.admin.attach_online_binding(attach)
         assert current.available and current.binding_id
         assert current.account_id == binding.account_id
+        assert current.api_origin == owner.api_origin
         status = gateway.admin.mail_status()
         assert status.online is not None and status.online.binding_id == current.binding_id
-        with _expect_http(401):
-            gateway.unsigned.mail_status()
-        assert gateway.self_client.mail_status() == status
+        assert gateway.unsigned.mail_status() == status
         outbound = GatewayMailSendRequestV1(
             expected_binding_id=current.binding_id,
             to=[peer.address],
@@ -531,6 +539,23 @@ def test_authenticated_online_gateway_reaches_disposable_stalwart(
         else:
             pytest.fail("The gateway did not observe the real provider's reply")
         assert len(messages) == 1
+        handle = load_session_manifest(gateway.manifest)
+        configured = mailboxes_resolved_config_from_payload(
+            handle.payload["launch_plan"]["mailboxes"], manifest_path=gateway.manifest
+        ).online.binding
+        assert configured is not None
+        direct = build_scoped_mailbox_adapter(
+            configured,
+            authority=OnlineAuthorityContext(
+                gateway.manifest,
+                handle.payload["agent_id"],
+                handle.payload["runtime"]["session_id"],
+            ),
+        )
+        direct_page = direct.list_page(
+            box="inbox", read_state="any", answered_state="any", archived=False
+        )
+        assert [item.message_ref for item in direct_page.messages] == [messages[0].message_ref]
         read = gateway.admin.read_mail(
             GatewayMailMessageRequestV1(
                 expected_binding_id=current.binding_id, message_ref=messages[0].message_ref
@@ -549,6 +574,7 @@ def test_authenticated_online_gateway_reaches_disposable_stalwart(
             OnlineControlRequest(expected_revision=current.revision, timeout_seconds=2.0)
         )
         assert refreshed.binding_id == current.binding_id and refreshed.revision != current.revision
+        assert refreshed.trusted_jmap_origins == [owner.api_origin]
         reconnected = gateway.admin.reconnect_online_binding(
             OnlineControlRequest(expected_revision=refreshed.revision, timeout_seconds=2.0)
         )

@@ -1375,6 +1375,8 @@ class StalwartGatewayMailboxAdapter:
                 sender_address=self.m_mailbox.address,
                 account_id=self.m_mailbox.account_id,
                 identity_id=self.m_mailbox.identity_id,
+                allowed_api_origins=self.m_mailbox.trusted_jmap_origins,
+                api_origin=self.m_mailbox.pinned_api_origin,
             )
         return self.m_client
 

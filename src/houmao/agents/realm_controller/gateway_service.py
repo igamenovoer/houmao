@@ -6911,10 +6911,16 @@ class GatewayServiceRuntime:
                     "mail_binding_conflict",
                     "replacement_required",
                     "account_mismatch",
+                    "jmap_api_origin_changed",
                     "online_retirement_busy",
                 }
                 else 502
-                if exc.code == "candidate_validation_failed"
+                if exc.code
+                in {
+                    "candidate_validation_failed",
+                    "endpoint_unavailable",
+                    "jmap_authentication_failed",
+                }
                 else 400
             )
             raise HTTPException(

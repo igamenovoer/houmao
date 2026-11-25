@@ -206,7 +206,7 @@ def test_disabled_running_body_attaches_refreshes_restarts_and_detaches(
             # A provider auth rejection never replaces the accepted account or leaks response text.
             state.http_errors["Identity/get"] = 401
             code, rejected = _attach(request, state, source, current["revision"])
-            assert code == 502 and rejected["detail"]["error_code"] == "candidate_validation_failed"
+            assert code == 502 and rejected["detail"]["error_code"] == "jmap_authentication_failed"
             assert "private credential text" not in json.dumps(rejected)
             state.http_errors.clear()
             assert request("GET", "/v1/mail/online/binding")[1]["revision"] == current["revision"]
@@ -222,6 +222,7 @@ def test_disabled_running_body_attaches_refreshes_restarts_and_detaches(
                     timeout_seconds=0.1,
                 )
                 assert code == 502, failed
+                assert failed["detail"]["error_code"] == "endpoint_unavailable"
             assert (
                 request("GET", "/v1/mail/online/binding")[1]["binding_id"] == current["binding_id"]
             )

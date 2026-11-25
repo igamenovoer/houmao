@@ -47,6 +47,26 @@ class _OnlineModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
+class OnlineControlFailure(_OnlineModel):
+    """Recognize sanitized operator outcomes across the gateway and passive proxy."""
+
+    error_code: Literal[
+        "endpoint_invalid",
+        "endpoint_unavailable",
+        "jmap_origin_unapproved",
+        "jmap_api_origin_changed",
+        "jmap_authentication_failed",
+        "mailbox_not_ready",
+        "candidate_validation_failed",
+        "mail_binding_conflict",
+        "replacement_required",
+        "account_mismatch",
+        "online_retirement_busy",
+    ]
+    detail: str
+    uncertain: bool
+
+
 class OnlineAttachRequest(_OnlineModel):
     """Explicit existing-account attachment; no administrative credentials."""
 
@@ -57,6 +77,7 @@ class OnlineAttachRequest(_OnlineModel):
     credential_source_ref: str = Field(min_length=1, repr=False)
     jmap_url: str | None = None
     base_url: str | None = None
+    trusted_jmap_origins: list[str] = Field(default_factory=list)
     account_id: str | None = None
     replace: bool = False
     timeout_seconds: float = Field(default=10.0, gt=0, le=120)
@@ -88,6 +109,9 @@ class OnlineBindingStatus(_OnlineModel):
     provider: Literal["stalwart"] | None = None
     account_id: str | None = None
     identity_id: str | None = None
+    discovery_origin: str | None = None
+    api_origin: str | None = None
+    trusted_jmap_origins: list[str] = Field(default_factory=list)
     epoch_id: str | None = None
     state: Literal["absent", "configured", "retiring", "degraded"]
     available: bool = False

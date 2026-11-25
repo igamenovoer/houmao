@@ -71,6 +71,8 @@ services:
     entrypoint:
       - /usr/local/bin/houmao-cypht-entrypoint.sh
     environment:
+      # Single-server mode selects the Stalwart service on this private Compose network.
+      ALLOW_INTERNAL_SERVERS: ${CYPHT_SINGLE_SERVER_MODE}
       ATTACHMENT_DIR: ${CYPHT_ATTACHMENT_DIR}
       AUTH_TYPE: ${CYPHT_AUTH_TYPE}
       AUTO_CREATE_PROFILE: ${CYPHT_AUTO_CREATE_PROFILE}

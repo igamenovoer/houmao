@@ -8,4 +8,5 @@ Run bundles against a live checkout using the project-local Git-ignored temporar
 
 | Bundle | Harness | Coverage |
 | --- | --- | --- |
+| `agent-mail-stalwart` | [agent-mail-stalwart/README.md](agent-mail-stalwart/README.md) | Product provisioning and direct JMAP attachment, notifier wake-up, threaded reply and archive, and a two-agent mail round trip. |
 | `skill-update` | [skill-update/README.md](skill-update/README.md) | Intra-agent and inter-agent versioned `skills` mount updates on managed DSH Web agents, including peer authorization, keyed-roster revocation, busy/queued self-push handling, and next-turn skill loading. |

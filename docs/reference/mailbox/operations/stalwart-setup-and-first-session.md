@@ -14,7 +14,7 @@ Stalwart owns online messages, delivery, flags, and reply ancestry. Houmao owns 
 
 ## Prepare an Existing Account
 
-Have the account administrator provide its normal login, authorized sending address, and JMAP session-discovery URL. An explicitly selected account ID is required when discovery has multiple eligible accounts. Login and address may differ. The sender must match an authorized identity in the selected account.
+Have the account administrator provide its normal login, authorized sending address, and JMAP session-discovery URL. An explicitly selected account ID is required when discovery has multiple eligible accounts. Login and address may differ. The selected account needs writable JMAP submission, a matching sender identity, and Inbox, Sent, and Archive roles. Inbox needs rights to read, update flags, and remove items. Sent and Archive need rights to add items. Ask the provider administrator to prepare the missing identity, role, or permission reported by attach, then repeat the operation.
 
 Put the password in an owner-private JSON file **outside the checkout**, on the host running the agent's gateway:
 
@@ -34,16 +34,18 @@ Set `agent_id` to the running agent's stable ID. The gateway companion is requir
 pixi run houmao-mgr agents single --agent-id "$agent_id" gateway attach
 pixi run houmao-mgr agents single --agent-id "$agent_id" mailbox online status
 pixi run houmao-mgr agents single --agent-id "$agent_id" mailbox online attach \
-  --address research@example.test --login-identity research-login \
+  --address research@example.com --login-identity research-login \
   --credential-source /private/houmao/research-account.json \
   --jmap-url http://127.0.0.1:10080/.well-known/jmap
 ```
 
-The operator commands work for `agents self` as well. Each mutation pins an online slot revision. Pass `--expected-revision "$revision"` to pin a previously inspected snapshot. If omitted, the command reads status once and pins that revision; concurrent changes still conflict. A failed candidate leaves the current binding and its private credential copy unchanged. Selecting a different account requires explicit `attach --replace`, which allocates a fresh binding ID.
+The operator commands work for `agents self` as well. Each mutation pins an online slot revision. Pass `--expected-revision "$revision"` to pin a previously inspected snapshot. If omitted, the command reads status once and pins that revision. Concurrent changes still conflict. A failed candidate preserves the active binding and its private credential copy. Selecting a different account, discovery endpoint, or API origin requires `attach --replace` and allocates a fresh binding ID.
+
+For intranet HTTP, approve the exact discovery origin with `--trust-jmap-origin http://mail.example.com:10080`. Repeat the option for any distinct advertised API or upload origin with which you intend to share the mailbox credential. The scheme and effective port are part of the approval. HTTPS protects credentials in transit. HTTP approvals expose them to observers on that network. The API accepts approvals as a `trusted_jmap_origins` array. Refresh and reconnect reuse the stored approvals and verified API origin.
 
 Successful attachment validates credentials, account access, sending identity, and required mail capabilities before publication. Houmao copies the selected source into a private immutable session file. It then closes old admission, drains admitted operations within the finite deadline, and atomically updates only the online slot. Body PID, conversation, stable agent identity, and offline mail remain intact.
 
-A result with `committed: true` and warnings means the authoritative binding changed, even if a derived connection or discovery projection requires reconciliation. Inspect status before repeating a control. A retirement timeout reports failure without activating the candidate.
+A result with `committed: true` confirms that the operation committed. Warnings identify plaintext approvals or reconciliation that needs attention. Inspect status before repeating a control. A retirement timeout reports failure without activating the candidate.
 
 ## Refresh, Reconnect, and Detach
 
@@ -101,7 +103,7 @@ An operator explicitly authorized to create Stalwart accounts can still use a pr
 ```bash
 pixi run houmao-mgr project profile create \
   --name research-online --specialist worker --agent-name research --mode headless \
-  --mail-transport stalwart --mail-address research@example.test \
+  --mail-transport stalwart --mail-address research@example.com \
   --mail-jmap-url http://127.0.0.1:10080/.well-known/jmap \
   --mail-management-url http://127.0.0.1:10080/api
 pixi run houmao-mgr project agents launch --profile research-online --name research --mode headless
@@ -114,12 +116,16 @@ mailboxes:
   offline: null
   online:
     transport: stalwart
-    address: research@example.test
+    address: research@example.com
     jmap_url: http://127.0.0.1:10080/.well-known/jmap
     management_url: http://127.0.0.1:10080/api
 ```
 
-Only this explicit launch-time administrative path ensures the account. Resume reads the persisted binding and does not provision an account or rotate its password. Existing launch-created bindings are pinned to a validated account and sending identity on their first managed connection, preserving their binding ID.
+Launch declarations accept `trusted_jmap_origins` under `mailboxes.online` for approved intranet endpoints. A base URL derives the standard discovery path, and a supplied `jmap_url` selects the exact endpoint.
+
+Select a mail domain that the running Stalwart release accepts for JMAP sending identities. Stalwart v0.15.5 requires a recognized public suffix and rejects `.localhost` and `.test` senders for JMAP provisioning. The local `houmao.localhost` accounts serve Cypht, IMAP, and SMTP. Choose a separate send-capable domain for JMAP agent qualification.
+
+Explicit provisioning uses administrative access to ensure the principal, then uses the mailbox credential to verify or create the sender identity and Archive role. Launch publishes the verified account, identity, and API origin with the new binding. Resume loads this configuration. Existing launch-created bindings that lack these pins record them at their first validated connection.
 
 ## References
 

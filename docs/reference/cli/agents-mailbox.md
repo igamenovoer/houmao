@@ -55,7 +55,7 @@ Online controls require the agent's live gateway companion. They attach a normal
 houmao-mgr agents single --agent-id <id> gateway attach
 houmao-mgr agents single --agent-id <id> mailbox online status
 houmao-mgr agents single --agent-id <id> mailbox online attach \
-  --address alice@example.test --login-identity alice-login \
+  --address alice@example.com --login-identity alice-login \
   --credential-source /private/houmao/alice-account.json \
   --jmap-url https://mail.example.test/.well-known/jmap
 houmao-mgr agents single --agent-id <id> mailbox online refresh
@@ -65,7 +65,9 @@ houmao-mgr agents single --agent-id <id> mailbox online detach
 
 The owner-private credential source is JSON containing a `password` string. It must exist on the gateway host, outside tracked files. The request contains its protected path; neither the password nor source reference appears in status. `--base-url` can replace `--jmap-url` and derives `/.well-known/jmap`. Select `--account-id` when discovery is ambiguous.
 
-Every control pins `--expected-revision`, or reads status once to obtain the revision when the option is omitted. Concurrent changes conflict. Attaching another account requires `--replace` and creates a fresh binding ID. Same-account refresh copies the selected source into a new private immutable snapshot, advances revision/epoch, and retains binding ID and sync checkpoints. Refresh can select a new `--credential-source`. Reconnect keeps the current credential snapshot and revision while advancing the connection epoch. All controls accept a finite `--timeout-seconds` budget.
+Pass `--trust-jmap-origin ORIGIN` once for each endpoint that needs an explicit approval. The default permits HTTPS or loopback HTTP discovery. Non-loopback HTTP discovery and API or upload origins that differ from discovery each need approval. Use an exact scheme, hostname, and port. Approving HTTP permits the password to travel in plaintext. Owner status reports the configured origins and any such approval.
+
+Every control pins `--expected-revision`, or reads status once to obtain the revision when the option is omitted. Concurrent changes conflict. Changing the selected provider account, discovery endpoint, or verified API origin requires `--replace` and creates a fresh binding ID. Same-account refresh copies the selected source into a new private immutable snapshot, advances revision and epoch, and retains the binding ID, origin policy, and sync checkpoints. Refresh can select a new `--credential-source`. Reconnect keeps the credential snapshot and revision while advancing the connection epoch. All controls accept a finite `--timeout-seconds` budget.
 
 Detach preserves provider mail, external source files, and offline membership. Old observations cannot publish after replacement. A retirement failure does not activate the candidate. `committed: true` with warnings confirms the authoritative change despite a derived publication problem; inspect status before repeating it. Already-started sends and replies preserve an explicit acknowledgement and original binding; an uncertain result is never automatically resent.
 

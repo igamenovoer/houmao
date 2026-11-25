@@ -26,7 +26,12 @@ from houmao.mailbox.online_models import (
 from houmao.mailbox.online_models import (
     OnlineFence as OnlineFence,
 )
-from houmao.mailbox.stalwart import StalwartError, StalwartJmapClient
+from houmao.mailbox.stalwart import (
+    StalwartConnectionPolicyError,
+    StalwartError,
+    StalwartJmapClient,
+    StalwartReadinessError,
+)
 
 
 @dataclass(frozen=True)
@@ -227,8 +232,12 @@ class OnlineConnectionAuthority:
                     sender_address=config.address,
                     account_id=config.account_id,
                     identity_id=config.identity_id,
+                    allowed_api_origins=config.trusted_jmap_origins,
+                    api_origin=config.pinned_api_origin,
                 )
                 client.validate_binding(sender_address=config.address)
+            except (StalwartConnectionPolicyError, StalwartReadinessError) as exc:
+                raise OnlineBindingError(exc.code, str(exc)) from None
             except (StalwartError, OSError, ValueError):
                 raise OnlineBindingError(
                     "online_connection_failed",
