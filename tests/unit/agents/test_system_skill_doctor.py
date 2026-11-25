@@ -221,7 +221,7 @@ def test_doctor_separates_missing_incomplete_drift_and_version_mismatch(
     lite = home / "skills/houmao-agent-loop-lite/SKILL.md"
     lite.write_text(
         lite.read_text(encoding="utf-8").replace(
-            'houmao_version: "3.0.0rc6"',
+            'houmao_version: "3.0.0rc7"',
             'houmao_version: "1.2.1"',
         ),
         encoding="utf-8",
@@ -252,7 +252,7 @@ def test_doctor_reports_unknown_running_version_without_losing_observed_value(
     )
 
     assert not result.healthy
-    assert {member.observed_version for member in result.members} == {"3.0.0rc6"}
+    assert {member.observed_version for member in result.members} == {"3.0.0rc7"}
     assert {member.version_status for member in result.members} == {"unavailable"}
 
 
@@ -277,7 +277,7 @@ def test_corrupt_config_stays_separate_from_direct_health(tmp_path: Path) -> Non
         (
             {
                 "schema_version": "houmao-skill-config.v1",
-                "houmao_version": "3.0.0rc6",
+                "houmao_version": "3.0.0rc7",
                 "projection_mode": "copy",
                 "skills": [],
             },
@@ -319,7 +319,7 @@ def test_config_version_and_digest_do_not_replace_installed_evidence(
     assert result.config.status == "current"
     assert result.config.houmao_version == "0.1.0"
     first = result.members[0]
-    assert first.observed_version == "3.0.0rc6"
+    assert first.observed_version == "3.0.0rc7"
     assert first.version_status == "match"
     assert first.config.content_digest == "0" * 64
 

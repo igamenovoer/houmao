@@ -4,6 +4,26 @@ This changelog tracks published Houmao releases.
 
 The entries below summarize user-visible changes from the tagged release history rather than listing every commit verbatim.
 
+## [3.0.0rc7] - 2026-11-25
+
+### Added
+
+- **Target-scoped gateway permissions.** Use built-in observer, requester, maintainer, and operator roles with retained default groups. PyCasbin evaluates exact grants, and work requests, direct prompts, and native commands have separate permissions. [Authorization Policy](https://igamenovoer.github.io/houmao/reference/gateway/operations/authorization-policy/)
+- **Versioned agent files.** Edit and save drafts on enabled mounts, then publish against an expected base. Qualified managed agents can schedule self-publication with `--when-idle`. [Versioned File Edits](https://igamenovoer.github.io/houmao/reference/gateway/operations/versioned-file-edits/)
+- **Local email setup.** A fresh checkout can prepare its Docker images and provision Stalwart and Cypht with admin and operator mailboxes on `houmao.localhost`. [Setup Guide](https://github.com/igamenovoer/houmao/blob/v3.0.0rc7/dockers/email-system/README.md)
+
+### Changed
+
+- The CLI and gateway dashboard report open and keyed policy, explain signer requirements, and give next steps when file publication encounters a busy agent. [Issue #97](https://github.com/igamenovoer/houmao/issues/97)
+- Manager mail writes return compact receipts. Use `mail peek` with the returned reference to inspect the message. [Agent Mail CLI](https://igamenovoer.github.io/houmao/reference/cli/agents-mail/)
+- Managed launches use prompt header version 2. The packaged skills cover gateway access and file edits, and standalone skills declare their release version under YAML `metadata`.
+
+### Notes
+
+- Follow the authorization cutover for existing gateways and relaunch agents to register their managed-self keys. Migrate retired `agent.prompt` grants to the effects appropriate to each caller. [Authorization Policy](https://igamenovoer.github.io/houmao/reference/gateway/operations/authorization-policy/)
+- Install with `uv tool install 'houmao==3.0.0rc7'`. For the matching public skills, use `npx skills add https://github.com/igamenovoer/houmao-skills#v3.0.0rc7`.
+- [Compare v3.0.0rc6 and v3.0.0rc7](https://github.com/igamenovoer/houmao/compare/v3.0.0rc6...v3.0.0rc7)
+
 ## [3.0.0rc6] - 2026-11-24
 
 ### Added
