@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 236" width="880" height="236" role="img" aria-label="Anatomy of one Houmao managed agent">
+  <rect x="1" y="1" width="878" height="234" rx="14" fill="#f8fafc" stroke="#cbd5e1" stroke-width="1.5"/>
+  <!-- Center outer session container drawn first so connectors stay full contrast -->
+  <rect x="308" y="22" width="286" height="192" rx="12" fill="#ecfdf5" stroke="#10b981" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="451" y="44" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-weight="700" letter-spacing="0.3" fill="#065f46">ISOLATED SESSION (TMUX / SERVICE / WEB)</text>
+  <text x="451" y="61" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#047857">owner: local / sudo / ssh / docker</text>
+  <!-- Left: Gateway sidecar -->
+  <rect x="28" y="42" width="232" height="152" rx="10" fill="#e0f2fe" stroke="#0284c7" stroke-width="1.5"/>
+  <text x="144" y="69" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#0c4a6e">Gateway Sidecar</text>
+  <text x="144" y="94" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#0369a1">requests, prompts, interrupts</text>
+  <text x="144" y="114" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#0369a1">request queue &amp; TUI/hook state</text>
+  <text x="144" y="134" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#0369a1">SSHSIG / PyCasbin auth policy</text>
+  <text x="144" y="154" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#0369a1">reminders, file edits, plugins</text>
+  <text x="144" y="175" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="10.5" font-style="italic" fill="#0284c7">optional per-agent HTTP process</text>
+  <!-- Center inner: Provider CLI Process -->
+  <rect x="330" y="74" width="242" height="122" rx="8" fill="#ffffff" stroke="#0f172a" stroke-width="1.5"/>
+  <text x="451" y="101" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#0f172a">Provider CLI Process</text>
+  <text x="451" y="123" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11.5" font-weight="600" fill="#334155">claude / codex / kimi / dsh</text>
+  <text x="451" y="145" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#475569">native tools, skills, MCP servers</text>
+  <text x="451" y="165" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#475569">composed role &amp; system prompt</text>
+  <text x="451" y="183" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="10.5" fill="#64748b">full native harness capability</text>
+  <!-- Right top: Mailbox Identity -->
+  <rect x="640" y="30" width="212" height="84" rx="10" fill="#faf5ff" stroke="#7c3aed" stroke-width="1.5"/>
+  <text x="746" y="55" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#4c1d95">Mailbox Identity</text>
+  <text x="746" y="76" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#6d28d9">filesystem &amp; Stalwart JMAP</text>
+  <text x="746" y="95" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#6d28d9">optional CCCC channels</text>
+  <!-- Right bottom: Managed Memory & Home -->
+  <rect x="640" y="128" width="212" height="84" rx="10" fill="#fffbeb" stroke="#d97706" stroke-width="1.5"/>
+  <text x="746" y="153" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="13" font-weight="700" fill="#78350f">Managed Memory</text>
+  <text x="746" y="174" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#92400e">houmao-memo.md &amp; pages/</text>
+  <text x="746" y="193" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="11" fill="#92400e">isolated native tool home</text>
+  <!-- Connectors drawn above containers for full contrast -->
+  <line x1="268" y1="132" x2="322" y2="132" stroke="#0284c7" stroke-width="1.6"/>
+  <polygon points="260,132 268,127.5 268,136.5" fill="#0284c7"/>
+  <polygon points="330,132 322,127.5 322,136.5" fill="#0284c7"/>
+  <line x1="580" y1="96" x2="632" y2="96" stroke="#7c3aed" stroke-width="1.6"/>
+  <polygon points="572,96 580,91.5 580,100.5" fill="#7c3aed"/>
+  <polygon points="640,96 632,91.5 632,100.5" fill="#7c3aed"/>
+  <line x1="580" y1="166" x2="632" y2="166" stroke="#d97706" stroke-width="1.6"/>
+  <polygon points="572,166 580,161.5 580,170.5" fill="#d97706"/>
+  <polygon points="640,166 632,161.5 632,170.5" fill="#d97706"/>
+</svg>
