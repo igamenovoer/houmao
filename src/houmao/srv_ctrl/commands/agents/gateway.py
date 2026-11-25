@@ -16,6 +16,7 @@ from houmao.agents.mailbox_runtime_models import MailboxChannel
 from pydantic import ValidationError
 
 from houmao.gateway.plugins import GatewayPluginConfiguration, PluginConfigurationError
+from houmao.gateway.plugins.configuration import parse_plugin_config_overrides
 
 from houmao.ag_ui.authoring import HoumaoAgUiValidationError, validate_ag_ui_event_sequence
 from houmao.ag_ui.models import AgUiEventPublishRequest
@@ -225,6 +226,13 @@ def _gateway_tui_tracking_timing_overrides_or_none(
     help="Versioned YAML/JSON plugin selection; omission preserves existing selections.",
 )
 @click.option(
+    "--plugin-config-override",
+    "plugin_config_overrides",
+    multiple=True,
+    metavar="INSTANCE=JSON",
+    help="Overlay config values for an explicitly selected plugin instance. Repeatable.",
+)
+@click.option(
     "--background",
     is_flag=True,
     help=(
@@ -241,6 +249,7 @@ def _gateway_tui_tracking_timing_overrides_or_none(
 def attach_gateway_command(
     background: bool,
     plugins_config: Path | None,
+    plugin_config_overrides: tuple[str, ...],
     access_config: Path | None,
     gateway_tui_watch_poll_interval_seconds: float | None,
     gateway_tui_stability_threshold_seconds: float | None,
@@ -262,6 +271,7 @@ def attach_gateway_command(
             if plugins_config is not None
             else None
         )
+        overrides = parse_plugin_config_overrides(plugin_config_overrides)
     except PluginConfigurationError as exc:
         raise click.ClickException(str(exc)) from None
 
@@ -279,6 +289,7 @@ def attach_gateway_command(
             background=background,
             access_config_path=access_config,
             plugin_config=plugin_config,
+            plugin_config_overrides=overrides or None,
             tui_tracking_timing_overrides=_gateway_tui_tracking_timing_overrides_or_none(
                 gateway_tui_watch_poll_interval_seconds=(gateway_tui_watch_poll_interval_seconds),
                 gateway_tui_stability_threshold_seconds=gateway_tui_stability_threshold_seconds,

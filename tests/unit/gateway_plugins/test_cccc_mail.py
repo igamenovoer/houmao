@@ -103,7 +103,9 @@ async def mail_harness(
         module = importlib.import_module("houmao_cccc.mail")
         h.plugin.m_provider_capabilities["mail"] = True
         h.plugin.m_provider_capabilities["operations"].extend(module.MAIL_OPERATIONS)
-        h.plugin.m_provider_capabilities["features"] = dict.fromkeys(module.MAIL_FEATURES, True)
+        h.plugin.m_provider_capabilities["features"].update(
+            dict.fromkeys(module.MAIL_FEATURES, True)
+        )
         h.plugin.m_provider_capabilities["limits"].update(
             max_mail_messages=200, max_mail_response_bytes=1048576
         )
@@ -158,10 +160,11 @@ def test_mail_requires_complete_contract_while_chat_stays_available(
                 },
             )
             assert read.status_code == 501 and not h.authority.m_calls
+            members = await h.http.get("/v1/plugins/team/members")
             sent = await h.http.post(
                 "/v1/plugins/team/chat/send",
                 json={
-                    "expected_binding_id": "binding1",
+                    "connection_token": members.json()["connection_token"],
                     "operation_id": "chat1",
                     "to": ["a2"],
                     "text": "still chat",
@@ -629,13 +632,13 @@ def test_mail_notice_is_content_free_ordinary_and_never_consumes(
                 h.context.events.dispatch.side_effect = PluginDispatchError(
                     error_code="readiness_conflict", status_code=409, retryable=True
                 )
-            await h.service.m_offers.put(
+            await h.service.m_notices.put(
                 offer(kind="mail_notice", pending_count=2, text="PRIVATE MAIL BODY MUST NOT ESCAPE")
             )
             await eventually(lambda: bool(h.service.m_outcomes))
             assert h.service.m_outcomes[0]["outcome"] == ("refused" if refused else "accepted")
             dispatched = h.context.events.dispatch.call_args.args[0]
-            assert "deferred Mail notice" in dispatched.text
+            assert "deferred Mail is pending" in dispatched.text
             assert "PRIVATE MAIL BODY" not in dispatched.text
             assert "/mail/read" in dispatched.text
             assert dispatched.metadata["backend"] == "cccc-mail"

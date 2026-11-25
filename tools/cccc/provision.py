@@ -14,6 +14,11 @@ import httpx
 
 
 PROJECT = Path(__file__).resolve().parents[2]
+RECEIVER_PROTOCOL_VERSION = 2
+
+
+class IncompatibleReceiverError(RuntimeError):
+    """The selected provider does not implement the qualified provision route."""
 
 
 def _private_document(path: Path) -> dict[str, object]:
@@ -61,16 +66,20 @@ def provision(
         headers["Authorization"] = "Bearer " + str(_private_document(admin_credential)["token"])
     with httpx.Client(trust_env=False, timeout=15, follow_redirects=False) as client:
         response = client.post(
-            endpoint + "/api/v1/external-receiver/v1/grants",
+            endpoint + f"/api/v1/external-receiver/v{RECEIVER_PROTOCOL_VERSION}/grants",
             headers=headers,
             json={"group_id": group_id, "actor_id": actor_id},
         )
+        if response.status_code in {404, 405, 501}:
+            raise IncompatibleReceiverError("Selected CCCC service requires external receiver v2")
         if response.status_code != 200:
             raise RuntimeError("CCCC operator grant issuance failed")
         envelope = response.json()
     grant = envelope.get("result", {})
     if not envelope.get("ok") or not isinstance(grant.get("token"), str):
         raise RuntimeError("CCCC returned an invalid grant result")
+    if grant.get("protocol_version") != RECEIVER_PROTOCOL_VERSION:
+        raise IncompatibleReceiverError("Selected CCCC service requires external receiver v2")
     if grant.get("group_id") != group_id or grant.get("actor_id") != actor_id:
         raise RuntimeError("CCCC returned a grant outside the requested Actor scope")
     document = {
@@ -98,6 +107,7 @@ def provision(
         "actor_id": actor_id,
         "actor_generation": grant["actor_generation"],
         "grant_id": grant.get("grant_id"),
+        "protocol_version": RECEIVER_PROTOCOL_VERSION,
         "credential_file": str(output),
     }
 
@@ -121,6 +131,8 @@ def main() -> None:
             admin_credential=args.admin_credential,
         )
         print(json.dumps(result))
+    except IncompatibleReceiverError as exc:
+        parser.exit(1, f"receiver_incompatible: {exc}\n")
     except (OSError, ValueError, KeyError, RuntimeError, httpx.HTTPError):
         parser.exit(
             1, "Actor grant setup failed; verify selected operator access and private output\n"

@@ -1,6 +1,21 @@
 # CCCC Chat Acceptance Map
 
-This report maps all 75 scenarios in `cccc-01-add-owner-bound-chat-plugin` to executed checks. Native-provider tests, actual-provider integration, expanded independent-wheel checks in both gateway modes, and the final-wheel two-real-agent smoke passed on 2026-11-15. These layers establish change 01 acceptance separately from deferred Mail.
+## Receiver v2 Delivery
+
+The `add-cccc-push-pull-delivery` change introduces pending chat, scheduled pull, push ASAP, timed push batches, and gatewayless pull. The v2 checks use CCCC 0.4.56 at upstream `d12732ebd6dfdbc260a59a286bd5e510d04d4832`, prepared with all three tracked patches and built using the native Pixi workspace. The preparation selection SHA-256 is `6fc5ace28ac59bde73ce914e0d59e7fd422113204d303d4145e3ccde5cb69531`. Patch `0003-queued-receiver-v2.patch` has SHA-256 `8f43e68af7e6c3eeb2c65492101afb321bc64a99ba65a1332bab3d7fedbc2907`. [Provider manifest](../../../extern/tracked/cccc-receiver/upstream.json) · [Tracked v2 patch](../../../extern/tracked/cccc-receiver/patches/0003-queued-receiver-v2.patch)
+
+| Layer | Verified behavior |
+| --- | --- |
+| Gateway unit checks | Independent pull snapshots, FIFO ASAP, exact quiet and maximum deadlines, duplicate offers, capacity, independent notices, scoped readiness, projected size and escaping, live revision conflicts, and scoped handles. |
+| Actual provider and restart | Ordered and bounded claims, negotiated offer size, stream credit, lease exclusion, exact settlement and replay-safe recovery, explicit direct acknowledgment, independent notices, and deferred Mail recovery. The provider rehearsal passed 16 HTTP cases, 16 live recovery cases, and 18 Rust cases. |
+| Actual CCCC and Stalwart | The isolated outage test used a fresh Stalwart 0.15.5 database and two ordinary fixture accounts. CCCC Mail remained available through the selected fault. Offline and online reminder and email identity behavior stayed independent. |
+| Installed Chat | Independently installed Houmao `3.0.0rc8` and `houmao-cccc` `0.3.0` wheels passed scheduled pull, busy waiting, live switching to push ASAP and timed push, gateway restart, gatewayless pull and acknowledgment, exact-parent replies, and coexistence with Mail in both process modes. The detached run fenced body replacement. The auxiliary-window run fenced body death and verified direct acquisition after the prior lease expired. Both runs completed fixture cleanup. [Installed qualification](../../../tests/integration/cccc/test_installed_distribution.py) |
+| Installed Mail | Houmao `3.0.0rc8` and `houmao-cccc` `0.3.0` wheels passed both gateway process modes. The installed CLI recovered authoritative read receipts after a discarded response and gateway restart. [Mail recovery evidence](cccc-mail-acceptance.md) |
+| Two real managed agents | Two DSH Web agents used self-hosted `Qwen/Qwen3.8-27B-FP8`. Their native transcript recorded one fenced prompt with two messages, two handles, and the original ordered timestamps. Each reply used its exact native parent and each incoming message had one accepted receipt. The same real pair also verified ASAP waiting through a busy turn and pending delivery after gateway reattachment. [Instructional suite](../../../tests/instructional/agent-cccc/README.md) |
+
+## Protocol v1 Evidence
+
+This historical section maps all 75 scenarios in `cccc-01-add-owner-bound-chat-plugin` to executed checks. Native-provider tests, actual-provider integration, expanded independent-wheel checks in both gateway modes, and the final-wheel two-real-agent smoke passed on 2026-11-15 for that release.
 
 ## Evidence Layers
 

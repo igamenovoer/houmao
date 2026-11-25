@@ -8,6 +8,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
+from houmao_cccc.delivery import DeliverySettings
+
 MAIL_DEFAULT_LIMIT = 50
 MAIL_MAX_LIMIT = 200
 MAIL_DEFAULT_BYTES = 262144
@@ -67,6 +69,7 @@ class CcccConfiguration(BaseModel):
     history_limit: int = Field(default=50, ge=1, le=100)
     mail_limit: int = Field(default=MAIL_DEFAULT_LIMIT, ge=1, le=MAIL_MAX_LIMIT)
     mail_max_bytes: int = Field(default=MAIL_DEFAULT_BYTES, ge=1024, le=MAIL_MAX_BYTES)
+    delivery: DeliverySettings = Field(default_factory=DeliverySettings)
 
     @field_validator("endpoint")
     @classmethod
@@ -90,7 +93,7 @@ def binding_identity(configuration: CcccConfiguration) -> str:
 
     return json.dumps(
         [
-            "cccc-v1",
+            "cccc-v2",
             configuration.endpoint,
             configuration.group_id,
             configuration.actor_id,

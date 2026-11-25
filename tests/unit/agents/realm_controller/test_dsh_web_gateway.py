@@ -458,7 +458,9 @@ def test_web_public_request_returns_after_native_admission_and_stores_only_opera
     assert dispatched.call_count == 1
 
 
-@pytest.mark.parametrize("entrypoint", ["direct", "request", "plugin"])
+@pytest.mark.parametrize(
+    "entrypoint", ["direct", "request", "plugin", "projected", "projected_mismatch"]
+)
 def test_kimi_web_reports_a_native_queue_race_without_replaying(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entrypoint: str
 ) -> None:
@@ -496,6 +498,18 @@ def test_kimi_web_reports_a_native_queue_race_without_replaying(
             )
         )
         control.confirm_durable_handoff()
+        if entrypoint in {"projected", "projected_mismatch"}:
+            (claim.turn_dir / "web-handoff.json").write_text(
+                json.dumps(
+                    {
+                        "operation_id": turn_id,
+                        "identity": metadata.identity.model_dump(mode="json"),
+                        "message_id": (
+                            "msg_native-queue" if entrypoint == "projected" else "another-prompt"
+                        ),
+                    }
+                )
+            )
         assert finish.wait(2)
 
     monkeypatch.setattr(runtime, "_reserve_prompt", reserve)
@@ -511,7 +525,7 @@ def test_kimi_web_reports_a_native_queue_race_without_replaying(
             result = runtime.create_request(request)
             assert result.native_admission == "queued"
             assert result.request_id == "run-queue" and result.queue_depth == 0
-        else:
+        elif entrypoint == "plugin":
             result = runtime.dispatch_plugin_event(
                 _event(),
                 instance_id="owner",
@@ -520,7 +534,27 @@ def test_kimi_web_reports_a_native_queue_race_without_replaying(
                 is_active=lambda: True,
             )
             assert result.native_admission == "queued"
-        assert result.native_prompt_id == "msg_native-queue"
+        elif entrypoint == "projected":
+            admission = runtime._dispatch_immediate(
+                prompt="ordinary",
+                source_id="batch",
+                timeout_seconds=1,
+                is_active=lambda: True,
+                require_native_handoff=True,
+            )
+            assert admission == ("handed_off", "msg_native-queue")
+        else:
+            with pytest.raises(PluginDispatchError) as caught:
+                runtime._dispatch_immediate(
+                    prompt="ordinary",
+                    source_id="batch",
+                    timeout_seconds=0.2,
+                    is_active=lambda: True,
+                    require_native_handoff=True,
+                )
+            assert caught.value.dispatch_outcome == "unknown"
+        if entrypoint in {"direct", "request", "plugin"}:
+            assert result.native_prompt_id == "msg_native-queue"
         assert len(calls) == 1
         assert queue_depth_from_sqlite(runtime.m_paths.queue_path) == 0
     finally:

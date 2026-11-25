@@ -39,7 +39,10 @@ from houmao.execution.tmux import (
 )
 from houmao.execution.tmux_selection import ResolvedTmuxServer
 
-from houmao.gateway.plugins import GatewayPluginConfiguration
+from pydantic import JsonValue
+
+from houmao.gateway.plugins import GatewayPluginConfiguration, PluginConfigurationError
+from houmao.gateway.plugins.configuration import apply_plugin_config_overrides
 
 from houmao.agents.agent_workspace import (
     HOUMAO_AGENT_MEMORY_DIR_ENV_VAR,
@@ -1944,6 +1947,7 @@ class RuntimeSessionController:
         execution_mode_override: GatewayCurrentExecutionMode | None = None,
         tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
         plugin_config: GatewayPluginConfiguration | None = None,
+        plugin_config_overrides: dict[str, dict[str, JsonValue]] | None = None,
         access_config: GatewayDeployment | None = None,
     ) -> GatewayControlResult:
         """Start a live gateway instance for the addressed session."""
@@ -1957,6 +1961,7 @@ class RuntimeSessionController:
                 execution_mode_override=execution_mode_override,
                 tui_tracking_timing_overrides=tui_tracking_timing_overrides,
                 plugin_config=plugin_config,
+                plugin_config_overrides=plugin_config_overrides,
                 access_config=access_config,
             )
             if result.status == "ok":
@@ -5280,6 +5285,7 @@ def _attach_gateway_for_controller(
     execution_mode_override: GatewayCurrentExecutionMode | None,
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None,
     plugin_config: GatewayPluginConfiguration | None = None,
+    plugin_config_overrides: dict[str, dict[str, JsonValue]] | None = None,
     access_config: GatewayDeployment | None = None,
 ) -> GatewayControlResult:
     """Start a live gateway process for one runtime-owned controller.
@@ -5299,6 +5305,8 @@ def _attach_gateway_for_controller(
     plugin_config:
         Complete plugin selection. Omission preserves the persisted selection;
         an explicitly empty selection clears it after the gateway is stopped.
+    plugin_config_overrides:
+        Config values overlaid on explicitly selected instances before startup.
 
     Returns
     -------
@@ -5386,6 +5394,8 @@ def _attach_gateway_for_controller(
         )
         desired_config = _load_optional_desired_config(paths) or GatewayDesiredConfigV1()
         selection = plugin_config if plugin_config is not None else desired_config.desired_plugins
+        if plugin_config_overrides:
+            selection = apply_plugin_config_overrides(selection, plugin_config_overrides)
         live_instance = _live_gateway_for_plugin_attach(controller=controller, paths=paths)
         if live_instance is not None:
             if (
@@ -5440,10 +5450,10 @@ def _attach_gateway_for_controller(
             )
         if deployment_changed and deployment is not None:
             save_gateway_deployment(controller.manifest_path, deployment)
-        if plugin_config is not None:
+        if plugin_config is not None or plugin_config_overrides:
             write_gateway_desired_config(
                 paths.desired_config_path,
-                desired_config.model_copy(update={"desired_plugins": plugin_config}),
+                desired_config.model_copy(update={"desired_plugins": selection}),
             )
         starting = True
         resolved_port = _start_gateway_process(
@@ -5460,6 +5470,7 @@ def _attach_gateway_for_controller(
         GatewayProtocolError,
         GatewayUnsupportedBackendError,
         GatewayAccessError,
+        PluginConfigurationError,
         OSError,
         SessionManifestError,
         TmuxCommandError,

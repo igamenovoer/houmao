@@ -2965,6 +2965,7 @@ class _FakeGatewayController:
         execution_mode_override: str | None = None,
         tui_tracking_timing_overrides: object | None = None,
         plugin_config: object | None = None,
+        plugin_config_overrides: object | None = None,
         access_config: object | None = None,
     ) -> SimpleNamespace:
         self.attach_calls.append((execution_mode_override, tui_tracking_timing_overrides))

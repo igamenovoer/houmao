@@ -122,7 +122,7 @@ def qualify(
     work: Path,
     endpoint: str,
     *,
-    previous_plugin_wheel: Path | None = None,
+    mail_recovery: bool = False,
 ) -> dict[str, object]:
     """Install wheels offline and execute the copied runner with isolated import paths."""
 
@@ -132,12 +132,6 @@ def qualify(
         {"filename": wheel.name, "sha256": hashlib.sha256(wheel.read_bytes()).hexdigest()}
         for wheel in _wheels(wheelhouse)
     ]
-    previous: Path | None = None
-    if previous_plugin_wheel is not None:
-        _require(previous_plugin_wheel.is_file(), "Setup requires the frozen previous plugin wheel")
-        previous = work / "previous-wheel" / previous_plugin_wheel.name
-        previous.parent.mkdir(mode=0o700)
-        shutil.copyfile(previous_plugin_wheel, previous)
     _require(not (work / "venv").exists(), "Setup requires a fresh external work root")
     real_tmux = shutil.which("tmux")
     _require(real_tmux is not None, "Setup requires a real tmux executable")
@@ -158,7 +152,7 @@ def qualify(
             "--find-links",
             str(wheelhouse),
             "Houmao",
-            str(previous) if previous is not None else "houmao-cccc",
+            "houmao-cccc",
             "houmao-gateway-qualification-fixtures",
         ],
         cwd=work,
@@ -182,23 +176,13 @@ def qualify(
                     str(python),
                     "-I",
                     str(runner),
-                    "installed-mail-run" if previous is not None else "installed-run",
+                    "installed-mail-run" if mail_recovery else "installed-run",
                     "--source-root",
                     str(source),
                     "--work-root",
                     str(work),
                     "--endpoint",
                     endpoint,
-                    *(
-                        [
-                            "--previous-plugin-wheel",
-                            str(previous),
-                            "--upgrade-plugin-wheel",
-                            str(_wheels(wheelhouse)[1]),
-                        ]
-                        if previous is not None
-                        else []
-                    ),
                 ],
                 cwd=work,
                 env=environment,
@@ -213,11 +197,6 @@ def qualify(
         "cli": str(work / "venv/bin/houmao-cccc"),
         "retained": True,
     }
-    if previous is not None:
-        result["previous_plugin_artifact"] = {
-            "filename": previous.name,
-            "sha256": hashlib.sha256(previous.read_bytes()).hexdigest(),
-        }
     (work / "qualification.json").write_text(json.dumps(result, indent=2) + "\n")
     return dict(result)
 
@@ -312,17 +291,21 @@ def _record_live_gateway(
         support._bind_admin(gateway["url"], controller)
 
 
-def _send(support: ModuleType, sender: dict[str, Any]) -> dict[str, Any]:
-    """Create a fresh explicit sender operation using its maintained binding."""
+def _send(
+    support: ModuleType, sender: dict[str, Any], text: str = "Synthetic admission qualification"
+) -> dict[str, Any]:
+    """Create one chat event under the current selected sender connection."""
 
+    status, members = support._request(sender["url"], "/v1/plugins/cccc/members")
+    _require(status == 200 and bool(members.get("connection_token")), "Member selection failed")
     code, document = support._request(
         sender["url"],
         "/v1/plugins/cccc/chat/send",
         {
-            "expected_binding_id": sender["binding"]["binding_id"],
+            "connection_token": members["connection_token"],
             "operation_id": uuid.uuid4().hex,
             "to": ["receiver"],
-            "text": "Synthetic admission qualification",
+            "text": text,
             "mode": "send",
         },
     )
@@ -370,7 +353,18 @@ def _receipt(
         safe_states = [
             state
             for state in observed
-            if state in {"pending", "offered", "accepted", "refused", "failed", "uncertain"}
+            if state
+            in {
+                "pending",
+                "offered",
+                "staged",
+                "started",
+                "accepted",
+                "refused",
+                "failed",
+                "uncertain",
+                "direct_read",
+            }
         ]
         raise QualificationError(
             "Authoritative receipt outcome mismatch; expected="
@@ -383,53 +377,195 @@ def _receipt(
 
 def _failure_cases(
     support: ModuleType,
+    work: Path,
     sender: dict[str, Any],
     receiver: dict[str, Any],
     controller: Any,
 ) -> dict[str, bool]:
-    """Qualify immediate refusals and native handoff races against actual CCCC."""
+    """Qualify scheduled pull, live push policies, direct intake, and recovery."""
+
+    from houmao.agents.realm_controller.errors import GatewayHttpError
+    from houmao.agents.realm_controller.gateway_client import GatewayClient
 
     prefix = "/v1/plugins/cccc"
     root = receiver["root"]
     control_path = root / "control.json"
     control = json.loads(control_path.read_text())
     support._wait(lambda: support._ready(receiver["url"]), "Recipient did not become ready")
-    print(json.dumps({"qualification_stage": "busy-and-explicit-retry"}), flush=True)
+    print(json.dumps({"qualification_stage": "busy-queue"}), flush=True)
     baseline = _invocations(root)
     control["turn_seconds"] = 4.0
     control_path.write_text(json.dumps(control))
     first = _send(support, sender)
     _receipt(support, sender, first["event"]["event_ref"], {"accepted"})
     support._wait(lambda: _invocations(root) == baseline + 1, "Busy fixture never started")
-    refused = _send(support, sender)
-    failed = _receipt(support, sender, refused["event"]["event_ref"], {"refused"})
-    _require(failed.get("retryable") is True, "Busy refusal did not permit a fresh sender retry")
-    support._wait(lambda: support._ready(receiver["url"]), "Busy body did not finish")
-    time.sleep(0.4)
-    _require(_invocations(root) == baseline + 1, "Busy refusal was automatically replayed")
+    waiting = _send(support, sender)
+    _receipt(support, sender, waiting["event"]["event_ref"], {"staged", "offered", "pending"})
+    _require(_invocations(root) == baseline + 1, "Busy body received competing work")
     control["turn_seconds"] = 0.25
     control_path.write_text(json.dumps(control))
-    code, _ = support._request(
-        sender["url"],
-        prefix + "/chat/retry",
-        {
-            "expected_binding_id": sender["binding"]["binding_id"],
-            "event_ref": refused["event"]["event_ref"],
-            "actor_ids": ["receiver"],
-            "allow_uncertain_retry": False,
-        },
+    _receipt(support, sender, waiting["event"]["event_ref"], {"accepted"})
+    support._wait(lambda: support._ready(receiver["url"]), "Waiting batch did not finish")
+    _require(_invocations(root) == baseline + 2, "Waiting chat handoff count differs")
+
+    print(json.dumps({"qualification_stage": "live-push"}), flush=True)
+    url = receiver["url"]
+    route = prefix + "/delivery"
+    admin = support._ADMIN_CLIENTS[url]
+    _, initial = support._request(url, route)
+    _require(initial["effective"]["transport"] == "pull", "Receiver did not default to pull")
+    try:
+        GatewayClient(base_url=url).request_plugin_json(
+            "PUT", route, body={"revision": initial["revision"], "settings": initial["desired"]}
+        )
+    except GatewayHttpError as error:
+        _require(error.status_code == 401, "Delivery update authorization changed")
+    else:
+        raise QualificationError("Unauthorized delivery update passed")
+
+    def update(settings: dict[str, object], revision: int) -> None:
+        """Change transport or policy through the exact signed management action."""
+
+        result = admin.request_plugin_json(
+            "PUT", route, body={"revision": revision, "settings": settings}
+        )
+        _require(result["revision"] == revision + 1, "Delivery revision did not advance")
+        support._wait(
+            lambda: (
+                (state := support._request(url, route)[1]).get("transition") == "active"
+                and state["effective"]["transport"] == settings["transport"]
+                and state["effective"]["push_policy"] == settings.get("push_policy")
+            ),
+            "Delivery settings did not become effective",
+        )
+
+    update({"transport": "push", "push_policy": "asap"}, initial["revision"])
+    asap_baseline = _invocations(root)
+    asap = [_send(support, sender, f"ASAP delivery {index}") for index in range(2)]
+    for stored in asap:
+        _receipt(support, sender, stored["event"]["event_ref"], {"accepted"})
+    support._wait(lambda: support._ready(url), "ASAP deliveries did not finish")
+    _require(_invocations(root) == asap_baseline + 2, "ASAP coalesced distinct offers")
+
+    update(
+        {"transport": "push", "push_policy": "batch", "quiet_interval": 2.0, "max_wait": 6.0},
+        initial["revision"] + 1,
     )
-    _require(code == 200, "Explicit delivery retry failed")
-    _receipt(support, sender, refused["event"]["event_ref"], {"accepted"})
-    support._wait(lambda: support._ready(receiver["url"]), "Explicit retry did not finish")
+    batch_baseline = _invocations(root)
+    batch = [_send(support, sender, f"Timed push delivery {index}") for index in range(2)]
+    for stored in batch:
+        _receipt(support, sender, stored["event"]["event_ref"], {"accepted"})
+    support._wait(lambda: support._ready(url), "Timed push batch did not finish")
+    _require(_invocations(root) == batch_baseline + 1, "Timed push did not group the burst")
+
+    print(json.dumps({"qualification_stage": "direct-and-reconnect"}), flush=True)
+    _require(controller.detach_gateway().status == "ok", "Gateway absence setup failed")
+    absent = [_send(support, sender, f"Direct pull order {index}") for index in range(2)]
+    profile = root / "actor-credential.json"
+
+    def direct(*arguments: str) -> dict[str, Any]:
+        """Use an independent CLI invocation and the explicit selected Actor profile."""
+
+        deadline = time.monotonic() + 50.0
+        while True:
+            result = subprocess.run(
+                [
+                    str(work / "venv/bin/houmao-cccc"),
+                    "--direct-profile",
+                    str(profile),
+                    "--agent-id",
+                    receiver["binding"]["agent_id"],
+                    *arguments,
+                ],
+                cwd=work,
+                capture_output=True,
+                text=True,
+                timeout=40,
+                check=False,
+            )
+            if result.returncode == 0:
+                return dict(json.loads(result.stdout))
+            try:
+                code = json.loads(result.stderr).get("error_code", "unexpected_result")
+            except (ValueError, AttributeError):
+                code = "unexpected_result"
+            if (
+                arguments[:2] == ("chat", "pull")
+                and code == "receiver_lease_conflict"
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.5)
+                continue
+            if not isinstance(code, str) or not code.replace("_", "").isalnum():
+                code = "unexpected_result"
+            raise QualificationError(
+                f"Installed direct CCCC {' '.join(arguments[:2])} failed: {code[:128]}"
+            )
+
+    pulled = direct("chat", "pull")
     _require(
-        _invocations(root) == baseline + 2, "Explicit retry did not produce exactly one new launch"
+        [row["text"] for row in pulled["messages"]]
+        == ["Direct pull order 0", "Direct pull order 1"],
+        "Direct CLI pull did not preserve the ordered snapshot",
+    )
+    acknowledged = direct("chat", "ack", "--receipt", pulled["receipt"])
+    _require(acknowledged["acknowledged"] is True, "Direct receipt was not acknowledged")
+    for stored in absent:
+        _receipt(support, sender, stored["event"]["event_ref"], {"direct_read"})
+    reply = direct(
+        "chat",
+        "reply",
+        "--event-ref",
+        pulled["messages"][0]["event_ref"],
+        "--operation-id",
+        uuid.uuid4().hex,
+        "--text",
+        "Direct exact reply",
+    )
+    _require(
+        reply["event"]["data"]["reply_to"] == absent[0]["event"]["id"],
+        "Direct reply parent changed",
+    )
+    sent_mail = _mail_cli(
+        work,
+        sender,
+        [
+            "mail",
+            "send",
+            "--binding-id",
+            sender["binding"]["binding_id"],
+            "--operation-id",
+            uuid.uuid4().hex,
+            "--to",
+            "receiver",
+            "--text",
+            "Direct deferred Mail",
+        ],
+    )
+    cursor = direct("mail", "cursor")["cursor"]["event_id"]
+    read_id = uuid.uuid4().hex
+    read_arguments = (
+        "mail",
+        "read",
+        "--expected-cursor",
+        cursor,
+        "--operation-id",
+        read_id,
+        "--limit",
+        "1",
+    )
+    mail = direct(*read_arguments)
+    repeated = direct(*read_arguments)
+    receipt = direct("mail", "reads", "--operation-id", read_id)
+    _require(
+        mail["messages"][0]["id"] == sent_mail["event"]["id"]
+        and receipt["receipt"] == repeated["receipt"] == mail["receipt"]
+        and not repeated["messages"],
+        "Direct Mail receipt did not reconcile the exact read",
     )
 
-    print(json.dumps({"qualification_stage": "gateway-absence"}), flush=True)
-    _require(controller.detach_gateway().status == "ok", "Gateway absence setup failed")
-    absent = _send(support, sender)
-    _receipt(support, sender, absent["event"]["event_ref"], {"refused", "failed"})
+    recovering = _send(support, sender, "Pending while gateway absent")
+    _receipt(support, sender, recovering["event"]["event_ref"], {"pending"})
     _require(controller.attach_gateway().status == "ok", "Absent gateway did not restart")
     _record_live_gateway(support, controller, receiver)
     support._wait(
@@ -440,26 +576,27 @@ def _failure_cases(
         "Absent gateway did not reacquire its lease",
         seconds=60,
     )
-    time.sleep(0.4)
-    _require(_invocations(root) == baseline + 2, "Gateway recovery replayed unavailable work")
+    _receipt(support, sender, recovering["event"]["event_ref"], {"accepted"})
+    support._wait(lambda: support._ready(receiver["url"]), "Recovered batch did not finish")
+    baseline = _invocations(root)
+    _require(baseline == batch_baseline + 2, "Recovery did not deliver exactly the pending chat")
 
-    for scenario in ("generation_replaced", "body_window_died"):
-        print(json.dumps({"qualification_stage": scenario}), flush=True)
-        support._wait(lambda: support._ready(receiver["url"]), "Race fixture was not ready")
-        support._arm_handoff_barrier(root, control, control_path)
-        blocked = _send(support, sender)
-        support._wait(
-            lambda: (root / "paused").exists(), "Actual receiver missed the native barrier"
+    replaced = root.parent.name == "detached_process"
+    scenario = "generation_replaced" if replaced else "body_window_died"
+    print(json.dumps({"qualification_stage": scenario}), flush=True)
+    support._arm_handoff_barrier(root, control, control_path)
+    blocked = _send(support, sender)
+    support._wait(lambda: (root / "paused").exists(), "Actual receiver missed the native barrier")
+    original = controller.manifest_path.read_text()
+    if replaced:
+        manifest = json.loads(original)
+        manifest["registry_generation_id"] = uuid.uuid4().hex
+        controller.manifest_path.write_text(json.dumps(manifest))
+    else:
+        support._tmux_server().checked_command(
+            ["kill-window", "-t", f"={controller.tmux_session_name}:0"]
         )
-        original = controller.manifest_path.read_text()
-        if scenario == "generation_replaced":
-            manifest = json.loads(original)
-            manifest["registry_generation_id"] = uuid.uuid4().hex
-            controller.manifest_path.write_text(json.dumps(manifest))
-        else:
-            support._tmux_server().checked_command(
-                ["kill-window", "-t", f"={controller.tmux_session_name}:0"],
-            )
+    try:
         (root / "released").touch()
         _receipt(
             support,
@@ -468,36 +605,18 @@ def _failure_cases(
             {"failed", "refused", "uncertain"},
             seconds=65,
         )
-        control["pause_handoff"] = False
-        control_path.write_text(json.dumps(control))
-        if scenario == "generation_replaced":
+    finally:
+        if replaced:
             controller.manifest_path.write_text(original)
-            _require(
-                controller.detach_gateway().status == "ok", "Replacement gateway cleanup failed"
-            )
-            _require(
-                controller.attach_gateway().status == "ok", "Replacement gateway recovery failed"
-            )
-            _record_live_gateway(support, controller, receiver)
-            support._wait(
-                lambda: (
-                    support._request(receiver["url"], prefix + "/binding")[1].get("connection")
-                    == "connected"
-                ),
-                "Replacement gateway did not recover its receiver",
-                seconds=60,
-            )
-            support._wait(
-                lambda: support._ready(receiver["url"]), "Restored body did not become ready"
-            )
-        time.sleep(0.4)
-        _require(_invocations(root) == baseline + 2, "Retired native handoff reached a body later")
+    time.sleep(0.4)
+    _require(_invocations(root) == baseline, "Retired native handoff reached a body later")
     return {
-        "busy_refusal": True,
-        "explicit_retry": True,
-        "gateway_absence_no_replay": True,
-        "body_replacement_fenced": True,
-        "body_death_fenced": True,
+        "busy_chat_waits": True,
+        "live_push_asap": True,
+        "live_push_batch": True,
+        "gateway_absence_pending_recovery": True,
+        "direct_cli_with_mail": True,
+        ("body_replacement_fenced" if replaced else "body_death_fenced"): True,
     }
 
 
@@ -601,83 +720,74 @@ def _qualify_current_mail(
     )
 
 
-def _mail_upgrade_cases(
+def _reconnect_mail_gateway(
+    support: ModuleType,
+    gateway: dict[str, Any],
+    controller: Any,
+    snapshot: tuple[str, object],
+) -> None:
+    """Restart the same installed gateway while preserving its body and Actor binding."""
+
+    _require(controller.detach_gateway().status == "ok", "Mail gateway detach failed")
+    os.environ["HOUMAO_PLUGIN_FIXTURE_CONTROL"] = str(gateway["root"] / "control.json")
+    _require(
+        controller.attach_gateway(plugin_config=gateway["selection"]).status == "ok",
+        "Mail gateway reconnect failed",
+    )
+    _record_live_gateway(support, controller, gateway)
+    support._wait(
+        lambda: (
+            support._request(gateway["url"], "/v1/plugins/cccc/binding")[1].get("connection")
+            == "connected"
+        ),
+        "Reconnected gateway did not recover its existing Actor lease",
+        seconds=65,
+    )
+    current = support._request(gateway["url"], "/v1/plugins/cccc/binding")[1]
+    _require(
+        current["binding_id"] == gateway["binding"]["binding_id"],
+        "Gateway reconnect changed the owner binding",
+    )
+    _require(
+        _body_snapshot(support, controller) == snapshot,
+        "Gateway reconnect changed body PID or conversation",
+    )
+
+
+def _mail_recovery_cases(
     support: ModuleType,
     work: Path,
     gateways: list[dict[str, Any]],
     controllers: list[Any],
-    upgrade_wheel: Path,
 ) -> dict[str, bool]:
-    """Upgrade only installed gateway code and exercise explicit bounded Mail decisions."""
+    """Exercise bounded Mail decisions across same-wheel gateway restarts."""
 
-    from houmao.gateway.plugins import GatewayPluginConfiguration
+    def body_ready(gateway: dict[str, Any]) -> bool:
+        """Use the explicit open-admin fixture for this runtime control read."""
 
-    print(json.dumps({"qualification_stage": "mail-package-upgrade"}), flush=True)
+        code, state = support._request(gateway["url"], "/v1/control/headless/state", signed=False)
+        _require(code == 200, f"Mail fixture readiness inspection failed with HTTP {code}")
+        return state.get("can_accept_prompt_now") is True
+
+    print(json.dumps({"qualification_stage": "mail-gateway-reconnect"}), flush=True)
     for gateway in gateways:
-        support._wait(
-            lambda: support._ready(gateway["url"]), "Body was not ready before package upgrade"
-        )
+        support._wait(lambda: body_ready(gateway), "Body was not ready before gateway reconnect")
     snapshots = [_body_snapshot(support, controller) for controller in controllers]
     _require(
         any(
             getattr(controller.backend_session.state, "session_id", None) != snapshot[1]
             for controller, snapshot in zip(controllers, snapshots, strict=True)
         ),
-        "Upgrade fixture did not retain a controller older than its gateway-authored conversation",
+        "Reconnect fixture did not retain a controller older than its gateway-authored conversation",
     )
     counts = [_invocations(item["root"]) for item in gateways]
-    for controller in controllers:
-        _require(controller.detach_gateway().status == "ok", "Pre-upgrade gateway detach failed")
-    support._run(
-        [
-            str(work / "venv/bin/python"),
-            "-m",
-            "pip",
-            "--isolated",
-            "install",
-            "--no-index",
-            "--no-deps",
-            "--force-reinstall",
-            str(upgrade_wheel),
-        ],
-        cwd=work,
-        env=support._clean_environment(),
-        log=work / "operations.log",
-    )
-    _require(importlib.metadata.version("houmao-cccc") == "0.2.0", "Plugin wheel upgrade failed")
     for controller, gateway, snapshot in zip(controllers, gateways, snapshots, strict=True):
-        os.environ["HOUMAO_PLUGIN_FIXTURE_CONTROL"] = str(gateway["root"] / "control.json")
-        selected = gateway["selection"].model_dump(mode="json")
-        selected["plugins"]["cccc"]["config"]["mail_max_bytes"] = 1048576
-        _require(
-            controller.attach_gateway(
-                plugin_config=GatewayPluginConfiguration.model_validate(selected)
-            ).status
-            == "ok",
-            "Mail upgrade gateway restart failed",
-        )
-        _record_live_gateway(support, controller, gateway)
-        support._wait(
-            lambda: (
-                support._request(gateway["url"], "/v1/plugins/cccc/binding")[1].get("connection")
-                == "connected"
-            ),
-            "Upgraded gateway did not recover its existing Actor lease",
-            seconds=65,
-        )
-        current = support._request(gateway["url"], "/v1/plugins/cccc/binding")[1]
-        _require(
-            current["binding_id"] == gateway["binding"]["binding_id"],
-            "Upgrade changed the owner binding",
-        )
-        _require(
-            _body_snapshot(support, controller) == snapshot,
-            "Package upgrade changed body PID or conversation",
-        )
+        _reconnect_mail_gateway(support, gateway, controller, snapshot)
         code, _ = support._request(
             gateway["url"],
             "/v1/plugins/cccc/connection/refresh-credentials",
-            {"expected_binding_id": current["binding_id"]},
+            {"expected_binding_id": gateway["binding"]["binding_id"]},
+            signed=False,
         )
         _require(code == 200, "Installed credential refresh failed")
         support._wait(
@@ -699,7 +809,7 @@ def _mail_upgrade_cases(
     )
     _require(
         preserved["messages"][0]["id"] == sender["existing_chat_id"],
-        "Upgrade invalidated an existing chat reference",
+        "Gateway reconnect invalidated an existing chat reference",
     )
     binding = ["--binding-id", receiver["binding"]["binding_id"]]
 
@@ -755,7 +865,7 @@ def _mail_upgrade_cases(
     caps = _mail_cli(work, receiver, ["capabilities"])
     _require(
         isinstance(caps.get("mail"), dict) and caps["mail"].get("qualified") is True,
-        "Upgraded provider did not negotiate the complete Mail contract",
+        "Reconnected gateway did not negotiate the complete Mail contract",
     )
     first = send_mail()
     second = send_mail("Synthetic following Mail")
@@ -898,6 +1008,15 @@ def _mail_upgrade_cases(
         support._wait(read_committed, "Discarded read response had no authoritative receipt")
     finally:
         connection.close()
+    print(json.dumps({"qualification_stage": "mail-receipt-after-reconnect"}), flush=True)
+    _reconnect_mail_gateway(support, receiver, controllers[1], snapshots[1])
+    recovered_receipt = _mail_cli(
+        work, receiver, ["mail", "reads", "--operation-id", lost_operation]
+    )
+    _require(
+        recovered_receipt.get("found") is True and recovered_receipt["receipt"] == saved["receipt"],
+        "Gateway reconnect changed the authoritative read receipt",
+    )
     _require(
         saved["receipt"]["event_ids"] == [second["event"]["id"]],
         "Lost response reconciliation changed the consumed batch",
@@ -955,20 +1074,21 @@ def _mail_upgrade_cases(
     )
     maintained = _send(support, sender)
     _receipt(support, sender, maintained["event"]["event_ref"], {"accepted"})
-    support._wait(lambda: support._ready(receiver["url"]), "Upgraded chat handoff did not finish")
+    support._wait(lambda: body_ready(receiver), "Recovered chat handoff did not finish")
     _require(
         _invocations(receiver["root"]) == counts[1] + 1,
-        "Upgraded Mail package broke ordinary chat admission",
+        "Mail recovery broke ordinary chat admission",
     )
     return {
-        "mail_upgrade_preserved_body": True,
-        "stale_controller_upgrade_preserved": True,
+        "mail_reconnect_preserved_body": True,
+        "stale_controller_reconnect_preserved": True,
         "mail_cli": True,
         "mail_deferred": True,
         "mail_non_consuming_inspection": True,
         "mail_ordered_read": True,
         "mail_receipt_recovery": True,
         "mail_lost_response": True,
+        "mail_receipt_gateway_restart": True,
         "mail_empty_reuse": True,
         "mail_precommit_size": True,
         "mail_reference_isolation": True,
@@ -982,8 +1102,7 @@ def _installed(
     work: Path,
     endpoint: str,
     *,
-    previous_plugin_wheel: Path | None = None,
-    upgrade_plugin_wheel: Path | None = None,
+    mail_recovery: bool = False,
 ) -> dict[str, object]:
     """Run real installed gateways with synthetic body executables and actual CCCC."""
 
@@ -1029,26 +1148,10 @@ def _installed(
         timeout=25,
     ) as administrator:
         for mode in ("detached_process", "tmux_auxiliary_window"):
-            if previous_plugin_wheel is not None:
-                support._run(
-                    [
-                        str(work / "venv/bin/python"),
-                        "-m",
-                        "pip",
-                        "--isolated",
-                        "install",
-                        "--no-index",
-                        "--no-deps",
-                        "--force-reinstall",
-                        str(previous_plugin_wheel),
-                    ],
-                    cwd=work,
-                    env=support._clean_environment(),
-                    log=work / "operations.log",
-                )
-                _require(
-                    importlib.metadata.version("houmao-cccc") == "0.1.0",
-                    "Upgrade requires the qualified 0.1.0 package",
+            if mail_recovery:
+                print(
+                    json.dumps({"qualification_stage": "mail-mode", "execution_mode": mode}),
+                    flush=True,
                 )
             group = _provider_result(
                 administrator.post(
@@ -1076,9 +1179,12 @@ def _installed(
                     )
                     grant = _provider_result(
                         administrator.post(
-                            "/api/v1/external-receiver/v1/grants",
+                            "/api/v1/external-receiver/v2/grants",
                             json={"group_id": group_id, "actor_id": actor_id},
                         )
+                    )
+                    _require(
+                        grant.get("protocol_version") == 2, "Provider did not issue a v2 grant"
                     )
                     owner = uuid.uuid4().hex
                     credentials = root / "actor-credential.json"
@@ -1086,6 +1192,7 @@ def _installed(
                     with os.fdopen(descriptor, "w", encoding="utf-8") as credential_file:
                         json.dump(
                             {
+                                "schema_version": 1,
                                 "agent_id": owner,
                                 "endpoint": endpoint,
                                 "group_id": group_id,
@@ -1108,7 +1215,7 @@ def _installed(
                     )
                     os.environ["HOUMAO_PLUGIN_FIXTURE_CONTROL"] = str(control)
                     brain = support._seed_brain(root, work / "venv/bin/houmao-fixture-codex")
-                    broader_receiver = actor_id == "receiver" and previous_plugin_wheel is None
+                    broader_receiver = actor_id == "receiver" and not mail_recovery
                     signer = root / "broad-fixture-admin.key"
                     seed = (
                         GatewayLaunchSeed(admin_keys=(support._fixture_admin(signer),))
@@ -1141,6 +1248,7 @@ def _installed(
                                         "group_id": group_id,
                                         "actor_id": actor_id,
                                         "actor_generation": grant["actor_generation"],
+                                        **({"mail_max_bytes": 1048576} if mail_recovery else {}),
                                     },
                                 }
                             }
@@ -1193,7 +1301,7 @@ def _installed(
                     gateways.append(observation)
                 sender, receiver = gateways
                 prefix = "/v1/plugins/cccc"
-                if previous_plugin_wheel is None:
+                if not mail_recovery:
                     print(
                         json.dumps({"qualification_stage": "authenticated-chat-and-mail"}),
                         flush=True,
@@ -1210,20 +1318,7 @@ def _installed(
                         admin_payload={"expected_binding_id": sender["binding"]["binding_id"]},
                     )
                     _qualify_current_mail(support, work, sender, receiver)
-                status, stored = support._request(
-                    sender["url"],
-                    prefix + "/chat/send",
-                    {
-                        "expected_binding_id": sender["binding"]["binding_id"],
-                        "operation_id": uuid.uuid4().hex,
-                        "to": ["receiver"],
-                        "text": "Synthetic installed chat",
-                        "mode": "send",
-                    },
-                )
-                _require(
-                    status == 200 and stored.get("stored") is True, "Installed chat send failed"
-                )
+                stored = _send(support, sender, "Synthetic installed chat")
                 event_id = stored["event"]["id"]
                 event_ref = stored["event"]["event_ref"]
                 query = urlencode({"event_ref": event_ref})
@@ -1251,20 +1346,18 @@ def _installed(
                     receiver["url"],
                     prefix + "/chat/reply",
                     {
-                        "expected_binding_id": receiver["binding"]["binding_id"],
                         "operation_id": uuid.uuid4().hex,
-                        "event_ref": event_ref,
+                        "handle": stored["event"]["handle"],
                         "text": "Synthetic invalid owner ref",
                     },
                 )
-                _require(code == 422, "Another owner reused a targeting reference")
+                _require(code == 409, "Another owner reused a targeting handle")
                 code, reply = support._request(
                     receiver["url"],
                     prefix + "/chat/reply",
                     {
-                        "expected_binding_id": receiver["binding"]["binding_id"],
                         "operation_id": uuid.uuid4().hex,
-                        "event_ref": receiver_ref,
+                        "handle": history["messages"][0]["handle"],
                         "text": "Synthetic installed reply",
                     },
                 )
@@ -1273,8 +1366,9 @@ def _installed(
                     "Installed reply ancestry failed",
                 )
                 support._wait(
-                    lambda: (receiver["root"] / "invocations").exists(),
-                    "Fixture receiver never ran",
+                    lambda: support._ready(receiver["url"]) and support._ready(sender["url"]),
+                    "Fixture chat and reply did not finish before gateway restart",
+                    seconds=35,
                 )
                 count = (receiver["root"] / "invocations").read_text()
                 _require(
@@ -1311,13 +1405,11 @@ def _installed(
                     (receiver["root"] / "invocations").read_text() == count,
                     "Gateway restart replayed delivered chat",
                 )
-                if upgrade_plugin_wheel is not None:
+                if mail_recovery:
                     sender.update(existing_chat_ref=event_ref, existing_chat_id=event_id)
-                    failures = _mail_upgrade_cases(
-                        support, work, gateways, controllers, upgrade_plugin_wheel
-                    )
+                    failures = _mail_recovery_cases(support, work, gateways, controllers)
                 else:
-                    failures = _failure_cases(support, sender, receiver, controllers[1])
+                    failures = _failure_cases(support, work, sender, receiver, controllers[1])
                 results.append(
                     {
                         "execution_mode": mode,
@@ -1328,10 +1420,10 @@ def _installed(
                         "reference_continuity": True,
                         "restart_no_replay": True,
                         "attach_preserved_body": True,
-                        "validated_broad_listener": previous_plugin_wheel is None,
-                        "open_and_key_required_controls": previous_plugin_wheel is None,
-                        "verified_private_callers": previous_plugin_wheel is None,
-                        "signed_deferred_mail": previous_plugin_wheel is None,
+                        "validated_broad_listener": not mail_recovery,
+                        "open_and_key_required_controls": not mail_recovery,
+                        "verified_private_callers": not mail_recovery,
+                        "signed_deferred_mail": not mail_recovery,
                         **failures,
                     }
                 )
@@ -1348,10 +1440,11 @@ def _installed(
                 _require(not cleanup_failed, "Installed runtime cleanup failed")
     report: dict[str, object] = {
         "result": "passed",
-        "action": "run-mail" if upgrade_plugin_wheel is not None else "run",
+        "action": "run-mail" if mail_recovery else "run",
         "checkout_imports": False,
         "offline_install": True,
         "actual_cccc": True,
+        "receiver_protocol_version": 2,
         "stand_in_bodies": True,
         "real_agent_smoke": "separate_required_qualification",
         "cleanup": "completed",
@@ -1376,8 +1469,6 @@ def main() -> None:
     parser.add_argument("--work-root", type=Path)
     parser.add_argument("--source-root", type=Path)
     parser.add_argument("--endpoint")
-    parser.add_argument("--previous-plugin-wheel", type=Path)
-    parser.add_argument("--upgrade-plugin-wheel", type=Path)
     arguments = parser.parse_args()
     source = (arguments.source_root or Path(__file__).resolve().parents[3]).resolve()
     try:
@@ -1387,18 +1478,11 @@ def main() -> None:
                 arguments.endpoint is not None,
                 "Setup requires an explicit compatible CCCC endpoint",
             )
-            if arguments.action == "installed-mail-run":
-                _require(
-                    arguments.previous_plugin_wheel is not None
-                    and arguments.upgrade_plugin_wheel is not None,
-                    "Mail qualification requires previous and upgraded package wheels",
-                )
             report = _installed(
                 source,
                 arguments.work_root.resolve(),
                 arguments.endpoint,
-                previous_plugin_wheel=arguments.previous_plugin_wheel,
-                upgrade_plugin_wheel=arguments.upgrade_plugin_wheel,
+                mail_recovery=arguments.action == "installed-mail-run",
             )
         else:
             _require(arguments.wheelhouse is not None, "Setup requires an explicit wheelhouse")
@@ -1413,18 +1497,12 @@ def main() -> None:
                     "Setup requires an explicitly selected dedicated loopback CCCC endpoint",
                 )
                 _require(arguments.work_root is not None, "Setup requires an external work root")
-                _require(
-                    arguments.action != "run-mail" or arguments.previous_plugin_wheel is not None,
-                    "Mail upgrade qualification requires the frozen previous plugin wheel",
-                )
                 report = qualify(
                     source,
                     wheelhouse,
                     _root(arguments.work_root, source),
                     arguments.endpoint,
-                    previous_plugin_wheel=(
-                        arguments.previous_plugin_wheel if arguments.action == "run-mail" else None
-                    ),
+                    mail_recovery=arguments.action == "run-mail",
                 )
     except (QualificationError, OSError, ValueError) as exc:
         print(json.dumps({"result": "failed", "error": str(exc)}), file=sys.stderr)

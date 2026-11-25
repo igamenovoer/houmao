@@ -37,6 +37,11 @@ from houmao.agents.realm_controller.manifest import default_manifest_path, load_
 from houmao.gateway.plugins import GatewayPluginConfiguration
 from houmao.gateway.plugins.discovery import LoadedPluginDefinition
 from houmao.mailbox.stalwart import StalwartJmapClient
+from tests.fixtures.gateway_access import (
+    FixtureGatewayAccess,
+    configure_fixture_gateway_access,
+    self_fixture_auth,
+)
 from tests.integration.cccc.test_receiver_provider import actors as actors
 from tests.unit.agents.realm_controller.test_gateway_dual_mail import _runtime
 from tests.unit.agents.realm_controller import test_gateway_support as support
@@ -209,7 +214,7 @@ def test_actual_deferred_mail_survives_selected_stalwart_outage_and_preserves_re
     monkeypatch.setattr(
         "houmao.agents.realm_controller.gateway_plugin_host.load_plugin_definition",
         lambda _name: LoadedPluginDefinition(
-            definition=package.definition, distribution="houmao-cccc", distribution_version="0.2.0"
+            definition=package.definition, distribution="houmao-cccc", distribution_version="0.3.0"
         ),
     )
     provider, group_id, grants = actors
@@ -226,6 +231,13 @@ def test_actual_deferred_mail_survives_selected_stalwart_outage_and_preserves_re
         """Drive two normal Actor gateways and explicit email reminder admission cycles."""
 
         runtimes, clients, bindings, mail_state, compacted = [], [], [], [], []
+        access_by_manifest: dict[Path, FixtureGatewayAccess] = {}
+
+        def fixture_access(path: Path) -> FixtureGatewayAccess:
+            """Keep each synthetic gateway's owner policy in its own test storage."""
+
+            return access_by_manifest[path.resolve()]
+
         async with AsyncExitStack() as stack:
             try:
                 for index, actor_id in enumerate(("sender", "receiver")):
@@ -267,10 +279,18 @@ def test_actual_deferred_mail_survives_selected_stalwart_outage_and_preserves_re
                     )
                     manifest = default_manifest_path(root, "cao_rest", "cao-rest-1")
                     assert load_session_manifest(manifest).payload["agent_id"] == owner
+                    access_by_manifest[manifest.resolve()] = configure_fixture_gateway_access(
+                        root, monkeypatch
+                    )
+                    monkeypatch.setattr(
+                        "houmao.agents.realm_controller.gateway_service.gateway_access_for_manifest",
+                        fixture_access,
+                    )
                     selected = tmp_path / (actor_id + "-actor.json")
                     selected.write_text(
                         json.dumps(
                             {
+                                "schema_version": 1,
                                 "agent_id": owner,
                                 "endpoint": endpoint,
                                 "group_id": group_id,
@@ -306,7 +326,8 @@ def test_actual_deferred_mail_survives_selected_stalwart_outage_and_preserves_re
                     client = await stack.enter_async_context(
                         httpx.AsyncClient(
                             transport=httpx.ASGITransport(app=app),
-                            base_url=f"http://127.0.0.1:{43123 + index}",
+                            base_url=runtime.owner_connect_url,
+                            auth=self_fixture_auth(runtime),
                         )
                     )
                     clients.append(client)

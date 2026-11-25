@@ -200,6 +200,7 @@ def _source_identity(source: Path) -> dict[str, Any]:
     prepared_matches = (
         receipt.get("selection") == digest.hexdigest()
         and receipt.get("diff_sha256") == identity["source_diff_sha256"]
+        and receipt.get("protocol_version") == manifest["protocol_version"]
     )
     single_matches = (
         len(patches) == 1

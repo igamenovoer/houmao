@@ -62,7 +62,7 @@ See [the scenario acceptance map](../../../docs/reference/gateway/cccc-acceptanc
 
 ## Qualify Deferred Mail
 
-The second provider patch and plugin version 0.2 add Mail qualification. Native journal tests and the actual provider suites distinguish non-consuming inspection from explicit reads, including durable empty decisions, native-reader races, crash recovery, and ledger archival:
+The compatible receiver v2 service includes the Mail cursor and read-receipt contract. Native journal tests and the actual provider suites exercise non-consuming inspection, explicit reads, durable empty decisions, native-reader races, crash recovery, and ledger archival.
 
 ```bash
 HOUMAO_CCCC_TEST_URL=http://127.0.0.1:8849 \
@@ -72,17 +72,16 @@ HOUMAO_CCCC_RECOVERY_ROOT=/tmp/houmao-cccc-mail-recovery \
   pixi run pytest -q tests/integration/cccc/test_mail_recovery.py
 ```
 
-Use a fresh wheelhouse containing one core wheel, one 0.2 plugin wheel, fixture wheels, and their dependencies. Preserve the separately qualified 0.1 wheel for an actual gateway-only upgrade. The Mail run starts with held controllers, lets the gateway update their native conversations, and requires upgrade to preserve those newer persisted conversations and body PIDs:
+Use a fresh wheelhouse containing the current core, CCCC plugin, and fixture wheels with their dependencies. The Mail run uses those wheels throughout. It restarts both gateway modes while their agent bodies remain live, then checks ordered consumption, credential refresh, and exact receipt recovery after a discarded response and another gateway restart.
 
 ```bash
 pixi run python scripts/qualification/cccc/installed.py run-mail \
   --wheelhouse /external/private/cccc-mail-wheelhouse \
-  --previous-plugin-wheel /external/private/chat-wheelhouse/houmao_cccc-0.1.0-py3-none-any.whl \
   --work-root /external/private/cccc-mail-installed-run \
   --endpoint http://127.0.0.1:8849
 ```
 
-Run the real-agent driver with `--mode mail` using a separate installed 0.2 environment. An upgrade run temporarily installs 0.1 during each mode, so its environment must remain exclusive until it finishes. The Mail smoke asks one real agent to send, then explicitly asks its peer to read one batch and author a Mail reply. It verifies native deferred mode, the authoritative read receipt/cursor boundary, reply ancestry, and cleanup. A successful chat run is a separate gate.
+The runner records artifact digests, installed versions, and per-mode results in the private work root's `qualification.json`. The same root retains a sanitized stage trace in `operations.log`. Run the real-agent driver with `--mode mail` using the selected installed environment. The Mail smoke asks one real agent to send, then asks its peer to read one batch and author a Mail reply. It verifies native deferred mode, the authoritative read receipt and cursor, reply ancestry, and cleanup.
 
 The actual Stalwart coexistence test additionally requires explicit normal-account references. Set `HOUMAO_CCCC_STALWART_URL` to the selected discovery URL. Supply `HOUMAO_CCCC_STALWART_LOGIN`, `HOUMAO_CCCC_STALWART_ADDRESS`, and `HOUMAO_CCCC_STALWART_CREDENTIAL_FILE`, plus corresponding `HOUMAO_CCCC_STALWART_PEER_LOGIN`, `HOUMAO_CCCC_STALWART_PEER_ADDRESS`, and `HOUMAO_CCCC_STALWART_PEER_CREDENTIAL_FILE` for the second account. Credential files must be private and outside the checkout. No password appears in these environment references.
 

@@ -2,7 +2,7 @@
 name: houmao-agent-loop-lite
 description: Use when the user explicitly invokes houmao-agent-loop-lite or names a lite loop operation for Markdown contracts, typed Markdown templates, generated skills, direct SQLite state, prepared agents, or loop run control without pro-only schema and harness layers.
 metadata:
-  houmao_version: "3.0.0rc7"
+  houmao_version: "3.0.0rc8"
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
     SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is

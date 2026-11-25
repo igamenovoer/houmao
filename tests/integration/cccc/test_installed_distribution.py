@@ -83,10 +83,13 @@ def test_independent_wheels_in_both_gateway_process_modes(tmp_path: Path) -> Non
             "open_and_key_required_controls",
             "verified_private_callers",
             "signed_deferred_mail",
-            "busy_refusal",
-            "explicit_retry",
-            "gateway_absence_no_replay",
-            "body_replacement_fenced",
-            "body_death_fenced",
+            "busy_chat_waits",
+            "live_push_asap",
+            "live_push_batch",
+            "direct_cli_with_mail",
+            "gateway_absence_pending_recovery",
         ):
             assert mode[evidence] is True
+    outcomes = {mode["execution_mode"]: mode for mode in report["modes"]}
+    assert outcomes["detached_process"]["body_replacement_fenced"] is True
+    assert outcomes["tmux_auxiliary_window"]["body_death_fenced"] is True

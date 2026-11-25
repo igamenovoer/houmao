@@ -1,14 +1,14 @@
 # Instructional CCCC Chat Suite
 
-Agent-driven verification for two Houmao-managed DSH Web agents collaborating through the optional `houmao-cccc` gateway plugin. The suite covers peer discovery, `request_reply` round trips, busy refusal with explicit retry, and gateway reconnection without automatic replay. Agent-to-agent communication uses CCCC chat only: Houmao filesystem/online mail and CCCC Mail are forbidden in every graded flow.
+Agent-driven verification for two Houmao-managed DSH Web agents collaborating through the optional `houmao-cccc` gateway plugin. The suite covers peer discovery, `request_reply` round trips, push batching, busy-agent waiting, and recovery of pending deliveries after reattachment. The graded flows use CCCC chat for all peer communication.
 
 ## Baseline Preconditions & Isolation
 
 - Realwork checkout: Houmao repository root on `devel` (`$REPO_ROOT`, resolved through `git rev-parse --show-toplevel`).
-- Manager and plugin: select one installed Houmao 3.x environment containing both `houmao-mgr` and `houmao-cccc` 0.2 with gateway SDK 2 support. Set `HOUMAO_MGR` and `HOUMAO_CCCC` to those two executables. The default is the uv tool environment at `$HOME/.local/share/uv/tools/houmao/bin/`.
+- **Manager and plugin.** Select matching builds of `houmao-mgr` and `houmao-cccc` with the fenced request presentation and receiver v2 support. Set `HOUMAO_MGR` and `HOUMAO_CCCC` to those two executables. The default is the uv tool environment at `$HOME/.local/share/uv/tools/houmao/bin/`.
 - Model lane: self-hosted Qwen at `http://127.0.0.1:14888/v1`, model `Qwen/Qwen3.8-27B-FP8`, context window `262144`, maximum output tokens `8192`, reasoning map `{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}`, compatibility `{"supports_developer_role":false}`.
 - DSH executable: qualified build `0.2.2-rc.3` at `$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`.
-- CCCC service: select an already-running external-receiver protocol 1 service. The default qualified instance is `http://127.0.0.1:8849`, built from upstream `d12732ebd6dfdbc260a59a286bd5e510d04d4832` plus `0001-external-receiver.patch`; the qualified local instance also carries the deferred-Mail patch, but this suite never invokes it. Stock `extern/orphan/cccc` is reference source and is not a compatible service.
+- **CCCC service.** Set `CCCC_ENDPOINT` to an already-running external-receiver protocol 2 service built from the tracked pin and patches. [Native build and service tooling](../../../tools/cccc/README.md)
 - Shared-service boundary: the suite creates one uniquely named Group and two inert external-receiver Actors. It never starts, stops, resets, or reconfigures the selected CCCC service and never touches another Group or grant.
 - Local service identity: the default runtime descriptor is `$HOME/.local/share/houmao-cccc-receiver/runtime.json`; the binary is `$HOME/.local/share/houmao-cccc-receiver/target/debug/cccc`. Configuration verifies the selected PID, `/proc` executable, build receipt, protocol, patch identity, and binary hash. Omit both identity arguments for a remote or separately administered service; negotiated binding/capability checks remain mandatory.
 - Private external root: Houmao rejects plugin credential files inside the checkout. Set `CCCC_PRIVATE_ROOT` to an owner-private directory outside `$REPO_ROOT`, defaulting to `$HOME/.local/state/houmao/cccc-instructional`. The helper creates one run-specific subdirectory, uses the supported grant exporter, and deletes only the two run-owned credential documents during cleanup.
@@ -42,7 +42,7 @@ export HOUMAO_CCCC="${HOUMAO_CCCC:-$HOME/.local/share/uv/tools/houmao/bin/houmao
 export DSH_EXECUTABLE="${DSH_EXECUTABLE:-$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js}"
 export BASE_URL="http://127.0.0.1:14888/v1"
 export MODEL="Qwen/Qwen3.8-27B-FP8"
-export CCCC_ENDPOINT="${CCCC_ENDPOINT:-http://127.0.0.1:8849}"
+export CCCC_ENDPOINT="${CCCC_ENDPOINT:?Set the receiver v2 service endpoint}"
 export CCCC_SERVICE_RUNTIME="${CCCC_SERVICE_RUNTIME:-$HOME/.local/share/houmao-cccc-receiver/runtime.json}"
 export CCCC_PROVIDER_BINARY="${CCCC_PROVIDER_BINARY:-$HOME/.local/share/houmao-cccc-receiver/target/debug/cccc}"
 export CCCC_PRIVATE_ROOT="${CCCC_PRIVATE_ROOT:-$HOME/.local/state/houmao/cccc-instructional}"
@@ -132,7 +132,7 @@ mkdir -p "$CASE_EVIDENCE"
 
 Use `prompt` for ordinary operator requests. Agents choose and execute their own local `houmao-cccc` commands or matching local plugin HTTP routes. The helper never sends or replies to chat on their behalf. `cccc` exposes only read-only binding, capability, member, history, and delivery inspection. `verify` checks native event ancestry and exact attempt states; `audit` rejects peer mail and provider-admin tool calls.
 
-Run the cases in this order: `two-agent-chat-round-trip`, `busy-refusal-and-explicit-retry`, then `gateway-reconnect-no-replay`. The last case detaches and reattaches only Agent B's gateway. Re-run Doctor after reattachment before driving further.
+Run the pull round trip first, then the push batch and busy ASAP cases. Run the gateway reconnect case last and re-run Doctor after it reattaches Agent B's gateway. Each case establishes its own delivery prerequisites.
 
 ## Evidence
 
@@ -143,8 +143,8 @@ Save artifacts under `$RUN_TMP/evidence/agent-cccc/<scenario-slug>/`. Every scen
 | `configure.json` / `run-meta.json` | Run-owned Group, owner/Actor/binding identities, gateway coordinates, grant IDs without tokens, and body-preservation snapshots. |
 | `doctor.json` | Compatible provider identity, healthy agents, connected bindings, stable native bodies, and operator recovery mailbox registrations. |
 | `round-trip.json` | One native request, its threaded agent-authored reply, message modes, ancestry, and exact delivery-attempt states. |
-| `refused.json` / `failed.json` | Stored request with only the expected initial failure state and no reply. |
-| `no-replay-*.json` | The request token is absent from B's native transcript before A's explicit retry. |
+| `native-batch.json` | Exactly one native request fence with the two distinct ordered message handles. |
+| `pending.json` / `not-delivered-*.json` | Provider pending work and absence of a native prompt while the body is busy or detached. |
 | `a-transcript-*.jsonl`, `b-transcript-*.jsonl` | Actual discovery, send/reply/retry, local file work, and incoming CCCC turns. |
 | `channel-audit.json` | Actual bash tool calls and zero Houmao mail, CCCC Mail, or provider-admin fallback. |
 | `stop.json` | Owned-agent and private-tmux cleanup, grant revocation, verified Group absence, credential deletion, and surviving evidence root. |
@@ -185,10 +185,22 @@ This command never represents peer communication and cannot contribute to a pass
 | Case | Capability tags | User-visible behavior |
 | --- | --- | --- |
 | [two-agent-chat-round-trip.md](cases/two-agent-chat-round-trip.md) | `multi-agent`, `dsh-web`, `cccc-chat`, `peer-discovery` | Two real agents discover one another, perform file-reading work, and complete a threaded CCCC `request_reply` exchange without mail. |
-| [busy-refusal-and-explicit-retry.md](cases/busy-refusal-and-explicit-retry.md) | `multi-agent`, `dsh-web`, `cccc-chat`, `busy-refusal`, `explicit-retry` | A busy recipient refuses immediate handoff; idle does not replay it, and the sender explicitly retries the same native event. |
-| [gateway-reconnect-no-replay.md](cases/gateway-reconnect-no-replay.md) | `multi-agent`, `dsh-web`, `cccc-chat`, `gateway-recovery`, `no-replay` | Gateway detach/reattach preserves body and binding identity but does not deliver old work until the sender explicitly retries. |
+| [push-batch-replies-by-handle.md](cases/push-batch-replies-by-handle.md) | `multi-agent`, `dsh-web`, `cccc-chat`, `push`, `batching` | One compact native prompt carries two ordered requests, and the recipient authors two exact-parent replies. |
+| [busy-push-waits-for-idle.md](cases/busy-push-waits-for-idle.md) | `multi-agent`, `dsh-web`, `cccc-chat`, `push-asap` | A busy recipient receives the pending request once after becoming idle. |
+| [gateway-reconnect-pending-delivery.md](cases/gateway-reconnect-pending-delivery.md) | `multi-agent`, `dsh-web`, `cccc-chat`, `gateway-recovery` | Gateway reattachment preserves the body and binding and delivers pending CCCC work. |
 
-## Last Self-Proof
+## Receiver v2 Self-Proof
+
+On 2026-11-25, two real fixture-managed DSH Web `0.2.2-rc.3` agents used self-hosted `Qwen/Qwen3.8-27B-FP8` with workspace builds of `houmao-mgr 3.0.0rc8` and `houmao-cccc 0.3.0`. The isolated receiver v2 service at `127.0.0.1:18851` used the tracked provider patches at upstream revision `d12732ebd6dfdbc260a59a286bd5e510d04d4832`. Its running binary SHA-256 was `ebb619dccb0e598f18f4afed590413366b507247d7187ed8a3af1f4722d22864`.
+
+- Push batch produced one native user message `18f31543-18a1-44dd-ade5-4bedf6329f8e` with one request fence, two distinct reply handles, and the original CCCC order, timestamps, and sender. CCCC recorded one accepted attempt per message, and each authored reply referenced its exact native parent.
+- Busy ASAP kept the new message out of the recipient's native transcript during a live shell turn. After idle, CCCC recorded one accepted handoff and a threaded reply to the waiting message.
+- Reconnect preserved the native body and Actor binding. The same provider attempt `eb4782e9-bca8-4449-961f-a0c86ef40451` moved from pending while detached to accepted after reattachment, then received an authored reply.
+- All three channel audits passed. Cleanup stopped the run-owned agents, removed their Group and credential files, and retained the evidence.
+
+Private evidence is under `tmp/instructional-tests/cccc-v2-recheck-s2DVO8/evidence/`. The native batch check is `push-batch-replies-by-handle/native-batch.json`. Read the matching `first-reply.json`, `second-reply.json`, and scenario round-trip reports for exact receipts. These are real-agent observations from the workspace builds. Independent installed-wheel and deterministic checks have their own reports.
+
+## Historical Receiver v1 Self-Proof
 
 All three cases passed on 2026-11-25 with `houmao-mgr 3.0.0rc7`, `houmao-cccc 0.2.0`, DSH `0.2.2-rc.3`, and self-hosted `Qwen/Qwen3.8-27B-FP8` at commit `e20dc9b882f611575e2199ef89fade36e93f8a51`. The real patched CCCC protocol-1 service at `127.0.0.1:8849` matched its managed build receipt; no agents, model, provider transport, or delivery receipts were mocked.
 

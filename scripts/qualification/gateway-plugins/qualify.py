@@ -444,8 +444,8 @@ def _verify_plugin_access(
             "A key-required unsigned plugin control passed",
         )
         _require(
-            _request(base_url, admin_path, admin_payload)[0] == 403,
-            "Self proof authorized a key-required plugin control",
+            _request(base_url, admin_path, admin_payload)[0] == 200,
+            "Managed-self proof did not authorize its own plugin control",
         )
         _require(
             _request(base_url, admin_path, admin_payload, client=admin)[0] == 200,
@@ -457,8 +457,8 @@ def _verify_plugin_access(
                 "A key-required unsigned plugin read passed",
             )
             _require(
-                _request(base_url, path)[0] == 403,
-                "Unscoped managed self proof authorized a key-required plugin read",
+                _request(base_url, path)[0] == 200,
+                "Managed-self proof did not authorize its own plugin read",
             )
             _require(
                 _request(base_url, path, client=admin)[0] == 200,

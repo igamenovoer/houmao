@@ -89,6 +89,7 @@ def test_export_is_private_and_contains_only_selected_binding(
     def respond(request: httpx.Request) -> httpx.Response:
         """Return an explicitly selected synthetic Actor grant."""
 
+        assert request.url.path == "/api/v1/external-receiver/v2/grants"
         calls.append(request)
         return httpx.Response(
             200,
@@ -100,6 +101,7 @@ def test_export_is_private_and_contains_only_selected_binding(
                     "actor_id": "actor",
                     "actor_generation": "generation",
                     "grant_id": "grant",
+                    "protocol_version": 2,
                 },
             },
         )
@@ -118,6 +120,26 @@ def test_export_is_private_and_contains_only_selected_binding(
     with pytest.raises(ValueError, match="fresh private"):
         module.provision("http://127.0.0.1:8849", "group", "actor", "owner", output)
     assert len(calls) == 1
+
+
+def test_stock_grant_route_returns_compatibility_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Diagnose a stock service before publishing a private profile."""
+
+    module = _module("provision")
+    client_type = httpx.Client
+    monkeypatch.setattr(
+        module.httpx,
+        "Client",
+        lambda **kw: client_type(
+            transport=httpx.MockTransport(lambda _: httpx.Response(404)), **kw
+        ),
+    )
+    output = tmp_path / "grant.json"
+    with pytest.raises(module.IncompatibleReceiverError, match="external receiver v2"):
+        module.provision("http://127.0.0.1:8849", "group", "actor", "owner", output)
+    assert not output.exists()
 
 
 def test_remote_export_requires_explicit_operator_credential(tmp_path: Path) -> None:

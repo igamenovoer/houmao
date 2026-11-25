@@ -129,7 +129,7 @@ def test_provider_single_request_uses_fixed_rpc_and_selected_token(
     asyncio.run(exercise())
     assert len(requests) == 1
     request = requests[0]
-    assert str(request.url) == "http://127.0.0.1:8848/api/v1/external-receiver/v1/rpc"
+    assert str(request.url) == "http://127.0.0.1:8848/api/v1/external-receiver/v2/rpc"
     assert request.headers["Authorization"] == "Bearer synthetic-grant"
     assert json.loads(request.content)["operation"] == "chat.send"
 
@@ -287,7 +287,7 @@ def test_reference_key_rejects_symlinks_and_unsafe_permissions(
         modules.references.ReferenceCodec.from_context(_context(tmp_path))
 
 
-def test_cli_is_gateway_only_and_keeps_explicit_operation_identity(
+def test_gateway_cli_keeps_explicit_connection_token_and_operation_identity(
     modules: SimpleNamespace,
 ) -> None:
     """Translate body-side actions without reading CCCC auth or selecting a backend."""
@@ -300,8 +300,8 @@ def test_cli_is_gateway_only_and_keeps_explicit_operation_identity(
             "team",
             "chat",
             "send",
-            "--binding-id",
-            "binding",
+            "--connection-token",
+            "connection",
             "--operation-id",
             "operation-1",
             "--to",
@@ -313,7 +313,7 @@ def test_cli_is_gateway_only_and_keeps_explicit_operation_identity(
     method, path, body = modules.cli._request(args)
     assert method == "POST" and path == "/chat/send"
     assert body == {
-        "expected_binding_id": "binding",
+        "connection_token": "connection",
         "operation_id": "operation-1",
         "to": ["other"],
         "text": "hello",
@@ -558,8 +558,8 @@ def test_cli_retains_safe_uncertainty_and_caller_operation_id(
             "http://127.0.0.1:9000",
             "chat",
             "send",
-            "--binding-id",
-            "binding",
+            "--connection-token",
+            "connection",
             "--operation-id",
             "operation-1",
             "--to",
@@ -577,7 +577,7 @@ def test_cli_retains_safe_uncertainty_and_caller_operation_id(
         "retryable": True,
         "dispatch_outcome": "unknown",
         "operation_id": "operation-1",
-        "expected_binding_id": "binding",
+        "connection_token": "connection",
     }
     assert "private" not in output
 
@@ -602,8 +602,8 @@ def test_cli_connection_loss_is_uncertain_without_new_operation(
             "http://127.0.0.1:9000",
             "chat",
             "send",
-            "--binding-id",
-            "binding",
+            "--connection-token",
+            "connection",
             "--operation-id",
             "operation-1",
             "--to",
@@ -1042,3 +1042,406 @@ def test_mail_read_error_requires_authoritative_failure_envelope(
 
     asyncio.run(exercise())
     assert len(requests) == 1
+
+
+def test_managed_reply_routes_by_short_handle_and_keeps_gateway_error(
+    modules: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Resolve the nondefault instance and retain the stale handle diagnostic."""
+
+    client = Mock()
+    client.request_plugin_json.side_effect = modules.cli.GatewayHttpError(
+        method="POST",
+        url="/v1/plugins/team/chat/reply",
+        status_code=409,
+        detail=json.dumps({"error_code": "message_handle_stale"}),
+    )
+    select = Mock(return_value=client)
+    direct = AsyncMock(side_effect=AssertionError("a gateway result cannot switch backend"))
+    monkeypatch.setattr(modules.cli, "managed_self_gateway_client", select)
+    monkeypatch.setattr(modules.cli, "invoke_direct", direct)
+    args = [
+        "chat",
+        "reply",
+        "--handle",
+        "msg_team.example",
+        "--operation-id",
+        "reply-1",
+        "--text",
+        "ok",
+    ]
+
+    assert modules.cli.run(args) == 1
+    select.assert_called_once_with(base_url=None, timeout_seconds=30.0)
+    client.request_plugin_json.assert_called_once_with(
+        "POST",
+        "/v1/plugins/team/chat/reply",
+        body={"handle": "msg_team.example", "operation_id": "reply-1", "text": "ok"},
+    )
+    result = json.loads(capsys.readouterr().out)
+    assert result["error_code"] == "message_handle_stale"
+    assert result["operation_id"] == "reply-1"
+    assert "history" in result["guidance"]
+    direct.assert_not_awaited()
+    select.reset_mock()
+
+    assert modules.cli.run(["--instance", "other", *args]) == 1
+    assert json.loads(capsys.readouterr().err)["error_code"] == "handle_instance_mismatch"
+    select.assert_not_called()
+
+
+class _OfferStream(httpx.AsyncByteStream):
+    """Supply intentionally fragmented NDJSON across mock transport chunks."""
+
+    async def __aiter__(self) -> Any:
+        """Return a heartbeat, a split offer, and a sanitized terminal failure."""
+
+        yield b'{"kind":"heartbeat"}\n{"kind":"of'
+        yield b'fer","offer":{"sequence":8}}\n'
+        yield b'{"kind":"error","error":{"code":"receiver_lease_lost","message":"private"}}\n'
+
+
+def test_offer_stream_uses_exact_actor_endpoint_and_bounds_fragments(
+    modules: SimpleNamespace,
+) -> None:
+    """Use one bounded NDJSON stream and forward only allowlisted terminal errors."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/api/v1/external-receiver/v2/stream"
+        assert request.headers["Authorization"] == "Bearer synthetic-grant"
+        assert dict(request.url.params) == {
+            "lease_id": "lease-1",
+            "lease_generation": "3",
+            "kind": "chat",
+            "limit": "1",
+            "max_bytes": "1024",
+            "after_sequence": "7",
+        }
+        return httpx.Response(
+            200, headers={"Content-Type": "application/x-ndjson"}, stream=_OfferStream()
+        )
+
+    async def exercise() -> None:
+        client = modules.client.ProviderClient.from_config(
+            _configuration(modules), "synthetic-grant", transport=httpx.MockTransport(handler)
+        )
+        frames = client.offer_stream(
+            "lease-1", 3, kind="chat", limit=1, max_bytes=1024, after_sequence=7
+        )
+        assert await anext(frames) == {"sequence": 8}
+        with pytest.raises(modules.client.ProviderError) as failure:
+            await anext(frames)
+        assert failure.value.code == "receiver_lease_lost"
+        assert "private" not in str(failure.value)
+        await client.aclose()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize(
+    ("payload", "limit", "error_code"),
+    [
+        (b"x" * 6000, 1, "provider_response_limit"),
+        (b'{"kind":"offer","offer":{}}\n' * 2, 1, "provider_response_limit"),
+        (b'{"kind":"offer","offer":{}}', 2, "invalid_provider_response"),
+    ],
+)
+def test_offer_stream_enforces_wire_and_credit_limits(
+    modules: SimpleNamespace, payload: bytes, limit: int, error_code: str
+) -> None:
+    """Reject too many offers, oversized frames, and unfinished framing."""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"Content-Type": "application/x-ndjson"}, content=payload
+        )
+
+    async def exercise() -> None:
+        client = modules.client.ProviderClient.from_config(
+            _configuration(modules), "synthetic-grant", transport=httpx.MockTransport(handler)
+        )
+        with pytest.raises(modules.client.ProviderError) as failure:
+            [
+                offer
+                async for offer in client.offer_stream(
+                    "lease", 1, kind="chat", limit=limit, max_bytes=1024
+                )
+            ]
+        assert failure.value.code == error_code
+        await client.aclose()
+
+    asyncio.run(exercise())
+
+
+@pytest.fixture
+def direct_profile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Select synthetic owner-bound credentials outside the repository."""
+
+    monkeypatch.delenv("HOUMAO_MANIFEST_PATH", raising=False)
+    path = tmp_path / "selected.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "agent_id": "owner",
+                "endpoint": "https://cccc.example/prefix",
+                "group_id": "group-1",
+                "actor_id": "actor-1",
+                "actor_generation": "generation-1",
+                "token": "synthetic-grant",
+            }
+        )
+    )
+    path.chmod(0o600)
+    return ["--direct-profile", str(path), "--agent-id", "owner"]
+
+
+_PROVIDER_BINDING = {
+    "protocol_version": 2,
+    "group_id": "group-1",
+    "actor_id": "actor-1",
+    "actor_generation": "generation-1",
+}
+
+
+def test_direct_pull_keeps_batch_order_and_reference_across_invocations(
+    modules: SimpleNamespace, direct_profile: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Release the temporary claim lease, then acknowledge and reply by exact references."""
+
+    calls: list[tuple[str, dict[str, Any]]] = []
+    lease = {"lease_id": "lease-1", "lease_generation": 7}
+    offers = [
+        {
+            **_PROVIDER_BINDING,
+            "lease_generation": 7,
+            "sequence": sequence,
+            "sender": sender,
+            "timestamp": timestamp,
+            "message_mode": "request_reply",
+            "text": f"text-{sequence}",
+            "event_ref": f"ref-{sequence}",
+        }
+        for sequence, sender, timestamp in [(8, "alice", "t2"), (9, "bob", "t1")]
+    ]
+    replies = {
+        "binding": _PROVIDER_BINDING,
+        "capabilities": {
+            "protocol_version": 2,
+            "operations": [
+                "lease.acquire",
+                "lease.next",
+                "lease.release",
+                "chat.ack",
+                "chat.reply",
+            ],
+            "features": {"chat_direct_pull": True},
+            "limits": {"max_batch_messages": 4, "max_batch_bytes": 8192},
+        },
+        "lease.acquire": {**lease, "expires_in_seconds": 45},
+        "lease.next": {"offers": offers, "receipt": "receipt-8-9"},
+        "lease.release": {"released": True},
+        "chat.ack": {"receipt": "receipt-8-9", "acknowledged": True, "attempt_ids": ["a", "b"]},
+        "chat.reply": {"stored": True},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/prefix/api/v1/external-receiver/v2/rpc"
+        assert request.headers["Authorization"] == "Bearer synthetic-grant"
+        envelope = json.loads(request.content)
+        calls.append((envelope["operation"], envelope["arguments"]))
+        return httpx.Response(200, json={"ok": True, "result": replies[envelope["operation"]]})
+
+    transport = httpx.MockTransport(handler)
+    assert modules.cli.run([*direct_profile, "chat", "pull"], provider_transport=transport) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result == {
+        "messages": [
+            {
+                "sender": "alice",
+                "timestamp": "t2",
+                "mode": "request_reply",
+                "text": "text-8",
+                "event_ref": "ref-8",
+            },
+            {
+                "sender": "bob",
+                "timestamp": "t1",
+                "mode": "request_reply",
+                "text": "text-9",
+                "event_ref": "ref-9",
+            },
+        ],
+        "receipt": "receipt-8-9",
+    }
+    assert calls[2:] == [
+        ("lease.acquire", {"receiver": "direct", "transport": "pull"}),
+        ("lease.next", {**lease, "limit": 4, "max_bytes": 8192}),
+        ("lease.release", lease),
+    ]
+    assert (
+        modules.cli.run(
+            [*direct_profile, "chat", "ack", "--receipt", result["receipt"]],
+            provider_transport=transport,
+        )
+        == 0
+    )
+    assert calls[-1] == ("chat.ack", {"receipt": "receipt-8-9"})
+    assert (
+        modules.cli.run(
+            [
+                *direct_profile,
+                "chat",
+                "reply",
+                "--event-ref",
+                result["messages"][1]["event_ref"],
+                "--operation-id",
+                "reply-9",
+                "--text",
+                "done",
+            ],
+            provider_transport=transport,
+        )
+        == 0
+    )
+    assert calls[-1] == (
+        "chat.reply",
+        {"event_ref": "ref-9", "operation_id": "reply-9", "text": "done"},
+    )
+
+
+def test_direct_profile_rejects_local_and_provider_actor_mismatch(
+    modules: SimpleNamespace, direct_profile: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Treat file ownership and provider Actor generation as separate checks."""
+
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content)["operation"])
+        return httpx.Response(
+            200, json={"ok": True, "result": {**_PROVIDER_BINDING, "actor_generation": "different"}}
+        )
+
+    transport = httpx.MockTransport(handler)
+    assert (
+        modules.cli.run(
+            [*direct_profile[:-1], "wrong-owner", "discovery"], provider_transport=transport
+        )
+        == 1
+    )
+    failed = capsys.readouterr().err
+    assert json.loads(failed)["error_code"] == "invalid_direct_profile"
+    assert direct_profile[1] not in failed and requests == []
+    assert modules.cli.run([*direct_profile, "discovery"], provider_transport=transport) == 1
+    assert json.loads(capsys.readouterr().err)["error_code"] == "actor_generation_mismatch"
+    assert requests == ["binding"]
+
+
+def test_direct_pull_reports_competing_lease_without_takeover(
+    modules: SimpleNamespace, direct_profile: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Leave gateway intake in control after the provider denies a direct claim."""
+
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        operation = json.loads(request.content)["operation"]
+        requests.append(operation)
+        if operation == "lease.acquire":
+            return httpx.Response(
+                409, json={"ok": False, "error": {"code": "receiver_lease_conflict"}}
+            )
+        result = (
+            _PROVIDER_BINDING
+            if operation == "binding"
+            else {
+                "protocol_version": 2,
+                "operations": ["lease.acquire", "lease.next", "lease.release", "chat.ack"],
+                "features": {"chat_direct_pull": True},
+                "limits": {"max_batch_messages": 64, "max_batch_bytes": 262144},
+            }
+        )
+        return httpx.Response(200, json={"ok": True, "result": result})
+
+    assert (
+        modules.cli.run(
+            [*direct_profile, "chat", "pull"], provider_transport=httpx.MockTransport(handler)
+        )
+        == 1
+    )
+    assert json.loads(capsys.readouterr().err)["error_code"] == "receiver_lease_conflict"
+    assert requests == ["binding", "capabilities", "lease.acquire"]
+
+
+def test_direct_mail_read_keeps_native_cursor_and_receipt_for_reconciliation(
+    modules: SimpleNamespace, direct_profile: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Exercise the shared qualified Mail read and later authoritative receipt lookup."""
+
+    module = importlib.import_module("houmao_cccc.mail")
+    calls: list[tuple[str, dict[str, Any]]] = []
+    receipt = {
+        "operation_id": "read-1",
+        "actor_generation": "generation-1",
+        "before_cursor": "",
+        "after_cursor": "mail-1",
+        "event_ids": ["mail-1"],
+        "outcome": "consumed",
+        "read_event_id": "read-event",
+    }
+    responses = {
+        "binding": _PROVIDER_BINDING,
+        "capabilities": {
+            "protocol_version": 2,
+            "mail": True,
+            "operations": sorted(module.MAIL_OPERATIONS),
+            "features": {item: True for item in module.MAIL_FEATURES},
+            "limits": {"max_mail_messages": 200, "max_mail_response_bytes": 1048576},
+        },
+        "mail.read": {
+            "cursor": {"event_id": "mail-1"},
+            "has_more": False,
+            "consumed": True,
+            "outcome": "consumed",
+            "messages": [
+                {
+                    "id": "mail-1",
+                    "kind": "chat.message",
+                    "data": {"message_mode": "mail", "text": "hello"},
+                }
+            ],
+            "receipt": receipt,
+        },
+        "mail.read-receipts": {"found": True, "receipt": receipt},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        envelope = json.loads(request.content)
+        operation = envelope["operation"]
+        calls.append((operation, envelope["arguments"]))
+        return httpx.Response(200, json={"ok": True, "result": responses[operation]})
+
+    transport = httpx.MockTransport(handler)
+    assert (
+        modules.cli.run(
+            [*direct_profile, "mail", "read", "--operation-id", "read-1", "--expected-cursor", ""],
+            provider_transport=transport,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["receipt"] == receipt
+    assert calls[-1] == (
+        "mail.read",
+        {"expected_cursor": "", "operation_id": "read-1", "limit": 50, "max_bytes": 262144},
+    )
+    assert (
+        modules.cli.run(
+            [*direct_profile, "mail", "reads", "--operation-id", "read-1"],
+            provider_transport=transport,
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["receipt"] == receipt
+    assert calls[-1] == ("mail.read-receipts", {"operation_id": "read-1"})

@@ -74,6 +74,8 @@ The factory accepts `(context, validated_config)` and returns an object with `ro
 | `owner` | Immutable `agent_id`, `runtime_session_id`, and optional `agent_name` for the gateway owner. |
 | `instance_id`, `binding_id` | Host-selected instance and stable owner/account binding identities. |
 | `listener` | Optional resolved host, port, and base URL supplied during post-bind activation. |
+| `events.wait_until_ready(timeout_seconds=...)` | Observe readiness for the current body. Return a context-bound observation or `None` on timeout. |
+| `events.validate(event)` | Validate the complete event and its projected prompt without reserving admission. |
 | `events.dispatch(event)` | Await immediate confirmed handoff of one ordinary notification, or receive `PluginDispatchError`. |
 | `workers.start_soon(name, worker)` | Start an asynchronous zero-argument worker under instance supervision. |
 | `credentials.read()` | Reopen the selected private credential document during the active lifespan. |
@@ -140,6 +142,10 @@ async def notify(event: PluginEvent) -> PluginDispatchResult:
 ```
 
 The owner comes from the context. Event input cannot override its agent ID, runtime session, sender account, target route, or credentials. The gateway bounds the entire event envelope before dispatch and applies ordinary readiness admission to the current agent body.
+
+The CCCC plugin selects the fenced request presentation by supplying `PluginEvent.presentation` in place of `text`. Construct a `PluginRequestPresentation` with a `PluginRequestBinding` from the verified Group and Actor and an ordered list of `PluginRequestMessage` entries. The host checks the binding against its CCCC instance selection and writes the trusted header using the live owner-local gateway URL. It quotes the individual messages inside one request fence, keeps correlation fields out of the prompt, and checks the complete rendered prompt against `max_event_bytes`.
+
+A supervised receiver can call `await context.events.wait_until_ready(timeout_seconds=...)` and pass the returned observation to `await context.events.dispatch(event, readiness=observation)`. The observation is advisory and carries the identity of the current body. The host repeats its ready-only checks at dispatch. A readiness race returns `not_ready`, and a body replacement returns `body_replaced`. Both errors carry `dispatch_outcome="not_sent"` when they occur before admission. A revoked context ends the wait. For CCCC projections, a queued native receipt needs evidence that the exact prompt reached the current body before the dispatch can succeed.
 
 | Outcome | Sender Observation | Sender Action |
 | --- | --- | --- |

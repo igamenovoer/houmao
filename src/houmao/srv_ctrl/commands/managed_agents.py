@@ -34,7 +34,7 @@ from typing import Any, Literal, TypeVar, cast
 import uuid
 
 import click
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 
 from houmao.execution.context import validate_execution_owner
 from houmao.execution.tmux import TmuxObservationError
@@ -3541,13 +3541,14 @@ def attach_gateway(
     background: bool = False,
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     plugin_config: GatewayPluginConfiguration | None = None,
+    plugin_config_overrides: dict[str, dict[str, JsonValue]] | None = None,
     access_config_path: Path | None = None,
 ) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... gateway attach")
     if target.mode == "executor":
-        if plugin_config is not None:
+        if plugin_config is not None or plugin_config_overrides:
             raise click.ClickException(
                 "Gateway plugin configuration is unsupported through the finite execution transport."
             )
@@ -3581,7 +3582,7 @@ def attach_gateway(
     if target.mode == "server":
         if access_config_path is not None:
             raise click.ClickException("Gateway access configuration requires owner-side attach.")
-        if plugin_config is not None:
+        if plugin_config is not None or plugin_config_overrides:
             raise click.ClickException(
                 "Gateway plugin configuration requires local runtime authority on the owning host."
             )
@@ -3609,6 +3610,7 @@ def attach_gateway(
         execution_mode_override=execution_mode_override,
         tui_tracking_timing_overrides=tui_tracking_timing_overrides,
         plugin_config=plugin_config,
+        plugin_config_overrides=plugin_config_overrides,
         access_config=deployment,
     )
     if result.status != "ok":

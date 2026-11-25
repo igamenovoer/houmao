@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from click.testing import CliRunner
 import pytest
+from pydantic import BaseModel
 
 from houmao.agents.realm_controller import runtime
 from houmao.agents.realm_controller.errors import (
@@ -39,6 +40,10 @@ from houmao.gateway.plugins import (
     GatewayPluginConfiguration,
     GatewayPluginStatusResponse,
     PluginInstanceConfiguration,
+)
+from houmao.gateway.plugins.configuration import (
+    apply_plugin_config_overrides,
+    parse_plugin_config_overrides,
 )
 from houmao.srv_ctrl.commands.main import cli
 
@@ -442,6 +447,91 @@ def test_maintained_cli_rejects_invalid_selection_before_target_resolution(
     )
     assert result.exit_code == 1
     assert "Duplicate plugin configuration key" in result.output
+
+
+def test_launch_overrides_merge_selected_instances_and_validate_models(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the selected plugin's validation and leave sibling instances intact."""
+
+    class Settings(BaseModel):
+        """Represent a plugin-owned config model with a typed nested object."""
+
+        account: str
+        timing: dict[str, float]
+
+    monkeypatch.setattr(
+        "houmao.gateway.plugins.discovery.load_plugin_definition",
+        lambda _: SimpleNamespace(definition=SimpleNamespace(config_model=Settings)),
+    )
+    selected = GatewayPluginConfiguration.model_validate(
+        {
+            "plugins": {
+                "team": {
+                    "implementation": "example",
+                    "config": {"account": "owner", "timing": {"quiet": 1.0, "max": 9.0}},
+                },
+                "other": {
+                    "implementation": "example",
+                    "config": {"account": "other", "timing": {"quiet": 2.0}},
+                },
+            }
+        }
+    )
+    overrides = parse_plugin_config_overrides(
+        (
+            'team={"timing":{"quiet":2.0}}',
+            'team={"timing":{"quiet":3.0}}',
+        )
+    )
+    result = apply_plugin_config_overrides(selected, overrides)
+    assert result.plugins["team"].config == {
+        "account": "owner",
+        "timing": {"quiet": 3.0, "max": 9.0},
+    }
+    assert result.plugins["other"] == selected.plugins["other"]
+    from houmao.gateway.plugins import PluginConfigurationError
+
+    with pytest.raises(PluginConfigurationError, match="selected instance"):
+        apply_plugin_config_overrides(selected, {"missing": {}})
+    with pytest.raises(PluginConfigurationError, match="failed validation"):
+        apply_plugin_config_overrides(selected, {"team": {"timing": "invalid"}})
+
+
+def test_maintained_cli_parses_repeatable_plugin_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Send strict override objects through the maintained attach command."""
+
+    captured: dict[str, object] = {}
+
+    def attach(_target: object, **kwargs: object) -> dict[str, str]:
+        """Capture the exact override structure crossing the attach boundary."""
+
+        captured.update(kwargs)
+        return {"status": "ok"}
+
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.gateway.resolve_managed_agent_target", lambda **_: "target"
+    )
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.gateway.attach_gateway", attach)
+    result = CliRunner().invoke(
+        cli,
+        [
+            "agents",
+            "single",
+            "--agent-id",
+            "owner-alpha",
+            "gateway",
+            "attach",
+            "--plugin-config-override",
+            'team={"delivery":{"transport":"push"}}',
+            "--plugin-config-override",
+            'team={"delivery":{"push_policy":"asap"}}',
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["plugin_config_overrides"] == {
+        "team": {"delivery": {"transport": "push", "push_policy": "asap"}}
+    }
 
 
 @pytest.mark.parametrize("generation", ["new-generation", None])

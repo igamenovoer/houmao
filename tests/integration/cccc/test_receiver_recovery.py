@@ -169,7 +169,7 @@ class _Provider:
 
         grant = _result(
             self.client.post(
-                "/api/v1/external-receiver/v1/grants",
+                "/api/v1/external-receiver/v2/grants",
                 json={"group_id": self.group, "actor_id": actor},
             )
         )
@@ -188,7 +188,7 @@ class _Provider:
 
         selected = grant if grant is not None else self.m_grants[actor]
         return self.client.post(
-            "/api/v1/external-receiver/v1/rpc",
+            "/api/v1/external-receiver/v2/rpc",
             headers={"Authorization": "Bearer " + selected["token"]},
             json={"operation": operation, "arguments": arguments or {}},
         )
@@ -199,6 +199,23 @@ class _Provider:
         lease = _result(self.rpc(actor, "lease.acquire"))
         assert lease["expires_in_seconds"] == 45
         return {key: lease[key] for key in ("lease_id", "lease_generation")}
+
+    def start_dispatch(
+        self,
+        actor: str,
+        lease: dict[str, Any],
+        offers: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Durably authorize the exact ordered members of one handoff."""
+
+        args = {
+            **lease,
+            "dispatch_id": uuid.uuid4().hex,
+            "attempt_ids": [offer["attempt_id"] for offer in offers],
+        }
+        result = _result(self.rpc(actor, "lease.start", args))
+        assert result["outcome"] == "started" and result["attempt_ids"] == args["attempt_ids"]
+        return {**lease, "dispatch_id": args["dispatch_id"]}
 
     def send(self, *recipients: str) -> str:
         """Store a fresh sender-authored source event and return its durable identity."""
@@ -256,30 +273,26 @@ def test_actual_daemon_restart_retains_authority_without_replaying_offer(
 
     lease = provider.lease("receiver")
     event = provider.send()
-    offer = _result(provider.rpc("receiver", "lease.next", lease))["offer"]
+    [offer] = _result(provider.rpc("receiver", "lease.next", lease))["offers"]
+    started = provider.start_dispatch("receiver", lease, [offer])
     provider.crash()
     provider.start()
 
     assert _result(provider.rpc("receiver", "binding"))["actor_id"] == "receiver"
     assert provider.rpc("receiver", "lease.acquire").status_code == 409
-    assert _result(provider.rpc("receiver", "lease.next", lease))["offer"] is None
+    assert _result(provider.rpc("receiver", "lease.next", lease))["offers"] == []
     assert provider.receipts(event)[0]["state"] == "uncertain"
-    late = {**lease, "attempt_id": offer["attempt_id"], "outcome": "accepted"}
-    assert provider.rpc("receiver", "lease.outcome", late).status_code == 409
+    late = {**started, "outcome": "accepted"}
+    assert provider.rpc("receiver", "lease.settle", late).status_code == 409
     retry = {"event_id": event, "actor_ids": ["receiver"]}
     assert provider.rpc("sender", "chat.retry", retry).status_code == 409
 
     _result(provider.rpc("sender", "chat.retry", {**retry, "allow_uncertain_retry": True}))
-    replacement = _result(provider.rpc("receiver", "lease.next", lease))["offer"]
+    [replacement] = _result(provider.rpc("receiver", "lease.next", lease))["offers"]
     assert replacement["event_id"] == event
     assert replacement["attempt_id"] != offer["attempt_id"]
-    _result(
-        provider.rpc(
-            "receiver",
-            "lease.outcome",
-            {**lease, "attempt_id": replacement["attempt_id"], "outcome": "accepted"},
-        )
-    )
+    dispatch = provider.start_dispatch("receiver", lease, [replacement])
+    _result(provider.rpc("receiver", "lease.settle", {**dispatch, "outcome": "accepted"}))
     assert [item["state"] for item in provider.receipts(event)] == ["accepted", "uncertain"]
     history = _result(provider.rpc("sender", "chat.history", {"event_id": event}))
     assert history["messages"][0]["id"] == event
@@ -291,7 +304,8 @@ def test_real_lease_expiry_fences_late_acknowledgement(provider: _Provider) -> N
     started = time.monotonic()
     lease = provider.lease("receiver")
     event = provider.send()
-    offer = _result(provider.rpc("receiver", "lease.next", lease))["offer"]
+    [offer] = _result(provider.rpc("receiver", "lease.next", lease))["offers"]
+    dispatch = provider.start_dispatch("receiver", lease, [offer])
     assert provider.rpc("receiver", "lease.acquire").status_code == 409
     deadline = started + 50
     while time.monotonic() < deadline:
@@ -305,10 +319,10 @@ def test_real_lease_expiry_fences_late_acknowledgement(provider: _Provider) -> N
         raise AssertionError("The negotiated receiver lease did not expire")
     assert time.monotonic() - started >= 44.5
     assert replacement["lease_generation"] > lease["lease_generation"]
-    late = {**lease, "attempt_id": offer["attempt_id"], "outcome": "accepted"}
-    assert provider.rpc("receiver", "lease.outcome", late).status_code == 409
+    late = {**dispatch, "outcome": "accepted"}
+    assert provider.rpc("receiver", "lease.settle", late).status_code == 409
     new_lease = {key: replacement[key] for key in ("lease_id", "lease_generation")}
-    assert _result(provider.rpc("receiver", "lease.next", new_lease))["offer"] is None
+    assert _result(provider.rpc("receiver", "lease.next", new_lease))["offers"] == []
     assert provider.receipts(event)[0]["state"] == "uncertain"
 
 
@@ -317,13 +331,14 @@ def test_grant_revocation_retires_authority_without_replay(provider: _Provider) 
 
     lease = provider.lease("receiver")
     event = provider.send()
-    _result(provider.rpc("receiver", "lease.next", lease))
+    [offer] = _result(provider.rpc("receiver", "lease.next", lease))["offers"]
+    provider.start_dispatch("receiver", lease, [offer])
     grant = provider.m_grants["receiver"]
-    _result(provider.client.delete("/api/v1/external-receiver/v1/grants/" + grant["grant_id"]))
+    _result(provider.client.delete("/api/v1/external-receiver/v2/grants/" + grant["grant_id"]))
     assert provider.rpc("receiver", "binding", grant=grant).status_code == 401
     provider.issue_grant("receiver")
     replacement = provider.lease("receiver")
-    assert _result(provider.rpc("receiver", "lease.next", replacement))["offer"] is None
+    assert _result(provider.rpc("receiver", "lease.next", replacement))["offers"] == []
     assert provider.receipts(event)[0]["state"] == "uncertain"
 
 
@@ -339,7 +354,7 @@ def test_actor_recreation_invalidates_previous_registration(provider: _Provider)
     assert new["actor_generation"] != old["actor_generation"]
     assert provider.rpc("receiver", "binding", grant=old).status_code in {401, 422}
     replacement = provider.lease("receiver")
-    assert _result(provider.rpc("receiver", "lease.next", replacement))["offer"] is None
+    assert _result(provider.rpc("receiver", "lease.next", replacement))["offers"] == []
     assert provider.receipts(event)[0]["actor_generation"] == old["actor_generation"]
 
 
@@ -351,19 +366,16 @@ def test_partial_delivery_and_repeated_acknowledgement_are_recipient_scoped(
     leases = {actor: provider.lease(actor) for actor in ("receiver", "other")}
     event = provider.send("receiver", "other")
     offers = {
-        actor: _result(provider.rpc(actor, "lease.next", lease))["offer"]
+        actor: _result(provider.rpc(actor, "lease.next", lease))["offers"][0]
         for actor, lease in leases.items()
     }
     for actor, outcome in (("receiver", "accepted"), ("other", "refused")):
-        arguments = {
-            **leases[actor],
-            "attempt_id": offers[actor]["attempt_id"],
-            "outcome": outcome,
-        }
-        _result(provider.rpc(actor, "lease.outcome", arguments))
+        dispatch = provider.start_dispatch(actor, leases[actor], [offers[actor]])
+        arguments = {**dispatch, "outcome": outcome}
+        _result(provider.rpc(actor, "lease.settle", arguments))
         # Treat the first successful HTTP response as lost, then repeat only settlement.
-        _result(provider.rpc(actor, "lease.outcome", arguments))
-        assert _result(provider.rpc(actor, "lease.next", leases[actor]))["offer"] is None
+        _result(provider.rpc(actor, "lease.settle", arguments))
+        assert _result(provider.rpc(actor, "lease.next", leases[actor]))["offers"] == []
     assert {item["actor_id"]: item["state"] for item in provider.receipts(event)} == {
         "receiver": "accepted",
         "other": "refused",
@@ -375,9 +387,9 @@ def test_partial_delivery_and_repeated_acknowledgement_are_recipient_scoped(
         == 409
     )
     _result(provider.rpc("sender", "chat.retry", {"event_id": event, "actor_ids": ["other"]}))
-    fresh = _result(provider.rpc("other", "lease.next", leases["other"]))["offer"]
+    [fresh] = _result(provider.rpc("other", "lease.next", leases["other"]))["offers"]
     assert fresh["attempt_id"] != offers["other"]["attempt_id"]
-    assert _result(provider.rpc("receiver", "lease.next", leases["receiver"]))["offer"] is None
+    assert _result(provider.rpc("receiver", "lease.next", leases["receiver"]))["offers"] == []
 
 
 def test_group_stop_retires_intake_without_controlling_external_body(provider: _Provider) -> None:
@@ -387,7 +399,8 @@ def test_group_stop_retires_intake_without_controlling_external_body(provider: _
     try:
         lease = provider.lease("receiver")
         event = provider.send()
-        _result(provider.rpc("receiver", "lease.next", lease))
+        [offer] = _result(provider.rpc("receiver", "lease.next", lease))["offers"]
+        provider.start_dispatch("receiver", lease, [offer])
         _result(provider.client.post(f"/api/v1/groups/{provider.group}/stop"))
         assert body.poll() is None
         assert provider.rpc("receiver", "lease.renew", lease).status_code == 503
@@ -398,3 +411,169 @@ def test_group_stop_retires_intake_without_controlling_external_body(provider: _
     finally:
         body.terminate()
         body.wait(timeout=10)
+
+
+def test_first_delivery_recovers_from_chat_commit_before_state_projection(
+    provider: _Provider,
+) -> None:
+    """Replay the retained chat with the exact pre-send receiver state after a crash."""
+
+    lease = provider.lease("receiver")
+    state_path = (
+        provider.m_root / "data" / "groups" / provider.group / "state" / "external_receiver.json"
+    )
+    before = state_path.read_bytes()
+    event = provider.send()
+    original = provider.receipts(event)[0]
+    assert original["state"] == "pending"
+    provider.crash()
+    state_path.write_bytes(before)
+    provider.start()
+    [offer] = _result(provider.rpc("receiver", "lease.next", lease))["offers"]
+    assert offer["event_id"] == event and offer["attempt_id"] == original["attempt_id"]
+    assert _result(provider.rpc("receiver", "lease.next", lease))["offers"] == []
+    _result(provider.rpc("receiver", "lease.release", lease))
+    replacement = provider.lease("receiver")
+    [resumed] = _result(provider.rpc("receiver", "lease.next", replacement))["offers"]
+    assert resumed["attempt_id"] == original["attempt_id"]
+    assert (
+        provider.rpc(
+            "receiver",
+            "lease.start",
+            {
+                **lease,
+                "dispatch_id": uuid.uuid4().hex,
+                "attempt_ids": [offer["attempt_id"]],
+            },
+        ).status_code
+        == 409
+    )
+
+
+def test_exact_batch_start_defer_and_settlement_are_fenced(provider: _Provider) -> None:
+    """Settling one admitted batch preserves exact membership across readiness races."""
+
+    lease = provider.lease("receiver")
+    events = [provider.send(), provider.send()]
+    offers = _result(provider.rpc("receiver", "lease.next", lease))["offers"]
+    assert [item["event_id"] for item in offers] == events
+    first = provider.start_dispatch("receiver", lease, offers)
+    same_request = {**first, "attempt_ids": [item["attempt_id"] for item in offers]}
+    assert _result(provider.rpc("receiver", "lease.start", same_request))["outcome"] == "started"
+    assert (
+        provider.rpc(
+            "receiver",
+            "lease.start",
+            {
+                **first,
+                "attempt_ids": same_request["attempt_ids"][:1],
+            },
+        ).status_code
+        == 409
+    )
+    deferred = {**first, "outcome": "deferred"}
+    _result(provider.rpc("receiver", "lease.settle", deferred))
+    _result(provider.rpc("receiver", "lease.settle", deferred))
+    assert (
+        provider.rpc(
+            "receiver",
+            "lease.start",
+            {
+                **lease,
+                "dispatch_id": uuid.uuid4().hex,
+                "attempt_ids": same_request["attempt_ids"][:1],
+            },
+        ).status_code
+        == 409
+    )
+    second = provider.start_dispatch("receiver", lease, offers)
+    assert second["dispatch_id"] != first["dispatch_id"]
+    assert (
+        provider.rpc("receiver", "lease.settle", {**first, "outcome": "accepted"}).status_code
+        == 409
+    )
+    settled = _result(provider.rpc("receiver", "lease.settle", {**second, "outcome": "accepted"}))
+    assert settled["attempt_ids"] == same_request["attempt_ids"]
+    assert [provider.receipts(event)[0]["state"] for event in events] == ["accepted", "accepted"]
+    provider.crash()
+    provider.start()
+    assert [provider.receipts(event)[0]["state"] for event in events] == ["accepted", "accepted"]
+
+
+def test_direct_receipt_expiry_fences_old_generation_and_leaves_no_replay(
+    provider: _Provider,
+) -> None:
+    """A retained direct exposure becomes uncertain after its independent receipt expires."""
+
+    grant = _result(
+        provider.rpc("receiver", "lease.acquire", {"transport": "pull", "receiver": "direct"})
+    )
+    lease = {key: grant[key] for key in ("lease_id", "lease_generation")}
+    event = provider.send()
+    batch = _result(provider.rpc("receiver", "lease.next", lease))
+    _result(provider.rpc("receiver", "lease.release", lease))
+    state_path = (
+        provider.m_root / "data" / "groups" / provider.group / "state" / "external_receiver.json"
+    )
+    provider.crash()
+    # Restore the same receipt image with only its clock deadline elapsed.
+    state = json.loads(state_path.read_bytes())
+    read = next(item for item in state["direct_reads"] if item["receipt"] == batch["receipt"])
+    read["expires_ms"] = 0
+    for attempt in state["attempts"]:
+        if attempt["id"] in read["attempt_ids"]:
+            attempt["deadline_ms"] = 0
+    state_path.write_text(json.dumps(state))
+    provider.start()
+    receipt = {"receipt": batch["receipt"]}
+    expired = provider.rpc("receiver", "chat.ack", receipt)
+    assert expired.status_code == 422 and expired.json()["error"]["code"] == "receipt_expired"
+    new_lease = provider.lease("receiver")
+    assert _result(provider.rpc("receiver", "lease.next", new_lease))["offers"] == []
+    assert provider.receipts(event)[0]["state"] == "uncertain"
+    _result(provider.client.delete(f"/api/v1/groups/{provider.group}/actors/receiver"))
+    provider.add_actor("receiver")
+    assert provider.rpc("receiver", "chat.ack", receipt).status_code == 404
+
+
+def test_pending_capacity_and_age_have_distinct_provider_receipts(provider: _Provider) -> None:
+    """Exercise retained full-queue and expired-work images through the real provider."""
+
+    caps = _result(provider.rpc("receiver", "capabilities"))["limits"]
+    event = provider.send()
+    state_path = (
+        provider.m_root / "data" / "groups" / provider.group / "state" / "external_receiver.json"
+    )
+    provider.crash()
+    state = json.loads(state_path.read_bytes())
+    [pending] = state["attempts"]
+    # Unrelated pending entries fill the selection budget without 1,023 RPCs.
+    for sequence in range(2, caps["max_pending_messages"] + 1):
+        state["attempts"].append(
+            {
+                **pending,
+                "id": uuid.uuid4().hex,
+                "event_id": uuid.uuid4().hex,
+                "sequence": sequence,
+            }
+        )
+    state["sequence"] = caps["max_pending_messages"]
+    state_path.write_text(json.dumps(state))
+    provider.start()
+    refused = provider.send()
+    receipt = provider.receipts(refused)[0]
+    assert receipt["state"] == "refused" and receipt["error_code"] == "pending_capacity"
+    provider.crash()
+
+    state = json.loads(state_path.read_bytes())
+    # Keep genuine entries for the provider's age-boundary check.
+    state["attempts"] = [
+        attempt for attempt in state["attempts"] if attempt["event_id"] in {event, refused}
+    ]
+    for attempt in state["attempts"]:
+        if attempt["event_id"] == event:
+            attempt["expiry_ms"] = 0
+    state_path.write_text(json.dumps(state))
+    provider.start()
+    receipt = provider.receipts(event)[0]
+    assert receipt["state"] == "failed" and receipt["error_code"] == "pending_expired"

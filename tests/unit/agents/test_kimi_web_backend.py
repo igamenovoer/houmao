@@ -528,6 +528,12 @@ def test_reports_native_queue_receipt_before_settlement(
         "exact managed text"
     ]
     terminal = json.loads(receipt.with_name("web-result.json").read_text())
+    native_receipt = json.loads(receipt.read_text())
+    assert json.loads(receipt.with_name("web-handoff.json").read_text()) == {
+        "operation_id": "request",
+        "identity": native_receipt["identity"],
+        "message_id": native_receipt["message_id"],
+    }
     assert terminal["receipt"]["turns"] == [1]
     assert terminal["outcome"] == "completed"
 

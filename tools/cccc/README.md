@@ -18,11 +18,11 @@ The default Cargo development profile follows upstream's disabled debug informat
 
 ## Prepare the Compatible Receiver Service
 
-The stock reference build above cannot accept Houmao external receivers. The maintained protocol-v1 extension is pinned in [the tracked dependency](../../extern/tracked/cccc-receiver/README.md). Prepare its clean source independently, then select a separate root and port:
+The stock reference build above cannot accept Houmao external receivers. The maintained protocol-v2 extension is pinned in [the tracked dependency](../../extern/tracked/cccc-receiver/README.md). Prepare its clean source independently, then select a separate root and port:
 
 ```bash
 pixi run --manifest-path tools/cccc/pixi.toml prepare-receiver
-export HOUMAO_CCCC_SOURCE="$HOME/.local/share/houmao-cccc/source-receiver"
+export HOUMAO_CCCC_SOURCE="$HOME/.local/share/houmao-cccc/source-receiver-v2"
 export HOUMAO_CCCC_ROOT="$HOME/.local/share/houmao-cccc-receiver"
 export HOUMAO_CCCC_PORT=8849
 pixi run --manifest-path tools/cccc/pixi.toml build

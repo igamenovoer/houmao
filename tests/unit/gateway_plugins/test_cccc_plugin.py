@@ -8,8 +8,6 @@ from contextlib import asynccontextmanager
 import importlib
 import json
 from pathlib import Path
-import shlex
-from string import Template
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
@@ -22,7 +20,6 @@ import pytest
 from houmao.gateway.plugins import (
     PluginDispatchError,
     PluginDispatchResult,
-    PluginListener,
     PluginOwner,
 )
 
@@ -42,8 +39,10 @@ class Service:
     def __init__(self) -> None:
         """Create isolated scripted transport and worker observations."""
 
+        self.m_dispatches: dict[str, list[str]] = {}
         self.m_calls: list[tuple[str, dict[str, Any]]] = []
         self.m_offers: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self.m_notices: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self.m_outcomes: list[dict[str, Any]] = []
         self.m_failures: dict[str, Exception] = {}
         self.m_clients: list[Client] = []
@@ -51,7 +50,7 @@ class Service:
         self.m_block_send: asyncio.Event | None = None
         self.m_send_started: asyncio.Event = asyncio.Event()
         self.m_binding: dict[str, Any] = {
-            "protocol_version": 1,
+            "protocol_version": 2,
             "group_id": "g1",
             "actor_id": "a1",
             "actor_generation": "gen1",
@@ -87,7 +86,7 @@ class Client:
             return service.m_binding
         if operation == "capabilities":
             return {
-                "protocol_version": 1,
+                "protocol_version": 2,
                 "operations": [
                     "binding",
                     "capabilities",
@@ -97,6 +96,10 @@ class Client:
                     "lease.release",
                     "lease.next",
                     "lease.outcome",
+                    "lease.notice.next",
+                    "lease.start",
+                    "lease.settle",
+                    "lease.stream",
                     "chat.send",
                     "chat.reply",
                     "chat.retry",
@@ -104,7 +107,16 @@ class Client:
                     "chat.deliveries",
                     "mail.read",
                 ],
+                "features": {
+                    "chat_pending": True,
+                    "chat_batch_pull": True,
+                    "chat_push_stream": True,
+                    "chat_batch_settlement": True,
+                },
                 "limits": {
+                    "max_batch_messages": 32,
+                    "max_batch_bytes": 65536,
+                    "max_handoff_seconds": 15,
                     "max_event_bytes": 65536,
                     "max_history_limit": 100,
                     "max_response_bytes": 262144,
@@ -114,11 +126,25 @@ class Client:
         if operation == "lease.acquire":
             return {"lease_id": "lease1", "lease_generation": 1, "expires_in_seconds": 45}
         if operation == "lease.next":
-            try:
-                offer = await asyncio.wait_for(service.m_offers.get(), timeout=0.02)
-            except TimeoutError:
-                offer = None
-            return {"offer": offer}
+            batch = []
+            while not service.m_offers.empty() and len(batch) < arguments["limit"]:
+                batch.append(service.m_offers.get_nowait())
+            return {"offers": batch}
+        if operation == "lease.notice.next":
+            return {"offer": None if service.m_notices.empty() else service.m_notices.get_nowait()}
+        if operation == "lease.start":
+            identifier = arguments["dispatch_id"]
+            service.m_dispatches[identifier] = arguments["attempt_ids"]
+            return {
+                "dispatch_id": identifier,
+                "attempt_ids": arguments["attempt_ids"],
+                "outcome": "started",
+            }
+        if operation == "lease.settle":
+            identifier = arguments["dispatch_id"]
+            decision = {**arguments, "attempt_ids": service.m_dispatches[identifier]}
+            service.m_outcomes.append(decision)
+            return decision
         if operation == "lease.outcome":
             service.m_outcomes.append(dict(arguments))
             return {"recorded": True}
@@ -148,6 +174,37 @@ class Client:
             return {"deliveries": [{"state": "uncertain", "actor_id": "a2"}]}
         raise AssertionError(operation)
 
+    async def verify_binding(self) -> None:
+        """Exercise the service binding error contract on every connection."""
+
+        binding = await self.request("binding", {})
+        if binding["protocol_version"] != 2 or binding["actor_generation"] != "gen1":
+            from houmao_cccc.client import ProviderError
+
+            raise ProviderError("receiver_incompatible", 503, False)
+
+    async def capabilities(self) -> dict[str, Any]:
+        """Return the provider capabilities negotiated by the worker."""
+
+        return await self.request("capabilities", {})
+
+    async def offer_stream(
+        self, lease_id: str, generation: int, **kwargs: Any
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Supply chat independently of empty Mail intake."""
+
+        assert self.m_service is not None
+        queue = (
+            self.m_service.m_notices if kwargs["kind"] == "mail_notice" else self.m_service.m_offers
+        )
+        for _ in range(kwargs["limit"]):
+            try:
+                result = await asyncio.wait_for(queue.get(), timeout=0.03)
+            except TimeoutError:
+                return
+            if result["sequence"] > kwargs["after_sequence"]:
+                yield result
+
     async def aclose(self) -> None:
         """Record transport cleanup without retaining request bodies."""
 
@@ -171,6 +228,8 @@ def offer(**overrides: Any) -> dict[str, Any]:
 
     return {
         "attempt_id": "attempt1",
+        "sequence": 1,
+        "timestamp": "2026-01-01T00:00:00Z",
         "event_id": "event1",
         "group_id": "g1",
         "actor_id": "a1",
@@ -206,7 +265,7 @@ async def harness(
         group_id="g1",
         actor_id="a1",
         actor_generation="gen1",
-        poll_timeout_seconds=0.01,
+        delivery=implementation.DeliverySettings(pull_interval=0.02),
         reconnect_delay_seconds=0.05,
         renew_interval_seconds=0.01,
     )
@@ -237,7 +296,9 @@ async def harness(
         ),
         state=SimpleNamespace(path=lambda name: tmp_path / name),
         events=SimpleNamespace(
-            dispatch=AsyncMock(return_value=PluginDispatchResult(source_event_id="event1"))
+            dispatch=AsyncMock(return_value=PluginDispatchResult(source_event_id="event1")),
+            wait_until_ready=AsyncMock(return_value=object()),
+            validate=Mock(),
         ),
         workers=SimpleNamespace(start_soon=start_worker),
         report_connection=Mock(),
@@ -294,7 +355,7 @@ def test_send_schema_rejects_unsupported_authority(implementation: Any, override
     with pytest.raises(ValidationError):
         implementation.SendRequest.model_validate(
             {
-                "expected_binding_id": "binding1",
+                "connection_token": "current",
                 "operation_id": "op1",
                 "to": ["peer"],
                 "text": "Synthetic",
@@ -324,6 +385,17 @@ def test_status_members_and_capabilities_are_safe(
             members = await h.http.get("/v1/plugins/team/members")
             assert members.status_code == 200
             assert "SECRET" not in members.text and "env" not in members.text
+            assert members.json()["connection_token"] == h.plugin.m_connection_token
+            discovery = await h.http.get("/v1/plugins/team/discovery")
+            assert discovery.status_code == 200
+            assert discovery.json() == {
+                "endpoint": "http://127.0.0.1:8848",
+                "group_id": "g1",
+                "actor_id": "a1",
+                "actor_generation": "gen1",
+                "protocol_version": 2,
+                "operations": h.plugin.m_provider_capabilities["operations"],
+            }
             rejected = await h.http.get("/v1/plugins/team/binding?sender=other")
             assert rejected.status_code == 422
 
@@ -342,7 +414,7 @@ def test_send_and_reply_preserve_actor_and_native_references(
             sent = await h.http.post(
                 "/v1/plugins/team/chat/send",
                 json={
-                    "expected_binding_id": "binding1",
+                    "connection_token": h.plugin.m_connection_token,
                     "operation_id": "send1",
                     "to": ["a2"],
                     "text": "Synthetic",
@@ -354,9 +426,8 @@ def test_send_and_reply_preserve_actor_and_native_references(
             replied = await h.http.post(
                 "/v1/plugins/team/chat/reply",
                 json={
-                    "expected_binding_id": "binding1",
                     "operation_id": "reply1",
-                    "event_ref": result["event"]["event_ref"],
+                    "handle": result["event"]["handle"],
                     "text": "Reply",
                 },
             )
@@ -381,7 +452,7 @@ def test_stale_binding_and_foreign_reference_fail_before_provider(
             stale = await h.http.post(
                 "/v1/plugins/team/chat/send",
                 json={
-                    "expected_binding_id": "another",
+                    "connection_token": "another",
                     "operation_id": "send1",
                     "to": ["a2"],
                     "text": "Synthetic",
@@ -390,14 +461,36 @@ def test_stale_binding_and_foreign_reference_fail_before_provider(
             foreign = await h.http.post(
                 "/v1/plugins/team/chat/reply",
                 json={
-                    "expected_binding_id": "binding1",
                     "operation_id": "reply1",
-                    "event_ref": "foreign",
+                    "handle": "foreign",
                     "text": "Synthetic",
                 },
             )
-            assert stale.status_code == 409 and foreign.status_code == 422
+            assert stale.status_code == 409 and foreign.status_code == 409
             assert not any(op.startswith("chat.") for op, _ in h.service.m_calls)
+
+    asyncio.run(exercise())
+
+
+def test_expired_handle_requires_exact_history_selection(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Issue a fresh handle only for an explicitly selected Actor-visible event."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            monkeypatch.setattr(implementation, "_HANDLE_TTL_SECONDS", 0.0)
+            expired = h.plugin._mint_handle("event1")
+            stale = await h.http.get(f"/v1/plugins/team/messages/{expired}")
+            assert stale.status_code == 409
+            assert stale.json()["detail"]["error_code"] == "message_handle_stale"
+            assert not any(op == "chat.history" for op, _ in h.service.m_calls)
+            monkeypatch.setattr(implementation, "_HANDLE_TTL_SECONDS", 60.0)
+            h.service.m_history = {"messages": [event("event1")], "has_more": False}
+            selected = await h.http.get("/v1/plugins/team/chat/history?event_id=event1")
+            refreshed = selected.json()["messages"][0]["handle"]
+            assert selected.status_code == 200 and refreshed != expired
+            assert (await h.http.get(f"/v1/plugins/team/messages/{refreshed}")).status_code == 200
 
     asyncio.run(exercise())
 
@@ -405,7 +498,6 @@ def test_stale_binding_and_foreign_reference_fail_before_provider(
 @pytest.mark.parametrize(
     "status,outcome,expected",
     [
-        (409, "not_sent", "refused"),
         (503, "not_sent", "failed"),
         (503, "unknown", "uncertain"),
     ],
@@ -425,7 +517,7 @@ def test_refused_dispatch_reports_failure_without_replay(
 
         async with harness(implementation, monkeypatch, tmp_path) as h:
             h.context.events.dispatch.side_effect = PluginDispatchError(
-                error_code="readiness_conflict",
+                error_code="invalid_event",
                 status_code=status,
                 retryable=True,
                 dispatch_outcome=outcome,
@@ -450,49 +542,54 @@ def test_successful_offer_contains_reply_handle_and_ordinary_content(
         """Dispatch ordinary content and exercise its advertised reply command."""
 
         async with harness(implementation, monkeypatch, tmp_path) as h:
-            gateway_base = "http://127.0.0.1:43210"
-            h.context.listener = PluginListener(host="127.0.0.1", port=43210, base_url=gateway_base)
             await h.service.m_offers.put(offer(text="/compact"))
+            await h.service.m_offers.put(
+                offer(attempt_id="attempt2", event_id="event2", sequence=2, sender="a3")
+            )
             await eventually(lambda: len(h.service.m_outcomes) == 1)
             assert h.service.m_outcomes[0]["outcome"] == "accepted"
+            assert h.service.m_outcomes[0]["attempt_ids"] == ["attempt1", "attempt2"]
             h.context.events.dispatch.assert_awaited_once()
 
             envelope = h.context.events.dispatch.call_args.args[0]
-            assert envelope.source_event_id == "event1"
-            hint, content = envelope.text.split("\n\n", 1)
-            assert content == "/compact"
-            event_ref = envelope.metadata["event_ref"]
-            assert f"event_ref={event_ref}\n" in hint
-            assert "plugin_instance=team\n" in hint
-            assert f"gateway_base_url={gateway_base}\n" in hint
-            assert f"local_plugin_url={gateway_base}/v1/plugins/team\n" in hint
+            assert envelope.text is None
+            projection = envelope.presentation
+            assert projection.binding.group_id == "g1"
+            assert projection.binding.actor_id == "a1"
+            assert [item.sender for item in projection.messages] == ["a2", "a3"]
+            assert projection.messages[0].text == "/compact"
+            handle = projection.messages[0].handle
+            assert handle.startswith("msg_team.") and len(handle) < 36
 
-            example = next(line for line in hint.splitlines() if line.startswith("houmao-cccc "))
-            values = {
-                "GATEWAY_BASE_URL": gateway_base,
-                "PLUGIN_INSTANCE": "team",
-                "BINDING_ID": "binding1",
-                "EVENT_REF": event_ref,
-                "NEW_OPERATION_ID": "reply1",
-                "REPLY_TEXT": '--result observed "correctly"',
+            h.service.m_history = {"messages": [event("event1")], "has_more": False}
+            details = await h.http.get(f"/v1/plugins/team/messages/{handle}")
+            assert details.status_code == 200
+            assert details.json() == {
+                "handle": handle,
+                "sender": "a2",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "mode": "send",
+                "text": "Synthetic text",
+                "reply_to": None,
             }
-            cli = importlib.import_module("houmao_cccc.cli")
-            parsed = cli._parser().parse_args(
-                [Template(word).substitute(values) for word in shlex.split(example)[1:]]
-            )
-            assert parsed.gateway_url == gateway_base and parsed.instance == "team"
-            method, route, body = cli._request(parsed)
-            reply = await h.http.request(method, f"/v1/plugins/{parsed.instance}{route}", json=body)
-            assert reply.status_code == 200
-            assert (
-                "chat.reply",
+            for _ in range(2):
+                reply = await h.http.post(
+                    "/v1/plugins/team/chat/reply",
+                    json={
+                        "handle": handle,
+                        "operation_id": "reply1",
+                        "text": "Observed correctly",
+                    },
+                )
+                assert reply.status_code == 200
+            assert [arguments for op, arguments in h.service.m_calls if op == "chat.reply"] == [
                 {
                     "operation_id": "reply1",
                     "event_id": "event1",
-                    "text": values["REPLY_TEXT"],
+                    "text": "Observed correctly",
                     "mode": "send",
-                },
-            ) in h.service.m_calls
+                }
+            ] * 2
 
     asyncio.run(exercise())
 
@@ -505,7 +602,6 @@ def test_successful_offer_contains_reply_handle_and_ordinary_content(
         {"message_mode": "mail"},
         {"remaining_seconds": 0},
         {"remaining_seconds": float("nan")},
-        {"sender": "bad\nheader"},
         {"text": "x" * 65536},
     ],
 )
@@ -519,9 +615,8 @@ def test_invalid_offers_never_reach_body(
 
         async with harness(implementation, monkeypatch, tmp_path) as h:
             await h.service.m_offers.put(offer(**overrides))
-            await eventually(lambda: len(h.service.m_outcomes) == 1)
-            assert h.service.m_outcomes[0]["outcome"] == "failed"
-            assert h.service.m_outcomes[0]["retryable"] is False
+            await eventually(lambda: h.plugin.m_phase == "degraded")
+            assert not h.service.m_outcomes
             h.context.events.dispatch.assert_not_awaited()
 
     asyncio.run(exercise())
@@ -537,7 +632,7 @@ def test_offer_deadline_cancels_sdk_dispatch(
 
         cancelled = asyncio.Event()
 
-        async def pending(_event: Any) -> Any:
+        async def pending(_event: Any, **_kwargs: Any) -> Any:
             """Represent a handoff that cannot confirm before expiry."""
 
             try:
@@ -547,10 +642,134 @@ def test_offer_deadline_cancels_sdk_dispatch(
 
         async with harness(implementation, monkeypatch, tmp_path) as h:
             h.context.events.dispatch.side_effect = pending
-            await h.service.m_offers.put(offer(remaining_seconds=0.02))
+            await h.service.m_offers.put(offer(remaining_seconds=0.06))
             await eventually(lambda: len(h.service.m_outcomes) == 1)
             assert cancelled.is_set()
             assert h.service.m_outcomes[0]["outcome"] == "uncertain"
+
+    asyncio.run(exercise())
+
+
+def test_deferred_start_retries_the_same_batch_with_a_fresh_start_id(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Preserve a sealed pull batch through a definitive late readiness loss."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            h.context.events.dispatch.side_effect = [
+                PluginDispatchError(error_code="not_ready", status_code=409, retryable=True),
+                PluginDispatchResult(source_event_id="event1"),
+            ]
+            await h.service.m_offers.put(offer())
+            await h.service.m_offers.put(offer(attempt_id="attempt2", sequence=2))
+            await eventually(lambda: len(h.service.m_outcomes) == 2)
+            deferred, accepted = h.service.m_outcomes
+            assert deferred["outcome"] == "deferred" and accepted["outcome"] == "accepted"
+            assert deferred["dispatch_id"] != accepted["dispatch_id"]
+            assert deferred["attempt_ids"] == accepted["attempt_ids"] == ["attempt1", "attempt2"]
+
+    asyncio.run(exercise())
+
+
+def test_transport_switch_waits_for_active_handoff_and_fences_handles(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Apply a revision, drain the old start, and acquire a push lease after release."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            route = "/v1/plugins/team/delivery"
+            initial = (await h.http.get(route)).json()
+            assert initial["effective"]["transport"] == "pull"
+            started, finish = asyncio.Event(), asyncio.Event()
+
+            async def dispatch(_event: Any, **_kwargs: Any) -> Any:
+                started.set()
+                await finish.wait()
+                return PluginDispatchResult(source_event_id="event1")
+
+            h.context.events.dispatch.side_effect = dispatch
+            await h.service.m_offers.put(offer())
+            async with asyncio.timeout(2):
+                await started.wait()
+            old_token = h.plugin.m_connection_token
+            old_event = h.context.events.dispatch.call_args.args[0]
+            old_handle = old_event.presentation.messages[0].handle
+            settings = {"transport": "push", "push_policy": "asap"}
+            transition = await h.http.put(route, json={"revision": 0, "settings": settings})
+            assert transition.status_code == 200
+            assert transition.json()["desired"]["transport"] == "push"
+            assert transition.json()["effective"]["transport"] == "pull"
+            assert transition.json()["transition"] == "applying"
+            conflict = await h.http.put(route, json={"revision": 0, "settings": settings})
+            assert conflict.status_code == 409
+            finish.set()
+            await eventually(
+                lambda: (
+                    h.plugin.m_effective is not None and h.plugin.m_effective.transport == "push"
+                )
+            )
+            assert h.service.m_outcomes[0]["outcome"] == "accepted"
+            assert h.plugin.m_connection_token != old_token
+            operations = [op for op, _ in h.service.m_calls]
+            assert operations.index("lease.settle") < operations.index("lease.release")
+            assert [
+                args["transport"] for op, args in h.service.m_calls if op == "lease.acquire"
+            ] == ["pull", "push"]
+            old = await h.http.get(f"/v1/plugins/team/messages/{old_handle}")
+            assert (
+                old.status_code == 409
+                and old.json()["detail"]["error_code"] == "message_handle_stale"
+            )
+
+            h.context.events.wait_until_ready.side_effect = None
+            await h.service.m_offers.put(offer(attempt_id="attempt2", sequence=2))
+            await h.service.m_offers.put(offer(attempt_id="attempt3", sequence=3))
+            await eventually(lambda: len(h.service.m_outcomes) == 3)
+            assert [r["attempt_ids"] for r in h.service.m_outcomes] == [
+                ["attempt1"],
+                ["attempt2"],
+                ["attempt3"],
+            ]
+
+    asyncio.run(exercise())
+
+
+def test_notice_admission_uses_independent_credit_while_chat_waits(
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Send a typed notice through immediate admission while a timed batch stays open."""
+
+    async def exercise() -> None:
+        async with harness(implementation, monkeypatch, tmp_path) as h:
+            notice = AsyncMock()
+            monkeypatch.setattr(h.plugin, "_offer", notice)
+            response = await h.http.put(
+                "/v1/plugins/team/delivery",
+                json={
+                    "revision": 0,
+                    "settings": {
+                        "transport": "push",
+                        "push_policy": "batch",
+                        "quiet_interval": 1.0,
+                        "max_wait": 2.0,
+                    },
+                },
+            )
+            assert response.status_code == 200
+            await eventually(
+                lambda: (
+                    h.plugin.m_effective is not None and h.plugin.m_effective.transport == "push"
+                )
+            )
+            await h.service.m_offers.put(offer(remaining_seconds=3.0))
+            await eventually(lambda: h.plugin.m_buffer.deadline is not None)
+            deadline = h.plugin.m_buffer.deadline
+            await h.service.m_notices.put(offer(sequence=2, kind="mail_notice"))
+            await eventually(lambda: notice.await_count == 1)
+            assert h.plugin.m_buffer.deadline == deadline
+            h.context.events.dispatch.assert_not_awaited()
 
     asyncio.run(exercise())
 
@@ -619,7 +838,7 @@ def test_disconnect_retires_pending_send_with_uncertain_outcome(
                 h.http.post(
                     "/v1/plugins/team/chat/send",
                     json={
-                        "expected_binding_id": "binding1",
+                        "connection_token": h.plugin.m_connection_token,
                         "operation_id": "send1",
                         "to": ["a2"],
                         "text": "Synthetic",
@@ -659,7 +878,11 @@ def test_lease_conflict_does_not_force_takeover(
             )
             assert result.status_code == 200
             await eventually(lambda: h.plugin.m_error_code == "receiver_lease_conflict")
-            assert all(not args for op, args in h.service.m_calls if op == "lease.acquire")
+            assert all(
+                args == {"transport": "pull", "receiver": "gateway", "max_offer_bytes": 65408}
+                for op, args in h.service.m_calls
+                if op == "lease.acquire"
+            )
             assert h.plugin.m_phase == "reconnecting"
 
     asyncio.run(exercise())
@@ -696,7 +919,7 @@ def test_disconnect_cancels_live_offer_without_replaying_on_connect(
 
         started, cancelled = asyncio.Event(), asyncio.Event()
 
-        async def pending(_event: Any) -> Any:
+        async def pending(_event: Any, **_kwargs: Any) -> Any:
             """Observe cancellation of the old request-scoped dispatch."""
 
             started.set()
@@ -741,7 +964,7 @@ def test_started_send_timeout_is_not_repeated(
             result = await h.http.post(
                 "/v1/plugins/team/chat/send",
                 json={
-                    "expected_binding_id": "binding1",
+                    "connection_token": h.plugin.m_connection_token,
                     "operation_id": "send1",
                     "to": ["a2"],
                     "text": "Synthetic",
@@ -831,7 +1054,7 @@ def test_malformed_mutation_result_preserves_uncertainty_and_operation_id(
             result = await h.http.post(
                 "/v1/plugins/team/chat/send",
                 json={
-                    "expected_binding_id": "binding1",
+                    "connection_token": h.plugin.m_connection_token,
                     "operation_id": "send1",
                     "to": ["a2"],
                     "text": "Synthetic",

@@ -8791,6 +8791,39 @@ def _dispatch_test_event(runtime: GatewayServiceRuntime, timeout: float = 1.0) -
     )
 
 
+@pytest.mark.parametrize("invalidated_by", ["busy", "replacement"])
+def test_plugin_dispatch_rechecks_observed_readiness_and_body_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalidated_by: str
+) -> None:
+    """An observation reserves nothing and cannot transfer to a replacement body."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    try:
+        reading = runtime.observe_plugin_prompt_readiness()
+        assert reading == (("generation-one", "@1", "%1"), True)
+        if invalidated_by == "busy":
+            runtime.m_plugin_dispatch_pending = True
+            assert runtime.observe_plugin_prompt_readiness() == (reading[0], False)
+        else:
+            adapter.generation = "generation-two"
+        with pytest.raises(PluginDispatchError) as caught:
+            runtime.dispatch_plugin_event(
+                PluginEvent(source_event_id="old", text="ordinary message"),
+                instance_id="notifications",
+                binding_id="binding-one",
+                timeout_seconds=1.0,
+                is_active=lambda: True,
+                expected_body_identity=reading[0],
+            )
+        assert caught.value.error_code == (
+            "not_ready" if invalidated_by == "busy" else "body_replaced"
+        )
+        assert caught.value.dispatch_outcome == "not_sent" and not adapter.started.is_set()
+    finally:
+        runtime.m_plugin_dispatch_pending = False
+        runtime.shutdown()
+
+
 @pytest.mark.parametrize("tool", ["claude", "dsh"])
 def test_plugin_dispatch_waits_for_handoff_but_not_completed_turn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tool: str

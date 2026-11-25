@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 PLUGIN_SDK_VERSION = 2
 PLUGIN_ENTRY_POINT_GROUP = "houmao.gateway_plugins"
@@ -123,12 +124,55 @@ class PluginListener(_PluginModel):
     base_url: str
 
 
+@dataclass(frozen=True)
+class PluginPromptReadiness:
+    """Carry an advisory, context-bound observation of one agent body."""
+
+    _context: object = field(repr=False)
+    _body_identity: tuple[str, ...] = field(repr=False)
+
+
+class PluginRequestBinding(_PluginModel):
+    """Identify the CCCC Group and Actor established by the plugin's binding."""
+
+    group_id: str = Field(min_length=1, max_length=256, pattern=r"^[\p{L}\p{N}_.:-]+$")
+    actor_id: str = Field(min_length=1, max_length=256, pattern=r"^[\p{L}\p{N}_.:-]+$")
+
+
+class PluginRequestMessage(_PluginModel):
+    """Project the visible fields of one CCCC message inside the request fence."""
+
+    sender: str = Field(min_length=1, max_length=256)
+    timestamp: str = Field(min_length=1, max_length=64)
+    mode: Literal["send", "request_reply"]
+    text: str = Field(min_length=1)
+    handle: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_.-]+$")
+
+
+class PluginRequestPresentation(_PluginModel):
+    """Select the host-authored CCCC request header and ordered message projection."""
+
+    binding: PluginRequestBinding
+    messages: list[PluginRequestMessage] = Field(min_length=1)
+
+
 class PluginEvent(_PluginModel):
     """Represent one ordinary notification, without a queued delivery authority."""
 
     source_event_id: str = Field(min_length=1, max_length=512)
-    text: str = Field(min_length=1)
+    text: str | None = Field(default=None, min_length=1, exclude_if=lambda value: value is None)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
+    presentation: PluginRequestPresentation | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @model_validator(mode="after")
+    def _presentation_or_text(self) -> PluginEvent:
+        """Select exactly one agent-facing representation."""
+
+        if (self.text is None) == (self.presentation is None):
+            raise ValueError("Plugin event requires either text or a request presentation")
+        return self
 
 
 class PluginDispatchResult(_PluginModel):

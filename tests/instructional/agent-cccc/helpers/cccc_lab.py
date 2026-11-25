@@ -25,6 +25,9 @@ DEFAULT_MANAGER = Path.home() / ".local/share/uv/tools/houmao/bin/houmao-mgr"
 DEFAULT_CCCC = Path.home() / ".local/share/uv/tools/houmao/bin/houmao-cccc"
 _TMUX_ENV_KEYS = ("TMUX", "TMUX_PANE", "TMUX_TMPDIR")
 _ROLES = ("a", "b")
+_RECEIVER_PROTOCOL_VERSION = 2
+_REQUEST_BEGIN = "<<< BEGIN CCCC REQUEST >>>"
+_REQUEST_END = "<<< END CCCC REQUEST >>>"
 
 
 class LabError(RuntimeError):
@@ -361,8 +364,8 @@ def service_identity(runtime_path: Path, binary_path: Path) -> dict[str, Any]:
     digest = hashlib.sha256(binary_path.read_bytes()).hexdigest()
     if digest != build.get("binary_sha256") or build.get("binary_verified") is not True:
         raise LabError("CCCC binary does not match its verified build receipt")
-    if build.get("receiver_protocol_version") != 1:
-        raise LabError("CCCC build does not provide external-receiver protocol 1")
+    if build.get("receiver_protocol_version") != _RECEIVER_PROTOCOL_VERSION:
+        raise LabError("CCCC build does not provide external-receiver protocol 2")
     patches = build.get("receiver_patches")
     if not isinstance(patches, list) or not any(
         isinstance(item, dict)
@@ -680,6 +683,40 @@ def command_state(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_delivery(args: argparse.Namespace) -> int:
+    """Set the run-owned receiver delivery policy and await its effective settings."""
+
+    meta = load_meta(args.run_meta)
+    path = "/v1/plugins/cccc/delivery"
+    before = gateway_get(meta, args.role, path)
+    settings: dict[str, Any] = {"transport": "pull"}
+    if args.policy != "pull":
+        settings = {"transport": "push", "push_policy": args.policy}
+        if args.policy == "batch":
+            settings.update(quiet_interval=args.quiet_interval, max_wait=args.max_wait)
+    response = httpx.put(
+        str(meta["gateways"][args.role]).rstrip("/") + path,
+        json={"revision": before["revision"], "settings": settings},
+        trust_env=False,
+        timeout=20,
+    )
+    if response.status_code != 200:
+        raise LabError(f"Setting receiver delivery returned HTTP {response.status_code}")
+    revision = response.json()["revision"]
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        observed = gateway_get(meta, args.role, path)
+        if observed.get("revision") != revision:
+            raise LabError("Receiver delivery settings changed unexpectedly")
+        if observed.get("transition") == "active" and observed.get("effective") == observed.get(
+            "desired"
+        ):
+            print(json.dumps(observed, indent=2, sort_keys=True))
+            return 0
+        time.sleep(0.25)
+    raise LabError("Timed out waiting for the receiver delivery policy")
+
+
 def command_wait_execution(args: argparse.Namespace) -> int:
     """Wait for a real native execution or prompt-readiness transition."""
     meta = load_meta(args.run_meta)
@@ -829,6 +866,91 @@ def command_scan(args: argparse.Namespace) -> int:
             },
             indent=2,
             sort_keys=True,
+        )
+    )
+    return 0
+
+
+def command_verify_batch(args: argparse.Namespace) -> int:
+    """Verify the exact batch from the recipient's native user-message transcript."""
+
+    meta = load_meta(args.run_meta)
+    run_dir, _ = role_run(meta, "b")
+    selected: list[tuple[str, str]] = []
+    for path in session_files(run_dir):
+        for line in path.read_text().splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("type") != "user/message":
+                continue
+            data = row["data"]
+            if data.get("source", {}).get("kind") != "user":
+                continue
+            for content in data.get("content", []):
+                text = content.get("text", "")
+                if (
+                    isinstance(text, str)
+                    and _REQUEST_BEGIN in text
+                    and any(token in text for token in args.tokens)
+                ):
+                    selected.append((str(data["id"]), text))
+    if len(selected) != 1:
+        raise LabError(f"Expected one native request for the selected batch, found {len(selected)}")
+    native_id, text = selected[0]
+    if text.count(_REQUEST_BEGIN) != 1 or text.count(_REQUEST_END) != 1:
+        raise LabError("The selected native request does not contain exactly one fence")
+    header, _, content = text.partition(_REQUEST_BEGIN)
+    try:
+        entries = json.loads(content.split(_REQUEST_END, 1)[0])["messages"]
+    except (TypeError, ValueError, KeyError) as exc:
+        raise LabError("The selected request fence does not contain the CCCC message list") from exc
+    binding = str(meta["bindings"]["b"]["binding_id"])
+    if binding in text or header.count(str(meta["gateways"]["b"])) != 1:
+        raise LabError("The selected request header exposes private routing or repeats its URL")
+    if not isinstance(entries, list) or len(entries) != len(args.tokens):
+        raise LabError("The selected request fence does not contain the expected count")
+    handles: set[str] = set()
+    history = cccc_json(meta, "a", ["chat", "history", "--limit", "100"])
+    proofs: list[dict[str, Any]] = []
+    for entry, token in zip(entries, args.tokens, strict=True):
+        requests, _ = matching_events(history, meta, token)
+        if len(requests) != 1:
+            raise LabError("Expected one original native request for each batch entry")
+        request = requests[0]
+        if (
+            entry["text"] != request["data"]["text"]
+            or entry["sender"] != meta["actors"]["a"]
+            or entry["timestamp"] != request["ts"]
+            or entry["mode"] != "request_reply"
+            or not entry["handle"].startswith("msg_")
+        ):
+            raise LabError("The selected batch has unexpected order, attribution, or handles")
+        handles.add(entry["handle"])
+        proofs.append(
+            {
+                "event_id": request["id"],
+                "sender": entry["sender"],
+                "timestamp": entry["timestamp"],
+                "mode": entry["mode"],
+                "handle": entry["handle"],
+                "token": token,
+            }
+        )
+    if len(handles) != len(entries):
+        raise LabError("The batch reuses a message handle")
+    print(
+        json.dumps(
+            {
+                "status": "passed",
+                "native_message_id": native_id,
+                "fence_count": 1,
+                "message_count": len(entries),
+                "header": header.strip(),
+                "entries": proofs,
+            },
+            indent=2,
         )
     )
     return 0
@@ -1086,7 +1208,8 @@ def command_stop(args: argparse.Namespace) -> int:
             with provider_client(meta) as provider:
                 for role, grant in meta.get("grants", {}).items():
                     response = provider.delete(
-                        "/api/v1/external-receiver/v1/grants/" + str(grant["grant_id"])
+                        f"/api/v1/external-receiver/v{_RECEIVER_PROTOCOL_VERSION}/grants/"
+                        + str(grant["grant_id"])
                     )
                     result["grants"][role] = {"http_status": response.status_code}
                 response = provider.delete(f"/api/v1/groups/{meta['group_id']}")
@@ -1191,6 +1314,20 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--timeout", type=float, default=60)
     wait.add_argument("--interval", type=float, default=0.25)
     wait.set_defaults(handler=command_wait_execution)
+
+    delivery = commands.add_parser("delivery")
+    delivery.add_argument("--run-meta", type=Path, required=True)
+    delivery.add_argument("--role", choices=_ROLES, required=True)
+    delivery.add_argument("--policy", choices=("pull", "asap", "batch"), required=True)
+    delivery.add_argument("--quiet-interval", type=float, default=8)
+    delivery.add_argument("--max-wait", type=float, default=20)
+    delivery.add_argument("--timeout", type=float, default=60)
+    delivery.set_defaults(handler=command_delivery)
+
+    batch = commands.add_parser("verify-batch")
+    batch.add_argument("--run-meta", type=Path, required=True)
+    batch.add_argument("--tokens", nargs="+", required=True)
+    batch.set_defaults(handler=command_verify_batch)
 
     inspect = commands.add_parser("cccc")
     inspect.add_argument("--run-meta", type=Path, required=True)

@@ -1,9 +1,10 @@
 {
   "repository": "https://github.com/ChesterRa/cccc.git",
   "revision": "d12732ebd6dfdbc260a59a286bd5e510d04d4832",
-  "protocol_version": 1,
+  "protocol_version": 2,
   "patches": [
     "patches/0001-external-receiver.patch",
-    "patches/0002-explicit-deferred-mail.patch"
+    "patches/0002-explicit-deferred-mail.patch",
+    "patches/0003-queued-receiver-v2.patch"
   ]
 }

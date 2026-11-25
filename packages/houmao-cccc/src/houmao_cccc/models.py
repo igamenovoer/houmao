@@ -23,6 +23,6 @@ class ReceiverLease(BaseModel):
 
     model_config = ConfigDict(extra="ignore", strict=True, frozen=True)
 
-    lease_id: str = Field(min_length=1)
-    lease_generation: int | str
+    lease_id: str = Field(min_length=1, max_length=512)
+    lease_generation: int = Field(gt=0)
     expires_in_seconds: float | int = Field(gt=0)

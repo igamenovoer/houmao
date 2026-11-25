@@ -35,6 +35,7 @@ from houmao.gateway.plugins import (
     PluginInstanceConfiguration,
 )
 from houmao.gateway.plugins.discovery import LoadedPluginDefinition
+from tests.fixtures.gateway_access import configure_fixture_gateway_access, self_fixture_auth
 from tests.integration.cccc.test_receiver_provider import _result, _rpc, actors as actors
 from tests.unit.agents.realm_controller.test_gateway_dual_mail import _runtime
 
@@ -74,6 +75,7 @@ def test_actual_cccc_attachment_preserves_email_bindings_and_owner(
 
     provider, group_id, grants = actors
     endpoint = str(provider.base_url).rstrip("/")
+    configure_fixture_gateway_access(tmp_path, monkeypatch)
     session = tmp_path / "managed-session"
     session.mkdir()
     runtime = _runtime(session, monkeypatch, dual=dual_mail, enabled=dual_mail)
@@ -96,6 +98,7 @@ def test_actual_cccc_attachment_preserves_email_bindings_and_owner(
     selected.write_text(
         json.dumps(
             {
+                "schema_version": 1,
                 "agent_id": owner,
                 "endpoint": endpoint,
                 "group_id": group_id,
@@ -132,7 +135,7 @@ def test_actual_cccc_attachment_preserves_email_bindings_and_owner(
         lambda _name: LoadedPluginDefinition(
             definition=cccc_package.definition,
             distribution="houmao-cccc",
-            distribution_version="0.1.0",
+            distribution_version="0.3.0",
         ),
     )
 
@@ -157,7 +160,9 @@ def test_actual_cccc_attachment_preserves_email_bindings_and_owner(
                     await asyncio.sleep(0.02)
 
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:43123"
+            transport=httpx.ASGITransport(app=app),
+            base_url=runtime.owner_connect_url,
+            auth=self_fixture_auth(runtime),
         ) as http:
             try:
                 await connected()
@@ -171,23 +176,24 @@ def test_actual_cccc_attachment_preserves_email_bindings_and_owner(
                 sent = await http.post(
                     "/v1/plugins/team/chat/send",
                     json={
-                        "expected_binding_id": binding,
+                        "connection_token": members.json()["connection_token"],
                         "operation_id": uuid.uuid4().hex,
                         "to": ["receiver"],
                         "text": "CCCC-only identity coexistence check",
                     },
                 )
                 assert sent.status_code == 200
+                assert sent.json()["deliveries"][0]["state"] == "pending"
                 for operation in ("reconnect", "refresh-credentials", "disconnect", "connect"):
                     if operation == "refresh-credentials":
                         rotated = _result(
                             provider.post(
-                                "/api/v1/external-receiver/v1/grants",
+                                "/api/v1/external-receiver/v2/grants",
                                 json={"group_id": group_id, "actor_id": "sender"},
                             )
                         )
                         revoked = provider.delete(
-                            "/api/v1/external-receiver/v1/grants/" + grant["grant_id"]
+                            "/api/v1/external-receiver/v2/grants/" + grant["grant_id"]
                         )
                         assert revoked.status_code == 200
                         private_document = json.loads(selected.read_text())
@@ -381,7 +387,7 @@ def test_actual_lost_send_response_requires_explicit_operation_reconciliation(
             operation = json.loads(body)["operation"]
             requests.append(operation)
             response = httpx.post(
-                endpoint + "/api/v1/external-receiver/v1/rpc",
+                endpoint + "/api/v1/external-receiver/v2/rpc",
                 content=body,
                 headers={
                     "Content-Type": "application/json",
@@ -471,7 +477,7 @@ def test_stock_service_cannot_negotiate_receiver_protocol(cccc_package: Any) -> 
     # Stock Web authentication can mask missing routes from ordinary Actor grants.
     # A loopback operator-origin request confirms the interface itself is absent.
     response = httpx.post(
-        endpoint + "/api/v1/external-receiver/v1/rpc",
+        endpoint + "/api/v1/external-receiver/v2/rpc",
         headers={"Origin": endpoint, "Referer": endpoint + "/"},
         json={"operation": "binding", "arguments": {}},
         trust_env=False,
