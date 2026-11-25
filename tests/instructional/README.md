@@ -8,6 +8,6 @@ Run bundles against a live checkout using the project-local Git-ignored temporar
 
 | Bundle | Harness | Coverage |
 | --- | --- | --- |
-| `agent-cccc` | [agent-cccc/README.md](agent-cccc/README.md) | Two-agent CCCC chat discovery and handle-based threaded replies, push batching, busy-agent pending delivery, gateway reattachment recovery, and no-mail channel auditing. |
+| `agent-cccc` | [agent-cccc/README.md](agent-cccc/README.md) | Two-agent CCCC chat discovery, handle-based threaded replies and receipts, push batching, busy-agent pending delivery, in-turn gateway queue reads, gateway reattachment recovery, and no-mail channel auditing. |
 | `agent-mail-stalwart` | [agent-mail-stalwart/README.md](agent-mail-stalwart/README.md) | Product provisioning and direct JMAP attachment, notifier wake-up, threaded reply and archive, and a two-agent mail round trip. |
 | `skill-update` | [skill-update/README.md](skill-update/README.md) | Intra-agent and inter-agent versioned `skills` mount updates on managed DSH Web agents, including peer authorization, keyed-roster revocation, busy/queued self-push handling, and next-turn skill loading. |

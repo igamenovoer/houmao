@@ -21,8 +21,8 @@ from typing import Any
 import httpx
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_MANAGER = Path.home() / ".local/share/uv/tools/houmao/bin/houmao-mgr"
-DEFAULT_CCCC = Path.home() / ".local/share/uv/tools/houmao/bin/houmao-cccc"
+DEFAULT_MANAGER = REPO_ROOT / ".pixi/envs/default/bin/houmao-mgr"
+DEFAULT_CCCC = REPO_ROOT / ".pixi/envs/default/bin/houmao-cccc"
 _TMUX_ENV_KEYS = ("TMUX", "TMUX_PANE", "TMUX_TMPDIR")
 _ROLES = ("a", "b")
 _RECEIVER_PROTOCOL_VERSION = 2
@@ -372,6 +372,7 @@ def service_identity(runtime_path: Path, binary_path: Path) -> dict[str, Any]:
         "0001-external-receiver.patch",
         "0002-explicit-deferred-mail.patch",
         "0003-queued-receiver-v2.patch",
+        "0004-gateway-queue-reads.patch",
     )
     if not isinstance(patches, list) or not all(
         any(

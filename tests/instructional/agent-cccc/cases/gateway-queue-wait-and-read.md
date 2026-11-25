@@ -2,7 +2,26 @@
 
 Agent B first finishes a turn so CCCC can notify it of later work. In a second turn, B asks its peer for two replies, waits for the gateway's sealed selection, and uses one pop result to continue the same turn. After B yields again, the next queued request arrives as an ordinary notification.
 
-## Preconditions
+## Sub-cases
+
+- `t1-yield-and-ordinary-notification`: B ends a turn, then receives a later CCCC request as one ordinary notification with an accepted handoff.
+- `t2-empty-in-turn-peek`: B's initial bounded queue peek returns no eligible batch while its queue is empty.
+- `t3-populated-batch-peek`: B sends two peer requests in one shell call and sees both replies in one sealed queue selection.
+- `t4-exact-pop-and-recovery`: B pops the exact snapshot with a fresh operation ID, acknowledges the receipt, and recovers the same result by operation ID.
+- `t5-in-turn-replies`: B replies to both popped handles in the same native turn, with exact-parent ancestry and no ordinary CCCC prompts.
+- `t6-next-request-after-yield`: A's later request stays outside B's native transcript while B is active, then arrives by ordinary notification after release.
+- `t7-queue-attempt-continuity`: the follow-up request keeps the same provider attempt from `offered` to `accepted`.
+- `t8-no-mail-fallback`: neither agent invokes a mailbox or CCCC provider administration.
+
+## How to get to it (user POV)
+
+- Both agents are launched through the fixture, attached to one CCCC Group, and healthy; the selected receiver advertises `chat_queue`.
+- The operator asks B to yield, sends ordinary work from A, then asks B to stay in one turn while reading staged replies and answering them.
+- The operator sends another request while B is active, releases B's turn, and watches the next request arrive normally.
+
+## Driving it with cccc_lab
+
+### Preconditions
 
 Complete the bundle launch and Doctor steps with the built receiver and the matching installed CLI. Use two healthy, ready agents and their run-owned CCCC Group. Set `RUN_META`, `RUN_A`, `RUN_B`, `REPO_ROOT`, `BUNDLE_ROOT`, `EVIDENCE`, and a fresh neutral `TOKEN` as in the bundle README. The operator release file below controls B's test turn and carries no peer messages.
 
@@ -27,7 +46,7 @@ lab delivery --role b --policy asap > "$CASE_EVIDENCE/b-delivery.json"
 lab delivery --role a --policy batch > "$CASE_EVIDENCE/a-delivery.json"
 ```
 
-## Yield for Ordinary Notification
+### Yield for Ordinary Notification
 
 Ask B to end the turn and wait for later work. After the gateway reports that B is ready, ask A to send one request. The provider receipt and the native fence identify the same delivered message.
 
@@ -45,7 +64,7 @@ lab wait-execution --role a --mode ready --require-open --timeout 90 > "$CASE_EV
 lab wait-execution --role b --mode ready --require-open --timeout 90 > "$CASE_EVIDENCE/b-active-ready.json"
 ```
 
-## Read Staged Replies During an Active Turn
+### Read Staged Replies During an Active Turn
 
 B first tries a short bounded peek while its queue is empty. It then requests two peer replies in one shell call so A receives both requests together under timed batching. B uses a bounded peek with a minimum of two messages, pops its exact selection with a fresh operation ID, and acknowledges it. It looks up the operation result before using each returned handle to send an exact-parent confirmation.
 
@@ -98,7 +117,7 @@ lab verify-batch --tokens "$NEXT_TOKEN" > "$CASE_EVIDENCE/next-native-request.js
 lab wait-execution --role b --mode ready --require-open --timeout 90 > "$CASE_EVIDENCE/b-final-ready.json"
 ```
 
-## Verify Exact Reads and Reply Parents
+### Verify Exact Reads and Reply Parents
 
 Preserve both transcripts and the channel audit. Use the provider's event and attempt records to confirm that B read precisely the two peer replies and answered both original parents. Check that the follow-up used the same attempt before and after readiness.
 
@@ -113,3 +132,19 @@ pixi run python "$BUNDLE_ROOT/helpers/verify_queue_access.py" \
 ```
 
 The proof requires one native prompt and an accepted attempt for the yielded request. B must have successful peek, pop, acknowledgment, result lookup, and reply calls in one native turn. Each popped message must have one `gateway_tool_read` attempt, an exact-parent confirmation, and no ordinary CCCC prompt on B. The follow-up must move from `offered` to `accepted` on the same attempt after B yields. Keep the evidence through the bundle cleanup.
+
+## Gotchas
+
+- The receiver must expose `chat_queue`. A receiver built without the gateway-queue patch remains usable for ordinary chat but makes this scenario `VERIFIED-UNREACHABLE`; do not substitute ordinary delivery for the queue path.
+- Keep peek, pop, acknowledgment, result lookup, and both replies in one native turn. A handle can expire after a connection change.
+- Use the exact snapshot returned by the populated peek. If the pop outcome is lost, retry the same snapshot and operation ID or call `chat pop-result`; never pop a newer snapshot to hide uncertainty.
+- A queued batch that remains open is not eligible yet. Wait for a sealed selection rather than treating an empty peek as a lost message.
+- The follow-up request must be stored while B is genuinely busy and absent from B's native transcript before release.
+- The operator release file is test control only. It must not carry peer content or substitute for a CCCC message.
+- Preserve uncertain or stale queue outcomes as observed. Do not weaken the expected attempt states to force a pass.
+
+## Blinding and Transcript Checks
+
+- Use neutral markers and ordinary work prompts; do not explain the grading rubric to either agent.
+- Grade from the native queue calls and reply parents, the `queue-proof.json` projection, provider attempt states, and both transcripts. Do not accept an assistant summary as proof.
+- The operator prompt states the work and queue intent but does not supply a precomputed pop snapshot, receipt, or reply operation ID.

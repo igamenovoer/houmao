@@ -1,6 +1,6 @@
 # Instructional CCCC Chat Suite
 
-Agent-driven verification for two Houmao-managed DSH Web agents collaborating through the optional `houmao-cccc` gateway plugin. The suite covers peer discovery, `request_reply` round trips, push batching, busy-agent waiting, and recovery of pending deliveries after reattachment. The graded flows use CCCC chat for all peer communication.
+Agent-driven verification for two Houmao-managed DSH Web agents collaborating through the optional `houmao-cccc` gateway plugin. The suite covers peer discovery, handle-based `request_reply` round trips and receipt lookup, push batching, busy-agent waiting, in-turn gateway queue reads, and recovery of pending deliveries after reattachment. The graded flows use CCCC chat for all peer communication.
 
 ## Baseline Preconditions & Isolation
 
@@ -10,7 +10,7 @@ Agent-driven verification for two Houmao-managed DSH Web agents collaborating th
 - DSH executable: qualified build `0.2.2-rc.3` at `$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`.
 - **CCCC service.** Set `CCCC_ENDPOINT` to an already-running external-receiver protocol 2 service built from the tracked pin and patches. [Native build and service tooling](../../../tools/cccc/README.md)
 - Shared-service boundary: the suite creates one uniquely named Group and two inert external-receiver Actors. It never starts, stops, resets, or reconfigures the selected CCCC service and never touches another Group or grant.
-- Local service identity: the default runtime descriptor is `$HOME/.local/share/houmao-cccc-receiver-v2/runtime.json`; the binary is `$HOME/.local/share/houmao-cccc-receiver-v2/target/debug/cccc`. Configuration verifies the selected PID, `/proc` executable, build receipt, protocol 2, the complete tracked patch series, and binary hash. Omit both identity arguments for a remote or separately administered service; negotiated binding/capability checks remain mandatory.
+- Local service identity: the default runtime descriptor is `$HOME/.local/share/houmao-cccc-receiver-v2-queue/runtime.json`; the binary is `$HOME/.local/share/houmao-cccc-receiver-v2-queue/target/debug/cccc`. Configuration verifies the selected PID, `/proc` executable, build receipt, protocol 2, the complete tracked patch series, and binary hash. Omit both identity arguments for a remote or separately administered service; negotiated binding/capability checks remain mandatory.
 - Private external root: Houmao rejects plugin credential files inside the checkout. Set `CCCC_PRIVATE_ROOT` to an owner-private directory outside `$REPO_ROOT`, defaulting to `$HOME/.local/state/houmao/cccc-instructional`. The helper creates one run-specific subdirectory, uses the supported grant exporter, and deletes only the two run-owned credential documents during cleanup.
 - Project-local temporary root: `$REPO_ROOT/tmp/instructional-tests/<run-id>/`. Temporary scripts, fixture homes, plugin selections without tokens, and evidence remain under this Git-ignored directory. The external credential directory is a product-required exception and contains no evidence.
 - Isolation: each fixture prepares with `--tmux-server new` and owns a private tmux socket, registry, runtime root, home, gateway port, and native Web origin. The two agents have distinct Houmao UUIDs and CCCC Actor registrations. Never touch the caller's default tmux server or an agent this run did not create.
@@ -42,8 +42,8 @@ export DSH_EXECUTABLE="${DSH_EXECUTABLE:-$REPO_ROOT/tmp/dsh/npm-runtime/node_mod
 export BASE_URL="http://127.0.0.1:14888/v1"
 export MODEL="Qwen/Qwen3.8-27B-FP8"
 export CCCC_ENDPOINT="${CCCC_ENDPOINT:?Set the receiver v2 service endpoint}"
-export CCCC_SERVICE_RUNTIME="${CCCC_SERVICE_RUNTIME:-$HOME/.local/share/houmao-cccc-receiver-v2/runtime.json}"
-export CCCC_PROVIDER_BINARY="${CCCC_PROVIDER_BINARY:-$HOME/.local/share/houmao-cccc-receiver-v2/target/debug/cccc}"
+export CCCC_SERVICE_RUNTIME="${CCCC_SERVICE_RUNTIME:-$HOME/.local/share/houmao-cccc-receiver-v2-queue/runtime.json}"
+export CCCC_PROVIDER_BINARY="${CCCC_PROVIDER_BINARY:-$HOME/.local/share/houmao-cccc-receiver-v2-queue/target/debug/cccc}"
 export CCCC_PRIVATE_ROOT="${CCCC_PRIVATE_ROOT:-$HOME/.local/state/houmao/cccc-instructional}"
 mkdir -p "$RUN_TMP/scripts" "$RUN_TMP/runtime/runs-a" "$RUN_TMP/runtime/runs-b" "$EVIDENCE"
 git check-ignore -q "$RUN_TMP" || { echo "RUN_TMP is not Git-ignored" >&2; exit 1; }
@@ -53,6 +53,7 @@ test ! -e "$CCCC_PRIVATE_ROOT" || test -d "$CCCC_PRIVATE_ROOT"
 curl -fsS "$BASE_URL/models" >/dev/null
 curl -fsS "$CCCC_ENDPOINT/api/v1/health" >/dev/null
 "$HOUMAO_MGR" --version
+"$HOUMAO_CCCC" --version > "$EVIDENCE/cccc-version.txt"
 "$HOUMAO_CCCC" --help >/dev/null
 ```
 
@@ -150,6 +151,7 @@ Save artifacts under `$RUN_TMP/evidence/agent-cccc/<scenario-slug>/`. Every scen
 | Artifact | Required evidence |
 | --- | --- |
 | `configure.json` / `run-meta.json` | Run-owned Group, owner/Actor/binding identities, gateway coordinates, grant IDs without tokens, and body-preservation snapshots. |
+| `cccc-version.txt` | Installed `houmao-cccc --version` output for the selected matching CLI. |
 | `doctor*.json` | Compatible provider identity, healthy agents, connected bindings, stable native bodies, and operator recovery mailbox registrations. |
 | `delivery.json` | Active effective pull, ASAP, or timed-batch policy and its revision. |
 | `round-trip.json` | One native request, its threaded agent-authored reply, message modes, ancestry, and exact delivery-attempt states. |
@@ -188,9 +190,10 @@ This command never represents peer communication and cannot contribute to a pass
 | Helper | Invocation | Purpose |
 | --- | --- | --- |
 | `helpers/cccc_lab.py` | `pixi run python tests/instructional/agent-cccc/helpers/cccc_lab.py --help` | Provision, attach, Doctor, set delivery policy, prompt, inspect, verify compact requests and handle-based replies, audit, recover, reattach, and clean up the chat-only pair. |
+| `helpers/verify_queue_access.py` | `pixi run python tests/instructional/agent-cccc/helpers/verify_queue_access.py --help` | Verify the queue scenario from native queue calls, provider attempts, reply ancestry, and ordinary-delivery resumption. |
 | `helpers/roles/cccc-correspondent.md` | `fixture.py prepare --system-prompt-file tests/instructional/agent-cccc/helpers/roles/cccc-correspondent.md` | General worker and CCCC correspondent role; forbids all peer-mail channels and provider administration. |
 
-`cccc_lab.py` defaults to `$HOUMAO_MGR` and `$HOUMAO_CCCC`, then their uv tool paths. Run any subcommand with `--help` for its exact inputs. Error output excludes credential contents and provider response bodies.
+`cccc_lab.py` defaults to `$HOUMAO_MGR` and `$HOUMAO_CCCC`, then the workspace Pixi tool paths. Run any subcommand with `--help` for its exact inputs. Error output excludes credential contents and provider response bodies.
 
 ## Case Index
 
@@ -204,16 +207,16 @@ This command never represents peer communication and cannot contribute to a pass
 
 ## Receiver v2 Self-Proof
 
-On 2026-11-25, the revised four-case suite passed against commit `437fe2f95c1e4cb8dd0c8816d513e195d68e901b` with the test-bundle revisions in the working tree. Two real fixture-managed DSH Web `0.2.2-rc.3` agents used self-hosted `Qwen/Qwen3.8-27B-FP8` with `xhigh` reasoning and workspace builds of `houmao-mgr 3.0.0rc8` and `houmao-cccc 0.3.0`. The isolated receiver v2 service at `127.0.0.1:18851` used all three tracked provider patches at upstream revision `d12732ebd6dfdbc260a59a286bd5e510d04d4832`; its verified binary SHA-256 was `160600a9585a1263e5df7bf5b723773b8299b1f0d0882031f44bd499b7984797`.
+On 2026-11-25, the revised five-case suite passed against commit `555e4f2d693c95fcd7046baa7779e63e3ac009e8` with the test-bundle revisions in the working tree. Two real fixture-managed DSH Web `0.2.2-rc.3` agents used self-hosted `Qwen/Qwen3.8-27B-FP8` with `xhigh` reasoning and workspace builds of `houmao-mgr 3.0.0rc8` and `houmao-cccc 0.3.0`. The isolated receiver v2 service at `127.0.0.1:18852` used all four tracked provider patches at upstream revision `d12732ebd6dfdbc260a59a286bd5e510d04d4832`; its verified binary SHA-256 was `a55d121555b794130ffd2065c97d8612cbc3637d721646e5716ddb69b924d71e`.
 
-- Pull round trip request `7d05b5da27c840ba824eab9cad9f9ee8` used native handle `msg_cccc.5_m-LM8MDhvjRjeh`, recorded one accepted attempt, and received reply `299dbe5604924fe8a13b834836d3b9ee` with text `cobalt desk-304acb` and exact parent ancestry.
-- Timed push batch produced one native message `e1d584de-3be4-4086-b3e4-9c1581ccf1bd` with one request fence, two distinct handles, original CCCC order, timestamps, and sender. Requests `8a78c0f64d92480da53c17e671310567` and `dfaceba2adf644cda9a75c85e17c6a91` each had one accepted attempt and one exact-parent reply.
-- Busy ASAP recorded zero token occurrences in B's native transcript during a real shell turn. After readiness, request `9dba5e6ddf144e548db128b5b9f348cc` had one accepted handoff and reply `14acccdab7a84f0aa6442cb37f3eb783`.
-- Reconnect preserved the native body and Actor binding. Provider attempt `fa2174e9-5536-4db3-84a9-74bac968a0ea` for event `600dc89dca1842b4a9b47f0938bd7620` moved from `pending` while detached to `accepted` after reattachment, with a fresh handle and reply `64e343f5d6d0470da992da130a0bef99`.
-- A transcript-level protocol check proved every marker send used a current connection token and every reply used its exact delivered handle without passing a connection token.
-- All four channel audits passed. Cleanup stopped both agents and private tmux servers, revoked both grants, deleted and verified absence of the run Group, removed both external credential files, and retained all 84 evidence files.
+- Pull round trip request `ffc7e0d823c147b9a51273e392e4f0c2` used native request handle `msg_cccc.CQ58yOedNe9tyIMf`, recorded one accepted attempt `ccded319-4240-4901-8c5d-2713f178172c`, and received reply `7328f32a5f574bbc8b6923e29e3fcf70` with text `cobalt desk-eb5785` and exact parent ancestry. Both agents inspected the handoff with `chat deliveries --handle`, their receipts matched the independent lookup, and both used `members --group`.
+- Timed push batch produced one native message `7eba3374-784b-4c4a-8c6c-00dee5a749ac` with one request fence, two distinct handles, original CCCC order, timestamps, and sender. Requests `3550587187a440e284c9a14b16ee3155` and `fa3413adafa148d580e9adb7763a0d11` each had one accepted attempt and one exact-parent reply.
+- Busy ASAP recorded zero token occurrences in B's native transcript during a real shell turn. After readiness, request `3fd545d909c4483995fc3469f0678d5f` had one accepted handoff and reply `ca8c5b4fcd5b4514961d4c1dd1a96715`.
+- Queue access completed both the yielded ordinary notification and the in-turn queue path. The two staged replies produced `gateway_tool_read` attempts `b436b9fc-00e9-48d6-bb71-0bcb4e5461c6` and `bcd096b8-4705-4883-a0bd-88a16bbb9cf2`, exact confirmations `d7453a098f0644e99df0d20bc6355826` and `49184c33f0ec43008559ea4ea76f5add`, and the follow-up moved from `offered` to `accepted` on attempt `8ab6958e-9fba-44f9-8bed-5ed63cb2db63`.
+- Reconnect preserved the native body and Actor binding. Attempt `623c432c-9a4f-4d8e-ad54-1032ded9b2f9` for event `785a6f5af1b9499196e032daa129f33d` moved from `pending` to `accepted`, with fresh handle `msg_cccc.vTSyJBwqvhe3SOGH` and reply `7c71dfd930b04ed69a2e6631537c11d8`.
+- All five channel audits passed. Cleanup stopped both agents and private tmux servers, revoked both grants, deleted and verified absence of the run Group, removed both external credential files, and retained all 121 evidence files.
 
-Private evidence is under `tmp/instructional-tests/20261125T114417Z-agent-cccc-v2/evidence/agent-cccc/`. Each scenario keeps its native request fence, reply and delivery proofs, both transcripts, CCCC history, channel audit, and protocol-usage report. The receiver-v2 service used for this run was stopped after cleanup; the persistent v1 services on ports 8848 and 8849 were not touched.
+Private evidence is under `tmp/instructional-tests/20261125T140656Z-agent-cccc-v2-queue/evidence/agent-cccc/`. Each scenario keeps its native request fence, receipt identity, reply and delivery proofs, both transcripts, CCCC history, and channel audit. The four-patch receiver service used for this run was stopped after cleanup; the persistent v1 services on ports 8848 and 8849 were not touched.
 
 ## Historical Receiver v1 Self-Proof
 

@@ -95,7 +95,7 @@ jq -e -s 'map({event_id, attempts: [.deliveries[].attempt_id]}) | length == 3 an
   "$CASE_EVIDENCE/b-handle-deliveries.json" > "$CASE_EVIDENCE/receipt-identity-match.json"
 ```
 
-- **Proof.** Require `delivery.json` to show effective pull, `round-trip.json` to pass with chronological attempt states `["accepted"]`, and `native-request.json` to show one fenced entry with a `msg_` handle and no binding or event reference. In the native tool calls, verify both agents used the `houmao-cccc` executable selected for the run. A calls `chat deliveries --handle` with the handle from `a-send.json`. B calls it with the handle from `native-request.json`, reads the file, and replies through that handle. The channel audit must pass. Keep the caller outputs and both transcripts under `CASE_EVIDENCE` and confirm they remain after cleanup.
+- **Proof.** Require `delivery.json` to show effective pull, `round-trip.json` to pass with chronological attempt states `["accepted"]`, and `native-request.json` to show one fenced entry with a `msg_` handle and no binding or event reference. In the native tool calls, verify both agents used the `houmao-cccc` executable selected for the run and passed the brief's Group ID to `members --group` successfully. A calls `chat deliveries --handle` with the handle from `a-send.json`. B calls it with the handle from `native-request.json`, reads the file, and replies through that handle. The channel audit must pass. Keep the caller outputs and both transcripts under `CASE_EVIDENCE` and confirm they remain after cleanup.
 
 ## Gotchas
 
