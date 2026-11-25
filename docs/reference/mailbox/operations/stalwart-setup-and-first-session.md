@@ -2,6 +2,8 @@
 
 This guide is for an operator with a running Houmao agent and an existing normal Stalwart account. Attach the account through its gateway companion. Account attachment does not require management credentials, provision an account, rotate its password, or restart the body.
 
+To start Stalwart and Cypht from a fresh checkout, follow the bundled development stack setup. [Local Email System](https://github.com/igamenovoer/houmao/blob/main/dockers/email-system/README.md)
+
 ## Identity and Storage Authority
 
 Stalwart occupies the agent's `online` slot. Its filesystem `offline` slot can remain configured at the same time. Both belong to the persisted globally unique agent ID; the account login and sending address remain separate values.

@@ -6,9 +6,11 @@ server.listener.http.protocol = "http"
 
 server.listener.imap.bind = ["[::]:%{env:STALWART_IMAP_PORT}%"]
 server.listener.imap.protocol = "imap"
+server.listener.imap.tls.enable = false
 
 server.listener.submission.bind = ["[::]:%{env:STALWART_SUBMISSION_PORT}%"]
 server.listener.submission.protocol = "smtp"
+server.listener.submission.tls.enable = false
 
 session.auth.mechanisms = "[plain, login, oauthbearer, xoauth2]"
 

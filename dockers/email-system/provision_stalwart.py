@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+OPERATOR_MAILBOX_NAME = "houmao-operator"
+
 
 @dataclass(frozen=True)
 class StackConfig:
@@ -32,12 +34,19 @@ class StackConfig:
     seed_mailbox_name: str
     seed_mailbox_password: str
     seed_mailbox_email: str
+    operator_mailbox_password: str
 
     @property
     def api_base_url(self) -> str:
         """Return the Stalwart management API base URL."""
 
         return f"http://127.0.0.1:{self.http_port}/api"
+
+    @property
+    def operator_mailbox_email(self) -> str:
+        """Return the operator address on the configured mail domain."""
+
+        return f"{OPERATOR_MAILBOX_NAME}@{self.mail_domain}"
 
 
 class ApiRequestError(RuntimeError):
@@ -98,6 +107,12 @@ def load_stack_config(env_file: Path) -> StackConfig:
     values = _load_env_file(env_file)
     values.update({key: value for key, value in os.environ.items() if key in values})
 
+    admin_user = _require_value(values, "STALWART_ADMIN_USER")
+    admin_password = _require_value(values, "STALWART_ADMIN_PASSWORD")
+    seed_mailbox_name = _require_value(values, "SEED_MAILBOX_NAME")
+    seed_mailbox_password = _require_value(values, "SEED_MAILBOX_PASSWORD")
+    configured_passwords = {seed_mailbox_name: seed_mailbox_password, admin_user: admin_password}
+
     return StackConfig(
         env_file=env_file,
         http_port=int(_require_value(values, "STALWART_HTTP_PORT")),
@@ -105,12 +120,15 @@ def load_stack_config(env_file: Path) -> StackConfig:
         submission_port=int(_require_value(values, "STALWART_SUBMISSION_PORT")),
         bootstrap_user=_require_value(values, "STALWART_BOOTSTRAP_USER"),
         bootstrap_password=_require_value(values, "STALWART_BOOTSTRAP_PASSWORD"),
-        admin_user=_require_value(values, "STALWART_ADMIN_USER"),
-        admin_password=_require_value(values, "STALWART_ADMIN_PASSWORD"),
+        admin_user=admin_user,
+        admin_password=admin_password,
         mail_domain=_require_value(values, "MAIL_DOMAIN"),
-        seed_mailbox_name=_require_value(values, "SEED_MAILBOX_NAME"),
-        seed_mailbox_password=_require_value(values, "SEED_MAILBOX_PASSWORD"),
+        seed_mailbox_name=seed_mailbox_name,
+        seed_mailbox_password=seed_mailbox_password,
         seed_mailbox_email=_require_value(values, "SEED_MAILBOX_EMAIL"),
+        operator_mailbox_password=configured_passwords.get(
+            OPERATOR_MAILBOX_NAME, values.get("OPERATOR_MAILBOX_PASSWORD", admin_password)
+        ),
     )
 
 
@@ -327,8 +345,18 @@ def admin_mailbox_email(config: StackConfig) -> str:
     return f"{config.admin_user}@{config.mail_domain}"
 
 
+def _verify_mailbox_address(config: StackConfig, name: str, address: str) -> None:
+    """Verify that an individual principal owns the expected address."""
+
+    account = get_principal(config, name)
+    if account is None or account.get("type") != "individual":
+        raise ApiRequestError(f"Missing expected mailbox principal: {name}")
+    if address not in normalize_list(account.get("emails")):
+        raise ApiRequestError(f"Mailbox principal {name!r} is missing email {address!r}")
+
+
 def verify_defaults(config: StackConfig) -> None:
-    """Verify that the default domain and seeded mailbox principal exist."""
+    """Verify the development domain, admin login, and default mailbox addresses."""
 
     domain = get_principal(config, config.mail_domain)
     if domain is None or domain.get("type") != "domain":
@@ -358,23 +386,16 @@ def verify_defaults(config: StackConfig) -> None:
         auth_password=config.admin_password,
     )
 
-    account = get_principal(config, config.seed_mailbox_name)
-    if account is None or account.get("type") != "individual":
-        raise ApiRequestError(f"Missing expected mailbox principal: {config.seed_mailbox_name}")
-
-    emails = normalize_list(account.get("emails"))
-    if config.seed_mailbox_email not in emails:
-        raise ApiRequestError(
-            f"Mailbox principal {config.seed_mailbox_name!r} is missing email "
-            f"{config.seed_mailbox_email!r}"
-        )
+    _verify_mailbox_address(config, config.seed_mailbox_name, config.seed_mailbox_email)
+    _verify_mailbox_address(config, OPERATOR_MAILBOX_NAME, config.operator_mailbox_email)
 
     print(
         "Verified default principals: "
         f"domain={config.mail_domain}, "
         f"admin={config.admin_user}, "
         f"mailbox={config.seed_mailbox_name}, "
-        f"email={config.seed_mailbox_email}"
+        f"email={config.seed_mailbox_email}, "
+        f"operator={config.operator_mailbox_email}"
     )
 
 
@@ -425,7 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ensure_defaults_parser = subparsers.add_parser(
         "ensure-defaults",
-        help="Wait for the API and ensure the configured development domain and mailbox exist.",
+        help="Ensure the configured development domain and default mailboxes exist.",
     )
     ensure_defaults_parser.add_argument(
         "--wait",
@@ -441,12 +462,12 @@ def build_parser() -> argparse.ArgumentParser:
     ensure_defaults_parser.add_argument(
         "--reset-password",
         action="store_true",
-        help="Reset the seeded mailbox password when the account already exists.",
+        help="Reset the passwords of existing default mailboxes.",
     )
 
     subparsers.add_parser(
         "verify-defaults",
-        help="Verify that the configured development domain and mailbox exist.",
+        help="Verify the configured development domain and default mailboxes.",
     )
 
     return parser
@@ -498,6 +519,18 @@ def main() -> int:
                     roles=["user"],
                     reset_password=args.reset_password,
                 )
+            configured_names = {config.admin_user, config.seed_mailbox_name}
+            ensure_account(
+                config,
+                name=OPERATOR_MAILBOX_NAME,
+                email=config.operator_mailbox_email,
+                password=config.operator_mailbox_password,
+                description=(
+                    "" if OPERATOR_MAILBOX_NAME in configured_names else "Houmao operator mailbox"
+                ),
+                roles=["admin"] if OPERATOR_MAILBOX_NAME == config.admin_user else ["user"],
+                reset_password=args.reset_password,
+            )
         elif args.command == "verify-defaults":
             wait_for_api(config, 30)
             verify_defaults(config)

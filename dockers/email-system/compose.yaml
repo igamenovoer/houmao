@@ -20,7 +20,10 @@ services:
       STALWART_IMAP_PORT: ${STALWART_IMAP_PORT}
       STALWART_SUBMISSION_PORT: ${STALWART_SUBMISSION_PORT}
     ports:
-      - "${STALWART_HTTP_PORT}:${STALWART_HTTP_PORT}"
+      - "127.0.0.1:${STALWART_HTTP_PORT}:${STALWART_HTTP_PORT}"
+      - "127.0.0.1:${STALWART_WEBADMIN_PORT:-10082}:${STALWART_HTTP_PORT}"
+      - "127.0.0.1:${STALWART_IMAP_PORT}:${STALWART_IMAP_PORT}"
+      - "127.0.0.1:${STALWART_SUBMISSION_PORT}:${STALWART_SUBMISSION_PORT}"
     volumes:
       - ./.data/stalwart:/var/lib/stalwart
       - ./stalwart/config.toml:/etc/stalwart/config.toml:ro
@@ -95,7 +98,7 @@ services:
       USER_CONFIG_TYPE: ${CYPHT_USER_CONFIG_TYPE}
       USER_SETTINGS_DIR: ${CYPHT_USER_SETTINGS_DIR}
     ports:
-      - "${CYPHT_HTTP_PORT}:${CYPHT_HTTP_PORT}"
+      - "127.0.0.1:${CYPHT_HTTP_PORT}:${CYPHT_HTTP_PORT}"
     volumes:
       - ./.data/cypht/attachments:/var/lib/hm3/attachments
       - ./.data/cypht/users:/var/lib/hm3/users

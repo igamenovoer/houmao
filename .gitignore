@@ -88,6 +88,7 @@ site/
 # Houmao jobs dir
 .houmao/
 /dockers/email-system/.data/
+/dockers/email-system/.env.tmp.*
 /dockers/dev-helpers/filestash/.data/
 !/dockers/dev-helpers/filestash/.env
 
