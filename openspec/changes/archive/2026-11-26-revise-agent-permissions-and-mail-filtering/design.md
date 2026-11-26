@@ -63,6 +63,28 @@ The gateway and notifier use the backend’s current Inbox and existing reminder
 
 On protected bindings, the agent processes and replies to Inbox mail within its ordinary permissions. The owner can archive completed Inbox mail through separately authorized backend access. Use that path in the reminder and installed skill guidance. The default `any_inbox` mode can remind again until the owner files the message. The existing `unread_only` mode limits reminders to unread Inbox mail.
 
+### Update the Refreshed Skill Workflows
+
+Use the [packaged skill pages](../../../src/houmao/agents/assets/system_skills/public) from the skills refresh. Keep the short skill entrypoints, put operational details in the current command and reference pages, and link to the owning workflow from onboarding and loop guidance.
+
+- **Access and requests.** The access policy page owns the exact status grant, disabled fallback, and `access explain` checks. The messaging request page explains how those checks apply to a verified caller and distinguishes eligible unsigned admission. Admin Welcome and Loop Pro link to the access policy page for the current catalog.
+- **Mail actions and receipts.** Email Comms owns the sender permission and receipt contract and the lifecycle command examples. Teach offline deposit and provider submission as distinct outcomes. The recipient’s backend applies delivery rules privately. Keep channel and binding pins and qualify archive, move, and archive-equivalent marks in both gateway and fallback examples.
+- **Mailbox administration.** Mailbox Manager owns keyed Stalwart attachment and backend qualification. The gateway HTTP reference describes the signed policy relay, its scope and result, and independent receipt verification. Ordinary Stalwart readiness uses mailbox credentials. Protected filtering also requires separate management authority and runtime access without placement control.
+- **Mail rounds and loops.** The notifier command page explains the current Inbox and reminder modes. The process-round command owns bounded triage, reply verification, capability-aware filing, and ending the turn. Apply the same filing rule in reply hardening, advanced notifier loops, and self-mail examples. On a protected binding, report completed items for owner filing. Retain binding pins, schema v3 examples, and the existing no-polling workflow.
+
+### Reconcile the Refreshed Skill Specs Before Sync
+
+The runtime skill refresh is already present. Its [OpenSpec deltas](../2026-11-26-update-system-skills-post-3-0-0/specs) and this change can each validate against the current main specs. Use the refreshed requirement text as the baseline when both changes are carried into the main specs. Sync the refresh first and apply this change’s corresponding `MODIFIED` blocks against that baseline. Preserve requirement and scenario titles and the unrelated guidance in each block.
+
+| Refresh requirement to reconcile | Revision in this change |
+| --- | --- |
+| **Agent access covers self-key lifecycle, detached default-group, and immediate admission feedback** | Update the six-group catalog and its scenario to reflect the current catalog and exact status grant plus disabled verified fallback. Keep self-key, detached administration, feedback, and resource templates. |
+| **Ordinary email skill covers recipient inbound policy, Stalwart JMAP trust, and compact receipts** | Replace observer-based delivery admission with backend-owned placement and private transport outcomes. Keep origin trust and compact receipt verification. |
+| **Ordinary email skill preserves channel separation, binding pinning, and pagination invariants** | Qualify archive-after-reply by the binding’s lifecycle capabilities. Keep scoped references, the attachment checks, and bounded reads. |
+| **Gateway email-processing skill preserves fail-closed round, reply-hardening, and non-polling invariants** | Qualify filing after a successful reply and describe the owner path on protected bindings. Keep the supplied scope, stalled-work priority, reply hardening, and stop-after-round behavior. |
+| **Advanced usage pattern fixes v2 mail contract examples and covers CCCC and work requests** | Qualify archive examples by binding capability. Preserve schema v3 and the existing channel and coordination examples. |
+| **Mailbox manager updates Stalwart boundary notes for online JMAP readiness** | Distinguish ordinary keyed attachment from native rule and placement qualification. Keep origin trust, private credential sources, and provider administration boundaries. |
+
 ## Risks / Trade-Offs
 
 - **Retained policy could gain access during upgrade.** Verify effect equality for migrated settings, independent expiry, applicable fallback, and the identity provenance of queued requests.

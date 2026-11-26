@@ -2,10 +2,26 @@
 
 ## MODIFIED Requirements
 
+### Requirement: Gateway email-processing skill covers compact reply receipts and permission failure handling
+`houmao-process-emails-via-gateway` SHALL document the compact CLI reply receipt and the `POST /v1/mail/{channel}/reply` action response, with read-only reconciliation on the same binding and explicit fail-closed reporting on `mail.reply` or `mail.attachment.owner_file` authorization failures.
+
+#### Scenario: Agent reconciles reply receipts and permission refusals during a round
+- **WHEN** a managed agent replies to or attaches files for a notified email during a gateway round
+- **THEN** the workflow uses the CLI `message_ref` or HTTP `message.message_ref` for a same-binding `peek` when needed, and treats offline deposit and provider submission as distinct transport outcomes
+- **AND THEN** a `mail.reply` or `mail.attachment.owner_file` denial or an unconfirmed required reply leaves the message open for follow-up
+
+### Requirement: Gateway email-processing skill preserves fail-closed round, reply-hardening, and non-polling invariants
+`houmao-process-emails-via-gateway` SHALL preserve agent-only `## Actor Frame Gate`, fail-closed reliance on prompt-supplied `gateway_base_url`, `channel`, and `expected_binding_id`, stalled-work-first ordering, `one_off` lowest-priority (`--after-all` / `start_after_seconds: 15`) reply hardening, and stopping without polling. The binding's placement capability governs filing after successfully processing and replying.
+
+#### Scenario: Missing gateway URL or binding mismatch terminates the round fail-closed
+- **WHEN** a notifier prompt lacks `gateway_base_url`, `channel`, or `expected_binding_id`, or the binding mismatches
+- **THEN** `houmao-process-emails-via-gateway` stops with a contract failure without running `resolve-live`
+- **AND THEN** a successful round archives completed items after any required reply where the binding permits it, or reports them for independently authorized owner filing on a protected binding
+
 ### Requirement: Runtime-owned gateway email processing skill defines round-oriented notified email workflow
 The system SHALL provide a projected runtime-owned mailbox skill `houmao-process-emails-via-gateway` that defines the workflow for processing gateway-notified Inbox work in bounded rounds.
 
-That workflow SHALL assume the current notifier round already provides the exact current gateway base URL needed for shared mailbox operations.
+The `houmao-process-emails-via-gateway/SKILL-MAIN.md` router and `commands/process-round.md` SHALL require the notifier prompt's exact `gateway_base_url`, explicit `offline|online` channel, and `expected_binding_id` for the current round.
 
 #### Scenario: Acceptance criteria
 
@@ -20,9 +36,9 @@ The workflow MAY use additional non-body metadata or lightweight gateway-visible
 
 Once the workflow selects one or more task-relevant emails for the current round, it SHALL direct the agent to inspect all selected emails needed to decide and complete the work for that round.
 
-The workflow SHALL direct the agent to perform the requested work before mutating read state.
+Where inspection must leave read state intact until work succeeds, the workflow SHALL use non-mutating `peek`. Deferred or unfinished mail SHALL remain unread in `unread_only` rounds when it started unread.
 
-In an `unread_only` round, the workflow SHALL direct the agent to leave deferred or unfinished mail unread. The agent SHALL mark successfully processed mail read if it remains unread and the selected binding supports that state change.
+In an `unread_only` round, the agent SHALL mark successfully processed mail read if it remains unread and the selected binding supports that state change. The workflow SHALL keep read-state changes separate from filing.
 
 The workflow SHALL leave unread emails that were deferred, skipped, or not completed in the unread set for later notifier-driven rounds.
 
@@ -30,7 +46,11 @@ After the agent completes the selected round of work, the workflow SHALL direct 
 
 The workflow SHALL treat upstream gateway polling, unread snapshot updates, and mailbox-selection rules as outside the agent’s concern for that completed round.
 
-If the gateway base URL is missing from the notifier round context, the workflow SHALL treat that as a contract failure for the current round rather than silently switching to manager-based rediscovery.
+Missing notifier coordinates or a stale binding SHALL end the round with its contract or binding error. The workflow SHALL keep the selected gateway, channel, and binding for all effects during the round.
+
+`commands/process-round.md` SHALL confirm required replies through the compact write receipt and use `peek` on the same channel and binding for any needed read-only reconciliation. On `mail.reply` or `mail.attachment.owner_file` refusal, it SHALL report the exact refusal and leave the message open. A submission-only or uncertain required reply SHALL leave the work open until confirmed.
+
+`references/reply-hardening.md` SHALL preserve optional, lowest-priority `one_off` reminder guidance. It SHALL retain the exact notifier coordinates and reply reference and require a read-only reply-state check before retrying. The round SHALL remove unfired reply reminders after a confirmed ordinary reply and use the binding's authorized completion path for successfully completed messages.
 
 #### Scenario: Metadata-first triage follows an agent-run unread listing step
 - **WHEN** the agent begins a notifier-driven email processing round in `unread_only` mode
@@ -59,6 +79,12 @@ If the gateway base URL is missing from the notifier round context, the workflow
 - **THEN** the workflow does not silently switch to manager-based rediscovery for that round
 - **AND THEN** the missing gateway bootstrap is treated as a contract failure for the current wake-up
 
+#### Scenario: A Required Reply Remains Unconfirmed or Is Refused
+
+- **WHEN** a required reply produces a submission-only receipt, remains uncertain, or is refused
+- **THEN** the round reports the result and leaves the message open while the reply remains unconfirmed
+- **AND THEN** any reply-state check stays on the original channel and binding and any later reply still requires the same authority
+
 ### Requirement: Projected mailbox system skills keep routine attached-session actions on the shared gateway facade
 
 When a live gateway exposes the shared `/v1/mail/*` mailbox surface for a mailbox-enabled session, the projected mailbox system skills SHALL use the shared gateway facade for ordinary mailbox work.
@@ -70,7 +96,7 @@ When a live gateway exposes the shared `/v1/mail/*` mailbox surface for a mailbo
 
 Projected mailbox system skills for filesystem and `stalwart` SHALL resolve current mailbox state through `houmao-mgr agents self mail resolve-live` and use a runtime-owned client for live calls. Managed self commands SHALL sign the challenge with the current generation's key. Scoped admins SHALL use an explicit signing key. Skill text, resolver output, and shell examples SHALL omit keys, proof material, and private credential references.
 
-The skills SHALL use the existing separately authorized manager path when the live gateway is absent. Ordinary mailbox calls through this path SHALL respect the backend's placement restrictions on a protected binding. An admission refusal or unavailable policy from a protected gateway SHALL end the request. Lifecycle actions SHALL retain the selected channel and expected binding. Manager lifecycle commands SHALL include `--channel offline|online`.
+The skills SHALL use the existing separately authorized manager path for ordinary mailbox work when the live gateway is absent. Ordinary mailbox calls through this path SHALL respect the backend's placement restrictions on a protected binding. An admission refusal or unavailable policy from a protected gateway SHALL end the request. Lifecycle actions SHALL retain the selected channel and expected binding. Manager lifecycle commands SHALL include `--channel offline|online`.
 
 Ordinary mailbox work includes:
 
@@ -119,7 +145,7 @@ Thin session-local helpers SHALL delegate to the runtime-owned gateway client or
 ### Requirement: Runtime-owned mailbox skill projection pairs a unified ordinary mailbox skill with the separate processing workflow
 The agent pack's protected composition SHALL include two distinct mailbox logical routines.
 
-`houmao-process-emails-via-gateway` SHALL own notifier-triggered, bounded Inbox work rounds, assume the notifier supplies the exact gateway base URL, perform metadata-first triage, inspect selected messages, complete work, file successfully processed mail where ordinary archive is supported, and stop for the next notifier wake-up.
+`houmao-process-emails-via-gateway` SHALL own notifier-triggered, bounded Inbox work rounds. Its `process-round` workflow SHALL use prompt-supplied gateway coordinates, perform metadata-first triage, inspect selected messages, finish work and any required replies, follow the binding's authorized completion path, and stop for the next notifier wake-up.
 
 #### Scenario: Acceptance criteria
 
@@ -175,7 +201,7 @@ The public agent entrypoint SHALL route to the correct protected routine from op
 - **AND THEN** it does not require a separate installed top-level transport skill for filesystem or Stalwart guidance
 
 ### Requirement: Runtime-owned mailbox workflow skills use archive as completion
-Projected runtime-owned mailbox workflow skills SHALL use archive to close processed Inbox work on bindings that support ordinary archive. On protected bindings, the agent SHALL leave filing to the backend and finish the round after processing and any required reply.
+Projected runtime-owned mailbox workflow skills SHALL use archive to close processed Inbox work on bindings that support ordinary archive. On protected bindings, the agent SHALL report successfully processed messages for independently authorized mailbox-owner filing through the backend and finish the round after any required reply succeeds.
 
 #### Scenario: Acceptance criteria
 
@@ -194,7 +220,7 @@ Deferred, skipped, or not-yet-completed messages SHALL remain unarchived so late
 #### Scenario: A protected mailbox leaves filing to the backend
 
 - **WHEN** an agent finishes selected work and any required reply on a protected binding
-- **THEN** the skill directs the agent to leave placement to the backend under independently authorized owner filing and end the round
+- **THEN** the skill directs the agent to report the completed messages for independently authorized owner filing and end the round
 - **AND THEN** the skill omits ordinary archive, move, and placement-changing mark from the round and forbids switching to a fallback to perform them
 
 ### Requirement: Runtime-owned mailbox skills distinguish list, peek, read, mark, move, and archive
@@ -207,7 +233,7 @@ The skills SHALL explain that listing and peeking leave read state intact, readi
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-The skills SHALL keep manual marking available as a repair or operator-directed action rather than as the normal completion step for processed mail.
+The skills SHALL keep manual marking available as a repair or operator-directed action rather than as the normal completion step for processed mail. `move`, `archive`, and `mark` with an archived-state update SHALL require explicit binding placement capability even when ordinary read-state updates are supported.
 
 #### Scenario: Skill user can inspect without marking read
 - **WHEN** an agent follows projected mailbox skill guidance to inspect a message for triage
@@ -251,7 +277,7 @@ In both modes, the workflow SHALL close successfully processed Inbox work throug
 #### Scenario: The agent ends a round while Inbox mail remains on a protected binding
 
 - **WHEN** the notified work is complete and the backend still lists the processed mail in Inbox
-- **THEN** the workflow directs the agent to end the round and let the backend handle placement
+- **THEN** the workflow directs the agent to report the successfully processed mail for independently authorized owner filing and end the round
 - **AND THEN** `any_inbox` can remind the agent again while the mail remains in Inbox, while `unread_only` applies the current read state
 
 ### Requirement: Static shared routines preserve distinct mailbox owners
@@ -270,12 +296,17 @@ The static `houmao-shared-routines` skill SHALL own separate parent-scoped child
 - **AND THEN** it does not use the notifier-round child
 
 ### Requirement: Mailbox routines triage bounded metadata pages
-Ordinary and notifier-driven routines SHALL start from one bounded metadata page for the selected channel/binding. They SHALL retrieve more pages only within an explicit round budget and fetch content only for selected messages through peek/read. They SHALL archive only successfully processed mail after required replies where ordinary archive is supported. On protected bindings, they SHALL leave placement to the backend. They SHALL stop after the round.
+Ordinary and notifier-driven routines SHALL start with one bounded metadata page on the selected channel and binding. They SHALL page only within the round budget and fetch content only for selected messages. They SHALL use the authorized filing path only for successfully processed mail after any required replies and stop after the round.
 
 #### Scenario: Inbox is larger than one processing round
 - **WHEN** the first metadata page has continuation but the round budget is reached
 - **THEN** the routine leaves deferred work unarchived for later periodic reminders
 - **AND THEN** it does not fetch all retained bodies before selecting work
+
+#### Scenario: Bounded List Examples Pin the Selected Binding
+
+- **WHEN** the routine illustrates a direct HTTP list request
+- **THEN** the example uses `schema_version: 3`, `expected_binding_id`, and a bounded metadata-only listing without `include_body`
 
 #### Scenario: Metadata is insufficient for a selected task
 - **WHEN** an agent selects a message as relevant

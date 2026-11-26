@@ -23,7 +23,7 @@ The skill SHALL select commands by communication intent:
 - use scoped `mail resolve-live` when the task needs mailbox discovery, current mailbox capability, or the exact live `gateway.base_url` before mailbox handoff
 - use scoped `state` when the next action needs current runtime posture and `gateway status` when it needs verified gateway status
 
-For outbound agent mail, the skill SHALL use a known or resolved recipient address for the explicit channel and act through the sending agent's verified mailbox binding. It SHALL report the selected transport's outcome. It SHALL describe recipient mailbox placement, agent notification, and processing as separate from transport confirmation and recipient gateway authority.
+For outbound agent mail, `commands/mail.md` SHALL use a known or resolved recipient address for the explicit channel and act through the sending agent's verified mailbox binding. It SHALL report the selected transport's outcome with recipient mail rules, placement, notification, and processing left unspecified.
 
 The skill SHALL prefer `houmao-mgr agents ...` and managed-agent `/houmao/agents/*` routes over direct gateway listener URLs when those higher-level surfaces already satisfy the current task.
 
@@ -81,7 +81,7 @@ The skill SHALL prefer `houmao-mgr agents ...` and managed-agent `/houmao/agents
 
 ### Requirement: Messaging Guidance Distinguishes Typed Requests From Direct Control
 
-The skill SHALL use the typed work-request command through a verified gateway or qualified direct passive path. It SHALL select the path and proof before submission and explain eligibility for default admission. Direct prompts, native slash commands, and interruption SHALL require explicit intent and applicable authority. Observation, raw keys, and admission overrides SHALL retain separate effects.
+The skill's `commands/request.md` SHALL use the typed work-request command through a verified gateway or qualified direct passive path. It SHALL select the path and proof before submission and explain eligibility for default admission. Direct prompts, native slash commands, and interruption SHALL require explicit intent and applicable authority. Observation, raw keys, and admission overrides SHALL retain separate effects.
 
 #### Scenario: Alice Requests That Bob Review a Patch
 
@@ -93,7 +93,8 @@ The skill SHALL use the typed work-request command through a verified gateway or
 
 - **WHEN** Alice has no explicit `builtin:` group assignment on Bob, qualifies for fallback, and needs to submit a work request
 - **THEN** the skill selects the verified target and uses the typed request command without requiring enrollment on Bob
-- **AND THEN** it uses verified identity when selected and supported, or selects unsigned input before submission where the operation permits it
+- **AND THEN** it uses independently verified identity when available on the selected path, or uses explicit `--unsigned` when the caller has selected anonymous submission and the operation permits it
+- **AND THEN** it reports unsupported proof or verification refusal as applicable and preserves the selected caller attribution
 - **AND THEN** it reports the target's admission outcome and preserves the distinction between verified and anonymous attribution
 
 #### Scenario: Bob Refuses a Signed Work Request from Status-Only Alice
@@ -101,6 +102,12 @@ The skill SHALL use the typed work-request command through a verified gateway or
 - **WHEN** Alice has Bob's exact status grant and default fallback is disabled for her verified identity
 - **THEN** the skill reports Bob's refusal of an ungranted work request
 - **AND THEN** it preserves the signed refusal even if the configured default would authorize a separate unsigned request
+
+#### Scenario: Alice Intentionally Submits an Unsigned Work Request
+
+- **WHEN** Alice explicitly chooses unsigned submission before contacting Bob and Bob's current default permits the typed request
+- **THEN** `commands/request.md` uses `--unsigned` and reports anonymous attribution
+- **AND THEN** it explains that Bob's verified per-principal fallback restriction applies to requests carrying Alice's proof
 
 #### Scenario: Alice Submits a Slash Command as Request Content
 

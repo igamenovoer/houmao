@@ -11,6 +11,7 @@ Houmao ties ordinary email delivery to the recipient’s gateway role, even when
 - Allow keyed gateways to attach and use externally managed online mail. Where a backend supports protected filtering, let the gateway relay independently authorized mailbox rule changes for the exact binding. Retain gateway roles and grants in gateway policy and send only the required mail rules to the trusted backend.
 - The trusted filesystem registry or native online backend delivers new blocked mail directly to Archive. Rule changes apply to future delivery. Existing Inbox and Archive messages stay in place.
 - Report protected filtering as unsupported when the backend cannot file matching deliveries directly to Archive with placement authority isolated from the gateway.
+- Update the refreshed packaged skills for status-only access, keyed Stalwart setup, owner-authorized filtering, and mailbox actions supported by each binding. Align the onboarding, notifier-round, and mail-loop examples with their owning workflows.
 
 ## Capabilities
 
@@ -34,8 +35,10 @@ Houmao ties ordinary email delivery to the recipient’s gateway role, even when
 - `houmao-mgr-agents-scope-cli`: Expose revised policy administration and report transport outcomes for ordinary mail.
 - `houmao-agent-access-skill`: Teach status-only exact access and the separation between gateway authority and mailbox filtering.
 - `houmao-agent-email-comms-skill`: Route ordinary mailbox work according to the binding’s placement authority.
-- `houmao-agent-gateway-skill`: Teach notifier modes for mail in the authoritative Inbox.
+- `houmao-agent-gateway-skill`: Teach the owner-authorized policy relay and notifier modes for mail in the authoritative Inbox.
 - `houmao-agent-messaging-skill`: Teach the distinction between typed gateway requests, ordinary email, and the recipient’s treatment of delivered mail.
+- `houmao-mailbox-mgr-skill`: Explain keyed Stalwart attachment and independent backend qualification, authority, and rule verification.
+- `houmao-adv-usage-pattern-skill`: Make notifier-loop and self-mail completion examples follow the binding’s placement capabilities.
 
 ## Impact
 

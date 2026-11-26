@@ -153,10 +153,11 @@ The packaged `houmao-agent-gateway` skill SHALL select commands by gateway-speci
 The packaged `houmao-agent-gateway` skill SHALL select commands by gateway-specific intent:
 
 - use scoped `gateway attach|detach|status` or `/houmao/agents/{agent_ref}/gateway...` for gateway lifecycle and summary state
-- use scoped `gateway mail-notifier ...` or `/houmao/agents/{agent_ref}/gateway/mail-notifier` for unread-mail notifier control
+- use scoped `gateway mail-notifier ...` or `/houmao/agents/{agent_ref}/gateway/mail-notifier` for mailbox notifier control
 - use scoped `gateway reminders list|get|create|set|remove` or `/houmao/agents/{agent_ref}/gateway/reminders...` for reminder creation, inspection, update, and cancellation
 - treat reminder delivery through the supported reminder surfaces as supporting both semantic `prompt` reminders and raw `send_keys` reminders
 - select a direct live gateway HTTP route when the task needs its lower-level contract and the exact current target has been established
+- document `POST /v1/mail/{channel}/policy/apply` as the gateway relay for independently authorized mailbox rule updates
 - delegate independently signed direct requests to `agent-access` for the supported caller and target proof
 - delegate versioned file operations to `agent-files`
 
@@ -179,6 +180,26 @@ The skill SHALL prefer the scoped manager or managed-agent projection when it sa
 - **WHEN** the task is one normal prompt turn, one transport-neutral interrupt, or mailbox work rather than gateway lifecycle or gateway-only service control
 - **THEN** the skill directs the caller to `houmao-agent-messaging` and the current mailbox skills instead of taking that work itself
 - **AND THEN** it does not present the gateway skill as the primary ordinary communication surface
+
+#### Scenario: The HTTP Reference Shows the Owner-Authorized Mail Policy Relay
+
+- **WHEN** a mailbox owner consults `references/http-surface.md` to apply recipient rules
+- **THEN** the reference identifies `POST /v1/mail/{channel}/policy/apply` on the verified current gateway
+- **AND THEN** it explains that the owner signs the operation, exact backend and mailbox binding, expected policy revision, operation ID, and exact rule payload
+- **AND THEN** it distinguishes gateway administrator admission from independently authenticated mailbox-owner authority and directs the owner to verify the committed revision and outcome through the trusted backend or connector
+- **AND THEN** it explains confirmed, refused, unsupported, and uncertain backend outcomes without treating an unconfirmed relay as applied
+
+#### Scenario: The HTTP Reference Shows Protected Mailbox Lifecycle Limits
+
+- **WHEN** `references/http-surface.md` describes ordinary routes for a protected mailbox binding
+- **THEN** it documents binding-scoped read, send, reply, and non-placement marking under their applicable scopes
+- **AND THEN** it describes ordinary move, archive, and placement-changing mark as unsupported on the protected binding and routes owner filing through independent backend authority
+
+#### Scenario: The HTTP Reference Explains Admission on a Keyed Gateway
+
+- **WHEN** `references/http-surface.md` describes `admin_mode: keyed` in endpoint discovery
+- **THEN** it distinguishes independently verified callers using eligible effective permissions from eligible unsigned callers using the configured default
+- **AND THEN** it explains that the target can disable fallback for a verified principal and that invalid supplied proof is refused
 
 ### Requirement: `houmao-agent-gateway` describes reminders and mail-notifier honestly
 The packaged `houmao-agent-gateway` skill SHALL describe `/v1/reminders` as the supported gateway-owned live reminder surface for one attached gateway.
@@ -278,11 +299,8 @@ The lifecycle guidance SHALL tell agents to report foreground execution metadata
 - **AND THEN** it does not tell the agent to guess gateway topology from tmux window names or ordering
 
 ### Requirement: Gateway system skill documents notifier notification mode
-The packaged `houmao-agent-gateway` system skill SHALL describe gateway `mail-notifier` as mailbox-driven notification control for mailbox-enabled sessions rather than as a generic reminder service.
 
-The skill's mail-notifier guidance SHALL state that the default notifier mode is `any_inbox`, where any unarchived inbox mail remains notification-eligible.
-
-The guidance SHALL document the opt-in `unread_only` mode, where only unread unarchived inbox mail is notification-eligible.
+The packaged `houmao-agent-gateway` system skill SHALL describe `mail-notifier` in `commands/mail-notifier.md` as mailbox-driven notification control. Its guidance SHALL explain that `any_inbox` is the default and includes unarchived mail in the backend's authoritative Inbox. The opt-in `unread_only` mode limits this eligible set to unread mail.
 
 #### Scenario: Acceptance criteria
 
@@ -292,19 +310,34 @@ The guidance SHALL document the opt-in `unread_only` mode, where only unread una
 The guidance SHALL mention that `unread_only` is a lower-noise mode and that read-but-unarchived mail will not by itself trigger future notifier prompts in that mode.
 
 #### Scenario: Gateway skill shows default notifier mode
+
 - **WHEN** a caller reads the `houmao-agent-gateway` mail-notifier guidance
 - **THEN** the guidance states that `any_inbox` is the default notifier mode
-- **AND THEN** it describes that default as notification for unarchived inbox mail regardless of read or answered state
+- **AND THEN** it describes that default as notification for unarchived Inbox mail regardless of read or answered state, subject to ordinary readiness and admission rules
 
 #### Scenario: Gateway skill shows unread-only opt-in mode
+
 - **WHEN** a caller reads the `houmao-agent-gateway` mail-notifier guidance
 - **THEN** the guidance documents `unread_only` as an opt-in notifier mode
 - **AND THEN** it explains that read-but-unarchived mail is not notifier-eligible in that mode
 
 #### Scenario: Gateway skill stays mail-specific
+
 - **WHEN** a caller reads the notifier guidance in the packaged gateway skill
 - **THEN** the skill presents `mail-notifier` as mailbox-driven notification control
 - **AND THEN** it does not describe notifier mode as a generic unfinished-job persistence mechanism
+
+#### Scenario: Gateway Skill Explains Backend-Owned Inbox Placement
+
+- **WHEN** a caller asks how sender blocking affects Inbox reminders
+- **THEN** the guidance explains that the backend files matching new mail directly into Archive and that both modes observe open work in the authoritative Inbox
+- **AND THEN** it explains that rule changes leave existing Inbox placement in effect and that unblocking leaves archived messages in Archive
+
+#### Scenario: Processed Mail Is Still in a Protected Inbox
+
+- **WHEN** the agent finishes processing mail on a protected binding that reserves filing for the mailbox owner
+- **THEN** `commands/mail-notifier.md` explains that the agent can end the round after processing and any required reply while the backend retains placement control
+- **AND THEN** it explains that `any_inbox` can repeat while the message remains in Inbox and `unread_only` follows its current read state
 
 ### Requirement: `houmao-agent-gateway` uses direct scoped command snippets for supported gateway commands
 The packaged `houmao-agent-gateway` skill SHALL document supported gateway commands as direct fenced `bash` snippets or equivalent explicit command shapes.
@@ -352,3 +385,23 @@ The gateway skill SHALL expose `web-entry` as an explicit command for issuing on
 - **THEN** the skill requires an enrolled signer authorized for `web.enter`, using the supported option or the configured owner signer
 - **AND WHEN** the selected gateway has a valid initialized empty roster
 - **THEN** the skill describes unsigned issuance as available through the owner-local command
+### Requirement: Agent gateway covers plugin overrides, public dashboard, service/web routes, open-browser, and CCCC
+`houmao-agent-gateway` SHALL document `--plugin-config-override INSTANCE=JSON` on `gateway attach`, public dashboard `GET /` and `/v1/endpoint` `admin_mode: open|keyed|unavailable`, `service`/`web` routes in `references/http-surface.md`, `agents single ... open-browser` alongside `gateway web-entry`, and `houmao-cccc` plugin CLI and `/v1/plugins/{instance}/*` routes (`delivery`, `chat`, `mail`).
+
+#### Scenario: Gateway surfaces cover CCCC plugin routes, open-browser, and dashboard states
+- **WHEN** a caller attaches gateway plugins, opens a local Kimi Web browser, inspects `GET /` or `/v1/endpoint`, or operates `houmao-cccc`
+- **THEN** `lifecycle.md`, `web-entry.md`, `gateway-services.md`, and `http-surface.md` document `--plugin-config-override`, `open-browser` vs `web-entry`, `admin_mode: open|keyed|unavailable`, `/v1/control/{service,web}/*`, and `houmao-cccc` `/v1/plugins/{instance}/*`
+
+### Requirement: Agent gateway tightens SKILL-MAIN.md and reminders.md prose
+`houmao-agent-gateway` SHALL condense redundant Supported/Out-of-Scope/Missing-Input/Routing lists in `SKILL-MAIN.md` (~90 lines) and streamline the 111-line `commands/reminders.md` workflow while preserving every reminder parameter and ranking rule.
+
+#### Scenario: Gateway entrypoint and reminders page stay concise
+- **WHEN** a reviewer inspects `houmao-agent-gateway`
+- **THEN** `SKILL-MAIN.md` avoids boilerplate repetition and `commands/reminders.md` preserves `one_off`/`repeat`, `--after-all`, `send_keys.ensure_enter`, and non-durability in fewer words
+
+### Requirement: Agent gateway preserves attach/launch separation, foreground default, 60s web-entry, and env bans
+`houmao-agent-gateway` SHALL preserve `## Actor Frame Gate`, attach/detach vs launch/stop separation, foreground auxiliary-window default (`--background` opt-in), 60-second single-use `web-entry` URL security, live-only ranked reminders, `mail-notifier` `appendix_text` preservation, and retired env var bans (`HOUMAO_GATEWAY_ATTACH_PATH`, `HOUMAO_GATEWAY_ROOT`).
+
+#### Scenario: Retired gateway environment variables remain prohibited
+- **WHEN** an agent needs the current gateway or mailbox endpoint
+- **THEN** `houmao-agent-gateway` uses `gateway status` or `agents self mail resolve-live` and never uses retired `HOUMAO_GATEWAY_ATTACH_PATH` or `HOUMAO_GATEWAY_ROOT`

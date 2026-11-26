@@ -546,9 +546,9 @@ Reminder-route validation failures SHALL return HTTP `422`. Unknown reminder ide
 
 The notifier control endpoints SHALL be served by the gateway sidecar itself and SHALL use structured request and response payloads rather than requiring callers to read or write gateway SQLite state directly.
 
-The shared mailbox routes SHALL be limited to mailbox status, listing, peeking, reading, ordinary `send`, operator-origin `post`, `reply`, explicit marking, moving, and archive behavior.
+The shared mailbox routes SHALL cover mailbox status, ordinary lifecycle operations, and owner-authorized policy application on the selected channel. Policy application SHALL use mailbox-owner proof as well as gateway admission.
 
-Ordinary `send`, `reply`, read, mark, move, and archive behavior SHALL continue using the shared mailbox abstraction across both the filesystem and `stalwart` transports. Operator-origin `post` SHALL support only filesystem mailbox bindings in v1 and SHALL fail explicitly for other transports.
+Ordinary `send`, `reply`, read, mark, move, and archive operations SHALL use the shared mailbox abstraction across both the filesystem and `stalwart` transports, subject to the selected binding's supported operations. The mail backend SHALL control placement for protected bindings. Operator-origin `post` SHALL support only filesystem mailbox bindings in v1 and SHALL fail explicitly for other transports.
 
 Those shared mailbox routes SHALL use structured request and response payloads and SHALL NOT require callers to read or write transport-local SQLite state, filesystem `rules/`, or Stalwart-native objects directly.
 
@@ -912,79 +912,34 @@ The gateway SHALL avoid unbounded log spam from high-frequency identical poll ou
 - **THEN** the gateway running log records that notifier work is being deferred for retry
 - **AND THEN** the gateway avoids emitting an unbounded identical busy message on every single short poll forever
 
-### Requirement: Gateway notifier wake-up semantics are unread-set based rather than per-message based
-When gateway-owned notifier behavior is enabled for a mailbox-backed session, the gateway SHALL treat notification eligibility as a function of whether unread mail exists for that session and whether the session is currently eligible to receive a reminder prompt.
-
-#### Scenario: Acceptance criteria
-
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-If a poll cycle finds multiple unread messages, the gateway SHALL support satisfying notifier behavior with a single internal reminder prompt that summarizes the unread set for that cycle, including message metadata such as titles or identifiers.
-
-The gateway SHALL NOT require one internal reminder prompt per unread message in order to satisfy notifier behavior.
-
-If the unread set remains unchanged after an earlier reminder was delivered or enqueued, and a later poll finds the session eligible to accept a new prompt again, the gateway SHALL continue treating that unchanged unread set as eligible for another reminder.
-
-The gateway SHALL NOT suppress a later reminder solely because a prior reminder targeted the same unread snapshot.
-
-#### Scenario: Multiple unread messages can be summarized in one reminder prompt
-- **WHEN** one notifier poll cycle observes more than one unread message for the same mailbox-backed session
-- **THEN** the gateway may enqueue one internal reminder prompt that summarizes the unread set observed in that cycle
-- **AND THEN** the gateway does not need to enqueue one reminder per unread message
-
-#### Scenario: Unchanged unread set remains eligible after the session becomes ready again
-- **WHEN** the notifier previously delivered or enqueued a reminder for one unread set
-- **AND WHEN** a later poll finds the same unread set still present and still unread
-- **AND WHEN** the managed session is again eligible to accept a new prompt
-- **THEN** the gateway continues treating that unread set as eligible for another reminder
-- **AND THEN** it does not suppress that later reminder solely because the unread snapshot is unchanged
-
-#### Scenario: Operator activity does not retire unread reminder eligibility
-- **WHEN** unread mail remains present after a prior reminder
-- **AND WHEN** operator-driven commands or other unrelated session activity interrupt, replace, or sidetrack the earlier reminder flow
-- **AND WHEN** a later poll finds the managed session eligible to accept a new prompt again
-- **THEN** the gateway still treats the remaining unread mail as eligible for notifier reminder delivery
-- **AND THEN** reminder eligibility continues to depend on unread mail plus live prompt readiness rather than on prior reminder history
-
 ### Requirement: Gateway notifier records structured per-poll decision auditing for later review
+
 When gateway-owned notifier behavior is enabled, the gateway SHALL record one structured notifier-decision audit record for each enabled poll cycle in a queryable SQLite audit table under the gateway state root.
 
 #### Scenario: Acceptance criteria
 
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-Each record SHALL capture enough detail to explain what the notifier saw and why it enqueued or skipped work, including at minimum:
-
-- poll time,
-- owner, selected channel, and binding identity,
-- unread-count observation,
-- unread-set identity or equivalent deduplication summary,
-- request-admission state,
-- active-execution state,
-- queue depth,
-- the notifier decision outcome, and
-- enqueue identifiers or skip detail when applicable.
-
-The gateway MAY continue to keep `gateway.log` rate-limited and human-oriented, but that human log SHALL NOT be the only durable source of per-poll notifier decision history.
-
-Detailed per-poll decision history SHALL remain available through that durable audit table even if `GET /v1/mail-notifier/{channel}` remains a compact status snapshot without last-decision summary fields.
+- **GIVEN** an enabled notifier poll cycle
+- **THEN** its audit record identifies poll time, owner, channel, and binding
+- **AND THEN** it reports the mode-eligible Inbox count and set identity or equivalent summary, admission state, active execution, queue depth, outcome, and enqueue identifiers or skip detail when applicable
+- **AND THEN** detailed history remains available independently of the compact `GET /v1/mail-notifier/{channel}` snapshot and the rate-limited human log
 
 #### Scenario: Busy poll records an explicit skip decision
-- **WHEN** a notifier poll cycle finds unread mail while gateway admission is not open, active execution is running, or queue depth is non-zero
+
+- **WHEN** a notifier poll cycle finds eligible Inbox work while gateway admission is closed, active execution is running, or queue depth is non-zero
 - **THEN** the gateway records a structured audit record for that poll cycle
 - **AND THEN** that record identifies the decision as a busy or ineligible skip and includes the eligibility inputs that caused the skip
 
 #### Scenario: Enqueue poll records the created reminder request
-- **WHEN** a notifier poll cycle finds unread mail and the gateway enqueues an internal reminder prompt
+
+- **WHEN** a notifier poll cycle finds eligible Inbox work and the gateway enqueues an internal reminder prompt
 - **THEN** the gateway records a structured audit record for that poll cycle
 - **AND THEN** that record includes the reminder decision outcome and the created internal request identifier
 
 #### Scenario: Durable audit history remains the detailed inspection surface
+
 - **WHEN** an operator or demo helper needs the latest detailed notifier decision data
 - **THEN** it can inspect the durable SQLite notifier audit history under the gateway root
-- **AND THEN** the gateway does not need to expose additional last-decision summary fields on `GET /v1/mail-notifier/{channel}` in order to satisfy this requirement
+- **AND THEN** the compact notifier status contract remains available separately
 
 ### Requirement: Gateway execution adapters support REST-backed, local-headless, and server-managed targets
 The gateway SHALL execute accepted terminal-mutating request kinds through an explicit execution-adapter boundary selected from durable attach metadata and manifest-backed runtime authority. The gateway SHALL bind managed work to the recorded run mode, current owner generation, and supported operations before dispatch. A supervisor pane or reachable listener alone SHALL NOT authorize a fallback adapter.
@@ -1687,9 +1642,9 @@ The shared mailbox facade SHALL expose authorized `GET /v1/mail/status` as a sum
 
 The gateway SHALL expose channel-selected lifecycle routes under `/v1/mail/{channel}/` for `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, where `channel` is `offline` or `online`. The former unqualified lifecycle routes SHALL NOT infer a channel from the canonical mail identity.
 
-List SHALL return triage metadata without marking read. Peek SHALL return selected content without changing read state. Read SHALL return content and mark read. Mark SHALL support recipient-local read/answered state. Move SHALL update supported boxes. Archive SHALL close inbox work through the selected backend.
+List SHALL return triage metadata without marking read. Peek SHALL return selected content without changing read state. Read SHALL return content and mark read. Mark SHALL support recipient-local read/answered state. Where the selected binding permits gateway placement changes, move SHALL update supported boxes and archive SHALL close inbox work through the selected backend. On a protected binding, ordinary gateway move, archive, and placement-changing mark operations SHALL fail explicitly. The gateway SHALL retain binding-scoped reading, sending, replying, and read or answered state changes.
 
-All lifecycle requests SHALL identify their expected binding ID, obtained from status or current round context, and use runtime-owned authority and scoped references. A replaced binding SHALL fail explicitly even for send/post requests without a message reference. Unsupported operations, absent bindings, and backend failures SHALL be explicit. Callers SHALL NOT need filesystem indexes, mailbox scripts, or provider-native objects. The gateway SHALL authorize each mailbox operation against the selected target and binding. Operator-origin post and mailbox binding controls SHALL each require their corresponding permission.
+All lifecycle requests SHALL identify their expected binding ID, obtained from status or current round context, and use runtime-owned authority and scoped references. A replaced binding SHALL fail explicitly even for send/post requests without a message reference. Unsupported operations, absent bindings, and backend failures SHALL be explicit. Callers SHALL NOT need filesystem indexes, mailbox scripts, or provider-native objects. The gateway SHALL authorize each mailbox operation against the selected target and binding. Operator-origin post and mailbox binding controls SHALL each require their corresponding permission. The ordinary Inbox view SHALL come from the backend without gateway filtering or placement overrides.
 
 #### Scenario: Peek does not mutate read state through the gateway
 - **WHEN** a caller peeks through the selected channel using a matching scoped reference
@@ -1700,7 +1655,7 @@ All lifecycle requests SHALL identify their expected binding ID, obtained from s
 - **THEN** it receives that message's content and read state becomes true for that mailbox owner
 
 #### Scenario: Archive shortcut remains available
-- **WHEN** a caller archives selected references through their matching channel
+- **WHEN** a caller archives selected references through their matching channel and the binding permits ordinary gateway archive
 - **THEN** the selected backend reports them archived and no longer open inbox work
 
 #### Scenario: Channel omission does not use canonical precedence
@@ -1733,13 +1688,31 @@ All lifecycle requests SHALL identify their expected binding ID, obtained from s
 - **WHEN** an unsigned caller accesses an enabled mailbox operation with a current binding ID while the roster is valid and empty
 - **THEN** the gateway applies normal channel, reference, and delivery checks with anonymous caller provenance
 
+#### Scenario: Ordinary mailbox calls cannot change placement on a protected binding
+
+- **WHEN** a caller requests move, archive, or an archive-equivalent mark via ordinary lifecycle routes on a protected binding
+- **THEN** the operation fails explicitly and the backend leaves placement unchanged
+- **AND THEN** the caller can still use authorized read, send, reply, and non-placement mark operations
+
+#### Scenario: A mailbox listing uses the backend's Inbox view
+
+- **WHEN** the selected backend files new blocked mail directly in Archive
+- **THEN** the ordinary listing reports only the backend's Inbox view
+- **AND THEN** an ordinary Inbox read of that mail fails, including when the caller supplies a cached or guessed reference
+
+#### Scenario: An authorized mailbox owner files processed mail
+
+- **WHEN** a mailbox owner independently authorizes filing of processed Inbox mail on a protected binding
+- **THEN** the backend can apply the filing through its owner-authorized interface
+- **AND THEN** the agent's ordinary gateway permissions stay the same
+
 ### Requirement: Gateway reply marks the parent message answered
 When a channel-selected gateway reply succeeds, the adapter SHALL mark the parent message `answered=true` and `read=true` for the owning mailbox. Reply SHALL preserve originating channel and binding scope and SHALL NOT archive the parent message.
 
 #### Scenario: Gateway reply acknowledges without closing the mail
 - **WHEN** a caller replies through the matching channel and binding
 - **THEN** the parent becomes read and answered for that owner
-- **AND THEN** it remains open inbox work until archive or a closing move succeeds
+- **AND THEN** it remains open inbox work until the backend archives it or applies another placement change
 
 ### Requirement: Gateway exposes managed memory memo and page endpoints
 The live gateway SHALL expose HTTP endpoints for managed memory inspection and memo/page operations.
@@ -2743,47 +2716,6 @@ Send, reply, and post with an owner-local attachment path SHALL require permissi
 - **WHEN** a verified administrator supplies the same supported attachment form in keyed mode
 - **THEN** the gateway authorizes both actions through the gateway-admin role and applies the same owner-context path validation
 
-### Requirement: Typed Work Requests Enter as Attributed Content
-
-`POST /v1/requests` SHALL accept `submit_work_request` with bounded, nonempty text and require `agent.request.submit` on `agent`. The gateway SHALL use verified attribution or explicit anonymous provenance for each admitted request. It SHALL present caller text as quoted content under the agent's current instructions. The request SHALL use the current conversation, configured model, and ready-only native handoff.
-
-#### Scenario: Alice sends a scoped work request to Bob
-- **WHEN** Alice's verified peer key has `agent.request.submit` on Bob and she submits “Review PR 42”
-- **THEN** Bob's input identifies Alice as the verified requester and delivers the quoted task under Bob's current instructions
-- **AND THEN** the response identifies the existing request and reports acceptance or handoff separately from task completion
-
-#### Scenario: Caller supplies command-looking request content
-- **WHEN** a valid work request contains `/compact`, `<[Escape]>`, or text that claims an administrator identity
-- **THEN** Bob receives that content as quoted request data with the proof-derived attribution
-- **AND THEN** the gateway performs zero native slash commands or raw terminal actions from the request text
-
-#### Scenario: Work request supplies execution controls
-- **WHEN** a caller includes caller identity, raw input, an admission override, a session selector, or a model override in a work-request payload
-- **THEN** request validation rejects the fields
-- **AND THEN** existing next-prompt overrides remain available to their original authorized path
-
-#### Scenario: Open gateway accepts unsigned work requests
-- **WHEN** the target has an initialized empty admin roster and an unsigned caller submits a valid work request
-- **THEN** the gateway applies open administrator authority and explicitly attributes the work request to an anonymous caller
-
-#### Scenario: Keyed gateway accepts a request from a new peer
-- **WHEN** Bob has a keyed roster, `default_permission_group` is `agent-requester`, and a new peer submits a valid work request without Bob-side enrollment
-- **THEN** the request uses Bob's default permissions
-- **AND THEN** the gateway preserves independently verified attribution when available and explicitly records anonymous provenance for unsigned input
-
-#### Scenario: Assigned observer submits an identified work request
-- **WHEN** Alice proves an identity assigned only `agent-observer` and submits a work request to Bob with an `agent-requester` default
-- **THEN** the gateway refuses the work-request effect under Alice's explicit role
-
-#### Scenario: Assigned observer submits a separate unsigned work request
-- **WHEN** Alice holds only `agent-observer` and separately submits a valid work request without proof to keyed Bob with the `agent-requester` default
-- **THEN** the gateway admits the request under the default and attributes it to an anonymous caller
-- **AND THEN** normal request validation and readiness checks still apply
-
-#### Scenario: A request carries invalid proof
-- **WHEN** a caller submits invalid proof alongside a work request that would be allowed without proof
-- **THEN** the gateway refuses the request at proof validation
-
 ### Requirement: Queued Work Requests Recheck Ready Handoff
 
 The gateway SHALL retain a work request's caller, target, and operation authority through queue admission and native handoff. The gateway SHALL recheck current authority and a qualified native readiness boundary before delivering the attributed request. The queue SHALL expose the existing typed acceptance, failure, and uncertainty evidence for these requests.
@@ -2799,21 +2731,21 @@ The gateway SHALL retain a work request's caller, target, and operation authorit
 - **AND THEN** the refusal retains the original attribution and request identity
 
 #### Scenario: A queued request loses default authority
-- **WHEN** a request admitted under Bob's default reaches dispatch after Bob changes the default to `agent-observer` or assigns that observer role to the verified caller
+- **WHEN** a request admitted under Bob's default reaches dispatch after Bob changes the default setting or disables default fallback for the verified caller
 - **THEN** the gateway settles the request with a typed refusal before native delivery
 
 #### Scenario: An anonymous request stays anonymous at handoff
-- **WHEN** an unsigned work request is pending under Bob's requester default and Bob assigns Alice an observer role before handoff
-- **THEN** the assignment leaves the anonymous admission eligible while the default and other prerequisites remain current
+- **WHEN** an unsigned work request is pending under Bob's requester default and Bob disables default fallback for Alice's verified identity before handoff
+- **THEN** the anonymous admission remains eligible while the default and other prerequisites remain current
 
 ### Requirement: Gateway Administration Sets the Default Permission Group
 
-`PUT /v1/admin/default-permission-group` SHALL accept schema version `1` and one built-in `default_permission_group`. The gateway SHALL require `admin.default-group.set` on `policy`, recheck authority at commit, and update the target's retained policy. It SHALL return the committed group and setting revision. Operation-specific proof and roster rules SHALL apply independently.
+`PUT /v1/admin/default-permission-group` SHALL accept schema version `1` and a supported built-in `default_permission_group`. The gateway SHALL require `admin.default-group.set` on `policy`, recheck authority at commit, and update the target's retained policy. It SHALL return the committed group and setting revision. Operation-specific proof and roster rules SHALL apply independently.
 
 #### Scenario: An administrator sets Bob's default to operator
 - **WHEN** a caller authorized as `agent-admin` sets `default_permission_group` to `agent-operator` on Bob's gateway
 - **THEN** the gateway stores the selected group in Bob's policy
-- **AND THEN** later unassigned callers use the selected group subject to the exact operation's prerequisites
+- **AND THEN** later eligible callers use the selected group subject to the exact operation's prerequisites
 
 #### Scenario: A caller uses the admin default to change it
 - **WHEN** Bob has a keyed roster and has selected `agent-admin` as the default group
@@ -2824,7 +2756,7 @@ The gateway SHALL retain a work request's caller, target, and operation authorit
 - **THEN** the gateway refuses the admin-exclusive effect before committing a policy change
 
 #### Scenario: An administrator supplies a group outside the built-in catalog
-- **WHEN** an authorized administrator supplies an unknown or owner-defined group as the default
+- **WHEN** an authorized administrator supplies a retired, unknown, or owner-defined group as the default
 - **THEN** the gateway rejects the value before committing a policy change
 
 ### Requirement: Native Control Requires Its Exact Effect
@@ -2868,3 +2800,112 @@ A caller who creates or updates a reminder that submits verbatim native text SHA
 #### Scenario: A reminder's command authority expires
 - **WHEN** an existing slash-command reminder becomes due after its admitted caller loses command authority
 - **THEN** the gateway refuses native delivery even if the caller retains its reminder-management permission
+### Requirement: Gateway Notifier Aggregates the Current Eligible Inbox Set
+
+When a mail notifier is enabled, the gateway SHALL use messages the selected backend exposes in its Inbox that satisfy the configured mode. It SHALL apply current readiness and queue admission. A poll can produce one reminder for the eligible set. An unchanged eligible set SHALL remain eligible for later reminder cycles.
+
+#### Scenario: Multiple eligible messages are represented by one reminder
+
+- **WHEN** the notifier observes multiple eligible Inbox messages in one cycle
+- **THEN** it can enqueue one aggregate reminder instead of requiring a reminder per message
+- **AND THEN** any message details it presents are limited to the eligible set
+
+#### Scenario: Unchanged eligible mail can generate a later reminder
+
+- **WHEN** a prior reminder has been enqueued or delivered and a later poll finds the same eligible set with an agent ready for work
+- **THEN** the gateway can admit a later reminder despite the unchanged set
+
+#### Scenario: Operator activity does not retire mail eligibility
+
+- **WHEN** an operator command or unrelated session activity intervenes after an earlier reminder and eligible work remains
+- **THEN** the gateway can admit a later reminder when readiness allows
+
+### Requirement: Typed Work Requests Use Current Caller Authority and Attribution
+
+`POST /v1/requests` SHALL accept `submit_work_request` with bounded, nonempty text and require `agent.request.submit` on `agent`. The gateway SHALL use verified attribution or explicit anonymous provenance for each admitted request. It SHALL present caller text as quoted content under the agent's current instructions. The request SHALL use the current conversation, configured model, and ready-only native handoff.
+
+#### Scenario: Alice sends a scoped work request to Bob
+- **WHEN** Alice's verified peer key has `agent.request.submit` on Bob and she submits “Review PR 42”
+- **THEN** Bob's input identifies Alice as the verified requester and delivers the quoted task under Bob's current instructions
+- **AND THEN** the response identifies the existing request and reports acceptance or handoff separately from task completion
+
+#### Scenario: Caller supplies command-looking request content
+- **WHEN** a valid work request contains `/compact`, `<[Escape]>`, or text that claims an administrator identity
+- **THEN** Bob receives that content as quoted request data with the proof-derived attribution
+- **AND THEN** the gateway performs zero native slash commands or raw terminal actions from the request text
+
+#### Scenario: Work request supplies execution controls
+- **WHEN** a caller includes caller identity, raw input, an admission override, a session selector, or a model override in a work-request payload
+- **THEN** request validation rejects the fields
+- **AND THEN** existing next-prompt overrides remain available to their original authorized path
+
+#### Scenario: Open gateway accepts unsigned work requests
+- **WHEN** the target has an initialized empty admin roster and an unsigned caller submits a valid work request
+- **THEN** the gateway applies open administrator authority and explicitly attributes the work request to an anonymous caller
+
+#### Scenario: Keyed gateway accepts a request from a new peer
+- **WHEN** Bob has a keyed roster, `default_permission_group` is `agent-requester`, and a new peer submits a valid work request without Bob-side enrollment
+- **THEN** the request uses Bob's default permissions
+- **AND THEN** the gateway preserves independently verified attribution when available and explicitly records anonymous provenance for unsigned input
+
+#### Scenario: An identified caller has default fallback disabled
+- **WHEN** Alice proves her identity and submits a work request to keyed Bob with an `agent-requester` default, where Bob disabled her default fallback and granted her only status read
+- **THEN** the gateway refuses the work-request effect under Alice's verified identity
+
+#### Scenario: The caller separately submits an unsigned work request
+- **WHEN** Alice separately submits a valid work request without proof to keyed Bob with the `agent-requester` default and disabled fallback for her verified identity
+- **THEN** the gateway admits the request under the default and attributes it to an anonymous caller
+- **AND THEN** normal request validation and readiness checks still apply
+
+#### Scenario: A request carries invalid proof
+- **WHEN** a caller submits invalid proof alongside a work request that would be allowed without proof
+- **THEN** the gateway refuses the request at proof validation
+
+### Requirement: Gateway Administration Sets Principal Default Fallback
+
+`PUT /v1/admin/principals/{principal_id}/default-fallback` SHALL accept an `enabled` boolean for an enrolled principal on the selected target. The gateway SHALL require the admin-exclusive `admin.default-fallback.set` effect on `policy`, recheck authority at commit, and return the retained setting and its committed revision.
+
+#### Scenario: Bob limits his verified caller to exact grants
+
+- **WHEN** Bob's authorized administrator disables default fallback for Alice through his verified gateway
+- **THEN** the gateway records Alice's setting on Bob's retained policy
+- **AND THEN** later verified calls from Alice use only otherwise applicable authority
+
+#### Scenario: A requester tries to change fallback
+
+- **WHEN** a caller with only `agent-requester` tries to change a principal's setting
+- **THEN** the gateway refuses the operation before committing any policy change
+
+### Requirement: Gateway Relays Owner-Authorized Mail Policy Updates
+
+`POST /v1/mail/{channel}/policy/apply` SHALL relay a mailbox-owner-signed request for the exact backend, mailbox binding, mail rules, expected policy revision, and operation ID. The gateway SHALL require effective gateway administration to relay it. The selected backend or its trusted management connector SHALL independently verify the owner proof. The gateway SHALL report the applied revision only after backend commit.
+
+#### Scenario: The selected mailbox has been replaced
+
+- **WHEN** a caller supplies an expected binding that no longer matches the selected channel
+- **THEN** the gateway reports a binding conflict before forwarding a policy update
+- **AND THEN** the backend verifies the exact binding independently before changing policy
+
+#### Scenario: A caller has mailbox access without administration
+
+- **WHEN** a caller with ordinary mailbox access tries to apply mail policy
+- **THEN** the gateway refuses to relay the update
+- **AND THEN** the caller retains their existing permissions for ordinary mailbox operations
+
+#### Scenario: A gateway administrator submits a request without mailbox-owner proof
+
+- **WHEN** an enrolled administrator or an anonymous caller with open-roster administration tries to apply new rules without valid proof from the mailbox owner
+- **THEN** the backend's rules and revision remain unchanged
+- **AND THEN** gateway administration, including open-roster authority, supplies no backend policy authority
+
+#### Scenario: The selected backend cannot apply the request
+
+- **WHEN** a submitted update has a stale expected revision, or the binding lacks a qualified backend policy interface
+- **THEN** the gateway reports a conflict or unsupported operation as applicable
+- **AND THEN** it performs no local filtering fallback
+
+#### Scenario: The mailbox owner changes a sender rule
+
+- **WHEN** the backend commits an owner-authorized update that adds or removes a sender from the blocklist
+- **THEN** the new revision governs placement of later deliveries
+- **AND THEN** previously delivered messages keep their existing placement

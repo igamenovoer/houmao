@@ -22,16 +22,16 @@ That skill SHALL cover ordinary mailbox operations across supported mailbox tran
 - outbound send,
 - operator-origin post where supported,
 - reply,
-- manual mark,
-- move among supported mailbox boxes,
-- archive-after-processing behavior.
+- manual mark for supported state changes,
+- move among supported mailbox boxes where the binding permits ordinary placement changes,
+- archive after processing where the binding supports ordinary archive.
 
 `houmao-agent-email-comms` SHALL remain distinct from `houmao-process-emails-via-gateway`, which SHALL continue to own notifier-driven round workflow rather than ordinary mailbox operations.
 
 #### Scenario: Mailbox-enabled session receives the unified ordinary mailbox skill
 - **WHEN** the runtime starts a mailbox-enabled session for a supported tool
 - **THEN** the visible Houmao-owned mailbox skill surface includes `houmao-agent-email-comms`
-- **AND THEN** the agent uses that skill as the ordinary entrypoint for status, list, peek, read, send, post, reply, mark, move, archive, or resolve-live work
+- **AND THEN** the agent uses that skill as the ordinary entrypoint for status, list, peek, read, send, post, reply, mark, move, archive, or resolve-live work that the selected binding supports
 - **AND THEN** notifier-driven mailbox rounds continue to use `houmao-process-emails-via-gateway`
 
 ### Requirement: `houmao-agent-email-comms` routes shared gateway and fallback mailbox actions
@@ -64,6 +64,12 @@ When the resolved mailbox binding reports no live gateway facade, the skill SHAL
 
 The skill SHALL continue to treat `message_ref` and `thread_ref` as opaque shared-mailbox references across all of those actions.
 
+The skill SHALL direct ordinary state and placement actions according to the selected binding's capabilities. On protected bindings, backend placement control SHALL apply to shared gateway calls, manager fallback, and direct transport access.
+
+The skill's `SKILL-MAIN.md`, `commands/resolve-live.md`, `commands/status.md`, and `references/endpoint-contract.md` SHALL use the selected channel's effective capabilities and `expected_binding_id`. The `archive`, `move`, and `mark` action pages and `references/managed-agent-fallback.md` SHALL explain which operations require placement authority. Ordinary read and answered flags SHALL remain distinct from changes to archived state or folder membership.
+
+The endpoint reference SHALL document binding-scoped send, reply, post, and owner-file attachment permissions under the Write Permissions anchor used by the action pages. It SHALL describe sender-address blocking and direct Archive placement as recipient backend rules for new deliveries. An ordinary sender SHALL use its own binding irrespective of the recipient's gateway role or whether the recipient gateway is attached. Mail rule administration SHALL route to the independently authorized mailbox-owner workflow.
+
 #### Scenario: Context-provided gateway URL avoids redundant discovery
 - **WHEN** an agent follows `houmao-agent-email-comms` for shared mailbox work
 - **AND WHEN** the current prompt or recent mailbox context already provides the exact current gateway base URL
@@ -77,35 +83,49 @@ The skill SHALL continue to treat `message_ref` and `thread_ref` as opaque share
 - **AND THEN** it does not guess a localhost port or invent a direct shared-gateway endpoint
 
 #### Scenario: Archive action is the ordinary completion reference
-- **WHEN** an agent follows `houmao-agent-email-comms` after successfully processing a mailbox message
+- **WHEN** an agent follows `houmao-agent-email-comms` after successfully processing a message on a binding that supports ordinary archive
 - **THEN** the skill directs the agent to the `archive` action for completion
-- **AND THEN** it does not present `mark-read` as the processed-mail completion action
+- **AND THEN** it describes `mark-read` as a read-state change
+
+#### Scenario: Ordinary agent work uses a protected binding
+
+- **WHEN** an agent processes mail on a protected binding
+- **THEN** the skill directs the agent to reply when appropriate and leave filing to the backend under independent mailbox-owner authority
+- **AND THEN** the agent completes the task without ordinary archive, move, or placement-changing mark
+- **AND THEN** binding restrictions apply to every ordinary path, including no-gateway fallback
+
+#### Scenario: A Sender Uses Ordinary Mail Independently of Gateway Access
+
+- **WHEN** a caller with a verified sender binding needs to email a peer
+- **THEN** the skill uses that sender binding and the selected transport's authority for submission or deposit
+- **AND THEN** it explains that the recipient's backend applies its rules to new deliveries and reports the same sender-facing acceptance for Inbox and Archive placement
 
 ### Requirement: `houmao-agent-email-comms` internalizes transport-specific guidance
-`houmao-agent-email-comms` SHALL keep filesystem-specific and Stalwart-specific guidance as internal transport pages, sections, or references within the same skill package.
 
-The runtime SHALL NOT require separate top-level installed skill names for filesystem or Stalwart ordinary mailbox guidance once `houmao-agent-email-comms` is projected.
+`houmao-agent-email-comms` SHALL keep filesystem-specific and Stalwart-specific guidance in its own transport references. The projected routine SHALL keep ordinary transport usage under the unified skill.
 
 #### Scenario: Acceptance criteria
 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-Filesystem-specific guidance within the unified skill SHALL cover mailbox-local rules, on-disk layout, and mailbox-view validation only when those details are relevant to the current task.
+Filesystem guidance SHALL cover mailbox-local rules, disk layout, and mailbox view validation when relevant. `references/transports/filesystem.md` SHALL explain that a trusted writer owns recipient placement on protected offline bindings.
 
-Stalwart-specific guidance within the unified skill SHALL cover current `mailbox.stalwart.*` resolver fields, credential-handling limits, and direct-access constraints only when those details are relevant to the current task.
+Stalwart guidance SHALL cover current resolver fields, exact origin trust, credential handling limits, independent channel selection, and direct-access constraints when relevant. `references/transports/stalwart.md` and `references/stalwart-resolver-fields.md` SHALL route online binding administration to `houmao-mailbox-mgr` and distinguish ordinary mailbox access from separately authorized policy application and owner filing. Both transport references SHALL qualify archive, move, and archived-state marking by the current binding's placement authority.
 
 #### Scenario: Filesystem-specific mailbox question stays inside the unified skill
+
 - **WHEN** the current mailbox transport is `filesystem`
 - **AND WHEN** the task needs mailbox-local rules, layout, or no-gateway fallback detail
 - **THEN** the agent finds that guidance inside `houmao-agent-email-comms`
-- **AND THEN** the runtime does not rely on a separate top-level installed filesystem mailbox skill
+- **AND THEN** it uses the protected binding's authorized writer path when applicable
 
 #### Scenario: Stalwart-specific fallback stays inside the unified skill
+
 - **WHEN** the current mailbox transport is `stalwart`
 - **AND WHEN** the task needs transport-local fallback guidance after gateway discovery
-- **THEN** the agent finds that guidance inside `houmao-agent-email-comms`
-- **AND THEN** the runtime does not rely on a separate top-level installed Stalwart mailbox skill
+- **THEN** the agent finds that guidance inside `houmao-agent-email-comms` and retains the original online binding
+- **AND THEN** it can follow the existing owner-managed handoff for operations that require independent authority
 
 ### Requirement: `houmao-agent-email-comms` teaches reply-enabled operator-origin post default
 The packaged `houmao-agent-email-comms` skill SHALL describe operator-origin `post` as reply-enabled by default.
@@ -133,7 +153,7 @@ The packaged `houmao-agent-email-comms` skill SHALL document supported managed-a
 
 At minimum, covered fallback commands SHALL include `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`.
 
-The skill SHALL document fallback mail move with the current destination option:
+For bindings that permit ordinary move, the skill SHALL document fallback mail move with the current destination option:
 
 ```bash
 houmao-mgr agents self mail move --message-ref <message_ref> --destination-box <box>
@@ -146,8 +166,10 @@ houmao-mgr agents self mail move --message-ref <message_ref> --destination-box <
 
 The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-template ids, template blockers, or command-template support when explaining managed-agent mail fallback commands.
 
+Examples in `references/managed-agent-fallback.md` and `references/scoped-cli.md` SHALL pin the resolved channel and binding. `archive`, `move`, and `mark` examples that change archived state SHALL apply only when the binding and caller allow the action. A placement refusal SHALL preserve the operation outcome and selected binding.
+
 #### Scenario: Fallback move uses destination-box
-- **WHEN** a user asks the skill to move a mailbox message to another box without a live gateway facade
+- **WHEN** a user asks the skill to move a mailbox message to another box on a binding that permits ordinary move without a live gateway facade
 - **THEN** the skill guidance shows `mail move --message-ref <message_ref> --destination-box <box>`
 - **AND THEN** it does not show the stale `mail move --message-ref <message_ref> --box <box>` command shape
 
@@ -166,12 +188,13 @@ The mail skill SHALL explain that a gateway send, reply, or post requires its co
 
 ### Requirement: Mail writes use their receipts and read-only follow-ups
 
-The packaged mail guidance SHALL use the first CLI receipt to report a send, reply, or post. It SHALL use `mail peek` for details on the binding that owns the receipt reference and use read-only evidence to reconcile uncertain writes.
+The bundled mail guidance SHALL use the first compact CLI receipt to report a send, reply, or post. Its action pages and `references/scoped-cli.md` SHALL use `mail peek` for additional details on the binding that owns the top-level `message_ref` and read-only evidence for uncertain writes. Sender receipts SHALL preserve the transport's result without disclosing the recipient's rules or placement.
 
 #### Scenario: The first write is verified
 
 - **WHEN** a managed agent receives a verified send, reply, or post receipt and only needs confirmation
-- **THEN** the skill directs it to report the receipt's status and reference from the first call
+- **THEN** the skill reports the receipt's status and reference from the first call
+- **AND THEN** it describes online send confirmation as provider-confirmed submission and offline send confirmation as transport-confirmed deposit
 
 #### Scenario: The agent inspects send or reply details
 
@@ -193,5 +216,29 @@ The packaged mail guidance SHALL use the first CLI receipt to report a send, rep
 #### Scenario: An operator post remains unresolved
 
 - **WHEN** an authorized caller needs to reconcile a post with an uncertain outcome
-- **THEN** the skill directs it to inspect the same target binding's inbox and archive
+- **THEN** the skill directs it to inspect the same target binding's Inbox and any Archive view it is authorized to read
 - **AND THEN** it retains an unresolved outcome if the lookup is inconclusive
+
+### Requirement: Ordinary email skill covers recipient inbound policy, Stalwart JMAP trust, and compact receipts
+`houmao-agent-email-comms` SHALL document private backend placement and prospective delivery rules. It SHALL preserve Stalwart JMAP discovery, origin trust, Inbox/Sent/Archive readiness, and scoped receipt verification.
+
+#### Scenario: Peer mail encounters recipient policy or Stalwart intranet discovery
+- **WHEN** a managed agent sends ordinary mail to a peer or uses an attached Stalwart online channel
+- **THEN** `houmao-agent-email-comms` explains that the backend files matching new deliveries directly in Archive even while the recipient gateway is stopped, and directs `mailbox online` setup to `houmao-mailbox-mgr`
+- **AND THEN** `references/transports/stalwart.md` and `references/endpoint-contract.md` cover JMAP origin trust, Inbox/Sent/Archive readiness, and how to inspect a reply on the original binding using the CLI `message_ref` or HTTP `message.message_ref`
+- **AND THEN** the receipt distinguishes offline deposit from provider submission and leaves recipient placement private
+
+### Requirement: Ordinary email skill removes duplicate boilerplate and aligns mark and move command links
+`houmao-agent-email-comms/SKILL-MAIN.md` SHALL eliminate duplicated caller-classification prose between `## Workflow` and `## Actor Frame Gate`, strip Missing-Input boilerplate, back `mark` and `move` in `## Subcommands` with dedicated `commands/mark.md` and `commands/move.md` pages (each with `## Workflow`), and keep `peek` and `read` explicitly routed to the shared `commands/read.md` page.
+
+#### Scenario: Entrypoint and command pages align across all mailbox operations
+- **WHEN** a reviewer inspects `houmao-agent-email-comms`
+- **THEN** caller classification appears once in `## Actor Frame Gate` without redundant boilerplate in `SKILL-MAIN.md`
+- **AND THEN** every command in `manifest.toml` links cleanly to a conforming command page (dedicated `commands/<cmd>.md` pages for `resolve-live`, `status`, `list`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive`, with `peek` sharing `commands/read.md`)
+
+### Requirement: Ordinary email skill preserves channel separation, binding pinning, and pagination invariants
+`houmao-agent-email-comms` SHALL distinguish admin `post` from agent `self mail`. It SHALL teach channel separation, binding pins from `resolve-live`, reconciliation of `authoritative: false`, bounded schema v3 pagination, `content_complete` checks, and `mail.attachment.owner_file`. Ordinary archive follows successful required replies where the binding permits it. Protected bindings reserve filing for the independently authorized mailbox owner.
+
+#### Scenario: Cross-channel address translation and unpinned mutations remain prohibited
+- **WHEN** an agent operates on dual offline and online bindings
+- **THEN** it never bridges channels or guesses addresses across `offline` and `online`, pins `expected_binding_id` on every channel-scoped lifecycle call, and omits `include_body` from `/v1/mail/{channel}/list`

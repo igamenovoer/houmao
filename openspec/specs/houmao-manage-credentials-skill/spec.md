@@ -31,7 +31,7 @@ The packaged skill SHALL scope credential CRUD guidance to the supported tool fa
 
 - `claude`
 - `codex`
-- `gemini`
+- `dsh`
 - `kimi`
 
 That skill SHALL instruct agents to use credential login helpers only for tool families with maintained login-helper support:
@@ -43,7 +43,6 @@ The packaged skill SHALL scope credential login-helper guidance to:
 
 - `claude`
 - `codex`
-- `gemini`
 
 The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects one local action-specific document for:
 
@@ -61,10 +60,10 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `project specialist create|list|get|remove`
 - `project agents launch|list|get|stop`
-- `agents launch|join|list|stop|cleanup`
+- `agents global|single|self|external ...`
 - `internals native-agent tools <tool> setups ...`
 - `internals native-agent roles ...`
-- `project mailbox ...`, `agents cleanup mailbox`, and `admin cleanup runtime ...`
+- `project mailbox ...`, `mailbox cleanup ...`, `agents single ... cleanup ...`, and `admin cleanup runtime ...`
 - direct hand-editing of credential files under `.houmao/agents/tools/` or retained native-agent credential roots
 
 #### Scenario: Installed skill points the agent at the supported credential commands
@@ -535,3 +534,26 @@ The credential management skill SHALL expose actions, kinds, examples, and refer
 - **WHEN** an agent reads credential kind or action routing
 - **THEN** it can route Claude, Codex, or Kimi credential work
 - **AND THEN** no Gemini credential reference is discoverable from the skill
+### Requirement: Credential manager covers DSH credential CRUD and Kimi native config updates
+`houmao-credential-mgr` SHALL add `dsh` (`DeepSeek Harness`) across `SKILL-MAIN.md` and `commands/{list,get,add,set,rename,remove}.md`, bundle `references/dsh-credential-kinds.md` (`--adapter [deepseek|pi-ai]`, `--api-key`, `--base-url`, `--api-key-env`, `--base-url-env`), and update `references/kimi-credential-kinds.md` for Kimi `config.toml` and `support_efforts`.
+
+#### Scenario: Operator configures DSH credentials or Kimi support efforts
+- **WHEN** an admin adds or inspects a `dsh` credential or configures a Kimi model with `support_efforts`
+- **THEN** `houmao-credential-mgr` routes `dsh` CRUD to `project credentials dsh` or `internals native-agent credentials dsh` using `references/dsh-credential-kinds.md`
+- **AND THEN** `references/kimi-credential-kinds.md` documents native `config.toml` and `support_efforts` behavior without inventing a `kimi login` CLI helper
+
+### Requirement: Credential manager fixes workflow step numbering and streamlines SKILL-MAIN.md
+`houmao-credential-mgr/SKILL-MAIN.md` SHALL fix the step `8 -> 10` numbering gap so `## Workflow` steps are sequential, convert the `## Subcommands` bullet list into a clean table linking `commands/*.md`, and remove duplicated launcher, Missing-Input, `houmao-cli`, and Scope/Routing boilerplate (~95 lines).
+
+#### Scenario: Entrypoint workflow numbering and subcommand table conform to style rules
+- **WHEN** a reviewer inspects `houmao-credential-mgr/SKILL-MAIN.md`
+- **THEN** `## Workflow` numbers every step sequentially (`1..N`) with no skipped step
+- **AND THEN** `## Subcommands` uses a plain `| Subcommand | Use For | Detail |` table without cross-skill boilerplate
+
+### Requirement: Credential manager preserves dual lanes, secret redaction, and rename semantics
+`houmao-credential-mgr` SHALL preserve admin-only `## Actor Frame Gate`, dual lanes (`project credentials` vs `internals native-agent credentials`), maintained `login` scope (`claude`, `codex`), non-disclosure of secret values or raw files, and lane-specific rename semantics.
+
+#### Scenario: Credential inspection and rename preserve security and lane contracts
+- **WHEN** an admin runs `get` or `rename` on a credential
+- **THEN** `get` reports presence and redacted metadata without printing raw secret env values or auth file contents
+- **AND THEN** project-backed `rename` updates display metadata while direct-dir `rename` updates `presets/*.yaml` and `launch-profiles/*.yaml`, keeping `--auth` profile overrides in `houmao-agent-definition`

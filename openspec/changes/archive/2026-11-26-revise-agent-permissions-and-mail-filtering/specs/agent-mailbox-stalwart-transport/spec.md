@@ -106,7 +106,8 @@ A ready account SHALL support writable JMAP submission, authorize the sending id
 #### Scenario: The account has a usable role map
 
 - **WHEN** validation resolves the sending identity and role map
-- **THEN** ordinary readiness verifies Inbox read, seen and keyword updates, and removal rights plus Sent and Archive add rights
+- **THEN** ordinary readiness verifies Inbox read, seen and keyword updates, and Sent add rights
+- **AND THEN** Inbox removal and Archive add rights qualify placement operations separately
 - **AND THEN** protected readiness requires the runtime rights needed for submission and authorized reads and updates and verifies placement rights through the trusted authority
 
 #### Scenario: A mailbox with the name Archive lacks the role

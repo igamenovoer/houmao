@@ -916,10 +916,25 @@ Direct passive prompt and headless turn endpoints SHALL require `agent.prompt.di
 
 - **WHEN** passive ingress admits a default-group request under effective admin authority for a stopped target with verified retained policy
 - **THEN** the passive server commits the group and reports its revision without forwarding to a gateway or starting the target
-- **AND THEN** the gateway and recipient mail transports use that same retained policy
+- **AND THEN** later gateway and passive calls use the same retained policy
 
 #### Scenario: Passive ingress receives an unqualified request
 
 - **WHEN** the caller lacks effective admin authority, supplies invalid proof, or the passive server cannot verify the retained owner and policy
 - **THEN** the request fails before mutation
 - **AND THEN** the passive server uses neither its backing credential nor another target's policy as authority
+
+### Requirement: Passive Administration Updates a Principal’s Fallback Directly
+
+`PUT /houmao/agents/{agent_ref}/admin/principals/{principal_id}/default-fallback` SHALL use the gateway setter's contract. Passive ingress SHALL authorize `admin.default-fallback.set` on `policy` for the verified target and recheck effective `agent-admin` authority before it commits the setting, revision, and audit record in the retained policy.
+
+#### Scenario: A passive admin disables fallback for a detached agent
+
+- **WHEN** an authorized passive request disables fallback for an enrolled principal on a verified target with no attached gateway
+- **THEN** the mutation commits on the retained target without starting its body
+- **AND THEN** both later passive admission and its next attached gateway use the committed setting for that verified principal
+
+#### Scenario: Passive ingress cannot revalidate the caller
+
+- **WHEN** the caller's admin authority or the verified retained target becomes invalid before commit
+- **THEN** no fallback setting changes and no substitute backing authority is used
