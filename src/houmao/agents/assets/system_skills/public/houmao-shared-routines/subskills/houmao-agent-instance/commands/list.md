@@ -21,5 +21,5 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 - DO NOT ask for an agent name when the task is only to list managed or external agents.
 - DO NOT route this action through `project agents list`.
-- DO NOT present `agents external list` records as locally runtime-controllable instances (`launch`, `stop`, `relaunch`, or `join`).
+- DO NOT present `agents external list` records as locally runtime-controllable instances (`launch`, `stop`, or `relaunch`).
 - DO NOT filter or reinterpret the list unless the user explicitly asks for additional selection after listing.

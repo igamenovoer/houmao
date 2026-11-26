@@ -69,7 +69,7 @@ The activation and native-prompt family SHALL cover narrow implicit welcome acti
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-The admin family SHALL cover help, empty invocation delegation, ordinary shared routing, target ambiguity, agent-only route rejection, welcome handoff, actor-spoof rejection, and joined-session adoption.
+The admin family SHALL cover help, empty invocation delegation, ordinary shared routing, target ambiguity, agent-only route rejection, welcome handoff, and actor-spoof rejection.
 
 The managed-agent family SHALL cover help, self-route identity verification, fresh repeated verification, identity failure, admin-only route rejection, explicit peer targeting, actor-spoof rejection, and eligible self defaulting.
 
@@ -100,7 +100,7 @@ The context snapshot SHALL record Git revision and dirty posture, Houmao release
 
 Current-checkout qualification SHALL use package-local manager installation or its supported symlink mode. Published-release qualification SHALL pin `https://github.com/igamenovoer/houmao-skills#<houmao-release-tag>` to the release under test. The unqualified repository URL SHALL be reserved for cases that explicitly qualify latest-stable discovery or default installation behavior.
 
-Raw admin cases SHALL use an isolated skill projection and SHALL delegate provider launch to `houmao-dev-launch-agents`. Managed-agent cases SHALL use supported Houmao launch or join surfaces so the agent pack, native prompt projection, and self-identity authority are genuine.
+Raw admin cases SHALL use an isolated skill projection and SHALL delegate provider launch to `houmao-dev-launch-agents`. Managed-agent cases SHALL use supported Houmao launch surfaces so the agent pack, native prompt projection, and self-identity authority are genuine.
 
 #### Scenario: Behavior case prepares an admin provider context
 - **WHEN** an admin-context case starts
@@ -109,7 +109,7 @@ Raw admin cases SHALL use an isolated skill projection and SHALL delegate provid
 
 #### Scenario: Behavior case prepares a managed-agent context
 - **WHEN** a managed-agent case starts
-- **THEN** the agent is created through a supported Houmao managed launch or join path
+- **THEN** the agent is created through a supported Houmao managed launch path
 - **AND THEN** the run records agent-pack, native prompt, and verified identity authority evidence
 
 #### Scenario: Behavior case qualifies a published release

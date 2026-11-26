@@ -40,21 +40,6 @@ class CodexHeadlessSession(HeadlessInteractiveSession):
         session_selection: HeadlessTurnSessionSelection | None = None,
         extra_args: list[str] | None = None,
     ) -> tuple[list[str], str]:
-        if self._uses_joined_operator_launch_args():
-            command = self._command_with_root_extra_args(extra_args or [])
-            if session_selection is not None:
-                if session_selection.mode == "exact":
-                    assert session_selection.session_id is not None
-                    command.extend(self._resume_args(session_selection.session_id))
-                elif session_selection.mode == "tool_last_or_new":
-                    command.extend(self._latest_resume_args())
-            elif self._state.session_id:
-                command.extend(self._resume_args(self._state.session_id))
-            else:
-                command.extend(self._initial_resume_selector_args())
-            command.append(prompt)
-            return command, prompt
-
         command = [self._plan.executable, *self._plan.args]
         if (
             self._plan.role_injection.method == "native_developer_instructions"
@@ -79,15 +64,3 @@ class CodexHeadlessSession(HeadlessInteractiveSession):
 
     def _latest_resume_args(self) -> list[str]:
         return ["resume", "--last"]
-
-    def _command_with_root_extra_args(self, extra_args: list[str]) -> list[str]:
-        """Return a Codex command with root options placed before subcommands."""
-
-        command = [self._plan.executable]
-        args = list(self._plan.args)
-        if not extra_args:
-            return [*command, *args]
-        for index, token in enumerate(args):
-            if token in {"exec", "resume", "app-server"}:
-                return [*command, *args[:index], *extra_args, *args[index:]]
-        return [*command, *args, *extra_args]

@@ -91,7 +91,7 @@ The catalog is initialized during `project init` and is the authoritative source
 
 | Command Family | Project Context Used |
 |---|---|
-| `project agents launch` / `agents self join` | Agent definitions, runtime root, managed-agent memory root, mailbox root |
+| `project agents launch` | Agent definitions, runtime root, managed-agent memory root, mailbox root |
 | `project agents launch` | Agent definitions are built into managed brain homes internally |
 | `agents global list` | Selected shared registry for agent discovery |
 | `agents single ... state` / `agents self state` | Agent resolution followed by manifest-backed runtime state |

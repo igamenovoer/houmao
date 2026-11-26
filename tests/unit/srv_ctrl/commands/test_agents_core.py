@@ -181,6 +181,7 @@ def _install_basic_launch_patches(
     mailbox_root: Path,
     overlay_root: Path,
     source_agent_def_dir: Path,
+    tool: str = "codex",
 ) -> None:
     """Install one minimal direct-launch environment for `launch_managed_agent_locally()`."""
 
@@ -203,7 +204,7 @@ def _install_basic_launch_patches(
             agent_def_dir=source_agent_def_dir,
             preset=SimpleNamespace(
                 tool_params={},
-                tool="codex",
+                tool=tool,
                 skills=(),
                 setup="default",
                 auth="work",
@@ -216,9 +217,70 @@ def _install_basic_launch_patches(
             preset_path=source_agent_def_dir / "presets" / "researcher-codex-default.yaml",
             role_name="researcher",
             role_prompt="You are a precise repo researcher.",
-            tool="codex",
+            tool=tool,
         ),
     )
+
+
+@pytest.mark.parametrize("explicit_timings", [False, True])
+@pytest.mark.parametrize(
+    ("tool", "mode", "refusal"),
+    [
+        ("codex", "tui", None),
+        ("codex", "headless", "require a terminal native surface"),
+        ("codex", "service", "require a terminal native surface"),
+        ("dsh", "web", "require a terminal native surface"),
+        ("hermes", "tui", "Hermes TUI uses native readiness"),
+    ],
+)
+def test_manager_launch_checks_only_explicit_timings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    mode: str,
+    refusal: str | None,
+    explicit_timings: bool,
+) -> None:
+    """Gate explicit choices at the manager entry point before brain preparation."""
+
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=tmp_path / "runtime",
+        jobs_root=tmp_path / "jobs",
+        mailbox_root=tmp_path / "mailbox",
+        overlay_root=tmp_path / "overlay",
+        source_agent_def_dir=tmp_path,
+        tool=tool,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.agents.core.resolve_hermes_executable", lambda **_: tmp_path
+    )
+    prepare = Mock(side_effect=RuntimeError("reached brain preparation"))
+    monkeypatch.setattr("houmao.srv_ctrl.commands.agents.core.validate_brain_inputs", prepare)
+    expected = refusal if explicit_timings and refusal is not None else "reached brain preparation"
+
+    with pytest.raises(click.ClickException, match=expected):
+        launch_managed_agent_locally(
+            agents="researcher",
+            agent_name=None,
+            agent_id=None,
+            auth=None,
+            session_name=None,
+            mode=mode,
+            provider="codex",
+            working_directory=tmp_path,
+            source_agent_def_dir=tmp_path,
+            source_env={},
+            headless_display_style="plain",
+            headless_display_detail="concise",
+            gateway_auto_attach=True,
+            gateway_tui_tracking_timing_overrides=(
+                GatewayTuiTrackingTimingOverridesV1(watch_poll_interval_seconds=0.25)
+                if explicit_timings
+                else None
+            ),
+        )
+    assert prepare.call_count == int(expected == "reached brain preparation")
 
 
 @pytest.mark.usefixtures("stub_brain_preflight")

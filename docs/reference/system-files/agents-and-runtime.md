@@ -131,7 +131,7 @@ The session manifest records the agent's identity, effective launch metadata, an
 | --- | --- | --- | --- | --- | --- |
 | `<runtime-root>/sessions/<backend>/<session-id>/` | start/resume runtime flow | runtime and gateway helpers | Durable directory envelope for one runtime-managed session | Stable path family | Do not delete while the session is live; `houmao-mgr agents single --agent-id <id> cleanup session` and `houmao-mgr admin cleanup runtime sessions` remove only stopped or otherwise malformed envelopes |
 | `<session-root>/manifest.json` | `persist_manifest()` | runtime manifest persistence | Active identity, effective metadata, and runtime authority for queries and control | Stable operator-facing artifact | Treat as durable state |
-| `<session-root>/launch-environment-<id>.json` | launch, join, or relaunch | runtime launch publication | Private effective environment for the committed runtime generation | Internal artifact with owner-only access | Preserve while the session manifest references it |
+| `<session-root>/launch-environment-<id>.json` | launch or relaunch | runtime launch publication | Private effective environment for the committed runtime generation | Internal artifact with owner-only access | Preserve while the session manifest references it |
 | `<session-root>/manifest.turn-artifacts/<turn-id>/.dispatch-permission.json` | immediate native headless dispatch | request cancellation/expiry and native execution validation | Private payload-free request fence carrying expiry and execution/origin identity, checked immediately before provider launch | Internal execution artifact, not a message inbox or delivery receipt | A revoked, expired, superseded, or orphaned grant cannot authorize replay |
 | `<session-root>/usage/records.sqlite3` | shared usage service | bound native collectors, shared headless finalization, and recovery | Independent usage ledger, staged observations, collection boundaries/checkpoints, provider-turn associations, and immutable finalized history | Stable path family, implementation-owned current schema | Preserve while accounting history or resumable cursors are required; independent of gateway queue storage and gateway process lifetime |
 | `<session-root>/mailbox-secrets/` | Stalwart mailbox bootstrap or resume for Stalwart-backed sessions | runtime mailbox helpers | Session-local secret-material directory keyed by `credential_ref` | Stable path family, secret-bearing contents remain opaque | Remove only after the session is stopped and no direct or gateway-backed mailbox work depends on it; `houmao-mgr agents single --agent-id <id> cleanup mailbox` exists for that exact scope |
@@ -161,13 +161,7 @@ Same-session gateway notes:
 - current-session `houmao-mgr agents self gateway attach` still remains invalid until the same logical session is discoverable through the shared registry or maintained pair authority
 - tmux window `0` is the only contractual agent surface; non-zero windows remain auxiliary and non-contractual except for the exact live gateway handle recorded in `gateway/run/current-instance.json`
 
-Joined-session notes:
-
-- `houmao-mgr agents self join` writes the same `<session-root>/manifest.json`, placeholder `agent_def/`, placeholder `brain_manifest.json`, session-local `gateway/` subtree, and per-agent memory metadata that native launches expect.
-- For joined sessions, `manifest.json` becomes the source of truth for secret-free relaunch posture through `agent_launch_authority`, including `session_origin=joined_tmux`, explicit `posture_kind`, structured `launch_args`, and structured Docker-style `launch_env`.
-- Joined headless resume posture is also persisted in `manifest.json`: omitted `--resume-id` stores `resume_selection_kind=none`, `--resume-id last` stores `resume_selection_kind=last`, and an exact selector stores `resume_selection_kind=exact` plus the exact value.
-- The placeholder `brain_manifest.json` exists only to satisfy path and artifact invariants. Joined runtime control and relaunch do not treat it as behavioral truth.
-- Shared-registry publication for joined sessions uses a long sentinel lease instead of a short renewable lease because `agents self join` is a one-shot adoption command rather than a resident launcher.
+For previously adopted runtime artifacts, see [Upgrading From Manual Session Adoption](../run-phase/session-lifecycle.md#upgrading-from-manual-session-adoption).
 
 ## Usage Accounting Ledger
 
@@ -205,9 +199,9 @@ Tmux-backed managed sessions create one memory root per managed agent under the 
 
 | Path pattern | Created by | Later written by | Purpose | Contract level | Cleanup notes |
 | --- | --- | --- | --- | --- | --- |
-| `<active-overlay>/memory/agents/<agent-id>/` | start/join runtime flow | Houmao for memo/page creation, then the managed agent and operator | Memory root for one managed agent | Stable path family | Do not delete while the agent is active; stop/session cleanup does not remove this directory |
-| `<memory-root>/houmao-memo.md` | start/join runtime flow | operator and agent | Fixed memo file for initialization notes, durable instructions, and operator-visible context | Stable path | Created if missing without overwriting existing content |
-| `<memory-root>/pages/` | start/join runtime flow | managed agent and operator | Contained page directory for readable operator-facing memory pages that may be linked from the memo | Stable path family | Page writes and deletes do not mutate the memo |
+| `<active-overlay>/memory/agents/<agent-id>/` | managed launch | Houmao for memo/page creation, then the managed agent and operator | Memory root for one managed agent | Stable path family | Do not delete while the agent is active; stop/session cleanup does not remove this directory |
+| `<memory-root>/houmao-memo.md` | managed launch | operator and agent | Fixed memo file for initialization notes, durable instructions, and operator-visible context | Stable path | Created if missing without overwriting existing content |
+| `<memory-root>/pages/` | managed launch | managed agent and operator | Contained page directory for readable operator-facing memory pages that may be linked from the memo | Stable path family | Page writes and deletes do not mutate the memo |
 
 The runtime persists the resolved memory paths in `manifest.json` under `runtime.memory_root`, `runtime.memo_file`, and `runtime.pages_dir`.
 

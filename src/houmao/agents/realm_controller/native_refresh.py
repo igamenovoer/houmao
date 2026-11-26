@@ -76,12 +76,11 @@ def _inspect_native_home_payload(path: Path, payload: SessionManifestPayloadV4) 
     ):
         raise GatewayError("Active native runtime authority is unavailable")
     tmux = payload.tmux
-    authority = payload.agent_launch_authority
-    if tmux is None or authority is None:
+    if tmux is None or payload.agent_launch_authority is None:
         raise GatewayError("Primary native runtime authority is unavailable")
     name = tmux.session_name
     try:
-        observed = observe_primary_tmux(tmux, joined=authority.session_origin == "joined_tmux")
+        observed = observe_primary_tmux(tmux)
         if observed.state == "missing_session":
             raise GatewayError("Active native runtime authority is unavailable")
         if observed.state == "dead_pane":
@@ -107,24 +106,6 @@ def _inspect_native_home_payload(path: Path, payload: SessionManifestPayloadV4) 
     home = Path(selector.home_path)
     if not home.is_absolute() or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", selector.env_var):
         raise GatewayError("Authoritative native home is unavailable")
-    if authority.session_origin == "joined_tmux" and authority.posture_kind in {
-        None,
-        "unavailable",
-    }:
-        # A thin join may persist a disposable fallback tool-home. Only a
-        # matching native selector can distinguish it from a known Agent home.
-        try:
-            joined_home = read_tmux_session_environment_value(
-                session_name=name, variable_name=selector.env_var
-            )
-        except TmuxCommandError:
-            raise GatewayError("Joined native home authority is unavailable") from None
-        if (
-            not joined_home
-            or not Path(joined_home).is_absolute()
-            or Path(joined_home).resolve() != home.resolve()
-        ):
-            raise GatewayError("Joined native home authority is unavailable")
     identity = {
         "agent_id": payload.agent_id,
         "runtime_session_id": payload.runtime.session_id,

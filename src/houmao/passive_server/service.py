@@ -27,7 +27,11 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
     tmux_session_exists,
 )
-from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    GatewayHttpError,
+    RetiredJoinedSessionError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.gateway_client import (
     GatewayClient,
@@ -44,7 +48,10 @@ from houmao.agents.realm_controller.managed_control import (
     MANAGED_STRUCTURED_TUI_BACKENDS,
     ManagedControlObservationV1,
 )
-from houmao.agents.realm_controller.manifest import require_registry_mode_authority
+from houmao.agents.realm_controller.manifest import (
+    load_session_manifest,
+    require_registry_mode_authority,
+)
 from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
 from houmao.agents.realm_controller.runtime import _gateway_lifecycle_lock, resume_runtime_session
 from houmao.mailbox.models import MailChannel
@@ -199,12 +206,14 @@ _AgentAddressStatus = Literal[
 
 def _address_candidate_from_record(
     record: LiveAgentRegistryRecordV2 | ManagedAgentRegistryRecordV3,
+    *,
+    retired: bool,
 ) -> PassiveAgentAddressCandidate:
     """Build safe known-agent identity metadata from one registry record."""
 
     lifecycle = getattr(record, "lifecycle", None)
-    lifecycle_state = str(lifecycle.state) if lifecycle is not None else "active"
-    relaunchable = bool(lifecycle.relaunchable) if lifecycle is not None else False
+    lifecycle_state = "retired" if retired else (str(lifecycle.state) if lifecycle else "active")
+    relaunchable = not retired and lifecycle is not None and lifecycle.relaunchable
     return PassiveAgentAddressCandidate(
         agent_id=record.agent_id,
         agent_name=record.agent_name,
@@ -215,6 +224,20 @@ def _address_candidate_from_record(
         manifest_path=record.runtime.manifest_path,
         session_root=record.runtime.session_root,
     )
+
+
+def _retired_manifest_error(
+    record: LiveAgentRegistryRecordV2 | ManagedAgentRegistryRecordV3,
+) -> RetiredJoinedSessionError | None:
+    """Recognize retirement even when a reader holds a cached discovery row."""
+
+    try:
+        load_session_manifest(Path(record.runtime.manifest_path))
+    except RetiredJoinedSessionError as exc:
+        return exc
+    except SessionManifestError:
+        pass
+    return None
 
 
 def _current_gateway_address(
@@ -294,7 +317,9 @@ class PassiveServerService:
         """Return all discovered agents."""
 
         agents = self.m_discovery.index.list_all()
-        return DiscoveredAgentListResponse(agents=[a.summary for a in agents])
+        return DiscoveredAgentListResponse(
+            agents=[a.summary for a in agents if _retired_manifest_error(a.record) is None]
+        )
 
     def resolve_agent(
         self, agent_ref: str
@@ -309,9 +334,13 @@ class PassiveServerService:
 
         by_id = self.m_discovery.index.get_by_id(agent_ref)
         if by_id is not None:
-            return by_id.summary
+            return by_id.summary if _retired_manifest_error(by_id.record) is None else None
 
-        by_name = self.m_discovery.index.get_by_name(agent_ref)
+        by_name = [
+            agent
+            for agent in self.m_discovery.index.get_by_name(agent_ref)
+            if _retired_manifest_error(agent.record) is None
+        ]
         if len(by_name) == 1:
             return by_name[0].summary
         if len(by_name) > 1:
@@ -347,7 +376,11 @@ class PassiveServerService:
                         ),
                         agent_ref=agent_ref,
                         candidates=[
-                            _address_candidate_from_record(agent.record) for agent in live_by_name
+                            _address_candidate_from_record(
+                                agent.record,
+                                retired=_retired_manifest_error(agent.record) is not None,
+                            )
+                            for agent in live_by_name
                         ],
                     )
                 if len(live_by_name) == 1:
@@ -367,14 +400,30 @@ class PassiveServerService:
                     "name. Disambiguate by agent_id."
                 ),
                 agent_ref=agent_ref,
-                candidates=[_address_candidate_from_record(record) for record in known_records],
+                candidates=[
+                    _address_candidate_from_record(
+                        record, retired=_retired_manifest_error(record) is not None
+                    )
+                    for record in known_records
+                ],
             )
 
         record = known_records[0]
+        retirement = _retired_manifest_error(record)
         live_agent = self.m_discovery.index.get_by_id(record.agent_id)
+        if (
+            live_agent is not None
+            and live_agent.record.runtime.manifest_path != record.runtime.manifest_path
+            and _retired_manifest_error(live_agent.record) is not None
+        ):
+            live_agent = None
         gateway = _current_gateway_address(live_agent.record if live_agent is not None else None)
-        if live_agent is None:
+        if retirement is not None:
             status: _AgentAddressStatus = "offline"
+            detail = str(retirement)
+            gateway = None
+        elif live_agent is None:
+            status = "offline"
             detail = "Agent is known but no live gateway-capable session is currently discovered."
         elif gateway is None:
             status = "live_without_gateway"
@@ -383,14 +432,14 @@ class PassiveServerService:
             status = "live_with_gateway"
             detail = "Agent is live and current gateway coordinates are available."
 
-        candidate = _address_candidate_from_record(record)
+        candidate = _address_candidate_from_record(record, retired=retirement is not None)
         return PassiveAgentAddressResolveResponse(
             status=status,
             detail=detail,
             agent_ref=agent_ref,
             agent_id=candidate.agent_id,
             agent_name=candidate.agent_name,
-            generation_id=record.generation_id,
+            generation_id=record.generation_id if retirement is None else None,
             lifecycle_state=candidate.lifecycle_state,
             relaunchable=candidate.relaunchable,
             tool=candidate.tool,
@@ -434,6 +483,8 @@ class PassiveServerService:
             return (409, {"detail": "Ambiguous managed agent reference"})
         if known_records:
             record = known_records[0]
+        elif isinstance(discovered, tuple) and discovered[0] == 410:
+            return discovered
 
         if tracked_authority is not None:
             manifest_path = Path(tracked_authority.manifest_path)
@@ -495,6 +546,8 @@ class PassiveServerService:
                         self.m_access_policies.popitem(last=False)
                 else:
                     self.m_access_policies.move_to_end(cache_key)
+        except RetiredJoinedSessionError as exc:
+            return (410, {"detail": str(exc)})
         except (GatewayAccessError, RuntimeError, OSError, ValueError):
             return (503, {"detail": "Target access policy is unavailable"})
         return PassiveAccessTarget(runtime, policy, tracked_id, manifest_path)
@@ -502,7 +555,10 @@ class PassiveServerService:
     def require_access_target_current(self, selected: PassiveAccessTarget) -> None:
         """Reject a generation replacement that occurred during request admission."""
 
-        selected.runtime.require_current()
+        try:
+            selected.runtime.require_current()
+        except RetiredJoinedSessionError:
+            raise GatewayAccessError(503, "policy_unavailable") from None
         target = selected.runtime.target
         current = resolve_known_managed_agent_records(
             target.owner.agent_id, env=self.m_config.registry_helper_env()
@@ -637,6 +693,9 @@ class PassiveServerService:
             by_id = self.m_discovery.index.get_by_id(target.owner.agent_id)
             if by_id is None:
                 return (502, {"detail": "No gateway attached to agent"})
+            retirement = _retired_manifest_error(by_id.record)
+            if retirement is not None:
+                return (410, {"detail": str(retirement)})
             if by_id.record.generation_id != target.incarnation:
                 return (503, {"detail": "Target access policy is unavailable"})
             known = resolve_known_managed_agent_records(
@@ -651,10 +710,16 @@ class PassiveServerService:
 
         by_id = self.m_discovery.index.get_by_id(agent_ref)
         if by_id is not None:
+            retirement = _retired_manifest_error(by_id.record)
+            if retirement is not None:
+                return (410, {"detail": str(retirement)})
             return by_id
 
         by_name = self.m_discovery.index.get_by_name(agent_ref)
         if len(by_name) == 1:
+            retirement = _retired_manifest_error(by_name[0].record)
+            if retirement is not None:
+                return (410, {"detail": str(retirement)})
             return by_name[0]
         if len(by_name) > 1:
             ids = [a.record.agent_id for a in by_name]

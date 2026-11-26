@@ -130,7 +130,7 @@ The mailbox operation documentation SHALL explain how to work with the mailbox s
 
 At minimum, that operational guidance SHALL cover:
 
-- the local serverless workflow of `houmao-mgr mailbox init`, `houmao-mgr agents launch` or `join`, `houmao-mgr agents mailbox register`, and `houmao-mgr agents mail`,
+- the local serverless workflow of `houmao-mgr mailbox init`, `houmao-mgr project agents launch`, scoped `agents single|self ... mailbox offline join` for late mailbox registration when needed, and scoped mail follow-up,
 - mailbox list, peek, read, send, post, reply, mark, move, and archive workflows,
 - the mailbox lifecycle distinction between read, answered, archived, and open inbox work,
 - the discoverable mailbox skill surface used by runtime-owned mailbox work in current sessions,
@@ -151,7 +151,7 @@ The mailbox operation documentation SHALL NOT require mailbox-specific shell exp
 
 #### Scenario: Operator can follow the preferred late-registration workflow
 - **WHEN** a reader wants to enable mailbox support for a local managed agent
-- **THEN** the mailbox operations docs show the preferred sequence of mailbox-root setup, agent launch or join, mailbox registration, and mailbox follow-up
+- **THEN** the mailbox operations docs show the preferred sequence of mailbox-root setup, managed agent launch, mailbox registration when needed, and mailbox follow-up
 - **AND THEN** the workflow does not require launch-time mailbox flags as the primary local serverless path
 
 #### Scenario: Reader resolves current mailbox state through the manager-owned helper

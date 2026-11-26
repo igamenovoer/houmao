@@ -41,7 +41,7 @@ The page SHALL NOT live under `docs/reference/agents/operations/` and SHALL NOT 
 #### Scenario: Reader understands which commands are project-aware
 
 - **WHEN** a reader wants to know which commands use project context
-- **THEN** the page lists the major project-aware command families: `agents launch`, `agents join`, `brains build`, `agents list`, `agents state`, and project-scoped mailbox operations
+- **THEN** the page lists the major project-aware command families: `project agents launch`, `brains build`, `agents list`, `agents state`, and project-scoped mailbox operations
 
 #### Scenario: Project-aware operations page lives under system-files
 

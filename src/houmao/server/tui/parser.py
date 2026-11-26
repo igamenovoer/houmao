@@ -18,7 +18,7 @@ from houmao.shared_tui_tracking.apps.kimi_code.profile import (
     kimi_question_dialog_present,
     kimi_startup_modal_present,
 )
-from houmao.shared_tui_tracking.registry import DetectorProfileRegistry
+from houmao.shared_tui_tracking.registry import DetectorProfileRegistry, UnsupportedToolVersionError
 from houmao.shared_tui_tracking.surface import SurfaceView
 
 
@@ -28,6 +28,45 @@ class OfficialParseResult:
 
     parsed_surface: HoumaoParsedSurface | None
     parse_error: HoumaoErrorDetail | None
+
+
+@dataclass(frozen=True)
+class TuiParserQualification:
+    """Carry the tracker's resolved profile or its unsupported-version diagnostic."""
+
+    detector_version: str | None
+    version_error: UnsupportedToolVersionError | None
+
+    @property
+    def diagnostic(self) -> HoumaoErrorDetail | None:
+        """Return the existing diagnostic for unqualified tracking evidence."""
+
+        if self.version_error is None:
+            return None
+        return HoumaoErrorDetail(
+            kind="unsupported_tool_version",
+            message=str(self.version_error),
+        )
+
+    def parse(
+        self,
+        parser: OfficialTuiParserAdapter,
+        *,
+        tool: str,
+        output_text: str,
+        baseline_pos: int,
+    ) -> OfficialParseResult:
+        """Invoke the surface parser with the tracker's selected profile provenance."""
+
+        diagnostic = self.diagnostic
+        if diagnostic is not None:
+            return OfficialParseResult(parsed_surface=None, parse_error=diagnostic)
+        return parser.parse(
+            tool=tool,
+            output_text=output_text,
+            baseline_pos=baseline_pos,
+            detector_version=self.detector_version,
+        )
 
 
 class OfficialTuiParserAdapter:

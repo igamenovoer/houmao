@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
@@ -13,7 +13,13 @@ from houmao.agents.realm_controller.native_surface import (
     TerminalNativeSurfaceV1,
     WebNativeSurfaceV1,
 )
-from houmao.agents.realm_controller.run_modes import RunMode, validate_mode_binding
+from houmao.agents.realm_controller.run_modes import (
+    MANAGED_SERVICE_BACKENDS as MANAGED_SERVICE_BACKENDS,
+    MANAGED_STRUCTURED_TUI_BACKENDS as MANAGED_STRUCTURED_TUI_BACKENDS,
+    MANAGED_WEB_BACKENDS as MANAGED_WEB_BACKENDS,
+    RunMode,
+    validate_mode_binding,
+)
 
 if TYPE_CHECKING:
     from houmao.server.models import HoumaoTerminalStateResponse
@@ -41,13 +47,6 @@ ManagedControlEvidenceSource = Literal[
 ]
 ManagedControlCorrelation = Literal["none", "surface", "request", "native_turn"]
 ManagedControlOutcome = Literal["completed", "failed", "interrupted", "uncertain"]
-
-MANAGED_WEB_BACKENDS: Final[frozenset[BackendKind]] = frozenset({"dsh_web", "kimi_web"})
-MANAGED_STRUCTURED_TUI_BACKENDS: Final[frozenset[BackendKind]] = frozenset({"hermes_tui"})
-
-MANAGED_SERVICE_BACKENDS: Final[frozenset[BackendKind]] = frozenset(
-    {"dsh_acp", "kimi_acp", "codex_app_server", "hermes_service"}
-)
 
 
 class ManagedControlCapabilitiesV1(BaseModel):

@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-instance
-description: Use when a Houmao managed-agent instance must be launched, joined, listed, stopped, relaunched, or cleaned up, when registering `agents external` imports or reconciling `--executor` locators, or when accessing native resources, runtime variables, mindsets, or private workspaces.
+description: Use when a Houmao managed-agent instance must be launched, listed, stopped, relaunched, or cleaned up, when registering `agents external` imports or reconciling `--executor` locators, or when accessing native resources, runtime variables, mindsets, or private workspaces.
 license: MIT
 metadata:
   skill_invocation_notation: >
@@ -19,7 +19,7 @@ metadata:
 
 ## Overview
 
-Manage Houmao managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `relaunch`, `cleanup`), external communication-only imports (`agents external`), executor locator maintenance (`admin executors`), native-home freshness, and definition-owned `instance-state` surfaces (`runtime-variables`, `mindsets`, `private-workspace`).
+Manage Houmao managed-agent instance lifecycle (`launch`, `list`, `stop`, `relaunch`, `cleanup`), external communication-only imports (`agents external`), executor locator maintenance (`admin executors`), native-home freshness, and definition-owned `instance-state` surfaces (`runtime-variables`, `mindsets`, `private-workspace`).
 
 ## Workflow
 
@@ -33,14 +33,15 @@ If the request does not map cleanly to these steps, use the native planning tool
 
 ## Actor Frame Gate
 
-This parent-scoped routine loads only through `houmao-shared-routines` and requires an immutable `admin` or verified `agent` frame; missing or mismatched frames fail closed. Admin callers require an explicit project or `--agent-id`/`--agent-name` target and never default to `agents self`. Verified `agent` callers use `agents self` only for supported self follow-up (`relaunch`, `refresh`/`home`, read-only `instance-state` reads and `mindsets snapshot`), cannot mutate their own `runtime-variables`/`mindsets`/`private-workspace` mappings through self-read routes, and require explicit targets for peer work. Session `join` transitions actor posture only through the parent entrypoint's adoption handoff after `agents self join` succeeds.
+This parent-scoped routine loads only through `houmao-shared-routines` and requires an immutable `admin` or verified `agent` frame; missing or mismatched frames fail closed. Admin callers require an explicit project or `--agent-id`/`--agent-name` target and never default to `agents self`. Verified `agent` callers use `agents self` only for supported self follow-up (`relaunch`, `refresh`/`home`, read-only `instance-state` reads and `mindsets snapshot`), cannot mutate their own `runtime-variables`/`mindsets`/`private-workspace` mappings through self-read routes, and require explicit targets for peer work.
+
+Local lifecycle management requires a managed project launch. If the operator asks to manage a manually started provider process, explain the separate launch path and preserve the existing process, files, and actor frame.
 
 ## Subcommands
 
 | Subcommand | Use For | Detail |
 | --- | --- | --- |
 | `launch` | Launch a project-scoped instance (`--profile` or `--specialist`, `--mode`, `--tmux-server`, `--executor`, `--reuse-home`, `--force`). | [Launch](commands/launch.md) |
-| `join` | Adopt a running supported provider session via `agents self join` and operator handoff. | [Join](commands/join.md) |
 | `list` | List local live managed instances (`agents global list`) or registered `agents external list`. | [List](commands/list.md) |
 | `stop` | Stop a selected managed instance (`agents single ... stop`). | [Stop](commands/stop.md) |
 | `relaunch` | Revive or restart a session on its recorded `--tmux-server`/mode without rebuilding home (plus DSH ACP gateway re-attach notes). | [Relaunch](commands/relaunch.md) |
@@ -59,7 +60,7 @@ This parent-scoped routine loads only through `houmao-shared-routines` and requi
 
 ## Help
 
-Summarize project-scoped `launch`, `join`, `list`, `stop`, `relaunch`, stopped-only `cleanup`, `agents external`, `admin executors`, `open-browser`, `native-resources`, `runtime-variables`, `mindsets`, and `private-workspace` (distinct from multi-agent topologies in `houmao-shared-routines->houmao-utils-workspace-mgr`) read-only.
+Summarize project-scoped `launch`, `list`, `stop`, `relaunch`, stopped-only `cleanup`, `agents external`, `admin executors`, `open-browser`, `native-resources`, `runtime-variables`, `mindsets`, and `private-workspace` (distinct from multi-agent topologies in `houmao-shared-routines->houmao-utils-workspace-mgr`) read-only.
 
 ## Guardrails
 

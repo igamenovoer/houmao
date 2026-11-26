@@ -13,7 +13,7 @@ from typing import Literal, Mapping, Protocol, Sequence, cast
 
 from pydantic import ValidationError
 
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
     DEFAULT_GATEWAY_MAIL_NOTIFIER_CONTEXT_ERROR_POLICY,
     DEFAULT_GATEWAY_MAIL_NOTIFIER_MODE,
@@ -49,6 +49,7 @@ from houmao.agents.realm_controller.managed_control import (
     MANAGED_SERVICE_BACKENDS,
     MANAGED_WEB_BACKENDS,
 )
+from houmao.agents.realm_controller.run_modes import MANAGED_HEADLESS_BACKENDS
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.manifest import (
     default_session_root,
@@ -273,6 +274,13 @@ def ensure_gateway_capability(
     """Materialize stable gateway assets for a runtime-owned tmux session."""
 
     paths = require_gateway_paths_for_runtime_owned_manifest(request.manifest_path)
+    try:
+        load_session_manifest(request.manifest_path)
+    except RetiredJoinedSessionError:
+        raise
+    except SessionManifestError:
+        # A new publication can bootstrap before a valid runtime manifest exists.
+        pass
     paths.gateway_root.mkdir(parents=True, exist_ok=True)
     paths.logs_dir.mkdir(parents=True, exist_ok=True)
     paths.run_dir.mkdir(parents=True, exist_ok=True)
@@ -348,6 +356,8 @@ def resolve_internal_gateway_attach_contract(
             desired_config=desired_config,
             existing_contract=existing_contract,
         )
+    except RetiredJoinedSessionError:
+        raise
     except SessionManifestError:
         if publication_request is None:
             raise
@@ -597,13 +607,7 @@ def _preserve_existing_headless_managed_metadata(
 ) -> GatewayAttachContractV1:
     """Preserve server-managed headless routing metadata across capability refresh."""
 
-    if attach_contract.backend not in {
-        "claude_headless",
-        "codex_headless",
-        "kimi_headless",
-        "dsh_headless",
-        "hermes_headless",
-    }:
+    if attach_contract.backend not in MANAGED_HEADLESS_BACKENDS:
         return attach_contract
     if not paths.attach_path.is_file():
         return attach_contract
@@ -940,6 +944,8 @@ def build_gateway_manifest(
                 manifest_path=handle.path,
                 payload=payload,
             )
+        except RetiredJoinedSessionError:
+            raise
         except SessionManifestError:
             payload = None
             authority = None

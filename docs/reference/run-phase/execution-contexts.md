@@ -120,6 +120,8 @@ Home/status inspection stays read-only and returns context-qualified paths. Nati
 
 The operator registry stores `executor_agents/<agent_id>/record.json` separately from owner-local `live_agents/` and communication-only `external_agents/`. Locators contain identity, profile reference, and the captured execution binding, without copied manifests, queues, credentials, or caller-local control endpoints. The owner's manifest and lifecycle record remain authoritative.
 
+If required startup succeeds and optional gateway auto-attach fails, the owner returns a completed v1 result with the live identity and `gateway_auto_attach_error`. The CLI saves the locator, prints the result, and exits with status `2`. Use the returned agent ID for follow-up controls.
+
 An exact ID selects one known logical identity. Friendly names must be unique across managed owner contexts, and a tmux session name alone cannot select a foreign owner. Communication-only imports retain their lifecycle restrictions even when an execution profile shares a name or address. Explicit `--port` retains the existing pair-authority bypass; it grants no execution rights.
 
 Local stale-presence cleanup does not infer foreign liveness from a missing caller-local tmux session. Lifecycle-inclusive listing can report a known target as unavailable or unverified, without claiming it is stopped.
@@ -149,7 +151,7 @@ Initial transport operations are finite launch, describe/state, inspect/capture,
 
 ## Tmux Authority
 
-Owner-side launch, reconstruction, gateway access, discovery, and teardown use a saved concrete tmux socket and exact agent handles. Delegated entry clears both inherited TMUX and TMUX_PANE. Current-account/join workflows capture their selected socket explicitly rather than guessing from a session name. Stop and cleanup affect only the selected agent; they never kill or restart the shared localhost tmux server or an unrelated session.
+Owner-side launch, reconstruction, gateway access, discovery, and teardown use a saved concrete tmux socket and exact agent handles. Delegated entry clears both inherited TMUX and TMUX_PANE. Current-account launches capture their selected socket explicitly. Stop and cleanup affect only the selected agent; they never kill or restart the shared localhost tmux server or an unrelated session.
 
 A launch that selects `houmao-default` uses a dedicated tmux server shared by the execution owner's projects. The first eligible launch publishes a versioned `tmux-default-<owner-key>/record.json` in the owner's effective shared registry. The owner key identifies the host or container socket domain and effective UID. The record contains the absolute socket under the owner's private `/tmp/houmao-tmux-<uid>` namespace. Separate empty registries for the same owner derive the same address.
 

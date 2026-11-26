@@ -40,7 +40,7 @@ EXPECTED_TUI_COMMANDS = {
 EXPECTED_CASE_IDS = {
     *(f"ACT-{index:03d}" for index in range(1, 7)),
     *(f"NSP-{index:03d}" for index in range(1, 5)),
-    *(f"ADM-{index:03d}" for index in range(1, 9)),
+    *(f"ADM-{index:03d}" for index in range(1, 8)),
     *(f"AGT-{index:03d}" for index in range(1, 9)),
     *(f"SHR-{index:03d}" for index in range(1, 10)),
     *(f"LOOP-{index:03d}" for index in range(1, 9)),
@@ -78,7 +78,6 @@ EXPECTED_AREA_CASE_PROFILES = {
             "ADM-005": "extended",
             "ADM-006": "normal",
             "ADM-007": "extended",
-            "ADM-008": "complete",
             "PRM-005": "extended",
         },
     },
@@ -145,7 +144,7 @@ EXPECTED_AREA_CASE_PROFILES = {
         },
     },
 }
-EXPECTED_PROFILE_TOTALS = {"minimal": 15, "normal": 31, "extended": 53, "complete": 56}
+EXPECTED_PROFILE_TOTALS = {"minimal": 15, "normal": 31, "extended": 53, "complete": 55}
 EXPECTED_TAG_CASES = {
     "critical": {
         "ACT-001",
@@ -181,7 +180,6 @@ EXPECTED_TAG_CASES = {
         "ACT-006",
         "ADM-005",
         "ADM-007",
-        "ADM-008",
         "AGT-004",
         "AGT-005",
         "AGT-006",
@@ -245,6 +243,7 @@ VERSION_3_REVISION_2_CASE_IDS = {"ACT-001", "ACT-003", "ADM-002", "LOOP-001"}
 VERSION_4_NEW_CASE_IDS = {f"ADF-{index:03d}" for index in range(1, 9)}
 VERSION_5_REVISION_2_CASE_IDS = {"ADF-001", "ADF-002"}
 VERSION_6_NEW_CASE_IDS = {f"NSP-{index:03d}" for index in range(1, 5)}
+VERSION_7_REMOVED_CASE_IDS = {"ADM-008"}
 VERSION_4_AGENT_DEFINITION_SEMANTIC_DIGESTS = {
     "ADF-001": "caa38e1fefecdd27b965838cfb03bbbb271edf4bb2e3a12eeb96567bcbec23a4",
     "ADF-002": "1375921ddd72b2c81d75df0bbd8d665b8e6bbb8c2160ff147518e7f0db9a8d10",
@@ -430,7 +429,7 @@ def test_development_testing_skill_links_resolve() -> None:
 def test_behavior_catalog_declares_every_required_case_and_functional_area() -> None:
     """The versioned catalog owns all stable cases through eight functional areas."""
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
-    assert "houmao-dev-behavior-cases.v6" in catalog
+    assert "houmao-dev-behavior-cases.v7" in catalog
 
     expected_area_paths = set(EXPECTED_AREA_CASE_PROFILES)
     actual_area_paths = {
@@ -456,16 +455,18 @@ def test_behavior_catalog_declares_every_required_case_and_functional_area() -> 
     assert "Case revision: `2` for `ADM-002`" in combined
     assert "Case revision: `2` for `LOOP-001`" in combined
     assert "Case revision: `2` for `ADF-001` and `ADF-002`" in combined
+    assert all(case_id not in combined for case_id in VERSION_7_REMOVED_CASE_IDS)
 
 
 def test_behavior_case_semantics_change_only_for_declared_case_revisions() -> None:
-    """Version 6 preserves old oracles outside declared revisions and new native cases."""
+    """Current cases preserve old oracles outside declared revisions and retirements."""
 
     actual = _behavior_semantic_digests(_behavior_case_rows())
-    assert set(VERSION_2_CASE_SEMANTIC_DIGESTS) == (
+    version_2_retained = set(VERSION_2_CASE_SEMANTIC_DIGESTS) - VERSION_7_REMOVED_CASE_IDS
+    assert version_2_retained == (
         EXPECTED_CASE_IDS - VERSION_3_NEW_CASE_IDS - VERSION_4_NEW_CASE_IDS - VERSION_6_NEW_CASE_IDS
     )
-    unchanged = set(VERSION_2_CASE_SEMANTIC_DIGESTS) - VERSION_3_REVISION_2_CASE_IDS
+    unchanged = version_2_retained - VERSION_3_REVISION_2_CASE_IDS
     assert {case_id: actual[case_id] for case_id in unchanged} == {
         case_id: VERSION_2_CASE_SEMANTIC_DIGESTS[case_id] for case_id in unchanged
     }
@@ -498,7 +499,7 @@ def test_behavior_profiles_are_cumulative_and_match_committed_counts() -> None:
     assert resolved_profiles["complete"] == EXPECTED_CASE_IDS
 
     catalog = (BEHAVIOR_ROOT / "references" / "case-catalog.md").read_text(encoding="utf-8")
-    assert "| `all` | 15 | 31 | 53 | 56 |" in catalog
+    assert "| `all` | 15 | 31 | 53 | 55 |" in catalog
     for selector in (
         "<area>/<profile>",
         "<area>/<manual|automatic>/<profile>",

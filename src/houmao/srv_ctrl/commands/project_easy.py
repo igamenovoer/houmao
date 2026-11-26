@@ -13,6 +13,7 @@ from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManife
 from houmao.agents.realm_controller.gateway_access_runtime import load_gateway_admin_seed
 from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode, resolve_run_mode
 from houmao.execution.tmux_selection import TMUX_SERVER_MODES, TmuxServerMode
+from houmao.project.launch_request import ProjectLaunchRequest
 from houmao.project.launch_profiles import (
     HEADLESS_DISPLAY_DETAILS,
     HEADLESS_DISPLAY_STYLES,
@@ -20,6 +21,11 @@ from houmao.project.launch_profiles import (
     profile_run_mode,
 )
 
+from .agents.core import (
+    LocalManagedAgentLaunchCompletion,
+    build_local_launch_completion,
+    render_local_launch_completion,
+)
 from .credentials import KimiConfigCredentialCommand
 from .project_context import active_project_dir
 
@@ -2071,63 +2077,32 @@ def launch_easy_instance_command(
 
     parameters = dict(locals())
     parameters.pop("executor")
+    request = ProjectLaunchRequest.model_validate(parameters)
+    project_dir = active_project_dir()
     if executor is not None:
         from houmao.execution.router import launch_with_executor
 
-        launch_with_executor(executor, parameters)
+        launch_with_executor(executor, request, project_dir=project_dir)
         return
-    launch_project_agent(**parameters)
+    completion = launch_project_agent(request, project_dir=project_dir)
+    render_local_launch_completion(completion=completion)
 
 
 def launch_project_agent(
-    specialist: str | None,
-    profile: str | None,
-    name: str | None,
-    agent_id: str | None,
-    agent_id_mode: AgentIdMode | None,
-    auth: str | None,
-    model: str | None,
-    reasoning_level: int | None,
-    session_name: str | None,
-    mode: RunMode | None,
-    no_gateway: bool,
-    gateway_port: int | None,
-    gateway_background: bool,
-    gateway_tui_watch_poll_interval_seconds: float | None,
-    gateway_tui_stability_threshold_seconds: float | None,
-    gateway_tui_completion_stability_seconds: float | None,
-    gateway_tui_unknown_to_stalled_timeout_seconds: float | None,
-    gateway_tui_stale_active_recovery_seconds: float | None,
-    gateway_tui_final_stable_active_recovery_seconds: float | None,
-    workdir: Path | None,
-    env_set: tuple[str, ...],
-    runtime_set: tuple[str, ...],
-    mail_transport: str | None,
-    mail_root: Path | None,
-    mail_account_dir: Path | None,
-    managed_header: bool | None,
-    managed_header_section: tuple[str, ...],
-    reuse_home: bool,
-    force_mode: str | None,
-    gateway_admin_seed_path: Path | None = None,
-    tool_params: str | None = None,
-    headless_display_style: HeadlessDisplayStyle | None = None,
-    headless_display_detail: HeadlessDisplayDetail | None = None,
-    tmux_server: TmuxServerMode | None = None,
-    tmux_socket_path: str | None = None,
-) -> None:
+    request: ProjectLaunchRequest, *, project_dir: Path | None
+) -> LocalManagedAgentLaunchCompletion:
     """Launch one managed-agent instance from a compiled specialist definition."""
 
-    overlay = _ensure_project_overlay()
-    if specialist is not None and profile is not None:
-        raise click.ClickException("`--specialist` and `--profile` cannot be combined.")
-    if specialist is None and profile is None:
-        raise click.ClickException("Provide exactly one of `--specialist` or `--profile`.")
+    try:
+        request.validate_combinations()
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from None
+    overlay = _ensure_project_overlay(project_dir=project_dir)
     gateway_admin_seed = None
-    if gateway_admin_seed_path is not None:
+    if request.gateway_admin_seed_path is not None:
         try:
             gateway_admin_seed = load_gateway_admin_seed(
-                overlay.project_root / gateway_admin_seed_path
+                overlay.project_root / request.gateway_admin_seed_path
             )
         except SessionManifestError as exc:
             raise click.ClickException(str(exc)) from None
@@ -2151,16 +2126,11 @@ def launch_project_agent(
     launch_profile_system_skill_policy: SystemSkillSelectionPolicy | None = None
     agent_definition_deployment: dict[str, Any] | None = None
     direct_model_config = _build_model_config_or_click(
-        model_name=_resolve_model_name_or_click(model),
-        reasoning_level=reasoning_level,
+        model_name=_resolve_model_name_or_click(request.model),
+        reasoning_level=request.reasoning_level,
     )
-    if reuse_home and force_mode == "clean":
-        raise click.ClickException(
-            "`--reuse-home` is incompatible with `--force clean` because `clean` would destroy "
-            "the preserved home."
-        )
     managed_header_section_overrides = _managed_header_section_policy_from_options(
-        managed_header_section
+        request.managed_header_section
     )
     default_gateway_auto_attach = True
     default_gateway_host: str | None = "127.0.0.1"
@@ -2169,12 +2139,12 @@ def launch_project_agent(
     stored_display_style: HeadlessDisplayStyle | None = None
     stored_display_detail: HeadlessDisplayDetail | None = None
     tmux_selector = _tmux_server_selector_or_click(
-        tmux_server=tmux_server, tmux_socket_path=tmux_socket_path
+        tmux_server=request.tmux_server, tmux_socket_path=request.tmux_socket_path
     )
-    if profile is not None:
+    if request.profile is not None:
         resolved_profile = _load_launch_profile_or_click(
             overlay=overlay,
-            name=_require_non_empty_name(profile, field_name="--profile"),
+            name=_require_non_empty_name(request.profile, field_name="--profile"),
             expected_lane="easy_profile",
         )
         if resolved_profile.specialist is None or not resolved_profile.source_exists:
@@ -2241,29 +2211,31 @@ def launch_project_agent(
             )
         except ValueError as exc:
             raise ProjectRunModePreflightError(str(exc)) from None
-        resolved_name = _optional_non_empty_value(name) or resolved_profile.entry.managed_agent_name
+        resolved_name = (
+            _optional_non_empty_value(request.name) or resolved_profile.entry.managed_agent_name
+        )
         if resolved_name is None:
             raise click.ClickException(
                 "`project agents launch --profile` requires `--name` unless the selected "
                 "profile stores a default managed-agent name."
             )
-        resolved_auth = _optional_non_empty_value(auth) or resolved_profile.entry.auth_name
+        resolved_auth = _optional_non_empty_value(request.auth) or resolved_profile.entry.auth_name
         working_directory = (
             Path(resolved_profile.entry.workdir).expanduser().resolve()
-            if workdir is None and resolved_profile.entry.workdir is not None
-            else (workdir or Path.cwd()).resolve()
+            if request.workdir is None and resolved_profile.entry.workdir is not None
+            else (request.workdir or Path.cwd()).resolve()
         )
     else:
-        assert specialist is not None
+        assert request.specialist is not None
         specialist_metadata = _load_specialist_or_click(
             overlay=overlay,
-            name=_require_non_empty_name(specialist, field_name="--specialist"),
+            name=_require_non_empty_name(request.specialist, field_name="--specialist"),
         )
-        resolved_name = _optional_non_empty_value(name)
+        resolved_name = _optional_non_empty_value(request.name)
         if resolved_name is None:
             raise click.ClickException("`project agents launch --specialist` requires `--name`.")
-        resolved_auth = _optional_non_empty_value(auth)
-        working_directory = (workdir or Path.cwd()).resolve()
+        resolved_auth = _optional_non_empty_value(request.auth)
+        working_directory = (request.workdir or Path.cwd()).resolve()
         specialist_launch_payload = getattr(specialist_metadata, "launch_payload", {})
         specialist_prompt_mode = (
             specialist_launch_payload.get("prompt_mode")
@@ -2272,9 +2244,9 @@ def launch_project_agent(
         )
         operator_prompt_mode = _resolve_operator_prompt_mode_or_click(
             specialist_prompt_mode,
-            source=f"project specialist `{getattr(specialist_metadata, 'name', specialist)}`",
+            source=f"project specialist `{getattr(specialist_metadata, 'name', request.specialist)}`",
         )
-        if runtime_set:
+        if request.runtime_set:
             raise click.ClickException(
                 "`--runtime-set` requires a profile created by an Agent Definition deployment."
             )
@@ -2282,7 +2254,7 @@ def launch_project_agent(
     try:
         selection = resolve_run_mode(
             specialist_metadata.tool,
-            mode=mode if mode is not None else stored_mode,
+            mode=request.mode if request.mode is not None else stored_mode,
             entrypoint="project",
         )
     except LaunchPlanError as exc:
@@ -2297,8 +2269,8 @@ def launch_project_agent(
         except ValueError as exc:
             raise ProjectRunModePreflightError(str(exc)) from None
 
-    display_style = headless_display_style or stored_display_style
-    display_detail = headless_display_detail or stored_display_detail
+    display_style = request.headless_display_style or stored_display_style
+    display_detail = request.headless_display_detail or stored_display_detail
     if selection.mode != "headless" and (display_style is not None or display_detail is not None):
         options = ", ".join(
             flag
@@ -2314,43 +2286,18 @@ def launch_project_agent(
         )
 
     direct_tool_params = (
-        _tool_params_or_click(specialist_metadata.tool, tool_params, source="launch --tool-params")
-        if tool_params is not None
+        _tool_params_or_click(
+            specialist_metadata.tool, request.tool_params, source="launch --tool-params"
+        )
+        if request.tool_params is not None
         else None
     )
 
-    if no_gateway and gateway_port is not None:
-        raise click.ClickException("`--no-gateway` and `--gateway-port` cannot be combined.")
-    if no_gateway and gateway_background:
-        raise click.ClickException("`--no-gateway` and `--gateway-background` cannot be combined.")
-    gateway_tui_tracking_timing_overrides = GatewayTuiTrackingTimingOverridesV1(
-        watch_poll_interval_seconds=gateway_tui_watch_poll_interval_seconds,
-        stability_threshold_seconds=gateway_tui_stability_threshold_seconds,
-        completion_stability_seconds=gateway_tui_completion_stability_seconds,
-        unknown_to_stalled_timeout_seconds=gateway_tui_unknown_to_stalled_timeout_seconds,
-        stale_active_recovery_seconds=gateway_tui_stale_active_recovery_seconds,
-        final_stable_active_recovery_seconds=(gateway_tui_final_stable_active_recovery_seconds),
-    )
-    if no_gateway and gateway_tui_tracking_timing_overrides.has_values():
-        raise click.ClickException(
-            "`--no-gateway` cannot be combined with gateway TUI timing overrides."
-        )
-    if mail_transport == "email":
-        raise click.ClickException(
-            "Mailbox transport `email` is not implemented yet for `project agents launch`."
-        )
-    if mail_transport is None and (mail_root is not None or mail_account_dir is not None):
-        raise click.ClickException(
-            "`--mail-root` and `--mail-account-dir` require `--mail-transport filesystem`."
-        )
-    if mail_transport != "filesystem" and mail_account_dir is not None:
-        raise click.ClickException(
-            "`--mail-account-dir` is only supported with `--mail-transport filesystem`."
-        )
+    gateway_tui_tracking_timing_overrides = request.gateway_tracking_overrides()
     source_agent_def_dir = materialize_project_agent_catalog_projection(overlay)
-    launch_env_overrides = _resolve_instance_env_set_or_click(env_set)
+    launch_env_overrides = _resolve_instance_env_set_or_click(request.env_set)
     instance_runtime_values: dict[str, Any] = {}
-    for assignment in runtime_set:
+    for assignment in request.runtime_set:
         key, separator, raw_value = assignment.partition("=")
         if not separator or not key:
             raise click.ClickException(f"Expected KEY=VALUE for `--runtime-set`: {assignment}")
@@ -2364,15 +2311,15 @@ def launch_project_agent(
     gateway_auto_attach = default_gateway_auto_attach
     requested_gateway_port = default_gateway_port if gateway_auto_attach else None
     gateway_host = default_gateway_host if gateway_auto_attach else None
-    if no_gateway:
+    if request.no_gateway:
         gateway_auto_attach = False
         requested_gateway_port = None
         gateway_host = None
-    elif gateway_port is not None:
+    elif request.gateway_port is not None:
         gateway_auto_attach = True
-        requested_gateway_port = gateway_port
+        requested_gateway_port = request.gateway_port
         gateway_host = default_gateway_host or "127.0.0.1"
-    elif gateway_background:
+    elif request.gateway_background:
         gateway_auto_attach = True
         if requested_gateway_port is None:
             requested_gateway_port = 0
@@ -2393,7 +2340,7 @@ def launch_project_agent(
     )
     gateway_execution_mode: GatewayCurrentExecutionMode | None = (
         "detached_process"
-        if gateway_auto_attach and gateway_background
+        if gateway_auto_attach and request.gateway_background
         else "tmux_auxiliary_window"
         if gateway_auto_attach
         else None
@@ -2402,17 +2349,17 @@ def launch_project_agent(
     launch_result = launch_managed_agent_locally(
         agents=str(specialist_metadata.resolved_preset_path(overlay)),
         agent_name=resolved_name,
-        agent_id=agent_id,
-        agent_id_mode=agent_id_mode,
+        agent_id=request.agent_id,
+        agent_id_mode=request.agent_id_mode,
         auth=resolved_auth,
-        session_name=_optional_non_empty_value(session_name),
+        session_name=_optional_non_empty_value(request.session_name),
         tmux_selector=tmux_selector,
         mode=selection.mode,
         provider=specialist_metadata.provider,
         working_directory=working_directory,
         source_working_directory=overlay.project_root,
         source_agent_def_dir=source_agent_def_dir,
-        source_project_dir=overlay.project_root if active_project_dir() is not None else None,
+        source_project_dir=overlay.project_root if project_dir is not None else None,
         headless_display_style=display_style or "plain",
         headless_display_detail=display_detail or "concise",
         launch_env_overrides=launch_env_overrides,
@@ -2426,9 +2373,11 @@ def launch_project_agent(
             if gateway_tui_tracking_timing_overrides.has_values()
             else None
         ),
-        mailbox_transport=mail_transport,
-        mailbox_root=mail_root.resolve() if mail_root is not None else None,
-        mailbox_account_dir=(mail_account_dir.resolve() if mail_account_dir is not None else None),
+        mailbox_transport=request.mail_transport,
+        mailbox_root=request.mail_root.resolve() if request.mail_root is not None else None,
+        mailbox_account_dir=(
+            request.mail_account_dir.resolve() if request.mail_account_dir is not None else None
+        ),
         declared_mailboxes=declared_mailbox,
         operator_prompt_mode=operator_prompt_mode,
         persistent_env_records=persistent_env_records,
@@ -2442,7 +2391,7 @@ def launch_project_agent(
         direct_tool_params=direct_tool_params,
         prompt_overlay_mode=prompt_overlay_mode,
         prompt_overlay_text=prompt_overlay_text,
-        managed_header_override=managed_header,
+        managed_header_override=request.managed_header,
         launch_profile_managed_header_policy=launch_profile_managed_header_policy,
         managed_header_section_overrides=managed_header_section_overrides,
         launch_profile_managed_header_section_policy=(launch_profile_managed_header_section_policy),
@@ -2454,13 +2403,13 @@ def launch_project_agent(
         launch_profile_system_skill_policy=launch_profile_system_skill_policy,
         agent_definition_deployment=agent_definition_deployment,
         instance_runtime_values=instance_runtime_values,
-        force_mode=force_mode,
-        reuse_home=reuse_home,
+        force_mode=request.force_mode,
+        reuse_home=request.reuse_home,
     )
-    emit_local_launch_completion(
+    return build_local_launch_completion(
         launch_result=launch_result,
         agent_name=resolved_name,
-        session_name=session_name,
+        session_name=request.session_name,
     )
 
 

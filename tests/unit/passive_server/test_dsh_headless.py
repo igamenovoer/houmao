@@ -42,11 +42,11 @@ def test_dsh_passive_headless_birth_selects_the_native_one_shot_backend(
     controller = _FakeRuntimeController(manifest_path=manifest, output_format="dsh-cli")
     bindings: list[ExecutionBindingV1 | None] = []
 
-    def start_with_binding(**_kwargs: object) -> _FakeRuntimeController:
+    def start_with_binding(**kwargs: object) -> _FakeRuntimeController:
         """Capture the authority admitted for the passive start."""
 
         bindings.append(current_execution_binding())
-        return controller
+        return controller.finish_launch(**kwargs)
 
     start = Mock(side_effect=start_with_binding)
     monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "ambient-registry"))
@@ -102,7 +102,7 @@ def test_kimi_launch_preserves_authority_and_accepts_managed_follow_up(
         manifest_path=manifest,
         backend_session=_FakeHeadlessBackendSession(send_prompt_callback=send),
     )
-    start = Mock(return_value=controller)
+    start = Mock(side_effect=controller.finish_launch)
     monkeypatch.setattr(
         "houmao.passive_server.headless.load_brain_manifest",
         lambda _path: {"inputs": {"tool": "kimi"}},

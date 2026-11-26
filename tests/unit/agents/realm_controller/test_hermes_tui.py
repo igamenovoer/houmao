@@ -5,11 +5,13 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
+import sqlite3
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from houmao.agents.realm_controller import owner_admission
 from houmao.agents.realm_controller.backends import hermes_tui
 from houmao.agents.realm_controller.backends.hermes_native import (
     HermesDaemonIdentity,
@@ -23,7 +25,11 @@ from houmao.agents.realm_controller.backends.hermes_tui import (
     HermesTuiSessionState,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
-from houmao.agents.realm_controller.owner_admission import OwnerAdmissionError
+from houmao.agents.realm_controller.owner_admission import (
+    OwnerAdmissionError,
+    observe_owner_prompt,
+    reserve_owner_prompt,
+)
 from houmao.execution.tmux import TmuxPaneRecord
 
 
@@ -225,6 +231,153 @@ def test_native_queued_receipt_survives_lost_ack_and_rejects_conflicting_payload
         )
     assert len(requests) == 2
     assert not claim.finished
+
+
+@pytest.fixture
+def hermes_owner_queue(tui: HermesTuiSession, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Use the real owner queue with the synthetic Hermes manifest binding."""
+
+    database = tui.manifest_path.parent / "gateway" / "queue.sqlite"
+    database.parent.mkdir()
+    with sqlite3.connect(database):
+        pass
+    monkeypatch.setattr(
+        owner_admission,
+        "_owner_manifest",
+        lambda *_: SimpleNamespace(
+            backend="hermes_tui",
+            mode="tui",
+            backend_state={"native_session_id": tui.state.native_session_id},
+        ),
+    )
+    return database
+
+
+@pytest.mark.parametrize("bad_receipt", ["partial", "missing-sequence", "other-session", "json"])
+def test_owner_and_backend_keep_unresolved_slot_until_exact_terminal_evidence(
+    tui: HermesTuiSession,
+    monkeypatch: pytest.MonkeyPatch,
+    hermes_owner_queue: Path,
+    bad_receipt: str,
+) -> None:
+    """An invalid terminal receipt cannot release the slot or trigger prompt replay."""
+
+    identity = _instance(tui)
+    calls = []
+
+    def rpc(method, **_params):
+        calls.append(method)
+        assert method == "prompt.submit"
+        return _receipt(tui, identity, "queued")
+
+    peer = SimpleNamespace(identity=identity, rpc=rpc)
+    _install_peer(monkeypatch, tui, peer)
+    generation, request_id = "managed-generation", "original-request"
+    queued = tui.submit_native_prompt("literal", request_id=request_id)
+    assert queued.status == "queued"
+    path = tui._turn_path(request_id)
+    terminal = queued.model_copy(
+        update={
+            "status": "completed",
+            "native_outcome": "completed",
+            "native_execution_generation": 3,
+        }
+    ).model_dump(mode="json")
+    if bad_receipt == "partial":
+        write_hermes_evidence(
+            path,
+            {
+                key: terminal[key]
+                for key in (
+                    "request_id",
+                    "generation_id",
+                    "native_session_id",
+                    "native_admission_id",
+                    "status",
+                )
+            },
+        )
+    elif bad_receipt == "missing-sequence":
+        write_hermes_evidence(
+            path,
+            {key: value for key, value in terminal.items() if key != "native_admission_sequence"},
+        )
+    elif bad_receipt == "other-session":
+        write_hermes_evidence(path, {**terminal, "native_session_id": "different-native-session"})
+    else:
+        path.write_text("{malformed JSON")
+
+    with sqlite3.connect(hermes_owner_queue) as connection:
+        connection.execute(
+            "UPDATE managed_prompt_attempts SET caller_birth_token='disconnected' WHERE request_id=?",
+            (request_id,),
+        )
+    assert tui.read_native_admission(request_id) is None
+    unresolved = observe_owner_prompt(
+        tui.manifest_path, generation, reconcile_tui=tui.reconcile_owner_attempt
+    )
+    assert unresolved is not None and unresolved.request_id == request_id
+    assert unresolved.state == "uncertain"
+    with pytest.raises(OwnerAdmissionError, match="unresolved"):
+        tui.submit_native_prompt("next", request_id="next-request")
+    assert calls == ["prompt.submit"]
+
+    write_hermes_evidence(path, terminal)
+    recovered = tui.read_native_admission(request_id)
+    assert recovered is not None and recovered.terminal_outcome == "completed"
+    assert observe_owner_prompt(tui.manifest_path, generation) is None
+    with sqlite3.connect(hermes_owner_queue) as connection:
+        assert connection.execute(
+            "SELECT request_id, state, evidence FROM managed_prompt_attempts"
+        ).fetchall() == [(request_id, "completed", "tui_native")]
+    assert calls == ["prompt.submit"]
+
+
+def test_owner_keeps_queued_hermes_receipt_until_native_terminal_update(
+    tui: HermesTuiSession, monkeypatch: pytest.MonkeyPatch, hermes_owner_queue: Path
+) -> None:
+    """Native rereads keep the original admission until its durable outcome changes."""
+
+    identity = _instance(tui)
+    calls = []
+    status = "queued"
+
+    def rpc(method, **params):
+        calls.append(method)
+        if method == "prompt.submit":
+            return _receipt(tui, identity, "queued")
+        if method == "prompt.receipt":
+            assert params["admission_id"] == "native-admission"
+            if status == "queued":
+                return _receipt(tui, identity, "queued")
+            return _receipt(tui, identity, "terminal", outcome="failed")
+        assert method == "session.events.since"
+        return {"replay_epoch": "replay-one", "latest_seq": 1, "events": []}
+
+    _install_peer(monkeypatch, tui, SimpleNamespace(identity=identity, rpc=rpc))
+    generation, request_id = "managed-generation", "original-request"
+    queued = tui.submit_native_prompt("literal", request_id=request_id)
+    pending = observe_owner_prompt(
+        tui.manifest_path, generation, reconcile_tui=tui.reconcile_owner_attempt
+    )
+    assert (
+        pending is not None and pending.request_id == request_id and pending.state == "handed_off"
+    )
+    assert tui.read_native_admission(request_id) == queued
+    with pytest.raises(OwnerAdmissionError, match="unresolved"):
+        reserve_owner_prompt(tui.manifest_path, generation, origin="manager")
+    status = "failed"
+    assert (
+        observe_owner_prompt(
+            tui.manifest_path, generation, reconcile_tui=tui.reconcile_owner_attempt
+        )
+        is None
+    )
+    with sqlite3.connect(hermes_owner_queue) as connection:
+        assert connection.execute(
+            "SELECT request_id, state, evidence FROM managed_prompt_attempts"
+        ).fetchall() == [(request_id, "failed", "tui_native")]
+    assert calls.count("prompt.submit") == 1
 
 
 def test_native_recovery_filters_human_output_and_refuses_stale_cancellation(tui, monkeypatch):

@@ -14,7 +14,9 @@ from click.testing import CliRunner
 
 import houmao.srv_ctrl.commands.agents.gateway as gateway_commands
 import houmao.srv_ctrl.commands.runtime_cleanup as runtime_cleanup
+from houmao.agents.realm_controller import registry_storage
 from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError
 from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
@@ -82,7 +84,6 @@ def _launch_plan(
             role_name="r",
             prompt="role prompt",
         ),
-        metadata={"session_origin": "joined_tmux"},
     )
 
 
@@ -132,6 +133,24 @@ def _write_runtime_manifest(
         )
     )
     write_session_manifest(manifest_path, payload)
+    return manifest_path
+
+
+def _write_retired_runtime_manifest(
+    tmp_path: Path,
+    *,
+    tmux_session_name: str = "retired-session",
+) -> Path:
+    """Write saved adoption evidence without using the current manifest writer."""
+
+    manifest_path = _write_runtime_manifest(tmp_path, tmux_session_name=tmux_session_name)
+    payload = json.loads(manifest_path.read_text())
+    payload["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
+    payload["launch_plan"]["mailboxes"]["online"]["binding"] = {
+        "transport": "stalwart",
+        "credential_ref": "retired-mailbox",
+    }
+    manifest_path.write_text(json.dumps(payload))
     return manifest_path
 
 
@@ -191,6 +210,202 @@ def _registry_record(
         },
         canonical_mail_identity=None,
     )
+
+
+@pytest.mark.parametrize("selector", ["agent_id", "agent_name", "manifest_path", "session_root"])
+@pytest.mark.parametrize("registry_present", [True, False])
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_selected_cleanup_refuses_retired_adoption_before_any_effect(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    selector: str,
+    registry_present: bool,
+    dry_run: bool,
+) -> None:
+    """Purge authority does not come from a manual adoption record or a degraded pane."""
+
+    manifest = _write_retired_runtime_manifest(tmp_path)
+    record = (
+        _registry_record(
+            manifest_path=manifest.with_name("stale-pointer.json"),
+            session_root=manifest.parent,
+            session_name="retired-session",
+            lifecycle_state="active",
+        )
+        if registry_present
+        else None
+    )
+    monkeypatch.setattr(
+        runtime_cleanup, "_resolve_local_cleanup_registry_record", lambda **_: record
+    )
+    monkeypatch.setattr(runtime_cleanup, "_find_registry_record_for_session_root", lambda _: record)
+    monkeypatch.setattr(runtime_cleanup, "_raise_if_external_cleanup_selector", lambda **_: None)
+    monkeypatch.setattr(
+        runtime_cleanup, "_resolve_effective_runtime_root", lambda _: tmp_path / "runtime"
+    )
+
+    def unexpected_effect(*args: object, **kwargs: object) -> None:
+        pytest.fail("Retired cleanup attempted liveness probing or mutation")
+
+    for name in (
+        "_tmux_session_presence",
+        "probe_tmux_backed_authority",
+        "kill_tmux_session",
+        "remove_path",
+        "publish_managed_agent_record",
+        "remove_managed_agent_record",
+    ):
+        monkeypatch.setattr(runtime_cleanup, name, unexpected_effect)
+
+    saved = manifest.read_bytes()
+    values = {
+        "agent_id": "agent-joined",
+        "agent_name": "joined-agent",
+        "manifest_path": manifest,
+        "session_root": manifest.parent,
+    }
+    with pytest.raises(RetiredJoinedSessionError, match="owning Houmao release"):
+        runtime_cleanup.cleanup_managed_session(
+            **{name: value if name == selector else None for name, value in values.items()},
+            dry_run=dry_run,
+            purge_registry=True,
+        )
+    assert manifest.read_bytes() == saved
+
+
+@pytest.mark.parametrize("cleanup", ["logs", "mailbox"])
+def test_selected_cleanup_preserves_retired_session_subdirectories(
+    tmp_path: Path,
+    cleanup: str,
+) -> None:
+    """Logs and mailbox cleanup refuse the retired selector before using it."""
+
+    manifest = _write_retired_runtime_manifest(tmp_path)
+    child = manifest.parent / "mailbox-secrets" / "credential.json"
+    child.parent.mkdir()
+    child.write_text("{}\n")
+    command = {
+        "logs": runtime_cleanup.cleanup_managed_session_logs,
+        "mailbox": runtime_cleanup.cleanup_managed_session_mailbox,
+    }[cleanup]
+    with pytest.raises(RetiredJoinedSessionError):
+        command(
+            agent_id=None, agent_name=None, manifest_path=manifest, session_root=None, dry_run=False
+        )
+    assert child.read_text() == "{}\n"
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_bulk_cleanup_preserves_retired_envelope_and_referenced_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    dry_run: bool,
+) -> None:
+    """Retired references protect build and mailbox artifacts without blocking native cleanup."""
+
+    runtime_root = tmp_path / "runtime"
+    native_manifest = _write_runtime_manifest(
+        tmp_path, session_id="native-stopped", tmux_session_name="native-stopped"
+    )
+    retired_manifest = _write_retired_runtime_manifest(tmp_path)
+    retired_paths = gateway_paths_from_session_root(session_root=retired_manifest.parent)
+    native_paths = gateway_paths_from_session_root(session_root=native_manifest.parent)
+    for path in (retired_paths.diagnostic_log_path, native_paths.diagnostic_log_path):
+        path.parent.mkdir(parents=True)
+        path.write_text("log\n")
+    credential_root = runtime_root / "mailbox-credentials" / "stalwart"
+    credential_root.mkdir(parents=True)
+    retired_credential = credential_root / "retired-mailbox.json"
+    native_orphan_credential = credential_root / "orphan-mailbox.json"
+    for path in (retired_credential, native_orphan_credential):
+        path.write_text("{}\n")
+    retired_home = runtime_root / "homes" / "home-1"
+    native_orphan_home = runtime_root / "homes" / "orphan-home"
+    native_orphan_home.mkdir()
+    retired_brain_manifest = runtime_root / "manifests" / "brain-1.yaml"
+
+    def tmux_presence(session_name: str | None, socket_path: str | None) -> bool:
+        assert session_name == "native-stopped"
+        return False
+
+    monkeypatch.setattr(runtime_cleanup, "_tmux_session_presence", tmux_presence)
+    action_key = "planned_actions" if dry_run else "applied_actions"
+    for command, protected, disposable in (
+        (
+            runtime_cleanup.cleanup_runtime_logs,
+            (retired_manifest.parent,),
+            (native_paths.diagnostic_log_path,),
+        ),
+        (
+            runtime_cleanup.cleanup_runtime_builds,
+            (retired_home, retired_brain_manifest),
+            (native_orphan_home,),
+        ),
+        (
+            runtime_cleanup.cleanup_runtime_mailbox_credentials,
+            (retired_credential,),
+            (native_orphan_credential,),
+        ),
+        (
+            runtime_cleanup.cleanup_runtime_sessions,
+            (retired_manifest.parent,),
+            (native_manifest.parent,),
+        ),
+    ):
+        report = command(runtime_root=runtime_root, older_than_seconds=0, dry_run=dry_run)
+        assert {action["path"] for action in report["preserved_actions"]} >= set(
+            map(str, protected)
+        )
+        assert {action["path"] for action in report[action_key]} >= set(map(str, disposable))
+        assert all(path.exists() for path in protected)
+        assert all(path.exists() is dry_run for path in disposable)
+    assert retired_manifest.is_file()
+    assert retired_paths.diagnostic_log_path.read_text() == "log\n"
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_registry_cleanup_preserves_expired_retired_adoption_record(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    dry_run: bool,
+) -> None:
+    """An expired lease cannot authorize deletion of retired discovery pointers."""
+
+    retired_manifest = _write_retired_runtime_manifest(tmp_path)
+    retired_record = _registry_record(
+        manifest_path=retired_manifest.with_name("stale-pointer.json"),
+        session_root=retired_manifest.parent,
+        session_name="retired-session",
+        lifecycle_state="active",
+    )
+    native_record = _registry_record(
+        manifest_path=tmp_path / "missing-native-manifest.json",
+        session_root=None,
+        agent_id="native-ordinary",
+        agent_name="native-ordinary",
+        lifecycle_state="active",
+    )
+    env = {"HOUMAO_GLOBAL_REGISTRY_DIR": str(tmp_path / "registry")}
+    retired_path = registry_storage.record_path_for_agent_id(retired_record.agent_id, env=env)
+    native_path = registry_storage.record_path_for_agent_id(native_record.agent_id, env=env)
+    for path, record in ((retired_path, retired_record), (native_path, native_record)):
+        path.parent.mkdir(parents=True)
+        path.write_text(record.model_dump_json())
+    saved = retired_path.read_bytes()
+
+    def unexpected_probe(*args: object, **kwargs: object) -> None:
+        pytest.fail("Expired registry cleanup probed tmux")
+
+    monkeypatch.setattr(registry_storage, "_record_tmux_session_exists", unexpected_probe)
+    report = registry_storage.cleanup_stale_managed_agent_records(
+        env=env,
+        now=datetime.now(UTC) + timedelta(days=1),
+        dry_run=dry_run,
+    )
+    assert report.preserved_agent_ids == (retired_record.agent_id,)
+    assert any("Manual tmux adoption is retired" in action.reason for action in report.actions)
+    assert retired_path.read_bytes() == saved
+    assert native_path.exists() is dry_run
 
 
 def test_admin_cleanup_help_mentions_grouped_registry_and_runtime_commands() -> None:

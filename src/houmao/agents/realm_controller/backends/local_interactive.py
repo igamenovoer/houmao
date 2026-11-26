@@ -16,6 +16,8 @@ from houmao.hook_observation.install import remove_launch_wrapper, write_launch_
 from houmao.hook_observation.settings_generator import TOKEN_ENV_VAR
 from houmao.server.tui.process import PaneProcessInspector
 
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
+
 from ..errors import BackendExecutionError
 from ..mail_commands import (
     MAIL_RESULT_SURFACES_PAYLOAD_KEY,
@@ -145,7 +147,8 @@ class LocalInteractiveSession(HeadlessInteractiveSession):
             self._launch_provider_surface()
             self._apply_startup_bootstrap()
         except Exception:
-            self._cleanup_failed_startup()
+            if current_runtime_startup() is None:
+                self._cleanup_failed_startup()
             raise
 
     def plugin_execution_identity(self) -> tuple[str, ...]:

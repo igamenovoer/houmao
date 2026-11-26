@@ -49,6 +49,7 @@ from houmao.agents.realm_controller.errors import (
     ServiceStartupCheck,
     ServiceStartupCompatibilityError,
 )
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.models import (
     BackendKind,
@@ -469,6 +470,7 @@ class ManagedServiceSession:
         path = root / "startup.json"
         write_service_record(path, config)
         created = False
+        startup = current_runtime_startup()
         try:
             with self._socket_scope():
                 if not tmux_session_exists(session_name=name, allow_missing_server=True):
@@ -507,6 +509,13 @@ class ManagedServiceSession:
                     ["set-option", "-w", "-t", surface.window_id, "remain-on-exit", "on"]
                 ).returncode:
                     raise BackendExecutionError("Service supervisor pane could not be retained")
+                if startup is not None:
+                    startup.add(
+                        "new managed service process",
+                        lambda: self._rollback_owner_startup(
+                            root, incarnation, identity["generation"]
+                        ),
+                    )
                 if run_tmux(["respawn-pane", "-k", "-t", surface.pane_id, command]).returncode:
                     raise BackendExecutionError("Service supervisor could not be launched")
             deadline = time.monotonic() + 45.0
@@ -539,24 +548,40 @@ class ManagedServiceSession:
                 time.sleep(0.05)
             raise BackendExecutionError("Native service startup timed out")
         except BaseException as exc:
-            with suppress(OSError, ValueError, BackendExecutionError):
-                startup = json.loads(read_service_record(root / "startup-owner.json"))
-                if (
-                    isinstance(startup, dict)
-                    and startup.get("service_incarnation") == incarnation
-                    and startup.get("generation_id") == identity["generation"]
-                    and type(startup.get("pid")) is int
-                    and isinstance(startup.get("birth_token"), str)
-                ):
-                    _stop_service_process(startup["pid"], startup["birth_token"])
-            if created:
-                with self._socket_scope():
-                    cleanup_tmux_session(session_name=name)
+            if startup is None:
+                with suppress(OSError, ValueError, BackendExecutionError):
+                    self._rollback_owner_startup(root, incarnation, identity["generation"])
+                if created:
+                    with self._socket_scope():
+                        cleanup_tmux_session(session_name=name)
             if isinstance(exc, TmuxCommandError):
                 raise BackendExecutionError(str(exc)) from None
             raise
         finally:
             path.unlink(missing_ok=True)
+
+    def _rollback_owner_startup(self, root: Path, incarnation: str, generation: str) -> None:
+        """Stop the exact captured service owner and detached provider."""
+
+        if (root / "descriptor.json").is_file():
+            descriptor = self._read_descriptor(incarnation, generation=generation)
+            _stop_service_process(descriptor.owner_pid, descriptor.owner_birth_token)
+            _stop_service_process(descriptor.native_pid, descriptor.native_birth_token)
+            _remove_retired_service_socket(descriptor)
+            return
+        startup_path = root / "startup-owner.json"
+        if not startup_path.is_file():
+            return
+        startup = json.loads(read_service_record(startup_path))
+        if (
+            not isinstance(startup, dict)
+            or startup.get("service_incarnation") != incarnation
+            or startup.get("generation_id") != generation
+            or type(startup.get("pid")) is not int
+            or not isinstance(startup.get("birth_token"), str)
+        ):
+            raise BackendExecutionError("Managed service startup owner could not be verified")
+        _stop_service_process(startup["pid"], startup["birth_token"])
 
     def _read_descriptor(self, incarnation: str, *, generation: str) -> ServiceDescriptor:
         """Read the exact private descriptor without following a replacement socket."""

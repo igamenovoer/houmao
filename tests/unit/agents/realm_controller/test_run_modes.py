@@ -2,18 +2,165 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import pytest
 
-from houmao.agents.realm_controller.errors import LaunchPlanError
-from houmao.agents.realm_controller.models import BackendKind
+from houmao.agents.realm_controller import runtime
+from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
+from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
+from houmao.agents.realm_controller.models import BackendKind, GatewayControlResult
 from houmao.agents.realm_controller.native_surface import NativeSurfaceKind
 from houmao.agents.realm_controller.run_modes import (
     RunMode,
     RunModeEntrypoint,
     RunModeSelection,
+    gateway_backend_capabilities,
     resolve_run_mode,
     validate_mode_binding,
 )
+from houmao.execution.tmux_selection import ResolvedTmuxServer
+
+
+@pytest.mark.parametrize(
+    ("backend", "parser_backed", "manager_launch", "runtime_launch", "attach_and_process"),
+    [
+        ("local_interactive", True, True, True, True),
+        ("cao_rest", True, True, True, True),
+        ("houmao_server_rest", True, True, True, True),
+        ("dsh_web", False, False, False, False),
+        ("kimi_web", False, False, False, False),
+        ("hermes_tui", False, False, False, False),
+        ("dsh_acp", False, False, False, True),
+        ("kimi_acp", False, False, False, True),
+        ("codex_app_server", False, False, False, True),
+        ("hermes_service", False, False, False, True),
+        ("claude_headless", False, False, True, True),
+        ("codex_headless", False, False, True, True),
+        ("kimi_headless", False, False, True, True),
+        ("dsh_headless", False, False, True, True),
+        ("hermes_headless", False, False, True, True),
+    ],
+)
+def test_gateway_backend_timing_matrix(
+    backend: BackendKind,
+    parser_backed: bool,
+    manager_launch: bool,
+    runtime_launch: bool,
+    attach_and_process: bool,
+) -> None:
+    """Pin separate timing acceptance and parser eligibility for every backend."""
+
+    capabilities = gateway_backend_capabilities(backend)
+
+    assert capabilities.parser_backed_tui == parser_backed
+    assert capabilities.manager_launch_timings == manager_launch
+    assert capabilities.runtime_launch_timings == runtime_launch
+    assert capabilities.attach_timings == attach_and_process
+
+
+@pytest.mark.parametrize("explicit_timings", [False, True])
+@pytest.mark.parametrize(
+    ("tool", "mode", "refusal"),
+    [
+        ("codex", "tui", None),
+        ("codex", "headless", None),
+        ("codex", "service", "Managed service mode does not support"),
+        ("dsh", "web", "Web mode does not support"),
+        ("hermes", "tui", "Hermes TUI uses native control"),
+    ],
+)
+def test_runtime_launch_checks_only_explicit_timings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    mode: RunMode,
+    refusal: str | None,
+    explicit_timings: bool,
+) -> None:
+    """Exercise direct runtime preflight without acquiring a real terminal or provider."""
+
+    monkeypatch.setattr(
+        runtime,
+        "load_brain_manifest",
+        lambda _: {"inputs": {"tool": tool}, "runtime": {"launch_executable": tool}},
+    )
+    monkeypatch.setattr(runtime, "resolve_hermes_executable", lambda **_: tmp_path / "hermes")
+    monkeypatch.setattr(runtime, "validate_dsh_launch_version", lambda **_: None)
+    prepare = Mock(side_effect=SessionManifestError("reached owner identity"))
+    monkeypatch.setattr(runtime, "_resolve_start_session_identity", prepare)
+    expected = refusal if explicit_timings and refusal is not None else "reached owner identity"
+
+    with pytest.raises(SessionManifestError, match=expected):
+        runtime.start_runtime_session(
+            agent_def_dir=tmp_path,
+            brain_manifest_path=tmp_path / "brain.yaml",
+            role_name=None,
+            runtime_root=tmp_path / "runtime",
+            mode=mode,
+            gateway_auto_attach=True,
+            resolved_tmux_server=ResolvedTmuxServer(str(tmp_path / "owner.sock"), False),
+            gateway_tui_tracking_timing_overrides=(
+                GatewayTuiTrackingTimingOverridesV1(watch_poll_interval_seconds=0.25)
+                if explicit_timings
+                else None
+            ),
+        )
+    assert prepare.call_count == int(expected == "reached owner identity")
+
+
+@pytest.mark.parametrize("explicit_timings", [False, True])
+@pytest.mark.parametrize(
+    ("backend", "refusal"),
+    [
+        ("local_interactive", None),
+        ("dsh_headless", None),
+        ("hermes_service", None),
+        ("dsh_web", "DSH Web does not support terminal tracking timing controls."),
+        ("hermes_tui", "Hermes TUI does not support terminal tracking timing controls."),
+    ],
+)
+def test_direct_gateway_attach_checks_only_explicit_timings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: BackendKind,
+    refusal: str | None,
+    explicit_timings: bool,
+) -> None:
+    """Preserve attach refusals and allow service and headless timing overrides."""
+
+    controller = SimpleNamespace(launch_plan=SimpleNamespace(backend=backend))
+    paths = SimpleNamespace(gateway_root=tmp_path)
+    monkeypatch.setattr(runtime, "_require_gateway_paths_for_controller", lambda _: paths)
+    resolve = Mock(side_effect=SessionManifestError("reached attach authority"))
+    monkeypatch.setattr(runtime, "resolve_internal_gateway_attach_contract", resolve)
+    timings = (
+        GatewayTuiTrackingTimingOverridesV1(watch_poll_interval_seconds=0.25)
+        if explicit_timings
+        else None
+    )
+
+    def attach() -> GatewayControlResult:
+        """Apply the selected timing input to the owner's attach boundary."""
+
+        return runtime._attach_gateway_for_controller(
+            controller,
+            host_override=None,
+            port_override=None,
+            execution_mode_override=None,
+            tui_tracking_timing_overrides=timings,
+        )
+
+    if explicit_timings and refusal is not None:
+        result = attach()
+        assert result.status == "error" and result.detail == refusal
+        resolve.assert_not_called()
+    else:
+        with pytest.raises(SessionManifestError, match="reached attach authority"):
+            attach()
+        resolve.assert_called_once_with(paths)
 
 
 @pytest.mark.parametrize(

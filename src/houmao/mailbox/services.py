@@ -60,6 +60,7 @@ from houmao.mailbox.managed import (
     StateUpdateRequest,
     deliver_message,
     ensure_operator_mailbox_registration,
+    update_local_message_state,
     update_mailbox_state,
 )
 from houmao.mailbox.protocol import (
@@ -981,7 +982,7 @@ class FilesystemGatewayMailboxAdapter:
                 registration_id = str(registration_row[0])
                 mailbox_path = Path(str(registration_row[1]))
                 message_row = connection.execute(
-                    "SELECT canonical_path, thread_id FROM messages WHERE message_id = ?",
+                    "SELECT canonical_path FROM messages WHERE message_id = ?",
                     (message_id,),
                 ).fetchone()
                 if message_row is None:
@@ -1045,12 +1046,6 @@ class FilesystemGatewayMailboxAdapter:
                     if projection_path != destination_path:
                         projection_path.unlink(missing_ok=True)
 
-                assignments = ["box_name = ?", "is_archived = ?"]
-                parameters: list[object] = [normalized_box, int(normalized_box == "archive")]
-                if force_read is not None:
-                    assignments.append("is_read = ?")
-                    parameters.append(int(force_read))
-                parameters.append(message_id)
                 connection.commit()
         except sqlite3.DatabaseError as exc:
             raise GatewayMailboxError(
@@ -1059,19 +1054,18 @@ class FilesystemGatewayMailboxAdapter:
         try:
             with sqlite3.connect(local_sqlite_path) as connection:
                 connection.execute("BEGIN IMMEDIATE")
-                connection.execute(
-                    f"""
-                    UPDATE message_state
-                    SET {", ".join(assignments)}
-                    WHERE message_id = ?
-                    """,
-                    tuple(parameters),
+                update_local_message_state(
+                    connection,
+                    message_id=message_id,
+                    box=normalized_box,
+                    archived=normalized_box == "archive",
+                    read=force_read,
                 )
                 connection.commit()
         except sqlite3.DatabaseError as exc:
             raise GatewayMailboxError(
                 "filesystem mailbox local state update failed after moving "
-                f"`{message_id}` for `{self.m_mailbox.address}`; run mailbox repair to rebuild "
+                f"`{message_id}` for `{self.m_mailbox.address}`; retry the move or run mailbox repair to rebuild "
                 "local state"
             ) from exc
         return self._load_local_message_model(message_id=message_id, box=None, include_body=False)

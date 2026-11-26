@@ -98,6 +98,7 @@ from houmao.agents.realm_controller.errors import (
     BrainLaunchRuntimeError,
     GatewayHttpError,
     MailboxCommandError,
+    RetiredJoinedSessionError,
     SessionManifestError,
 )
 from houmao.agents.realm_controller.terminal_recovery import (
@@ -1469,6 +1470,7 @@ def resolve_relaunch_managed_agent_target(
         agent_name=normalized_agent_name,
     )
     if record is not None:
+        _require_supported_registry_origin(record)
         if record.lifecycle.state == "stopped":
             return ManagedAgentTarget(
                 mode="local",
@@ -1744,6 +1746,7 @@ def _resolve_local_managed_agent_record_with_miss_context(
         record = load_managed_agent_record_by_agent_id(agent_id)
         if record is None:
             return None, None
+        _require_supported_registry_origin(record)
         if not include_inactive and (
             record.lifecycle.state != "active" or not is_live_agent_record_fresh(record)
         ):
@@ -1784,6 +1787,7 @@ def _resolve_local_managed_agent_record_with_miss_context(
                     matches=all_matches,
                 )
             )
+        _require_supported_registry_origin(all_matches[0])
         raise click.ClickException(
             _format_inactive_local_registry_match(
                 selector_name="--agent-name",
@@ -1830,6 +1834,7 @@ def _resolve_local_relaunch_record_with_miss_context(
         record = load_managed_agent_record_by_agent_id(agent_id)
         if record is None:
             return None, None
+        _require_supported_registry_origin(record)
         raise click.ClickException(
             _format_unavailable_local_relaunch_record(
                 selector_name="--agent-id",
@@ -1876,6 +1881,7 @@ def _resolve_local_relaunch_record_with_miss_context(
                     matches=all_matches,
                 )
             )
+        _require_supported_registry_origin(all_matches[0])
         raise click.ClickException(
             _format_unavailable_local_relaunch_record(
                 selector_name="--agent-name",
@@ -1927,9 +1933,20 @@ def _resolve_stopped_relaunch_manifest_fallback_target(
     from .runtime_cleanup import _resolve_effective_runtime_root, discover_runtime_session_envelopes
 
     runtime_root = _resolve_effective_runtime_root(None)
+    envelopes = discover_runtime_session_envelopes(runtime_root)
+    for envelope in envelopes:
+        retirement = getattr(envelope, "retirement", None)
+        if retirement is None:
+            continue
+        if (
+            retirement.agent_id == agent_id
+            if agent_id is not None
+            else agent_name is not None and retirement.agent_name == agent_name
+        ):
+            raise click.ClickException(str(retirement)) from retirement
     matches = [
         envelope
-        for envelope in discover_runtime_session_envelopes(runtime_root)
+        for envelope in envelopes
         if _stopped_relaunch_envelope_matches_selector(
             envelope=envelope,
             agent_id=agent_id,
@@ -5993,7 +6010,7 @@ def _list_registry_records(
             continue
         if lifecycle_state == "active":
             record = resolve_live_agent_record_by_agent_id(candidate.name)
-            if record is not None:
+            if record is not None and _retired_registry_origin(record) is None:
                 records.append(record)
             continue
         record = load_managed_agent_record_by_agent_id(candidate.name)
@@ -6003,8 +6020,34 @@ def _list_registry_records(
             continue
         if lifecycle_state != "all" and record.lifecycle.state != lifecycle_state:
             continue
+        if _retired_registry_origin(record) is not None:
+            continue
         records.append(record)
     return records
+
+
+def _retired_registry_origin(
+    record: ManagedAgentRegistryRecordV3,
+) -> RetiredJoinedSessionError | None:
+    """Check the manifest for a retired origin without interpreting a missing manifest."""
+
+    path = _non_empty_record_manifest_path(record)
+    if path is not None:
+        try:
+            load_session_manifest(Path(path))
+        except RetiredJoinedSessionError as exc:
+            return exc
+        except SessionManifestError:
+            pass
+    return None
+
+
+def _require_supported_registry_origin(record: ManagedAgentRegistryRecordV3) -> None:
+    """Refuse a selected retired record before probing or using another authority."""
+
+    retirement = _retired_registry_origin(record)
+    if retirement is not None:
+        raise click.ClickException(str(retirement)) from retirement
 
 
 def _identity_merge_key(identity: HoumaoManagedAgentIdentity) -> str:
@@ -6066,6 +6109,7 @@ def select_local_managed_agent_record(
 ) -> ManagedAgentTarget:
     """Select an already-disambiguated local record without opening its runtime."""
 
+    _require_supported_registry_origin(record)
     if record.identity.backend == "houmao_server_rest":
         raise click.ClickException(
             "This managed agent is registered with retired backend "
@@ -6129,6 +6173,8 @@ def _read_recovery_manifest(
     try:
         handle = load_session_manifest(manifest_path)
         return parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except RetiredJoinedSessionError:
+        raise
     except SessionManifestError:
         return None
 
@@ -6141,7 +6187,6 @@ def _probe_recorded_terminal(
     from houmao.execution.tmux import tmux_server_scope
 
     binding = recorded_tmux_binding(record, manifest)
-    authority = manifest.agent_launch_authority if manifest is not None else None
     assert binding.socket_path is not None
     try:
         with tmux_server_scope(binding.socket_path):
@@ -6152,7 +6197,6 @@ def _probe_recorded_terminal(
                 primary_window_id=binding.primary_window_id,
                 primary_pane_id=binding.primary_pane_id,
                 primary_window_name=binding.primary_window_name,
-                joined=authority is not None and authority.session_origin == "joined_tmux",
             )
     except TmuxCommandError as exc:
         raise terminal_inspection_unavailable(record, exc) from exc
@@ -6508,12 +6552,10 @@ def _local_tui_runtime_for_controller(
     if manifest is None:
         manifest = _managed_manifest_for_identity(controller.manifest_path)
     binding = manifest.tmux if manifest is not None else None
-    launch_authority = manifest.agent_launch_authority if manifest is not None else None
     return SingleSessionTrackingRuntime(
         identity=_tracked_tui_identity_for_controller(controller),
         supported_tui_processes=_SUPPORTED_LOCAL_TUI_PROCESSES,
         primary_binding=binding,
-        joined=launch_authority is not None and launch_authority.session_origin == "joined_tmux",
     )
 
 
@@ -6579,14 +6621,6 @@ def _managed_tmux_window_name_from_manifest_path(
     backend_window_name = payload.backend_state.get("tmux_window_name")
     if isinstance(backend_window_name, str) and backend_window_name.strip():
         return backend_window_name.strip()
-    if (
-        isinstance(payload, SessionManifestPayloadV4)
-        and payload.agent_launch_authority is not None
-        and payload.agent_launch_authority.session_origin == "joined_tmux"
-    ):
-        launch_window_name = payload.launch_plan.metadata.get("tmux_window_name")
-        if isinstance(launch_window_name, str) and launch_window_name.strip():
-            return launch_window_name.strip()
     return default
 
 

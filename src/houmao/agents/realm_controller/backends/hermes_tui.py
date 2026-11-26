@@ -15,7 +15,7 @@ import time
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.hermes_native import (
@@ -27,6 +27,12 @@ from houmao.agents.realm_controller.backends.hermes_native import (
     hermes_daemon_environment,
     read_hermes_evidence,
     write_hermes_evidence,
+)
+from houmao.agents.realm_controller.backends.hermes_tui_receipts import (
+    HERMES_TUI_ADMISSION_FILE,
+    HermesTuiAdmission as HermesTuiAdmission,
+    normalize_hermes_tui_receipt,
+    read_hermes_tui_admission,
 )
 from houmao.agents.realm_controller.backends.private_provider_exec import (
     prepare_private_provider_command,
@@ -43,6 +49,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.manifest import load_session_manifest
 from houmao.agents.realm_controller.models import (
@@ -69,11 +76,7 @@ from houmao.execution.tmux import (
 _MAX_HINT_BYTES = 8192
 _MAX_EVENTS = 512
 _TURN_TIMEOUT = 600.0
-HERMES_TUI_ADMISSION_FILE = "hermes-native-admission.json"
 _SESSION_ID = re.compile(r"[A-Za-z0-9_.:-]{1,256}")
-HermesTuiAdmissionState = Literal[
-    "submitting", "queued", "running", "completed", "failed", "interrupted", "uncertain"
-]
 HermesTerminalAttachment = Literal["attached", "detached", "unverified", "other_session"]
 
 
@@ -125,41 +128,6 @@ class HermesTuiSessionState(BaseModel):
         """Return the recorded terminal window ID."""
 
         return self.window_id
-
-
-class HermesTuiAdmission(BaseModel):
-    """Correlate the original Houmao operation with its exact native admission."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    request_id: str
-    generation_id: str
-    native_session_id: str
-    input_digest: str
-    submission_id: str
-    daemon_instance_id: str
-    native_admission_id: str | None = None
-    native_admission_sequence: int | None = None
-    native_authority_epoch: int | None = None
-    native_execution_generation: int | None = None
-    status: HermesTuiAdmissionState = "submitting"
-    native_outcome: str | None = None
-    replay_epoch: str | None = None
-    last_sequence: int = 0
-    replay_gap: bool = False
-    output_text: str = Field(default="", repr=False)
-    events: tuple[SessionEvent, ...] = Field(default=(), repr=False)
-
-    @property
-    def state(self) -> HermesTuiAdmissionState:
-        """Return the normalized disposition of this native operation."""
-
-        return self.status
-
-    @property
-    def terminal(self) -> bool:
-        """Report whether this exact receipt proves terminal settlement."""
-
-        return self.status in {"completed", "failed", "interrupted"}
 
 
 class HermesTuiSession:
@@ -349,7 +317,7 @@ class HermesTuiSession:
                 if self.m_binding_changed_callback is not None:
                     self.m_binding_changed_callback()
             except (OSError, ValueError, BackendExecutionError, TmuxCommandError):
-                if attached_session_id is not None:
+                if attached_session_id is not None and current_runtime_startup() is None:
                     with suppress(TmuxCommandError):
                         kill_tmux_session(session_name=session_name, session_id=attached_session_id)
                 raise
@@ -583,7 +551,7 @@ class HermesTuiSession:
         ):
             raise HermesNativeError("Hermes returned an admission for a different native request.")
         outcome = receipt.get("outcome")
-        status = _normalize_receipt(receipt.get("status"), outcome)
+        status = normalize_hermes_tui_receipt(receipt.get("status"), outcome)
         result = receipt.get("result")
         text = result.get("final_response") if isinstance(result, dict) else None
         if not isinstance(text, str):
@@ -637,15 +605,13 @@ class HermesTuiSession:
         if not path.exists():
             return None
         with _lock_admission(path):
-            record = read_hermes_evidence(path)
-            if record is None:
-                return None
-            admission = HermesTuiAdmission.model_validate(record)
-            if (
-                admission.request_id != request_id
-                or admission.generation_id != self._generation_id()
-                or admission.native_session_id != self.state.native_session_id
-            ):
+            admission = read_hermes_tui_admission(
+                path,
+                request_id=request_id,
+                generation_id=self._generation_id(),
+                native_session_id=self.state.native_session_id,
+            )
+            if admission is None:
                 return None
             if admission.terminal or admission.native_admission_id is None:
                 return admission
@@ -740,7 +706,7 @@ class HermesTuiSession:
         """Reconcile behind the shared owner lock without recursively writing it."""
 
         admission = self.read_native_admission(attempt.request_id)
-        return bool(admission is not None and admission.terminal)
+        return admission is not None and admission.terminal_outcome is not None
 
     @staticmethod
     def _finish_claim(claim: OwnerPromptClaim, admission: HermesTuiAdmission) -> None:
@@ -943,26 +909,6 @@ def _active_turn_id(snapshot: HermesSessionSnapshot) -> str | None:
                 if isinstance(identifier, str) and identifier:
                     return identifier
     return None
-
-
-def _normalize_receipt(status: object, outcome: object) -> HermesTuiAdmissionState:
-    """Map Hermes durable admission terminology without inferring unsupported outcomes."""
-
-    if status == "queued":
-        return "queued"
-    if status == "started":
-        return "running"
-    if status == "unknown":
-        return "uncertain"
-    if status == "terminal":
-        if outcome == "completed":
-            return "completed"
-        if outcome in ("cancelled", "interrupted", "replaced", "steered"):
-            return "interrupted"
-        if outcome in ("failed", "rejected", "error"):
-            return "failed"
-        return "uncertain"
-    raise HermesNativeError("Hermes did not return a verified admission status.")
 
 
 @contextmanager

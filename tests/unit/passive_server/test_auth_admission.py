@@ -239,6 +239,31 @@ def target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Target:
     return _Target(client, service, policy, receiver, store, runtime, discovered, tracked_ref)
 
 
+def test_retired_cached_target_refuses_managed_self_proof(
+    target: _Target, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An issued challenge and cached gateway record cannot authorize a retired target."""
+
+    route = f"{target.admin_base}/gateway"
+    proof = target.sign(route)
+    path = Path(target.record.record.runtime.manifest_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"agent_launch_authority": {"session_origin": "joined_tmux"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        target.service,
+        "_gateway_client_for_agent",
+        lambda *_: pytest.fail("Retired target reached the gateway proxy"),
+    )
+
+    response = target.client.get(route, headers=proof)
+    assert response.status_code == 410
+    assert "fresh supported managed launch" in response.json()["detail"]
+    assert target.client.get(f"{target.admin_base}/auth/endpoint").status_code == 410
+
+
 def test_retained_policy_survives_missing_discovery_and_checks_before_validation(
     target: _Target, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -839,8 +864,9 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
         purpose="caller",
         private_key_path=str(key_path),
     )
+    artifacts = {"stdout": '  {"status" : "完了"}\n', "stderr": '"quoted stderr"\r\n'}
     monkeypatch.setattr(
-        target.service.m_headless, "turn_artifact_text", lambda *_: "fixture artifact"
+        target.service.m_headless, "turn_artifact_text", lambda *args: artifacts[args[-1]]
     )
     requests = []
 
@@ -849,7 +875,9 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
 
         def open(self, outgoing: object, *, timeout: float) -> BytesIO:
             headers = dict(outgoing.header_items())
-            requests.append((outgoing.full_url, {name.lower() for name in headers}))
+            requests.append(
+                (outgoing.full_url, {name.lower() for name in headers}, outgoing.data, timeout)
+            )
             response = target.client.request(
                 outgoing.method, outgoing.full_url, headers=headers, content=outgoing.data
             )
@@ -868,7 +896,14 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
     def make_client(selected: GatewayClientBinding) -> PassiveServerClient:
         """Make the maintained Python client using the fixture-owned ingress."""
 
-        client = PassiveServerClient(binding.base_url, binding=selected)
+        client = PassiveServerClient(
+            binding.base_url,
+            2.0,
+            60.0,
+            binding=selected,
+            target_incarnation=target.runtime.target.incarnation,
+            target_presence_id=target.policy.listener_id,
+        )
         assert client.m_signed_transport is not None
         client.m_signed_transport.m_opener = _Ingress()
         return client
@@ -876,12 +911,29 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
     client = make_client(binding)
     assert client.list_managed_agents().agents
     assert SIGNATURE_HEADER.lower() not in requests[-1][1]
-    assert (
-        client.get_headless_turn_artifact_text(target.tracked_ref, "turn", artifact_name="stdout")
-        == "fixture artifact"
+    for name, text in artifacts.items():
+        assert (
+            client.get_headless_turn_artifact_text(target.tracked_ref, "turn", artifact_name=name)
+            == text
+        )
+        assert requests[-2][0].endswith(f"{target.base}/auth/challenge")
+        assert SIGNATURE_HEADER.lower() in requests[-1][1]
+        assert requests[-1][3] == 2.0
+    monkeypatch.setattr(
+        target.service,
+        "managed_agent_history",
+        lambda _ref, *, limit: (409, {"limit": limit}),
     )
-    assert requests[-2][0].endswith(f"{target.base}/auth/challenge")
+    with pytest.raises(CaoApiError) as history:
+        client.get_managed_agent_history(target.tracked_ref, limit=11)
+    assert history.value.status_code == 409
+    assert history.value.payload == {"limit": 11}
+    assert requests[-1][0].endswith(f"{target.base}/managed-history?limit=11")
     assert SIGNATURE_HEADER.lower() in requests[-1][1]
+    challenged = GatewayChallengeRequest.model_validate_json(requests[-2][2])
+    assert challenged.request == GatewayRequestBinding.from_request(
+        "GET", f"{target.base}/managed-history", "limit=11", b""
+    )
     endpoint = client.describe_agent_proof(target.tracked_ref)
     principal = target.store.snapshot().credentials[0].principal_id
     receipt = client.set_default_fallback(
@@ -896,6 +948,11 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
     assert receipt.principal_id == principal and not receipt.enabled
     assert requests[-2][0].endswith(f"{target.base}/auth/challenge")
     assert SIGNATURE_HEADER.lower() in requests[-1][1]
+    requested_body = requests[-1][2]
+    assert requested_body is not None
+    challenge = GatewayChallengeRequest.model_validate_json(requests[-2][2])
+    path = f"{target.base}/admin/principals/{principal}/default-fallback"
+    assert challenge.request == GatewayRequestBinding.from_request("PUT", path, "", requested_body)
     foreign_owner = GatewayOwner(agent_id="another-agent", context_id=binding.owner.context_id)
     retargeted = make_client(binding.model_copy(update={"owner": foreign_owner}))
     length = len(requests)

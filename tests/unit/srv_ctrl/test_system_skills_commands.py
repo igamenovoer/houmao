@@ -100,7 +100,6 @@ def test_system_skills_list_reports_static_collection_and_shared_routines() -> N
     assert payload["defaults"] == {
         "cli": ["admin"],
         "managed_launch": ["agent"],
-        "managed_join": ["agent"],
     }
     activation_by_name = {
         record["name"]: record["activation"] for record in payload["standalone_skills"]

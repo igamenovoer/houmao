@@ -53,7 +53,7 @@ For pair-managed agents, the supported operator surface is the managed-agent com
 Within that pair, `houmao-mgr` is split deliberately:
 
 - `agents` is the managed-agent lifecycle family
-- `system-skills` installs, removes, and inspects Houmao-owned skills for resolved Claude, Codex, Kimi Code, or Copilot homes outside managed launch or join, and for the cross-client `universal` target under `~/.agents/skills`
+- `system-skills` installs, removes, and inspects Houmao-owned skills for resolved Claude, Codex, Kimi Code, or Copilot homes outside managed launch, and for the cross-client `universal` target under `~/.agents/skills`
 - `project` is the repo-local Houmao overlay family with `agents`, `credentials`, `specialist`, `profile`, and `mailbox` views
 - `internals native-agent` is the direct provider-aligned native-agent material family, including internal credential and brain-build plumbing
 - `mailbox` is the generic filesystem mailbox-root family for arbitrary roots
@@ -80,20 +80,11 @@ Useful pair runtime controls:
 
 - `houmao-mgr agents global list` shows active lifecycle records by default. Use `--state stopped`, `--state retired`, or `--state all` when you intentionally want lifecycle-inclusive discovery instead of the normal live-control view.
 - `houmao-mgr agents single --agent-name <friendly-name> state|prompt|interrupt|stop|relaunch ...` targets exactly one explicitly selected local managed agent.
-- `houmao-mgr agents self join --agent-name <friendly-name> [--workdir <path>]` adopts a supported TUI that is already running in tmux window `0`, pane `0` of the current session, publishes the normal manifest-first runtime envelope, and does not restart the live TUI.
-- `houmao-mgr agents self join --headless --agent-name <friendly-name> --provider <provider> --launch-args <arg> ... [--workdir <path>]` adopts a tmux-backed native headless logical session between turns; `--resume-id` is optional, where omitted means start from no known chat, `last` means resume the latest known chat, and any other non-empty value means resume that exact provider session id.
 - `houmao-mgr agents self relaunch` refreshes only the active current managed tmux session. Broader stopped/degraded recovery belongs to `houmao-mgr agents single --agent-name <friendly-name> relaunch`.
 - `houmao-mgr agents single --agent-name <friendly-name> stop` stops a live tmux-backed managed agent. For local relaunchable sessions, stop preserves a stopped lifecycle registry record with the durable manifest path, session root, last-known tmux session name, and relaunch posture needed for later selected-agent relaunch or cleanup.
 Run the maintained server API surface with `houmao-passive-server serve`. Manager commands that accept a pair-authority port default to the passive-server port `9891` when no explicit port is supplied.
 
-Joined-session notes:
-
-- `houmao-mgr agents self join` must be run from inside the target tmux session and, in v1, always adopts tmux window `0`, pane `0` as the canonical managed surface.
-- `agents self join` exposes `--workdir` as the public cwd override; when omitted, Houmao derives the adopted workdir from the primary pane current path.
-- Successful join publishes the same stable tmux discovery variables used by native launches: `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_NATIVE_AGENT_ROOT`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`.
-- Joined sessions publish a shared-registry record immediately using a long sentinel lease instead of relying on a background lease-renewal daemon. Later runtime control can refresh that same record opportunistically.
-- Joined TUI sessions without recorded `--launch-args` and `--launch-env` remain controllable while live but fail explicitly on later selected-agent `agents single ... relaunch` because restart posture is unavailable by design.
-- `--launch-env` follows Docker `--env` style: `NAME=value` stores a literal secret-free binding, while `NAME` means the relaunch resolves that variable from the tmux session environment at relaunch time.
+For sessions adopted under an earlier release, see [Upgrading From Manual Session Adoption](run-phase/session-lifecycle.md#upgrading-from-manual-session-adoption).
 
 Managed-agent memory commands live under `houmao-mgr agents single ... memory ...` and `houmao-mgr agents self memory ...`. The memo is a free-form `houmao-memo.md` file; page writes under `pages/` do not edit it. Use scoped `memory resolve --path <page>` to return the page-relative path, memo-relative link, absolute path, existence, and kind when an operator or agent wants to author a link manually.
 
@@ -103,7 +94,7 @@ For ordinary pair-native prompt submission, prefer `houmao-mgr agents single --a
 
 For pair-owned mailbox follow-up, use `houmao-mgr agents single --agent-name <name> mail resolve-live|status|list|peek|read|send|post|reply|mark|move|archive ...` or `houmao-mgr agents self mail ...`. For local artifact or maintenance work that should not hit a server API authority, use `houmao-mgr project init|status`, `houmao-mgr project agents ...`, `houmao-mgr project ...`, `houmao-mgr project mailbox ...`, `houmao-mgr internals native-agent brain build ...` for direct internal native-agent builds, `houmao-mgr admin cleanup registry|runtime ...`, `houmao-mgr agents single ... cleanup ...`, and `houmao-mgr mailbox ...` for arbitrary-root mailbox administration.
 
-For actor-pack work outside managed launch or join, use `houmao-mgr system-skills list|install|status|doctor|upgrade|uninstall ...`. `--home` is optional for single-target lifecycle commands: omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home for tool targets, while `--tool universal` resolves to `~/.agents`. External install and upgrade default to the `admin` pack; repeat `--pack admin|agent` for an explicit selection. Read-only doctor defaults to the expected `agent` pack and can also resolve a persistent home through `--agent-id` or unique `--agent-name`. Uninstall removes only selected config-owned packs, or every owned pack when `--pack` is omitted. That surface is documented in [system-skills](cli/system-skills.md).
+For actor-pack work outside managed launch, use `houmao-mgr system-skills list|install|status|doctor|upgrade|uninstall ...`. `--home` is optional for single-target lifecycle commands: omitted `--home` resolves from the tool-native home env var first and otherwise falls back to the project-scoped default home for tool targets, while `--tool universal` resolves to `~/.agents`. External install and upgrade default to the `admin` pack; repeat `--pack admin|agent` for an explicit selection. Read-only doctor defaults to the expected `agent` pack and can also resolve a persistent home through `--agent-id` or unique `--agent-name`. Uninstall removes only selected config-owned packs, or every owned pack when `--pack` is omitted. That surface is documented in [system-skills](cli/system-skills.md).
 
 Selected-agent cleanup commands under `houmao-mgr agents single ... cleanup session|logs|mailbox` support `--dry-run` and return structured `planned_actions`, `applied_actions`, `blocked_actions`, and `preserved_actions`. Plain and fancy modes print populated cleanup actions line by line, while `--print-json` preserves the machine-readable output. `agents self cleanup` is not a maintained public path.
 

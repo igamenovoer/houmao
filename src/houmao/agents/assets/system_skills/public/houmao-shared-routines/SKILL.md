@@ -53,7 +53,7 @@ Owned routines are parent-scoped subskills: `houmao-shared-routines->houmao-agen
 | `ext-graphing` | [`houmao-ext-graphing`](subskills/houmao-ext-graphing/SKILL-MAIN.md) | admin, agent | Author, validate, repair, and render declarative Plotly (`plotly2d` v3) or Vega-Lite (`v1`) graphics before AG-UI publication. |
 | `mailbox-mgr` | [`houmao-mailbox-mgr`](subskills/houmao-mailbox-mgr/SKILL-MAIN.md) | admin, agent | Administer offline filesystem or project mailbox roots, accounts, structural messages, exports, and late `mailbox offline` or Stalwart `mailbox online` agent bindings. |
 | `memory-mgr` | [`houmao-memory-mgr`](subskills/houmao-memory-mgr/SKILL-MAIN.md) | admin, agent | Read, write, or remove live `houmao-memo.md` and `pages/` entries under `<memo_cue>` discipline or inspect birth-time memo seeds. |
-| `agent-instance` | [`houmao-agent-instance`](subskills/houmao-agent-instance/SKILL-MAIN.md) | admin, agent | Launch, join, list, stop, relaunch, or clean up managed sessions, register `agents external` imports, reconcile `--executor` locators, or manage native resources, runtime variables, mindsets, and private workspaces. |
+| `agent-instance` | [`houmao-agent-instance`](subskills/houmao-agent-instance/SKILL-MAIN.md) | admin, agent | Launch, list, stop, relaunch, or clean up managed sessions, register `agents external` imports, reconcile `--executor` locators, or manage native resources, runtime variables, mindsets, and private workspaces. |
 | `agent-inspect` | [`houmao-agent-inspect`](subskills/houmao-agent-inspect/SKILL-MAIN.md) | admin, agent | Collect read-only liveness, `service`/`web`/TUI state, durable turn usage (`/v1/usage`), `agents external` status, mailbox summaries, artifacts, or logs. |
 | `agent-messaging` | [`houmao-agent-messaging`](subskills/houmao-agent-messaging/SKILL-MAIN.md) | admin, agent | Deliver an attributed `request`, verbatim `prompt`, interrupt, gateway queue check, raw `send-keys`, mail handoff, or context reset, keeping `houmao-cccc` chat distinct from prompt and mail. |
 | `agent-gateway` | [`houmao-agent-gateway`](subskills/houmao-agent-gateway/SKILL-MAIN.md) | admin, agent | Attach or inspect a gateway, configure `--plugin-config-override`, operate `houmao-cccc` plugin routes, open `web-entry` or `open-browser`, or manage reminders and `mail-notifier`. |
@@ -73,12 +73,11 @@ See [references/actor-frame.md](references/actor-frame.md) for the immutable six
 - **Direct admin default**: when invoked directly without `as-agent`, construct `actor_kind=admin`, `entrypoint_name=houmao-shared-routines`, `verified_self_identity=null`, and require explicit targets.
 - **Direct `as-agent` qualifier**: when no inherited admin frame exists and a leading `as-agent` qualifier is present, run `houmao-mgr --print-json agents self identity` before loading any child; stop on failure or mismatch, otherwise set `actor_kind=agent` and `verified_self_identity=<fresh-result>`.
 
-## Selective Routing, Alias, Sibling, and Join Rules
+## Selective Routing, Alias, and Sibling Rules
 
 - **Selective child loading**: after eligibility and target checks, read only `subskills/<logical-id>/SKILL-MAIN.md` and the pages required by its selected operation; never scan sibling subskills.
 - **Compatibility alias (`specialist-mgr`)**: state that `houmao-agent-definition` is canonical, reject in `agent` posture, and forward `specialists`, `profiles`, `create-agent-fast-forward` (`ready-profile`), `launch-agent`, and `stop-agent` to `houmao-agent-definition`.
 - **Loop sibling handoff**: pass the immutable frame to `$houmao-agent-loop-pro` or `$houmao-agent-loop-lite`; if missing, report the installation dependency without emulating loop trees.
-- **Join transition**: only admin `agent-instance join` transitions to managed self; after `houmao-mgr agents self join` succeeds, run fresh `houmao-mgr --print-json agents self identity` and hand subsequent work to `$houmao-agent-entrypoint`.
 
 ## Guardrails
 

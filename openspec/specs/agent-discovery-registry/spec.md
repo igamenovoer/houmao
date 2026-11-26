@@ -89,9 +89,7 @@ Published records whose publication path uses a bounded lease SHALL continue to 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-Published records for currently supported tmux-backed live agents SHALL use a dedicated long finite sentinel lease window so their discoverability does not expire at the ordinary 24-hour boundary or the existing 30-day joined-session boundary.
-
-The tmux-backed sentinel lease SHALL apply to all current tmux-backed registry publications, including joined tmux sessions.
+Published records for currently supported tmux-backed live agents SHALL use a dedicated long finite sentinel lease window so their discoverability does not expire at the ordinary 24-hour or 30-day boundary.
 
 This change SHALL NOT introduce a new non-tmux registry publication contract.
 
@@ -607,7 +605,7 @@ Advertised gateway availability SHALL be ephemeral presence metadata. Gateway st
 
 ### Requirement: Remote descriptors grant no credentials or lifecycle rights
 
-Discovery SHALL treat endpoint metadata as a locator. Protected credential selection, execution delegation, and lifecycle adoption SHALL require their own authority. Communication-only imports SHALL retain their existing scope. Foreign paths and loopback addresses SHALL remain owner-context metadata. Changed advertised target or endpoint bindings SHALL require explicit client rebinding before credential-bearing access.
+Discovery SHALL treat endpoint metadata as a locator. Protected credential selection, execution delegation, and lifecycle control SHALL require their own authority. Communication-only imports SHALL retain their existing scope. Foreign paths and loopback addresses SHALL remain owner-context metadata. Changed advertised target or endpoint bindings SHALL require explicit client rebinding before credential-bearing access.
 
 #### Scenario: Communication import contains an authenticated gateway URL
 
@@ -625,7 +623,21 @@ Discovery SHALL treat endpoint metadata as a locator. Protected credential selec
 - **WHEN** a remote execution record contains owner-local loopback listener coordinates
 - **THEN** remote discovery does not authorize connecting to the same port on the caller host as a substitute
 
-### Requirement: Managed presence identifies the run mode and native surface
+### Requirement: Retired joined-session records convey no live presence
+A record for a retired `joined_tmux` manifest SHALL confer no active discovery, live gateway coordinates, or runtime control even while its lease is fresh. Known address and durable mail membership MAY remain available through their independent read and delivery contracts.
+
+#### Scenario: A retired record is still published
+- **WHEN** a fresh registry record points to a retired joined-session manifest
+- **THEN** the active manager list and passive live discovery omit that runtime
+- **AND THEN** selected runtime control refuses the retired authority without substituting another target
+- **AND THEN** discovery does not modify the record or the runtime's files
+
+#### Scenario: A known address outlives retired presence
+- **WHEN** a caller resolves a known address or uses a valid durable mail membership for a retired joined session
+- **THEN** known-address resolution may identify the agent without live gateway coordinates
+- **AND THEN** mail delivery continues under the mailbox authority's existing rules
+
+### Requirement: Supported managed presence identifies the run mode and native surface
 
 A current local managed presence record SHALL identify the selected tool, run mode, concrete backend, managed generation, and optional native human surface consistently with the current manifest. Public Web location metadata SHALL contain only a token-free origin and the bound session identity. A service control socket, stdio handle, or supervisor pane SHALL confer no human interface.
 
@@ -634,9 +646,9 @@ A current local managed presence record SHALL identify the selected tool, run mo
 - **WHEN** an operator detaches the gateway from a live owned Web host
 - **THEN** the record retains its safe browser reference and mode and omits any discarded gateway endpoint
 
-#### Scenario: A joined terminal publishes its identity
+#### Scenario: A managed terminal publishes its identity
 
-- **WHEN** a supported current-session TUI is adopted with verified terminal authority
+- **WHEN** a supported Houmao launch starts a managed TUI with verified terminal authority
 - **THEN** its new record reports tui and the verified terminal surface
 
 #### Scenario: A record disagrees with the manifest

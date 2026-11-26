@@ -67,7 +67,8 @@ def _capture_launch(monkeypatch: pytest.MonkeyPatch) -> Mock:
 
     launch = Mock()
     monkeypatch.setattr(project_easy, "launch_managed_agent_locally", launch)
-    monkeypatch.setattr(project_easy, "emit_local_launch_completion", Mock())
+    monkeypatch.setattr(project_easy, "build_local_launch_completion", Mock())
+    monkeypatch.setattr(project_easy, "render_local_launch_completion", Mock())
     return launch
 
 

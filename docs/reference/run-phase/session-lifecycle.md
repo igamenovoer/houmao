@@ -154,11 +154,25 @@ The manifest stores the binding in `runtime.execution_binding` and the persisted
 
 ### Tmux Server Authority
 
-The manifest's `tmux.socket_path` records the absolute socket path in the execution owner's filesystem. Session, window, and pane identifiers are meaningful only on that server. Launch captures the selected socket once; resume and later controls restore that selector rather than choosing a server from a matching session name. A current-session join captures the enclosing socket before recording its primary handles.
+The manifest's `tmux.socket_path` records the absolute socket path in the execution owner's filesystem. Session, window, and pane identifiers are meaningful only on that server. Launch captures the selected socket once; resume and later controls restore that selector rather than choosing a server from a matching session name.
 
 Command-based tmux calls, libtmux pane/session access, generated headless completion signals, passive discovery, and registry cleanup use the same recorded selector. Explicit execution scopes remove inherited `TMUX` and `TMUX_PANE` from tmux subprocess environments without changing the enclosing operator's environment. Nested and concurrent runtime scopes retain independent selectors.
 
 Stop and cleanup address the selected agent's resources. They do not kill or restart a shared tmux server or terminate unrelated sessions. Tests create unique explicit `-S` sockets, clear both inherited tmux variables before setup, and clean up only those isolated servers. `TMUX_TMPDIR` alone does not establish isolation.
+
+## Upgrading From Manual Session Adoption
+
+Manual tmux adoption was available in earlier releases for existing provider TUIs and headless sessions. To identify an adopted session, find its `manifest_path` in the owning release's `houmao-mgr --print-json agents global list --state all` output or in its shared-registry record. Inspect the saved manifest for `agent_launch_authority.session_origin` or `launch_plan.metadata.session_origin` equal to `joined_tmux`. Either marker identifies retired adoption.
+
+Before upgrading, use the owning release on the recorded host and account to detach any active gateway:
+
+```bash
+houmao-mgr agents single --agent-id <id> gateway detach
+```
+
+Gateway detach winds down the sidecar while leaving the manually started provider running. If you also want to stop the provider, use the owning release's lifecycle controls deliberately. Its `stop` command may terminate the adopted pane. To keep the manual process and its files, leave the body running outside Houmao management. Installation alone does not stop an earlier gateway process.
+
+The new release excludes retired sessions from active discovery and control. It preserves the existing process, tmux pointers, manifest, home, workspace, conversations, and artifacts. A known address can remain visible without live gateway coordinates, and independently authorized mailbox delivery can continue. For managed control, start a fresh agent through `houmao-mgr project agents launch`.
 
 ## InteractiveSession protocol
 
@@ -280,7 +294,7 @@ sequenceDiagram
     RT->>LP: build_launch_plan(request)
     LP-->>RT: LaunchPlan
     RT->>BE: create session
-    BE->>TM: create/join tmux<br/>session + window
+    BE->>TM: create managed tmux<br/>session + window
     TM-->>BE: pane handle
     BE-->>RT: InteractiveSession
     RT->>CTL: RuntimeSessionController<br/>(session, plan)
@@ -368,7 +382,7 @@ Project launch can select a provisioned execution context with `--executor <name
 
 Resume/inspect, interrupt, stop, and relaunch preserve the owner binding. Relaunch changes live generation and handles within that context; it does not migrate the agent when an execution profile changes. Stop returns owner-qualified cleanup pointers and retains the locator for later recovery. Concurrent generation replacement produces a conflict; route loss or an indeterminate result never triggers automatic replay or caller-local fallback.
 
-Every tmux operation uses the captured socket and exact agent handles. Delegated entry clears both TMUX and TMUX_PANE, while current-session adoption captures the enclosing socket explicitly. Teardown affects only the selected agent and never restarts or kills the shared localhost tmux server. Owner-side control retains its existing backend/gateway contracts; interactive terminal forwarding and unbounded streaming are outside the finite execution transport.
+Every tmux operation uses the captured socket and exact agent handles. Delegated entry clears both TMUX and TMUX_PANE. Teardown affects only the selected agent and never restarts or kills the shared localhost tmux server. Owner-side control retains its existing backend/gateway contracts; interactive terminal forwarding and unbounded streaming are outside the finite execution transport.
 
 See [agent execution contexts](execution-contexts.md) for trusted profile configuration, independent same-user credential bindings, transport limits, and failed-publication reconciliation.
 

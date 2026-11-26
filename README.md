@@ -200,7 +200,7 @@ For example, use `$houmao-admin-entrypoint agent-access help` for gateway permis
 | `houmao-mgr` | Stateless operator CLI for project setup, specialists/profiles, launch, requests, gateway access, mailbox, memory, credentials, and `houmao-mgr manual` guides | **Active** |
 | `houmao-passive-server` | Optional registry-driven stateless API server for discovering, observing, and relaying requests to running agents | **Active** |
 
-Detailed command syntax lives in the [`houmao-mgr` CLI reference](docs/reference/cli/houmao-mgr.md), [System Skills CLI reference](docs/reference/cli/system-skills.md), [agents mail reference](docs/reference/cli/agents-mail.md), [agents gateway reference](docs/reference/cli/agents-gateway.md), and [internals graph reference](docs/reference/cli/internals.md). Already running a provider TUI? Use the `agents self join` adoption path in the [Quickstart guide](docs/getting-started/quickstart.md#adopt-an-existing-provider-tui) instead of the default launch flow.
+Detailed command syntax lives in the [`houmao-mgr` CLI reference](docs/reference/cli/houmao-mgr.md), [System Skills CLI reference](docs/reference/cli/system-skills.md), [agents mail reference](docs/reference/cli/agents-mail.md), [agents gateway reference](docs/reference/cli/agents-gateway.md), and [internals graph reference](docs/reference/cli/internals.md). Use a [managed launch](docs/getting-started/quickstart.md) to start a worker. If an earlier release managed a manually started session, follow the [upgrade instructions](docs/reference/run-phase/session-lifecycle.md#upgrading-from-manual-session-adoption).
 
 ```bash
 houmao-mgr --help

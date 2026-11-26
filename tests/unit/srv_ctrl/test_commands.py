@@ -705,13 +705,8 @@ def test_agents_help_mentions_relaunch_and_omits_retired_cao_tree() -> None:
     assert "cao" not in result.output
 
 
-def test_agents_scoped_join_memory_and_mail_move_help_exposes_current_shapes() -> None:
+def test_agents_scoped_memory_and_mail_move_help_exposes_current_shapes() -> None:
     runner = CliRunner()
-
-    self_join = runner.invoke(cli, ["agents", "self", "join", "--help"])
-    assert self_join.exit_code == 0, self_join.output
-    assert "--agent-name" in self_join.output
-    assert "--name " not in self_join.output
 
     self_memory = runner.invoke(cli, ["agents", "self", "memory", "--help"])
     assert self_memory.exit_code == 0, self_memory.output
@@ -1147,9 +1142,8 @@ def test_self_home_and_refresh_check_use_saved_runtime_inputs(
     manifest = _prepare_manifest_self(tmp_path, monkeypatch)
     home = tmp_path / "runtime" / "home"
 
-    def observe_tmux(binding: object, *, joined: bool) -> SimpleNamespace:
+    def observe_tmux(binding: object) -> SimpleNamespace:
         assert binding.session_name == "owner-session"
-        assert not joined
         assert current_tmux_socket_path() == str(tmp_path / "owned.sock")
         return SimpleNamespace(state="valid", pane=SimpleNamespace(pane_dead=False))
 

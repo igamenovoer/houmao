@@ -82,7 +82,12 @@ def test_manifest_v5_declares_exact_static_collection() -> None:
     assert manifest.packs["agent"].standalone_skill_names == AGENT_MEMBERS
     assert manifest.defaults.cli == ("admin",)
     assert manifest.defaults.managed_launch == ("agent",)
-    assert manifest.defaults.managed_join == ("agent",)
+    assert manifest.packs["admin"].default_lanes == ("cli",)
+    assert manifest.packs["agent"].default_lanes == ("managed_launch",)
+    assert "join" not in manifest.shared_routines["houmao-agent-instance"].commands
+    assert not (
+        PUBLIC_ROOT / "houmao-shared-routines/subskills/houmao-agent-instance/commands/join.md"
+    ).exists()
     assert not hasattr(manifest, "auto_skill_name")
     assert tuple(
         record.name
@@ -124,6 +129,20 @@ def test_manifest_rejects_obsolete_composition_fields(tmp_path: Path) -> None:
             lambda text: text.replace(
                 'schema_version = "houmao-system-skills.v5"',
                 'schema_version = "houmao-system-skills.v5"\nprotected_mounts = []',
+                1,
+            ),
+        )
+
+
+def test_manifest_rejects_retired_managed_join_lane(tmp_path: Path) -> None:
+    """Restoring the removed lane cannot silently select an actor pack."""
+
+    with pytest.raises(SystemSkillManifestError, match="managed_join"):
+        _load_modified_manifest(
+            tmp_path,
+            lambda text: text.replace(
+                'managed_launch = ["agent"]',
+                'managed_launch = ["agent"]\nmanaged_join = ["agent"]',
                 1,
             ),
         )

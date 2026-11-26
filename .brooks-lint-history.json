@@ -1,0 +1,13 @@
+[
+  {
+    "date": "2026-11-26",
+    "mode": "Tech Debt Assessment",
+    "score": 68,
+    "findings": {
+      "critical": 0,
+      "warning": 6,
+      "suggestion": 2
+    },
+    "scope": "src/ at 49b4b56a (567 tracked Python files screened, hotspot code paths sampled)"
+  }
+]

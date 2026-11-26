@@ -12,7 +12,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, list_tmux_panes
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
@@ -153,6 +153,8 @@ def gateway_access_for_manifest(manifest_path: Path) -> GatewayRuntimeAccess:
         if binding is None or payload.registry_generation_id is None:
             raise ValueError("Gateway access requires a bound managed generation.")
         owner, root = _owner_access(binding, payload.agent_id)
+    except RetiredJoinedSessionError:
+        raise
     except (SessionManifestError, OSError, ValueError, RuntimeError):
         raise SessionManifestError("Gateway execution authority is unavailable.") from None
     return GatewayRuntimeAccess(

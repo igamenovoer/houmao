@@ -17,6 +17,10 @@ from houmao.agents.realm_controller.backends.headless_output import (
 )
 from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
 from houmao.agents.realm_controller.models import SessionEvent
+from houmao.agents.realm_controller.startup_rollback import (
+    current_runtime_startup,
+    runtime_startup_scope,
+)
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import DiscoveredAgent, _summary_from_record
 from houmao.passive_server.headless import HeadlessAgentService
@@ -141,6 +145,17 @@ class _FakeRuntimeController:
     def build_shared_registry_record(self) -> object:
         return self.m_registry_record
 
+    def finish_launch(self, **kwargs):
+        """Run the passive publisher at the mocked runtime commit point."""
+
+        assert kwargs["registry_launch_authority"] == "external"
+        with runtime_startup_scope():
+            kwargs["publish_external_startup"](self)
+            startup = current_runtime_startup()
+            assert startup is not None
+            startup.commit()
+        return self
+
     def send_prompt(
         self,
         prompt: str,
@@ -258,7 +273,7 @@ class TestHeadlessLaunch:
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.start_runtime_session",
-            lambda **_kwargs: controller,
+            controller.finish_launch,
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.publish_live_agent_record",
@@ -302,7 +317,7 @@ class TestHeadlessLaunch:
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.start_runtime_session",
-            lambda **_kwargs: controller,
+            controller.finish_launch,
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.publish_live_agent_record",
@@ -315,7 +330,7 @@ class TestHeadlessLaunch:
             503,
             {"detail": ("Managed headless launch could not establish current owner authority")},
         )
-        assert controller.stop_calls == [True]
+        assert controller.stop_calls == []
         assert svc.m_headless.m_store.list_authority_records() == []
 
     def test_launch_rejects_manifest_tool_mismatch_with_422(
@@ -422,7 +437,9 @@ class TestHeadlessLaunch:
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.start_runtime_session",
-            lambda **kwargs: recorded_start_kwargs.update(kwargs) or controller,
+            lambda **kwargs: (
+                recorded_start_kwargs.update(kwargs) or controller.finish_launch(**kwargs)
+            ),
         )
         monkeypatch.setattr(
             "houmao.passive_server.headless.publish_live_agent_record",

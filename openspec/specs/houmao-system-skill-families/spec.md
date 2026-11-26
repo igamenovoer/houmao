@@ -18,16 +18,6 @@ The admin pack SHALL represent human-operator orientation and execution. The age
 - **THEN** selection fails with a pack-migration diagnostic
 - **AND THEN** it names `admin` and `agent` as the supported pack ids
 
-### Requirement: Default lanes install one actor pack
-CLI-default external-home installation SHALL select `admin`. Managed launch, rebuild, relaunch, and join SHALL select `agent`.
-
-No default lane SHALL install both actor packs. Explicit repeated pack selection MAY install both for development without merging their public roles or actor contexts.
-
-#### Scenario: Managed join uses one actor family
-- **WHEN** a joined session accepts default system-skill installation
-- **THEN** its home receives the agent pack
-- **AND THEN** the admin pack remains absent unless explicitly selected
-
 ### Requirement: Houmao system skills keep flat visible projection across supported tools
 Each selected standalone system skill SHALL occupy one top-level directory under the tool-native skill root. The six public roots SHALL be siblings. All manifest-declared parent-scoped routines SHALL live under the shared root. Actor entrypoints SHALL contain no generated shared or loop root copies.
 
@@ -53,10 +43,10 @@ Each selected standalone system skill SHALL occupy one top-level directory under
 - **WHEN** an operator requests projection into a Gemini skill home
 - **THEN** Houmao rejects the unsupported tool target
 
-### Requirement: Default Houmao-owned system-skill selection can include multiple logical groups
+### Requirement: Actor pack selection preserves flat managed skill paths
 The maintained installable grouping SHALL consist of the `admin` and `agent` actor packs rather than workflow sets.
 
-CLI-default external-home installation SHALL resolve the admin pack. Managed launch, rebuild, relaunch, and join SHALL resolve the agent pack. Explicit selection MAY install both packs and SHALL deduplicate shared standalone members.
+CLI-default external-home installation SHALL resolve the admin pack. Managed launch, rebuild, and relaunch SHALL resolve the agent pack. Explicit selection MAY install both packs and SHALL deduplicate shared standalone members.
 
 #### Scenario: CLI default installation resolves admin
 - **WHEN** an operator installs Houmao system skills without a pack selector
@@ -73,17 +63,17 @@ CLI-default external-home installation SHALL resolve the admin pack. Managed lau
 - **THEN** install state records six unique top-level paths
 - **AND THEN** it records both pack owners for shared routines and the two loop paths
 
-#### Scenario: CLI default installation resolves the all set
-- **WHEN** an operator installs the CLI-default Houmao-owned system-skill selection into a supported tool home
-- **THEN** the resolved selection expands the `all` set
-- **AND THEN** each installed skill projects into the visible path appropriate for its supported tool
-
-#### Scenario: Managed default installation resolves core and extensions
-- **WHEN** Houmao installs system skills into a managed launch or join home
-- **THEN** the resolved selection expands `core` and `extensions` in that order
-- **AND THEN** each installed skill projects into the visible path appropriate for its supported tool
-
 #### Scenario: Install state records flat projected paths
-- **WHEN** Houmao installs system skills from multiple logical workflow groups into the same supported tool home
+- **WHEN** an operator explicitly installs both actor packs into the same supported tool home
 - **THEN** the recorded or discovered Houmao-owned install surface uses the flat projected relative directories for those skills
 - **AND THEN** later reinstall, status, or collision checks use those exact flat owned paths
+
+### Requirement: Default skill installation selects one actor pack
+CLI-default external-home installation SHALL select `admin`. Managed launch, rebuild, and relaunch SHALL select `agent`.
+
+No default lane SHALL install both actor packs. Explicit repeated pack selection MAY install both for development without merging their public roles or actor contexts.
+
+#### Scenario: Managed launch uses one actor family
+- **WHEN** a managed launch uses default system-skill installation
+- **THEN** its home receives the agent pack
+- **AND THEN** the admin pack remains absent unless explicitly selected

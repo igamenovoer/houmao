@@ -95,41 +95,6 @@ At minimum, this SHALL apply to status-style inspection and shutdown-style contr
 - **THEN** `houmao-mgr` calls the passive-server shutdown contract successfully
 - **AND THEN** the command does not require the operator to switch back to the old server CLI
 
-### Requirement: `houmao-mgr agents` is the preferred pair-native managed-agent command family
-`houmao-mgr agents` SHALL be the preferred pair-native family for managing agents by identity. `join` SHALL adopt an existing tmux-backed session, and `state` SHALL present the operational summary for managed-agent inspection.
-
-#### Scenario: The agents family exposes managed operations
-- **WHEN** a caller works through the native agents family
-- **THEN** it exposes `launch`, `join`, `list`, `state`, `prompt`, `interrupt`, `relaunch`, and `stop`
-- **AND THEN** managed-agent identity is the addressing model rather than raw `terminal_id` or a raw CAO session name
-- **AND THEN** joining requires neither `houmao-server` nor raw tmux attach scripts
-- **AND THEN** managed-agent inspection does not require or advertise `show` or `history`
-
-#### Scenario: Operator inspects managed-agent state through the native `agents` tree
-- **WHEN** an operator runs `houmao-mgr agents state --agent-id abc123`
-- **THEN** `houmao-mgr` resolves that managed-agent identity through registry-first discovery or the supported pair authority
-- **AND THEN** the command returns the managed-agent state without requiring the operator to switch to raw CAO session or terminal identities
-
-#### Scenario: Operator joins an existing tmux-backed session through the native `agents` tree
-- **WHEN** an operator runs `houmao-mgr agents join --agent-name coder` from a compatible tmux session
-- **THEN** `houmao-mgr` adopts the existing tmux-backed session into managed-agent control through the native pair CLI
-- **AND THEN** later `houmao-mgr agents state --agent-name coder` can resolve that managed agent without requiring raw tmux session names or manual manifest-path discovery
-
-#### Scenario: Operator submits a prompt through the native `agents` tree
-- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "..." `
-- **THEN** `houmao-mgr` submits that request through registry-first discovery or the pair-managed agent control authority
-- **AND THEN** the command does not require the operator to know whether the agent is server-backed or locally-backed
-
-#### Scenario: Operator relaunches a managed tmux-backed session through the native `agents` tree
-- **WHEN** an operator runs `houmao-mgr agents relaunch --agent-id abc123`
-- **THEN** `houmao-mgr` resolves that managed-agent identity through registry-first discovery or tmux-local current-session authority
-- **AND THEN** the command relaunches the existing tmux-backed managed session rather than constructing a new launch
-
-#### Scenario: Help output does not advertise retired inspection commands
-- **WHEN** an operator runs `houmao-mgr agents --help`
-- **THEN** the help output does not list `show` or `history`
-- **AND THEN** supported inspection guidance points operators to `state`, `agents gateway tui ...`, or `agents turn ...` rather than removed managed-agent inspection commands
-
 ### Requirement: `houmao-mgr agents gateway` exposes gateway lifecycle and gateway-mediated request commands
 `houmao-mgr` SHALL expose `agents gateway` for gateway lifecycle and operations against the live gateway. Ordinary pair-native prompts SHALL be documented through `houmao-mgr agents prompt`.
 
@@ -1596,3 +1561,36 @@ Scoped `gateway prompt` SHALL return the same admission and handoff evidence in 
 - **WHEN** a caller submits a prompt through `agents single` or `agents self` using `--admission-policy`
 - **THEN** the command forwards the selected policy and reports it in the result
 - **AND THEN** omitting the option uses `ready-only`
+### Requirement: `houmao-mgr agents` manages verified agents by identity through scoped commands
+`houmao-mgr agents` SHALL be the preferred pair-native family for managing agents by identity. Local lifecycle authority SHALL come from a supported Houmao launch. `state` SHALL present the operational summary for managed-agent inspection.
+
+#### Scenario: The agents family exposes managed operations
+- **WHEN** a caller works through the native agents family
+- **THEN** it exposes `list`, `state`, `prompt`, `interrupt`, `relaunch`, and `stop` through the appropriate agent scopes
+- **AND THEN** managed-agent identity is the addressing model rather than raw `terminal_id` or a raw CAO session name
+- **AND THEN** the family provides no manual session adoption command
+- **AND THEN** managed-agent inspection does not require or advertise `show` or `history`
+
+#### Scenario: Operator inspects managed-agent state through the native `agents` tree
+- **WHEN** an operator runs `houmao-mgr agents state --agent-id abc123`
+- **THEN** `houmao-mgr` resolves that managed-agent identity through registry-first discovery or the supported pair authority
+- **AND THEN** the command returns the managed-agent state without requiring the operator to switch to raw CAO session or terminal identities
+
+#### Scenario: Operator inspects an agent after managed launch
+- **WHEN** an operator launches an agent named `coder` through a supported Houmao launch
+- **THEN** `houmao-mgr agents single --agent-name coder state` resolves the managed agent without requiring a raw tmux session name or manual manifest-path discovery
+
+#### Scenario: Operator submits a prompt through the native `agents` tree
+- **WHEN** an operator runs `houmao-mgr agents prompt --agent-id abc123 --prompt "..." `
+- **THEN** `houmao-mgr` submits that request through registry-first discovery or the pair-managed agent control authority
+- **AND THEN** the command does not require the operator to know whether the agent is server-backed or locally-backed
+
+#### Scenario: Operator relaunches a managed tmux-backed session through the native `agents` tree
+- **WHEN** an operator runs `houmao-mgr agents relaunch --agent-id abc123`
+- **THEN** `houmao-mgr` resolves that managed-agent identity through registry-first discovery or tmux-local current-session authority
+- **AND THEN** the command relaunches the existing tmux-backed managed session rather than constructing a new launch
+
+#### Scenario: Help output does not advertise retired inspection commands
+- **WHEN** an operator runs `houmao-mgr agents --help`
+- **THEN** the help output does not list `show` or `history`
+- **AND THEN** supported inspection guidance points operators to `state`, `agents gateway tui ...`, or `agents turn ...` rather than removed managed-agent inspection commands

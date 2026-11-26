@@ -14,7 +14,7 @@ from houmao.agents.realm_controller.agent_identity import (
     AGENT_MANIFEST_PATH_ENV_VAR,
     derive_agent_id_from_name,
 )
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
 from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
     build_launch_plan,
@@ -394,6 +394,36 @@ def test_resolve_agent_identity_name_scans_metadata_for_suffixed_tmux_session(
     assert resolved.canonical_agent_identity == "HOUMAO-gpu"
     assert resolved.session_manifest_path == manifest_path.resolve()
     assert resolved.agent_def_dir == agent_def_dir
+
+
+@pytest.mark.parametrize("tmux_name", ["HOUMAO-gpu", "HOUMAO-gpu-suffix"])
+def test_retired_tmux_target_does_not_use_registry_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, tmux_name: str
+) -> None:
+    retired = tmp_path / "manifest.json"
+    _write(
+        retired,
+        json.dumps(
+            {"agent_name": "gpu", "agent_launch_authority": {"session_origin": "joined_tmux"}}
+        ),
+    )
+    _stub_tmux_discovery(monkeypatch, {tmux_name: retired})
+    monkeypatch.setattr(
+        runtime_module,
+        "resolve_live_agent_records_by_name",
+        lambda *_: pytest.fail("The selected retired target must prevent registry fallback"),
+    )
+
+    with pytest.raises(RetiredJoinedSessionError, match="Manual tmux adoption is retired"):
+        resolve_agent_identity(agent_identity="gpu", base=tmp_path)
+
+
+def test_resolve_agent_identity_path_rejects_retired_manifest(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    _write(manifest_path, '{"launch_plan":{"metadata":{"session_origin":"joined_tmux"}}}')
+
+    with pytest.raises(RetiredJoinedSessionError):
+        resolve_agent_identity(agent_identity=str(manifest_path), base=tmp_path)
 
 
 def test_resolve_agent_identity_name_fails_when_manifest_mismatch(

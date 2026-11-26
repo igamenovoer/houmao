@@ -60,7 +60,7 @@ Variant records inherit the case id, revision, functional area, introduced profi
 | Field | Contract |
 | --- | --- |
 | `requested_selectors` | Exact ordered selector strings supplied by the maintainer |
-| `catalog_version` | `houmao-dev-behavior-cases.v6` |
+| `catalog_version` | `houmao-dev-behavior-cases.v7` |
 | `catalog_digest` | Digest of the committed catalog and selected area resources |
 | `resolved_cells` | Stable catalog-order records containing case id, revision, variant id, area, introduced profile, driver invocation mode, stimulus origin, exact stimulus digest, initial-root oracle, delegated-root oracle, route oracle, and contributing selectors |
 | `explicit_exclusions` | Any requested exclusions with a reason; absence is explicit |

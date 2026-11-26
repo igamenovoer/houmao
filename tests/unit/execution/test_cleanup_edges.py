@@ -181,8 +181,7 @@ def test_owner_cleanup_uses_owner_roots_and_never_accepts_operator_paths(
         assert os.environ["HOUMAO_GLOBAL_RUNTIME_DIR"] == boundary.policy.runtime_root
         assert kwargs["agent_id"] == "agent-1" and kwargs["agent_name"] is None
         assert kwargs["manifest_path"] is None and kwargs["session_root"] is None
-        if kind == "session":
-            assert kwargs["expected_record"] is boundary.record
+        assert kwargs["expected_record"] is boundary.record
         seen.append(kwargs)
         return {"dry_run": True}
 

@@ -54,7 +54,7 @@ This parent-scoped routine is `admin`-only under `houmao-shared-routines`. Requi
 
 - [references/overlay-resolution.md](references/overlay-resolution.md): `HOUMAO_PROJECT_OVERLAY_DIR`, `ancestor` vs `cwd_only`, and bootstrap vs non-creating resolution.
 - [references/project-layout.md](references/project-layout.md): `.houmao/` directory tree, `catalog.sqlite`, `content/skills/`, and compatibility projections.
-- [references/project-aware-effects.md](references/project-aware-effects.md): how `.houmao/` changes defaults for `project agents launch`, `agents self join`, `agents global list`, `agents single ... state`, `mailbox`, `houmao-passive-server serve`, and `admin cleanup runtime`.
+- [references/project-aware-effects.md](references/project-aware-effects.md): how `.houmao/` changes defaults for `project agents launch`, `agents global list`, `agents single ... state`, `mailbox`, `houmao-passive-server serve`, and `admin cleanup runtime`.
 - [references/routing-boundaries.md](references/routing-boundaries.md): handoff lines to `houmao-agent-definition` (replaces obsolete `houmao-specialist-mgr`), `houmao-credential-mgr`, `houmao-mailbox-mgr`, and `houmao-agent-instance`.
 
 ## Help

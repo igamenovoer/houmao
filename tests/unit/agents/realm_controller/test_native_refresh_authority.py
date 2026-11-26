@@ -14,7 +14,7 @@ from houmao.agents.realm_controller.agent_identity import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError
 from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
-from houmao.agents.realm_controller.errors import GatewayError
+from houmao.agents.realm_controller.errors import GatewayError, RetiredJoinedSessionError
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.managed_terminal import PrimaryTmuxObservation
 from houmao.agents.realm_controller.models import BackendKind
@@ -132,7 +132,7 @@ def test_native_home_differs_from_caller_and_uses_exact_primary_authority(
     home = native_refresh.inspect_native_home_from_manifest(manifest)
     assert home.home_dir == payload.launch_plan.home_selector.home_path
     assert home.home_env_var == "DSH_HOME"
-    surface.assert_called_once_with(payload.tmux, joined=False)
+    surface.assert_called_once_with(payload.tmux)
 
 
 def test_between_worker_dsh_home_stays_inspectable_without_projection(
@@ -218,39 +218,22 @@ def test_native_home_leaves_private_material_unread_and_unchanged(
     assert manifest.read_text() == "{}"
 
 
-@pytest.mark.parametrize("selected", [None, "/unrelated/home", "relative-home"])
-def test_unknown_thin_joined_home_is_not_a_fallback_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, selected: str | None
-) -> None:
-    """A joined envelope's disposable tool-home does not prove native selection."""
-
-    payload = _payload(tmp_path, backend="local_interactive")
-    payload.tool = "claude"
-    payload.launch_plan.home_selector.env_var = "CLAUDE_CONFIG_DIR"
-    payload.agent_launch_authority.session_origin = "joined_tmux"
-    payload.agent_launch_authority.posture_kind = "unavailable"
-    manifest, environment, _surface = _install(tmp_path, monkeypatch, payload)
-    environment["CLAUDE_CONFIG_DIR"] = selected
-    with pytest.raises(GatewayError, match="Joined native home"):
-        native_refresh.inspect_native_home_from_manifest(manifest)
-
-
-def test_known_thin_joined_native_home_uses_matching_selector(
+def test_retired_adoption_refuses_native_home_before_terminal_observation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A matching native selector makes an otherwise thin join inspectable."""
+    """Saved adoption cannot select a native home or start an observation."""
 
-    payload = _payload(tmp_path, backend="local_interactive")
-    payload.tool = "claude"
-    payload.launch_plan.home_selector.env_var = "CLAUDE_CONFIG_DIR"
-    payload.agent_launch_authority.session_origin = "joined_tmux"
-    payload.agent_launch_authority.posture_kind = "unavailable"
-    manifest, environment, _surface = _install(tmp_path, monkeypatch, payload)
-    environment["CLAUDE_CONFIG_DIR"] = payload.launch_plan.home_selector.home_path
-    assert (
-        native_refresh.inspect_native_home_from_manifest(manifest).home_env_var
-        == "CLAUDE_CONFIG_DIR"
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(
+        '{"schema_version":6,"agent_launch_authority":{"session_origin":"joined_tmux"}}',
+        encoding="utf-8",
     )
+    observe = Mock(side_effect=AssertionError("Retired home inspection must not observe tmux"))
+    monkeypatch.setattr(native_refresh, "observe_primary_tmux", observe)
+
+    with pytest.raises(RetiredJoinedSessionError):
+        native_refresh.inspect_native_home_from_manifest(manifest)
+    observe.assert_not_called()
 
 
 @pytest.mark.parametrize("field", ["registry_generation_id", "runtime.session_id"])

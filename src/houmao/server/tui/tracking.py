@@ -27,6 +27,7 @@ from houmao.hook_observation.models import (
 )
 from houmao.hook_observation.reader import HookChannelCycle, HookObservationChannel
 from houmao.hook_observation.reducer import build_hook_posture_pipeline
+from houmao.server.tui.parser import TuiParserQualification
 from houmao.lifecycle import (
     AnchoredCompletionSnapshot,
     LifecycleObservation,
@@ -421,6 +422,16 @@ class LiveSessionTracker:
 
         session = self.m_tracker_session
         return session.detector_version if session is not None else None
+
+    @property
+    def parser_qualification(self) -> TuiParserQualification:
+        """Return the profile and version resolution error in one snapshot."""
+
+        with self.m_lock:
+            return TuiParserQualification(
+                detector_version=self.resolved_detector_version,
+                version_error=self.m_tracker_resolution_error,
+            )
 
     def _create_tracker_session_locked(self) -> None:
         """Build the standalone tracker, containing unsupported-version errors."""

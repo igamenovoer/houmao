@@ -216,7 +216,7 @@ The runtime SHALL bind each active `managed-self` key to the target, execution c
 
 #### Scenario: A managed agent uses its own gateway
 
-- **WHEN** the owner runtime establishes a generation through launch or supported join and registers its key
+- **WHEN** the owner runtime establishes a generation through a supported launch and registers its key
 - **THEN** the current managed caller can sign `caller` proof for its granted self operations on the same target agent
 
 #### Scenario: A launch profile starts the runtime and gateway together
@@ -247,6 +247,12 @@ The runtime SHALL bind each active `managed-self` key to the target, execution c
 
 - **WHEN** an ended or replaced generation presents self proof using its previous key
 - **THEN** the target denies self proof even if the logical agent ID remains known
+
+#### Scenario: Retired joined-session proof is refused
+
+- **WHEN** a saved `joined_tmux` session presents proof using its former managed-self registration
+- **THEN** gateway and passive ingress deny managed-self proof for that retired session
+- **AND THEN** retained registration data and an advertised gateway address do not authorize a new effect
 
 #### Scenario: The gateway restarts while the agent stays live
 

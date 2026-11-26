@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 from urllib import error, parse, request
 import uuid
 
@@ -65,6 +65,7 @@ from houmao.passive_server.models import (
     DiscoveredAgentListResponse,
     DiscoveredAgentSummary,
     PassiveAgentActionResponse,
+    PassiveHealthResponse,
     PassiveProofEndpoint,
     PassiveHeadlessLaunchRequest,
     PassiveHeadlessLaunchResponse,
@@ -77,7 +78,12 @@ from houmao.passive_server.models import (
     PassiveShutdownResponse,
     PassiveWorkRequestReceipt,
 )
-from houmao.server.client import HoumaoServerClient
+from houmao.server._http_transport import (
+    RootResponseFormat,
+    decode_root_response,
+    request_root,
+)
+from houmao.server._pair_operations import ManagedPairOperations
 from houmao.server.models import (
     HoumaoCurrentInstance,
     HoumaoHeadlessTurnAcceptedResponse,
@@ -108,7 +114,7 @@ from houmao.server.models import (
     HoumaoManagedAgentSubmitPromptRequest,
 )
 
-_NativeRefreshModelT = TypeVar("_NativeRefreshModelT", bound=BaseModel)
+_ModelT = TypeVar("_ModelT", bound=BaseModel)
 _SIGNED_RESPONSE_LIMIT = 16 * 1024 * 1024
 
 
@@ -168,7 +174,7 @@ class PassiveBackingClient:
         )
 
 
-class PassiveServerClient(HoumaoServerClient):
+class PassiveServerClient(ManagedPairOperations):
     """Typed client adapter that normalizes passive-server routes for pair consumers."""
 
     def __init__(
@@ -183,7 +189,9 @@ class PassiveServerClient(HoumaoServerClient):
     ) -> None:
         """Select an explicitly bound signer for protected selected-agent calls."""
 
-        super().__init__(base_url, timeout_seconds, create_timeout_seconds)
+        self.base_url: str = base_url.rstrip("/")
+        self.timeout_seconds: float = timeout_seconds
+        self.create_timeout_seconds: float = create_timeout_seconds
         if binding is not None and binding.purpose == "register":
             raise ValueError("First enrollment is available at the agent gateway.")
         self.m_signed_transport: GatewayClient | None = (
@@ -205,19 +213,22 @@ class PassiveServerClient(HoumaoServerClient):
         *,
         params: dict[str, str] | None = None,
         json_body: object | None = None,
-        raw_text_ok: bool = False,
+        raw_text: bool = False,
         timeout_seconds: float | None = None,
     ) -> tuple[object, int, str]:
         """Use exact request proof on a selected-agent operation when configured."""
 
+        response_format: RootResponseFormat = "text" if raw_text else "json"
         transport = self.m_signed_transport
         if transport is None:
-            return super()._request_root_json(
+            return request_root(
+                self.base_url,
                 method,
                 path,
+                default_timeout_seconds=self.timeout_seconds,
                 params=params,
                 json_body=json_body,
-                raw_text_ok=raw_text_ok,
+                response_format=response_format,
                 timeout_seconds=timeout_seconds,
             )
         route, _, existing_query = path.partition("?")
@@ -264,14 +275,7 @@ class PassiveServerClient(HoumaoServerClient):
                 raw = response.read(_SIGNED_RESPONSE_LIMIT + 1)
                 if len(raw) > _SIGNED_RESPONSE_LIMIT:
                     raise ValueError("Passive response exceeds its limit.")
-                decoded = raw.decode("utf-8")
-                payload: object
-                try:
-                    payload = json.loads(decoded)
-                except json.JSONDecodeError:
-                    if not raw_text_ok:
-                        raise
-                    payload = decoded
+                payload = decode_root_response(raw, response_format)
                 return payload, int(response.status), url
         except GatewayHttpError as exc:
             challenge = {"challenge_path": challenge_path} if exc.status_code == 401 else None
@@ -294,6 +298,11 @@ class PassiveServerClient(HoumaoServerClient):
         """Return the passive-server pair-authority identity."""
 
         return "houmao-passive-server"
+
+    def health(self) -> PassiveHealthResponse:
+        """Read passive server health from the root endpoint."""
+
+        return self._request_root_model("GET", "/health", PassiveHealthResponse)
 
     def current_instance(self) -> HoumaoCurrentInstance:
         """Call `GET /houmao/server/current-instance` and normalize the response."""
@@ -568,11 +577,11 @@ class PassiveServerClient(HoumaoServerClient):
         self,
         method: str,
         path: str,
-        model: type[_NativeRefreshModelT],
+        model: type[_ModelT],
         *,
         json_body: object | None = None,
         timeout_seconds: float | None = None,
-    ) -> _NativeRefreshModelT:
+    ) -> _ModelT:
         """Validate shared native contracts and suppress private invalid-response details."""
 
         try:
@@ -992,6 +1001,24 @@ class PassiveServerClient(HoumaoServerClient):
             turn_id=events.turn_id,
             entries=events.entries,
         )
+
+    def get_headless_turn_artifact_text(
+        self,
+        agent_ref: str,
+        turn_id: str,
+        *,
+        artifact_name: str,
+    ) -> str:
+        """Read one headless artifact as the exact text sent by the server."""
+
+        escaped_agent = parse.quote(agent_ref, safe="")
+        escaped_turn = parse.quote(turn_id, safe="")
+        payload, _status, _url = self._request_root_json(
+            "GET",
+            f"/houmao/agents/{escaped_agent}/turns/{escaped_turn}/artifacts/{artifact_name}",
+            raw_text=True,
+        )
+        return cast(str, payload)
 
     def _generated_request_id(self, *, prefix: str) -> str:
         """Return one client-generated managed request id."""

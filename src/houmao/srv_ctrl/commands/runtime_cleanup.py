@@ -20,7 +20,11 @@ from houmao.agents.realm_controller.boundary_models import (
     SessionManifestPayloadV4,
     SessionManifestTmuxSectionV1,
 )
-from houmao.agents.realm_controller.errors import LaunchPlanError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    LaunchPlanError,
+    RetiredJoinedSessionError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.gateway_storage import gateway_paths_from_session_root
 from houmao.agents.realm_controller.loaders import load_brain_manifest
 from houmao.agents.realm_controller.manifest import (
@@ -85,6 +89,7 @@ class RuntimeSessionEnvelope:
     parse_error: str | None
     tmux_session_name: str | None
     live: bool
+    retirement: RetiredJoinedSessionError | None = None
 
 
 def _resolve_effective_runtime_root(runtime_root: Path | None) -> Path:
@@ -272,15 +277,12 @@ def cleanup_managed_session(
         if active_record and purge_registry:
             assert registry_record is not None and socket_path is not None
             assert session_name is not None and binding is not None
-            launch_authority = target.payload.agent_launch_authority if target.payload else None
             with tmux_server_scope(socket_path):
                 probe = probe_tmux_backed_authority(
                     session_name=session_name,
                     primary_window_id=binding.primary_window_id,
                     primary_pane_id=binding.primary_pane_id,
                     primary_window_name=binding.primary_window_name,
-                    joined=launch_authority is not None
-                    and launch_authority.session_origin == "joined_tmux",
                 )
                 live = probe.session_exists
                 session_details["terminal_health"] = probe.state
@@ -305,6 +307,8 @@ def cleanup_managed_session(
             )
         if (live is False or broken_active_purge_allowed) and tmux_teardown_error is None:
             _require_current_cleanup_authority(target)
+    except RetiredJoinedSessionError:
+        raise
     except (SessionManifestError, ValueError, OSError) as exc:
         inspection_error = str(exc)
         live = None
@@ -428,6 +432,7 @@ def cleanup_managed_session_logs(
     manifest_path: Path | None,
     session_root: Path | None,
     dry_run: bool,
+    expected_record: ManagedAgentRegistryRecordV3 | None = None,
 ) -> dict[str, object]:
     """Clean log-style artifacts for one resolved managed-session envelope."""
 
@@ -437,6 +442,8 @@ def cleanup_managed_session_logs(
         manifest_path=manifest_path,
         session_root=session_root,
     )
+    if expected_record is not None:
+        require_same_recovery_record(expected_record, target.registry_record)
     live = _cleanup_target_is_live(target)
     planned_actions, applied_actions, blocked_actions, preserved_actions = _cleanup_session_logs(
         session_root=target.session_root,
@@ -469,6 +476,7 @@ def cleanup_managed_session_mailbox(
     manifest_path: Path | None,
     session_root: Path | None,
     dry_run: bool,
+    expected_record: ManagedAgentRegistryRecordV3 | None = None,
 ) -> dict[str, object]:
     """Clean session-local mailbox secret material for one managed session."""
 
@@ -478,6 +486,8 @@ def cleanup_managed_session_mailbox(
         manifest_path=manifest_path,
         session_root=session_root,
     )
+    if expected_record is not None:
+        require_same_recovery_record(expected_record, target.registry_record)
     live = _cleanup_target_is_live(target)
     session_details = _cleanup_target_details(target)
     mailbox_secret_dir = target.session_root / "mailbox-secrets"
@@ -635,7 +645,7 @@ def cleanup_runtime_builds(
 
     resolved_runtime_root = _resolve_effective_runtime_root(runtime_root)
     current_time = _coerce_now(now)
-    preserved_brain_manifests = _preserved_session_brain_manifest_paths(
+    preserved_brain_manifests, retired_build_paths = _preserved_session_build_paths(
         runtime_root=resolved_runtime_root,
         older_than_seconds=older_than_seconds,
         now=current_time,
@@ -681,7 +691,7 @@ def cleanup_runtime_builds(
         try:
             manifest_payload = load_brain_manifest(manifest_path)
         except (LaunchPlanError, SessionManifestError) as exc:
-            _plan_or_apply_paths(
+            _plan_or_apply_build_paths(
                 candidates=[
                     CleanupAction(
                         artifact_kind="runtime_build_manifest",
@@ -706,6 +716,8 @@ def cleanup_runtime_builds(
                 planned_actions=planned_actions,
                 applied_actions=applied_actions,
                 blocked_actions=blocked_actions,
+                preserved_actions=preserved_actions,
+                retired_paths=retired_build_paths,
                 allowed_roots=(resolved_runtime_root,),
             )
             continue
@@ -715,7 +727,7 @@ def cleanup_runtime_builds(
             runtime_section.get("home_path") if isinstance(runtime_section, dict) else None
         )
         if not isinstance(home_path_value, str) or not home_path_value.strip():
-            _plan_or_apply_paths(
+            _plan_or_apply_build_paths(
                 candidates=[
                     CleanupAction(
                         artifact_kind="runtime_build_manifest",
@@ -728,6 +740,8 @@ def cleanup_runtime_builds(
                 planned_actions=planned_actions,
                 applied_actions=applied_actions,
                 blocked_actions=blocked_actions,
+                preserved_actions=preserved_actions,
+                retired_paths=retired_build_paths,
                 allowed_roots=(resolved_runtime_root,),
             )
             continue
@@ -773,12 +787,14 @@ def cleanup_runtime_builds(
                     reason="runtime home belongs to an unreferenced build manifest",
                 )
             )
-        _plan_or_apply_paths(
+        _plan_or_apply_build_paths(
             candidates=candidates,
             dry_run=dry_run,
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            preserved_actions=preserved_actions,
+            retired_paths=retired_build_paths,
             allowed_roots=(resolved_runtime_root,),
         )
 
@@ -800,17 +816,21 @@ def cleanup_runtime_builds(
                 )
             )
             continue
-        _apply_cleanup_action(
-            action=CleanupAction(
-                artifact_kind="runtime_home",
-                path=resolved_home_path,
-                proposed_action="remove",
-                reason="runtime home has no matching build manifest",
-            ),
+        _plan_or_apply_build_paths(
+            candidates=[
+                CleanupAction(
+                    artifact_kind="runtime_home",
+                    path=resolved_home_path,
+                    proposed_action="remove",
+                    reason="runtime home has no matching build manifest",
+                )
+            ],
             dry_run=dry_run,
             planned_actions=planned_actions,
             applied_actions=applied_actions,
             blocked_actions=blocked_actions,
+            preserved_actions=preserved_actions,
+            retired_paths=retired_build_paths,
             allowed_roots=(resolved_runtime_root,),
         )
 
@@ -846,6 +866,17 @@ def cleanup_runtime_logs(
     preserved_actions: list[CleanupAction] = []
 
     for envelope in envelopes:
+        if envelope.retirement is not None:
+            preserved_actions.append(
+                CleanupAction(
+                    artifact_kind="session_root",
+                    path=envelope.session_root,
+                    proposed_action="preserve",
+                    reason=str(envelope.retirement),
+                    details=_session_envelope_details(envelope),
+                )
+            )
+            continue
         session_planned, session_applied, session_blocked, session_preserved = (
             _cleanup_session_logs(
                 session_root=envelope.session_root,
@@ -971,12 +1002,19 @@ def discover_runtime_session_envelopes(runtime_root: Path) -> tuple[RuntimeSessi
             parse_error: str | None
             tmux_session_name: str | None
             live: bool
+            retirement: RetiredJoinedSessionError | None = None
             if manifest_path.is_file():
                 try:
                     handle = load_session_manifest(manifest_path)
                     parsed_payload = parse_session_manifest_payload(
                         handle.payload, source=str(handle.path)
                     )
+                except RetiredJoinedSessionError as exc:
+                    payload = None
+                    parse_error = None
+                    tmux_session_name = None
+                    live = False
+                    retirement = exc
                 except SessionManifestError as exc:
                     payload = None
                     parse_error = str(exc)
@@ -1000,6 +1038,7 @@ def discover_runtime_session_envelopes(runtime_root: Path) -> tuple[RuntimeSessi
                     parse_error=parse_error,
                     tmux_session_name=tmux_session_name,
                     live=live,
+                    retirement=retirement,
                 )
             )
     return tuple(envelopes)
@@ -1027,6 +1066,8 @@ def _load_cleanup_target_from_manifest_path(
     try:
         handle = load_session_manifest(resolved_manifest_path)
         payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except RetiredJoinedSessionError:
+        raise
     except SessionManifestError as exc:
         return ResolvedManagedSessionCleanupTarget(
             manifest_path=resolved_manifest_path,
@@ -1081,6 +1122,12 @@ def _load_cleanup_target_from_session_root(
             authority_value=authority_value,
             registry_record=matched_registry_record,
         )
+    try:
+        load_session_manifest(manifest_path)
+    except RetiredJoinedSessionError:
+        raise
+    except SessionManifestError:
+        pass
     return ResolvedManagedSessionCleanupTarget(
         manifest_path=manifest_path,
         session_root=resolved_session_root,
@@ -1245,6 +1292,8 @@ def _resolve_stopped_cleanup_target_from_runtime_root(
             f"Use `--manifest-path` or `--session-root` with one candidate: {candidates}"
         )
     match = matches[0]
+    if match.retirement is not None:
+        raise match.retirement
     return _load_cleanup_target_from_session_root(
         session_root=match.session_root,
         authority=authority,
@@ -1259,14 +1308,17 @@ def _stopped_envelope_matches_selector(
     agent_id: str | None,
     agent_name: str | None,
 ) -> bool:
-    """Return whether one stopped parsed envelope matches a cleanup selector."""
+    """Match stopped and retired envelopes to the requested cleanup selector."""
 
-    if envelope.live or envelope.payload is None:
+    if envelope.live:
+        return False
+    identity = envelope.retirement or envelope.payload
+    if identity is None:
         return False
     if agent_id is not None:
-        return envelope.payload.agent_id == agent_id
+        return identity.agent_id == agent_id
     assert agent_name is not None
-    return envelope.payload.agent_name == agent_name
+    return identity.agent_name == agent_name
 
 
 def _format_stopped_cleanup_candidate(envelope: RuntimeSessionEnvelope) -> str:
@@ -1411,18 +1463,31 @@ def _cleanup_session_logs(
     return planned_actions, applied_actions, blocked_actions, preserved_actions
 
 
-def _plan_or_apply_paths(
+def _plan_or_apply_build_paths(
     *,
     candidates: Sequence[CleanupAction],
     dry_run: bool,
     planned_actions: list[CleanupAction],
     applied_actions: list[CleanupAction],
     blocked_actions: list[CleanupAction],
+    preserved_actions: list[CleanupAction],
+    retired_paths: set[Path],
     allowed_roots: tuple[Path, ...],
 ) -> None:
-    """Apply or plan several cleanup actions in order."""
+    """Apply build cleanup only to paths unreferenced by retired sessions."""
 
     for candidate in candidates:
+        resolved_candidate = candidate.path.resolve()
+        if any(path.is_relative_to(resolved_candidate) for path in retired_paths):
+            preserved_actions.append(
+                CleanupAction(
+                    artifact_kind=candidate.artifact_kind,
+                    path=candidate.path,
+                    proposed_action="preserve",
+                    reason="build artifact is still referenced by a retired session manifest",
+                )
+            )
+            continue
         _apply_cleanup_action(
             action=candidate,
             dry_run=dry_run,
@@ -1654,6 +1719,8 @@ def _require_current_cleanup_authority(target: ResolvedManagedSessionCleanupTarg
     try:
         handle = load_session_manifest(target.manifest_path)
         current = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+    except RetiredJoinedSessionError:
+        raise
     except SessionManifestError:
         current = None
     require_same_recovery_manifest(target.payload, current)
@@ -1856,6 +1923,8 @@ def _session_envelope_removable(
 ) -> tuple[bool, str]:
     """Classify whether one runtime session envelope is removable."""
 
+    if envelope.retirement is not None:
+        return False, str(envelope.retirement)
     if envelope.live:
         return False, "managed session is still live on the local host"
     if not _path_is_old_enough(
@@ -1869,16 +1938,25 @@ def _session_envelope_removable(
     return True, "managed session no longer appears live on the local host"
 
 
-def _preserved_session_brain_manifest_paths(
+def _preserved_session_build_paths(
     *,
     runtime_root: Path,
     older_than_seconds: int,
     now: datetime,
-) -> set[Path]:
-    """Return brain manifest paths referenced by preserved session envelopes."""
+) -> tuple[set[Path], set[Path]]:
+    """Return preserved brain manifests and build paths referenced by retired sessions."""
 
     preserved: set[Path] = set()
+    retired: set[Path] = set()
     for envelope in discover_runtime_session_envelopes(runtime_root):
+        if envelope.retirement is not None:
+            for value in (envelope.retirement.brain_manifest_path, envelope.retirement.home_path):
+                if value is not None and Path(value).is_absolute():
+                    try:
+                        retired.add(Path(value).resolve())
+                    except (OSError, RuntimeError, ValueError):
+                        continue
+            continue
         removable, _ = _session_envelope_removable(
             envelope=envelope,
             older_than_seconds=older_than_seconds,
@@ -1887,7 +1965,7 @@ def _preserved_session_brain_manifest_paths(
         if removable or envelope.payload is None:
             continue
         preserved.add(Path(envelope.payload.brain_manifest_path).resolve())
-    return preserved
+    return preserved | retired, retired
 
 
 def _preserved_session_credential_refs(
@@ -1900,6 +1978,9 @@ def _preserved_session_credential_refs(
 
     refs: set[str] = set()
     for envelope in discover_runtime_session_envelopes(runtime_root):
+        if envelope.retirement is not None:
+            refs.update(envelope.retirement.mailbox_credential_refs)
+            continue
         removable, _ = _session_envelope_removable(
             envelope=envelope,
             older_than_seconds=older_than_seconds,
@@ -1945,6 +2026,12 @@ def _session_envelope_details(envelope: RuntimeSessionEnvelope) -> dict[str, obj
             details["agent_name"] = envelope.payload.agent_name
     if envelope.parse_error is not None:
         details["parse_error"] = envelope.parse_error
+    if envelope.retirement is not None:
+        if envelope.retirement.agent_id is not None:
+            details["agent_id"] = envelope.retirement.agent_id
+        if envelope.retirement.agent_name is not None:
+            details["agent_name"] = envelope.retirement.agent_name
+        details["retirement"] = str(envelope.retirement)
     return details
 
 

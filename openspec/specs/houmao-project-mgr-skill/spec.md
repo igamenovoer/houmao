@@ -84,7 +84,6 @@ The skill SHALL NOT instruct agents to ask whether users want compatibility prof
 The `houmao-project-mgr` skill SHALL explain what changes for other Houmao commands when a project overlay exists. At minimum, that project-aware guidance SHALL cover:
 
 - `houmao-mgr project agents launch` (building brain homes internally)
-- `houmao-mgr agents self join`
 - `houmao-mgr agents global list`
 - `houmao-mgr agents single ... state`
 - `houmao-mgr mailbox ...`

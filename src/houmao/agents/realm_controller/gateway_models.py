@@ -29,7 +29,11 @@ from houmao.agents.realm_controller.managed_control import (
     ManagedControlCapabilitiesV1,
     ManagedControlObservationV1,
 )
-from houmao.agents.realm_controller.run_modes import RunMode, validate_mode_binding
+from houmao.agents.realm_controller.run_modes import (
+    RUNTIME_OWNED_TMUX_BACKENDS,
+    RunMode,
+    validate_mode_binding,
+)
 from houmao.agents.realm_controller.models import BackendKind, CaoParsingMode, SessionEvent
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, WebNativeSurfaceV1
 from houmao.hook_observation.health import HookChannelState
@@ -180,15 +184,7 @@ def _validate_gateway_backend_metadata_shape(
                 f"{context} must use the houmao-server attach schema for backend=houmao_server_rest"
             )
         return
-    if backend in {
-        "local_interactive",
-        "codex_headless",
-        "claude_headless",
-        "kimi_headless",
-        "dsh_headless",
-        "hermes_headless",
-        "hermes_tui",
-    }:
+    if backend in RUNTIME_OWNED_TMUX_BACKENDS:
         if not isinstance(backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
             raise ValueError(
                 f"{context} must use the headless attach schema for tmux-backed "

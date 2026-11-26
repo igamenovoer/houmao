@@ -3805,8 +3805,10 @@ def test_project_agents_launch_allows_kimi_without_headless(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -3868,7 +3870,10 @@ def test_project_passes_explicit_kimi_web_to_managed_launch(
         "houmao.srv_ctrl.commands.project_easy.launch_managed_agent_locally", fake_launch
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion", lambda **kwargs: None
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
     result = runner.invoke(
         cli,
@@ -3932,8 +3937,10 @@ def test_project_agents_launch_preserves_explicit_kimi_headless(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -4013,8 +4020,10 @@ def test_project_agents_launch_allows_kimi_profile_without_headless(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(cli, ["project", "agents", "launch", "--profile", "kimi-profile"])
@@ -4104,8 +4113,10 @@ def test_project_agents_launch_uses_stored_specialist_setup(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -4221,8 +4232,10 @@ def test_project_agents_launch_uses_registered_project_skill_projection(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     launch_result = runner.invoke(
@@ -4310,8 +4323,10 @@ def test_project_agents_launch_reloads_symlink_project_skill_after_source_edit(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     first_launch = runner.invoke(
@@ -6596,8 +6611,10 @@ def test_project_agents_launch_uses_profile_defaults_and_overrides(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -6689,7 +6706,7 @@ def test_project_agents_launch_kimi_specialist_preserves_tui_prompt_mode(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
@@ -6712,8 +6729,11 @@ def test_project_agents_launch_kimi_specialist_preserves_tui_prompt_mode(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion",
         lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -6785,7 +6805,7 @@ def test_project_agents_launch_kimi_profile_preserves_tui_prompt_mode(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_launch_profile_or_click",
@@ -6808,8 +6828,11 @@ def test_project_agents_launch_kimi_profile_preserves_tui_prompt_mode(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion",
         lambda **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -7119,8 +7142,10 @@ def test_project_agents_launch_forwards_managed_header_override(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -7204,8 +7229,10 @@ def test_project_agents_launch_derives_provider_and_mailbox_flags(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        _fake_emit,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", _fake_emit
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     mail_root = (tmp_path / "mail-root").resolve()
@@ -7308,8 +7335,10 @@ def test_project_agents_launch_keeps_selected_overlay_when_workdir_points_elsewh
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
     project_selector: list[str] = []
     if overlay_source == "relative-project-dir":
@@ -7408,8 +7437,10 @@ def test_project_agents_launch_no_gateway_opt_out(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -7485,8 +7516,10 @@ def test_project_agents_launch_gateway_port_override(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -7563,8 +7596,10 @@ def test_project_agents_launch_gateway_background_override(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -7656,8 +7691,10 @@ def test_project_agents_launch_gateway_background_override_forces_attach_when_ea
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -7733,8 +7770,10 @@ def test_project_agents_launch_gateway_tui_timing_overrides(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -7885,8 +7924,10 @@ def test_project_agents_launch_resolves_one_off_env_set(
         _fake_launch,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -8595,8 +8636,10 @@ def test_project_agents_launch_filesystem_accepts_default_mailbox_placement(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     success = runner.invoke(
@@ -8637,7 +8680,7 @@ def test_project_agents_launch_bare_force_forwards_keep_stale(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
@@ -8664,8 +8707,10 @@ def test_project_agents_launch_bare_force_forwards_keep_stale(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -8703,7 +8748,7 @@ def test_project_agents_launch_forwards_reuse_home(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
@@ -8730,8 +8775,10 @@ def test_project_agents_launch_forwards_reuse_home(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -8768,7 +8815,7 @@ def test_project_agents_launch_reuse_home_missing_home_failure_surfaces_clearly(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",
@@ -8860,7 +8907,7 @@ def test_project_agents_launch_profile_forwards_clean_force_mode(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_launch_profile_or_click",
@@ -8883,8 +8930,10 @@ def test_project_agents_launch_profile_forwards_clean_force_mode(
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -8955,7 +9004,7 @@ def test_project_agents_launch_profile_forwards_reuse_home_with_current_profile_
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_launch_profile_or_click",
@@ -8978,8 +9027,10 @@ def test_project_agents_launch_profile_forwards_reuse_home_with_current_profile_
         ),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion",
-        lambda **kwargs: None,
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **kwargs: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
 
     result = runner.invoke(
@@ -9020,7 +9071,7 @@ def test_project_agents_launch_rejects_reuse_home_clean_force_before_delegation(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._ensure_project_overlay",
-        lambda: overlay,
+        lambda **_: overlay,
     )
     monkeypatch.setattr(
         "houmao.srv_ctrl.commands.project_easy._load_specialist_or_click",

@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Final, Literal, Mapping, MutableMapping
 
 from houmao.agents.kimi_launch_env import KIMI_CONFIG_ENV_NAMES, KIMI_PRIVATE_ENV_NAMES
 from houmao.agents.launch_env import owner_tmux_launch_environment
+from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.execution.tmux import (
     TmuxCommandError as TmuxCommandError,
     TmuxCommandResult,
@@ -126,7 +128,7 @@ def apply_tmux_config_injection(*, session_name: str) -> None:
     if not tmux_config_injection_enabled():
         return
 
-    target = f"={session_name}:"
+    target = f"{_launch_tmux_target(session_name)}:"
     commands = (
         ["set-option", "-t", target, "mouse", "on"],
         ["set-option", "-t", target, "default-terminal", TMUX_RICH_COLOR_TERM],
@@ -170,11 +172,13 @@ def create_tmux_session(
     environment = owner_tmux_launch_environment(
         server.native_environment(), excluded_names=masked_names
     )
+    startup = current_runtime_startup()
     result = server.start(
         [
             "new-session",
             "-d",
             "-E",
+            *(["-P", "-F", "#{pid} #{session_id}"] if startup is not None else []),
             "-s",
             session_name,
             "-c",
@@ -184,15 +188,51 @@ def create_tmux_session(
         environment=environment,
     )
     if result.returncode == 0:
+        if startup is not None:
+            match = re.fullmatch(r"(\d+) (\$\d+)", result.stdout.strip())
+            if match is None:
+                raise TmuxCommandError("tmux did not return the new session's identity")
+            server_pid = int(match[1])
+            session_id = match[2]
+            birth = _dispatch_origin_birth_token(server_pid)
+            if birth is None:
+                raise TmuxCommandError("Cannot verify the new session's tmux server")
+            startup.record_terminal(
+                socket=server.socket_path, session_name=session_name, session_id=session_id
+            )
+            startup.add(
+                "new tmux session",
+                lambda: _rollback_started_tmux_session(server, server_pid, birth, session_id),
+            )
         try:
             apply_tmux_config_injection(session_name=session_name)
         except TmuxCommandError:
-            cleanup_tmux_session(session_name=session_name)
+            if startup is None:
+                cleanup_tmux_session(session_name=session_name)
             raise
         return
     detail = tmux_error_detail(result)
     raise TmuxCommandError(
         f"Failed to create tmux session `{session_name}`: {detail or 'unknown tmux error'}"
+    )
+
+
+def _rollback_started_tmux_session(
+    server: TmuxServer, server_pid: int, birth: str, session_id: str
+) -> None:
+    """Kill a new session by server birth and session ID, retaining the server."""
+
+    if _dispatch_origin_birth_token(server_pid) != birth:
+        return
+    session_ids = server.checked_command(
+        ["list-sessions", "-F", "#{session_id}"], no_start=True
+    ).stdout.splitlines()
+    if session_id not in session_ids:
+        return
+    condition = f"#{{==:#{{pid}},{server_pid}}}"
+    server.checked_command(
+        ["if-shell", "-F", "-t", session_id, condition, f"kill-session -t '{session_id}'"],
+        no_start=True,
     )
 
 
@@ -321,7 +361,6 @@ def resolve_primary_tmux_surface(
     pane_id: str | None = None,
     window_id: str | None = None,
     window_name: str | None = None,
-    require_pane_index_zero: bool = False,
 ) -> TmuxPaneRecord:
     """Resolve a primary selector without repairing or relaxing explicit handles."""
 
@@ -340,7 +379,6 @@ def resolve_primary_tmux_surface(
             primary_pane_id=pane_id,
         ),
         matching,
-        joined=require_pane_index_zero,
     )
     surface = observation.pane or observation.replacement
     if surface is not None:
@@ -449,7 +487,6 @@ def probe_tmux_backed_authority(
     primary_window_id: str | None = None,
     primary_pane_id: str | None = None,
     primary_window_name: str | None = None,
-    joined: bool = False,
 ) -> TmuxBackedAuthorityHealth:
     """Classify local tmux authority for one persisted managed session name.
 
@@ -481,7 +518,6 @@ def probe_tmux_backed_authority(
             primary_pane_id=primary_pane_id,
         ),
         panes,
-        joined=joined,
     )
     state: _TmuxHealthState
     if observation.state == "missing_session":
@@ -537,7 +573,7 @@ def publish_tmux_launch_environment(*, session_name: str, launch_plan: LaunchPla
         key: value for key, value in launch_plan.public_env.items() if key not in private_names
     }
     removed = (launch_plan.previous_public_env_var_names | private_names).difference(public)
-    target = f"={session_name}"
+    target = _launch_tmux_target(session_name)
     for name in sorted(removed):
         _publish_tmux_launch_variable(target=target, name=name, value=None)
     for name, value in public.items():
@@ -567,15 +603,17 @@ def _publish_tmux_launch_variable(*, target: str, name: str, value: str | None) 
 def set_tmux_session_environment(*, session_name: str, env_vars: Mapping[str, str]) -> None:
     """Set environment variables in the exactly named session."""
 
+    target = _launch_tmux_target(session_name)
     for name, value in env_vars.items():
-        _publish_tmux_launch_variable(target=f"={session_name}", name=name, value=value)
+        _publish_tmux_launch_variable(target=target, name=name, value=value)
 
 
 def unset_tmux_session_environment(*, session_name: str, variable_names: list[str]) -> None:
     """Unset multiple tmux session environment variables."""
 
+    target = _launch_tmux_target(session_name)
     for variable_name in variable_names:
-        result = tmux_command(["set-environment", "-t", f"={session_name}", "-u", variable_name])
+        result = tmux_command(["set-environment", "-t", target, "-u", variable_name])
         if result.returncode == 0:
             continue
         detail = tmux_error_detail(result)
@@ -583,6 +621,19 @@ def unset_tmux_session_environment(*, session_name: str, variable_names: list[st
             f"Failed to unset tmux environment variable `{variable_name}` in session "
             f"`{session_name}`: {detail or 'unknown tmux error'}"
         )
+
+
+def _launch_tmux_target(session_name: str) -> str:
+    """Prefer the exact birth ID for startup metadata publication."""
+
+    startup = current_runtime_startup()
+    if startup is not None:
+        session_id = startup.terminal_id(
+            socket=capture_tmux_socket_path(), session_name=session_name
+        )
+        if session_id is not None:
+            return session_id
+    return f"={session_name}"
 
 
 def show_tmux_environment(

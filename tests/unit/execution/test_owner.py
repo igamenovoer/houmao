@@ -168,6 +168,28 @@ def test_scope_expansion_uses_observed_owner_home(
     assert not Path(policy.runtime_root).exists()
 
 
+def test_relative_workdir_scope_uses_the_selected_owner_project(policy: OwnerPolicyV1) -> None:
+    """Validate the working directory where launch will actually resolve it."""
+
+    root = Path(policy.profile.project_root)
+    selected = root / "selected"
+    selected.mkdir()
+    (root / "run").mkdir()
+    outside = root.with_name("outside-project-scope")
+    outside.mkdir()
+    (selected / "run").symlink_to(outside, target_is_directory=True)
+    response = handle_request(
+        ExecutionRequestV1(
+            operation="launch",
+            arguments={"profile": "selected", "project_dir": "selected", "workdir": "run"},
+        ),
+        policy,
+        lambda *_: pytest.fail("out-of-scope working directory reached launch"),
+    )
+    assert response.error_code == "project_scope_denied"
+    assert not policy.context_file.exists()
+
+
 def test_first_birth_route_mismatch_is_rejected_before_context_creation(
     policy: OwnerPolicyV1,
 ) -> None:
@@ -246,6 +268,10 @@ def test_expected_binding_never_repairs_lost_context(policy: OwnerPolicyV1) -> N
         ("launch", {"gateway_port": []}),
         ("launch", {"env_set": "NAME=value"}),
         ("launch", {"workdir": []}),
+        ("launch", {"no_gateway": True, "gateway_port": 4321}),
+        ("launch", {"no_gateway": True, "gateway_background": True}),
+        ("launch", {"no_gateway": True, "gateway_tui_watch_poll_interval_seconds": 0.5}),
+        ("launch", {"reuse_home": True, "force_mode": "clean"}),
         ("prompt", {"prompt": 42}),
         ("prompt", {"prompt": ""}),
         ("prompt", {"prompt": "hello", "reasoning_level": True}),

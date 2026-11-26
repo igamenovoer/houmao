@@ -63,6 +63,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.agents.realm_controller.backends.web_entry import NativeWebEntry, owns_ipv4_web_listener
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
@@ -469,7 +470,11 @@ class DshWebSession:
             }
             environment.update({aliases[name]: value for name, value in mcp_environment.items()})
         root = self.plan.home_path / "houmao-web" / uuid4().hex
-        root.mkdir(parents=True, mode=0o700)
+        startup = current_runtime_startup()
+        if startup is None:
+            root.mkdir(parents=True, mode=0o700)
+        else:
+            startup.create_directory(root)
         bootstrap = root / "bootstrap.json"
         control = root / "control.json"
         receipt_state = self.plan.home_path / "houmao-web-receipts.json"
@@ -600,6 +605,11 @@ class DshWebSession:
                     str(invocation),
                 ]
             )
+            if startup is not None:
+                startup.add(
+                    "new DSH Web supervisor",
+                    lambda: self._rollback_supervisor(root),
+                )
             result = run_tmux(["respawn-pane", "-k", "-t", surface.pane_id, command])
             if result.returncode != 0:
                 raise BackendExecutionError("DSH Web supervisor could not start")
@@ -659,10 +669,10 @@ class DshWebSession:
                 raise BackendExecutionError("DSH Web supervisor ownership could not be recorded")
             write_usage_json(root / "owned-state.json", self.state.to_payload())
         except BaseException as exc:
-            self.close_control_connection()
-            self._stop_supervisor_file(root / "supervisor.json")
-            if created and self._owns_supervisor_session(name, str(control)):
-                kill_tmux_session(session_name=name)
+            if startup is None:
+                self._rollback_supervisor(root)
+                if created and self._owns_supervisor_session(name, str(control)):
+                    kill_tmux_session(session_name=name)
             if isinstance(exc, DshWebError):
                 raise BackendExecutionError(f"DSH Web startup failed: {exc}") from None
             if isinstance(exc, TmuxCommandError):
@@ -670,6 +680,14 @@ class DshWebSession:
             raise
         finally:
             invocation.unlink(missing_ok=True)
+
+    def _rollback_supervisor(self, root: Path) -> None:
+        """Close this peer and stop the process born under the attempt's root."""
+
+        try:
+            self.close_control_connection()
+        finally:
+            self._stop_supervisor_file(root / "supervisor.json")
 
     def _abandoned_operations(
         self, receipt_state: Path, previous: DshWebSessionState | None

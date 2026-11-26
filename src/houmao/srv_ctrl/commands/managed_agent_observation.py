@@ -433,6 +433,7 @@ def _observe_tui(
                 tracked.tracked_session.agent_id == manifest.agent_id
                 and tracked.tracked_session.tmux_session_name == binding.session_name
                 and tracked.tracked_session.tool == manifest.tool
+                and tracked.tracked_session.observed_tool_version == manifest.observed_tool_version
                 and tracked.diagnostics.availability == "available"
                 and probe is not None
                 and probe.pane_id == binding.primary_pane_id
@@ -441,13 +442,12 @@ def _observe_tui(
                 return tracked
         except GatewayHttpError:
             pass
-    policy = manifest.launch_policy_provenance
     tracker = SingleSessionTrackingRuntime(
         identity=HoumaoTrackedSessionIdentity(
             tracked_session_id=identity.tracked_agent_id,
             session_name=binding.session_name,
             tool=manifest.tool,
-            observed_tool_version=policy.detected_tool_version if policy is not None else None,
+            observed_tool_version=manifest.observed_tool_version,
             tmux_session_name=binding.session_name,
             tmux_window_name=binding.primary_window_name,
             agent_name=manifest.agent_name,
@@ -456,10 +456,6 @@ def _observe_tui(
             session_root=str(path.parent),
         ),
         primary_binding=binding,
-        joined=(
-            manifest.agent_launch_authority is not None
-            and manifest.agent_launch_authority.session_origin == "joined_tmux"
-        ),
     )
     return tracker.refresh_once()
 

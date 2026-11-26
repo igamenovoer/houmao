@@ -2,18 +2,6 @@
 Define late filesystem mailbox registration for existing local managed agents, including session binding persistence and activation-state reporting by runtime posture.
 
 ## Requirements
-### Requirement: Scoped offline membership commands support existing local agent bodies
-The scoped `agents single` and `agents self` command trees SHALL expose `mailbox offline status`, `join`, and `leave`. They SHALL resolve the stable agent owner and selected local or remote registry without requiring body restart. Remote body management SHALL remain outside communication-only registration authority.
-
-#### Scenario: Offline-disabled body joins a remote registry
-- **WHEN** an authorized operator selects an existing local body and joins a remote registry
-- **THEN** its offline binding references the confirmed registry registration
-- **AND THEN** the body process, conversation, stable agent ID, and online binding remain unchanged
-
-#### Scenario: Joined tmux body needs no relaunch posture
-- **WHEN** an adopted tmux body without relaunch metadata joins a registry successfully
-- **THEN** offline operations become actionable without relaunch or mailbox-specific environment updates
-
 ### Requirement: Offline join and leave publish confirmed ownership outcomes
 Join SHALL commit only the registration confirmed by the selected registry and preserve other bindings. Conflicts SHALL fail without overwrite prompts or force/stash takeover. Leave SHALL explicitly release membership, remove the offline binding, and preserve online mail. Partial publication failures SHALL be reported and support idempotent reconciliation.
 
@@ -38,3 +26,14 @@ Offline status SHALL distinguish no configured binding, confirmed membership, ex
 - **WHEN** the registry cannot be reached after an earlier confirmed join
 - **THEN** status reports the configured binding with unavailable connectivity
 - **AND THEN** it does not claim that the address has been released
+### Requirement: Scoped offline membership commands support already managed local agent bodies
+The scoped `agents single` and `agents self` command trees SHALL expose `mailbox offline status`, `join`, and `leave`. They SHALL resolve the stable agent owner and selected local or remote registry without requiring body restart. Remote body management SHALL remain outside communication-only registration authority.
+
+#### Scenario: Offline-disabled body joins a remote registry
+- **WHEN** an authorized operator selects an existing local body and joins a remote registry
+- **THEN** its offline binding references the confirmed registry registration
+- **AND THEN** the body process, conversation, stable agent ID, and online binding remain unchanged
+
+#### Scenario: A running managed body joins without relaunch
+- **WHEN** an agent started through a supported Houmao launch joins an offline mailbox registry while its native runtime is running
+- **THEN** offline operations become actionable without relaunch or mailbox-specific environment updates

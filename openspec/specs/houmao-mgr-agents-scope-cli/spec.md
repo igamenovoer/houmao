@@ -18,7 +18,7 @@ The `agents` help output SHALL explain that:
 
 - `agents global` operates on no individual agent or on multiple local managed agents as a registry/fleet,
 - `agents single` operates on exactly one explicitly selected local managed-agent identity,
-- `agents self` operates on the caller's verified managed runtime and can adopt the current tmux session through `join`,
+- `agents self` operates on the caller's verified managed runtime,
 - `agents external` operates on external-agent registry/reference onboarding for agents whose lifecycle is not controlled by this user's `houmao-mgr`.
 
 `agents single` and `agents self` SHALL NOT be aliases with different selectors. Their command sets SHALL differ where operation authority differs.
@@ -27,6 +27,11 @@ The `agents` help output SHALL explain that:
 - **WHEN** an operator runs `houmao-mgr agents --help`
 - **THEN** the help output lists `global`, `single`, `self`, and `external`
 - **AND THEN** it does not list direct commands such as `launch`, `list`, `join`, `gateway`, `mail`, or `turn` at the `agents` root
+
+#### Scenario: No scope exposes manual session adoption
+- **WHEN** an operator inspects the help or attempts a direct `join` command at the `agents` root or within `global`, `single`, `self`, or `external`
+- **THEN** help omits manual session adoption and the invocation fails as an unsupported command
+- **AND THEN** no invocation creates a managed identity, manifest, or gateway authority for the current tmux session
 
 ### Requirement: Agents global scope owns zero-or-many local registry operations
 `houmao-mgr agents global` SHALL expose maintained operations whose target cardinality is no individual managed agent or multiple local managed agents across projects.
@@ -48,7 +53,7 @@ At minimum, `agents global` SHALL expose:
 
 `agents global` SHALL NOT expose `launch` because first birth is source-scoped rather than global management.
 
-`agents global` SHALL NOT expose `join` because current-session adoption belongs to `agents self join`.
+`agents global` SHALL NOT expose manual session adoption.
 
 `agents global` SHALL NOT expose `external` because remotely owned or communication-only references belong to `agents external`.
 
@@ -75,7 +80,6 @@ At minimum, `agents global` SHALL expose:
 
 - **WHEN** a caller selects an agent for `state`, `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, or `cleanup`
 - **THEN** the command uses the group-level selection
-- **AND THEN** current-session membership operations such as `join` belong to `agents self`
 
 #### Scenario: Single prompt uses group-level selector
 - **WHEN** an operator runs `houmao-mgr agents single --agent-id agent-123 prompt --prompt ping`
@@ -95,75 +99,12 @@ At minimum, `agents global` SHALL expose:
 #### Scenario: Single scope does not expose current-session join
 - **WHEN** an operator runs `houmao-mgr agents single --agent-id agent-123 join`
 - **THEN** the command is not a maintained public path
-- **AND THEN** the diagnostic or help output points current-session adoption to `houmao-mgr agents self join`
+- **AND THEN** the invocation fails without selecting or adopting a tmux session
 
 #### Scenario: Single command rejects missing selector inside tmux
 - **WHEN** an operator runs `houmao-mgr agents single gateway prompt --prompt ping` inside a managed tmux session without a group-level selector
 - **THEN** the command fails clearly because `agents single` requires an explicit selected agent
 - **AND THEN** the diagnostic points the operator to either supply a single-agent selector or use `houmao-mgr agents self gateway prompt`
-
-### Requirement: Agents self scope owns current tmux-session membership and self operations
-`houmao-mgr agents self` SHALL expose maintained operations whose target is the caller's single verified local managed agent.
-
-At minimum, `agents self` SHALL expose:
-
-- `join`
-- `identity`
-- `state`
-- `prompt`
-- `interrupt`
-- `relaunch`
-- `gateway`
-- `mail`
-- `mailbox`
-- `memory`
-- `turn`
-
-`agents self join` SHALL adopt the current tmux session into the Houmao managed-agent registry as one local managed-agent identity.
-
-#### Scenario: Acceptance criteria
-
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-`agents self join` MAY accept new-identity fields such as `--agent-name` and optional `--agent-id`. Those fields SHALL create or assign the current tmux session's managed identity and SHALL NOT select another existing agent.
-
-`agents self` commands other than `join` SHALL require a verified current managed runtime. Tmux-backed commands SHALL resolve the owning tmux session. Supported headless self commands SHALL accept their verified runtime-owned manifest locator without tmux.
-
-`agents self` commands other than `join` SHALL NOT accept `--agent-id`, `--agent-name`, or `--current-session` because the target is the current managed-agent identity by definition.
-
-`agents self prompt` and `agents self interrupt` SHALL use the supported control path for the current managed session without accepting explicit agent selectors.
-
-`agents self relaunch` SHALL refresh the active tmux-backed surface for the caller's current managed session. It SHALL require resolvable current-session manifest authority. It SHALL NOT perform selected-agent registry lookup, stopped relaunchable-record revival, degraded/stale active-record recovery, or cross-session targeting.
-
-`agents self` SHALL NOT expose selected-agent lifecycle controls that terminate or clean up the caller's own tmux-backed runtime. In particular, `agents self stop` and `agents self cleanup` SHALL NOT be maintained public paths.
-
-#### Scenario: Self join adopts current tmux session
-- **WHEN** an operator runs `houmao-mgr agents self join --agent-name local-shell` inside a tmux session that is not yet registered as a managed agent
-- **THEN** the command adopts the current tmux session into the Houmao managed-agent registry
-- **AND THEN** subsequent `houmao-mgr agents self identity` resolves the new identity from the same current tmux session
-
-#### Scenario: Self command resolves current tmux identity
-- **WHEN** an agent runs `houmao-mgr agents self identity` inside its own registered managed tmux session
-- **THEN** the command locates the runtime manifest through the current session and verifies it
-- **AND THEN** the output reports the manifest's identity without requiring `--agent-id` or `--agent-name`
-
-#### Scenario: Self relaunch refreshes active current session
-- **WHEN** an agent runs `houmao-mgr agents self relaunch` inside its own registered managed tmux session
-- **THEN** the command resolves current-session manifest authority
-- **AND THEN** it refreshes the active tmux-backed primary surface for that current managed session
-- **AND THEN** it does not perform selected-agent stopped-record revival or degraded/stale registry recovery
-
-#### Scenario: Self command fails outside managed session
-- **WHEN** an operator runs `houmao-mgr agents self mail status` with no verified current managed runtime
-- **THEN** the command fails clearly
-- **AND THEN** the diagnostic explains what owning session or runtime-owned context is required
-
-#### Scenario: Self scope omits destructive lifecycle controls
-- **WHEN** an operator runs `houmao-mgr agents self --help`
-- **THEN** the help output lists current-session `prompt`, `interrupt`, and `relaunch`
-- **AND THEN** it does not list destructive lifecycle commands `stop` or `cleanup`
-- **AND THEN** the documentation directs selected-agent stopped/degraded relaunch recovery, stop, and cleanup to `houmao-mgr agents single --agent-id <id> ...` or `houmao-mgr agents single --agent-name <name> ...`
 
 ### Requirement: Agents external scope owns external-agent registry/reference onboarding
 `houmao-mgr agents external` SHALL expose maintained operations for bringing external agents into Houmao's shared registry as externally owned communication-only references.
@@ -909,3 +850,62 @@ An ordinary managed-agent mailbox send SHALL use the authorized sender binding a
 - **WHEN** the selected sender binding or transport refuses the operation or reports an uncertain outcome
 - **THEN** the CLI preserves the reported outcome and original sender binding
 - **AND THEN** it does not retry through another channel, switch credentials, or submit a different message
+### Requirement: Agents self scope operates on the verified current managed runtime
+`houmao-mgr agents self` SHALL expose maintained operations whose target is the caller's single verified local managed agent.
+
+At minimum, `agents self` SHALL expose:
+
+- `identity`
+- `state`
+- `prompt`
+- `interrupt`
+- `relaunch`
+- `gateway`
+- `mail`
+- `mailbox`
+- `memory`
+- `turn`
+
+`agents self` SHALL require a verified current identity established through a supported Houmao launch.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+Tmux-backed commands SHALL resolve the owning tmux session. Supported headless self commands SHALL accept their verified runtime-owned manifest locator without tmux.
+
+`agents self` commands SHALL NOT accept `--agent-id`, `--agent-name`, or `--current-session` because the target is the current managed-agent identity by definition.
+
+`agents self prompt` and `agents self interrupt` SHALL use the supported control path for the current managed session without accepting explicit agent selectors.
+
+`agents self relaunch` SHALL refresh the active tmux-backed surface for the caller's current managed session. It SHALL require resolvable current-session manifest authority. It SHALL NOT perform selected-agent registry lookup, stopped relaunchable-record revival, degraded/stale active-record recovery, or cross-session targeting.
+
+`agents self` SHALL NOT expose selected-agent lifecycle controls that terminate or clean up the caller's own tmux-backed runtime. In particular, `agents self stop` and `agents self cleanup` SHALL NOT be maintained public paths.
+
+#### Scenario: Self identity requires an existing managed runtime
+- **WHEN** an operator runs `houmao-mgr agents self identity` inside a manually started tmux session that lacks verified managed launch authority
+- **THEN** the command fails and explains that a verified managed runtime is required
+- **AND THEN** it leaves the manual process and its files untouched
+
+#### Scenario: Self command resolves current tmux identity
+- **WHEN** an agent runs `houmao-mgr agents self identity` inside its own registered managed tmux session
+- **THEN** the command locates the runtime manifest through the current session and verifies it
+- **AND THEN** the output reports the manifest's identity without requiring `--agent-id` or `--agent-name`
+
+#### Scenario: Self relaunch refreshes active current session
+- **WHEN** an agent runs `houmao-mgr agents self relaunch` inside its own registered managed tmux session
+- **THEN** the command resolves current-session manifest authority
+- **AND THEN** it refreshes the active tmux-backed primary surface for that current managed session
+- **AND THEN** it does not perform selected-agent stopped-record revival or degraded/stale registry recovery
+
+#### Scenario: Self command fails outside managed session
+- **WHEN** an operator runs `houmao-mgr agents self mail status` with no verified current managed runtime
+- **THEN** the command fails clearly
+- **AND THEN** the diagnostic explains what owning session or runtime-owned context is required
+
+#### Scenario: Self scope omits destructive lifecycle controls
+- **WHEN** an operator runs `houmao-mgr agents self --help`
+- **THEN** the help output lists current-session `prompt`, `interrupt`, and `relaunch`
+- **AND THEN** it omits manual adoption and destructive lifecycle commands `stop` and `cleanup`
+- **AND THEN** the documentation directs selected-agent stopped/degraded relaunch recovery, stop, and cleanup to `houmao-mgr agents single --agent-id <id> ...` or `houmao-mgr agents single --agent-name <name> ...`

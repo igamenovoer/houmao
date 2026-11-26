@@ -7,12 +7,11 @@ from typing import Any
 
 import pytest
 
-from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.agent_identity import (
     derive_agent_id_from_name,
     normalize_agent_identity_name,
 )
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
 from houmao.agents.realm_controller.launch_plan import (
     LaunchPlanRequest,
     build_launch_plan,
@@ -318,9 +317,12 @@ def test_resume_headless_requires_session_id(tmp_path: Path) -> None:
         )
 
 
+@pytest.mark.parametrize("explicit_null_adoption_fields", [True, False])
 def test_resume_local_interactive_uses_persisted_tmux_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    *,
+    explicit_null_adoption_fields: bool,
 ) -> None:
     agent_def_dir = tmp_path / "repo"
     agent_def_dir.mkdir(parents=True)
@@ -339,6 +341,9 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
             "tmux_pane_id": "%4",
         },
     )
+    if not explicit_null_adoption_fields:
+        for field in ("session_origin", "launch_args", "launch_env"):
+            del session_payload["agent_launch_authority"][field]
     session_path = tmp_path / "session-local-interactive.json"
     session_path.write_text(json.dumps(session_payload), encoding="utf-8")
 
@@ -371,67 +376,20 @@ def test_resume_local_interactive_uses_persisted_tmux_state(
     assert controller.launch_plan.backend == "local_interactive"
 
 
-def test_resume_local_interactive_ignores_join_window_name_without_a_saved_binding_name(
+def test_resume_rejects_retired_adoption_before_creating_backend(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    agent_def_dir = tmp_path / "repo"
-    agent_def_dir.mkdir(parents=True)
-    _, session_payload = _build_session_payload(
-        agent_def_dir,
-        tmp_path,
-        tool="claude",
-        backend="local_interactive",
-        backend_state={
-            "turn_index": 2,
-            "role_bootstrap_applied": True,
-            "working_directory": str(tmp_path),
-            "tmux_session_name": "HOUMAO-r",
-        },
-    )
-    session_payload["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
-    session_payload["launch_plan"]["metadata"]["tmux_window_name"] = "manual"
-    session_payload["agent_launch_authority"] = {
-        "backend": "local_interactive",
-        "tool": "claude",
-        "tmux_session_name": "HOUMAO-r",
-        "primary_window_index": "0",
-        "working_directory": str(tmp_path),
-        "posture_kind": "unavailable",
-        "session_origin": "joined_tmux",
-    }
-    if session_payload.get("tmux") is not None:
-        session_payload["tmux"]["primary_window_name"] = None
-    if session_payload.get("interactive") is not None:
-        session_payload["interactive"]["tmux_window_name"] = None
-    session_payload["backend_state"].pop("tmux_window_name", None)
-    session_path = tmp_path / "session-local-interactive-joined.json"
-    session_path.write_text(json.dumps(session_payload), encoding="utf-8")
-
-    captured: dict[str, Any] = {}
-
-    class _FakeLocalInteractiveSession(HeadlessInteractiveSession):
-        def __init__(self, **kwargs: Any) -> None:
-            captured.update(kwargs)
-            self.backend = "local_interactive"
-            self._state = kwargs["state"]
-
+    session_path = tmp_path / "manifest.json"
+    payload = {"schema_version": 6, "agent_launch_authority": {"session_origin": "joined_tmux"}}
+    session_path.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.LocalInteractiveSession",
-        _FakeLocalInteractiveSession,
-    )
-    monkeypatch.setattr(
-        "houmao.agents.realm_controller.runtime.RuntimeSessionController.ensure_gateway_capability",
-        lambda self: None,
+        "houmao.agents.realm_controller.runtime._create_backend_session",
+        lambda **_: pytest.fail("A retired runtime must never create a backend"),
     )
 
-    controller = resume_runtime_session(
-        agent_def_dir=agent_def_dir,
-        session_manifest_path=session_path,
-    )
-
-    assert captured["state"].tmux_window_name is None
-    assert controller.launch_plan.metadata["tmux_window_name"] is None
+    with pytest.raises(RetiredJoinedSessionError):
+        resume_runtime_session(session_manifest_path=session_path)
 
 
 def test_resume_unattended_local_interactive_reuses_plan_without_mutating_owned_files(

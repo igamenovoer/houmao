@@ -44,6 +44,7 @@ from ..mail_commands import (
     shadow_mail_result_for_request_reached,
 )
 from ..models import CaoParsingMode, LaunchPlan, SessionControlResult, SessionEvent
+from ..startup_rollback import current_runtime_startup
 from .cao_rx_monitor import (
     BlockedResult,
     CompletedResult,
@@ -1735,7 +1736,7 @@ class CaoRestSession:
             terminal = self._create_provider_terminal(session_name=session_name)
             self._tmux_window_name = terminal.name.strip() or None
         except (CaoApiError, BackendExecutionError, TimeoutError, OSError) as exc:
-            if created_session:
+            if created_session and current_runtime_startup() is None:
                 _cleanup_tmux_session(session_name)
             raise BackendExecutionError(f"Failed to start CAO session: {exc}") from exc
 
@@ -1791,12 +1792,22 @@ class CaoRestSession:
         """Create the CAO terminal while its owner-private bootstrap is installed."""
 
         with self._terminal_launch_environment(session_name=session_name):
-            return self._client.create_terminal(
+            terminal = self._client.create_terminal(
                 session_name,
                 provider=self._provider,
                 agent_profile=self._profile_name,
                 working_directory=str(self._plan.working_directory),
             )
+            startup = current_runtime_startup()
+            if startup is not None:
+                startup.add("new CAO terminal", lambda: self._rollback_terminal(terminal.id))
+            return terminal
+
+    def _rollback_terminal(self, terminal_id: str) -> None:
+        """Release the exact newly created CAO terminal."""
+
+        if not self._client.delete_terminal(terminal_id).success:
+            raise BackendExecutionError("CAO did not delete the new terminal")
 
     @contextmanager
     def _terminal_launch_environment(self, *, session_name: str) -> Iterator[None]:

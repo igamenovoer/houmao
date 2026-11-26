@@ -19,13 +19,6 @@ def tmux_window_name_from_manifest(
     backend_window = payload.backend_state.get("tmux_window_name")
     if isinstance(backend_window, str) and backend_window.strip():
         return backend_window.strip()
-    if (
-        payload.agent_launch_authority is not None
-        and payload.agent_launch_authority.session_origin == "joined_tmux"
-    ):
-        launch_window = payload.launch_plan.metadata.get("tmux_window_name")
-        if isinstance(launch_window, str) and launch_window.strip():
-            return launch_window.strip()
     return default
 
 

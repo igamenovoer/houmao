@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import subprocess
 import time
 import uuid
 
@@ -30,6 +31,10 @@ from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
     HeadlessTurnSettlementUnknown,
     SessionManifestError,
+)
+from houmao.agents.realm_controller.startup_rollback import (
+    current_runtime_startup,
+    stop_owned_startup_child,
 )
 from houmao.agents.realm_controller.manifest import commit_hermes_headless_completion
 from houmao.agents.realm_controller.models import (
@@ -76,9 +81,9 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
                 output_format="stream-json",
             )
         except BaseException:
-            if fresh:
-                with suppress(BackendExecutionError, OSError):
-                    self.m_daemon.stop()
+            if fresh and current_runtime_startup() is None and self.m_daemon.m_child is not None:
+                with suppress(OSError, subprocess.TimeoutExpired):
+                    stop_owned_startup_child(self.m_daemon.m_child)
             raise
 
     def send_prompt(

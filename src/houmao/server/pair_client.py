@@ -40,13 +40,17 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMemorySummaryV1,
 )
 from houmao.cao.models import CaoSuccessResponse
+from houmao.cao.rest_client import (
+    DEFAULT_CAO_CREATE_TIMEOUT_SECONDS,
+    DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS,
+)
 from houmao.agents.realm_controller.native_refresh_models import (
     CommonPluginObservationV1,
     NativeHomeV1,
     NativeRefreshRequestV1,
     NativeRefreshResultV1,
 )
-from houmao.server.client import HoumaoServerClient
+from houmao.server._http_transport import request_root, validate_root_model
 from houmao.server.models import (
     HoumaoCurrentInstance,
     HoumaoHeadlessTurnAcceptedResponse,
@@ -549,16 +553,20 @@ def resolve_pair_authority_client(
 ) -> PairAuthorityClientResolution:
     """Resolve one supported pair-authority client from `GET /health`."""
 
-    client_kwargs: dict[str, float] = {}
-    if timeout_seconds is not None:
-        client_kwargs["timeout_seconds"] = timeout_seconds
-    if create_timeout_seconds is not None:
-        client_kwargs["create_timeout_seconds"] = create_timeout_seconds
-
-    probe_client = HoumaoServerClient(base_url, **client_kwargs)
+    request_timeout = (
+        DEFAULT_CAO_REQUEST_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+    )
+    create_timeout = (
+        DEFAULT_CAO_CREATE_TIMEOUT_SECONDS
+        if create_timeout_seconds is None
+        else create_timeout_seconds
+    )
     try:
-        health = probe_client._request_root_model("GET", "/health", PairAuthorityHealthProbe)
-    except Exception as exc:  # pragma: no cover - transport-specific surface
+        response = request_root(
+            base_url.rstrip("/"), "GET", "/health", default_timeout_seconds=request_timeout
+        )
+        health = validate_root_model("GET", response, PairAuthorityHealthProbe)
+    except Exception as exc:
         raise PairAuthorityConnectionError(base_url=base_url, cause=exc) from exc
 
     if health.houmao_service == "houmao-passive-server":
@@ -567,8 +575,8 @@ def resolve_pair_authority_client(
         return PairAuthorityClientResolution(
             client=PassiveServerClient(
                 base_url,
-                timeout_seconds=probe_client.timeout_seconds,
-                create_timeout_seconds=probe_client.create_timeout_seconds,
+                timeout_seconds=request_timeout,
+                create_timeout_seconds=create_timeout,
             ),
             health=health,
         )

@@ -10,7 +10,7 @@ import pytest
 
 from houmao.agents.launch_policy import LaunchPolicyProvenance
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
     build_session_manifest_payload,
@@ -122,7 +122,10 @@ def _sample_houmao_plan(tmp_path: Path) -> LaunchPlan:
     )
 
 
-def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
+@pytest.mark.parametrize("explicit_null_adoption_fields", [True, False])
+def test_session_manifest_write_and_load_round_trip(
+    tmp_path: Path, *, explicit_null_adoption_fields: bool
+) -> None:
     plan = _sample_plan(tmp_path)
     payload = build_session_manifest_payload(
         SessionManifestRequest(
@@ -145,9 +148,17 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
         )
     )
 
+    adoption_fields = ("session_origin", "launch_args", "launch_env")
+    assert all(payload["agent_launch_authority"][field] is None for field in adoption_fields)
+    if not explicit_null_adoption_fields:
+        for field in adoption_fields:
+            del payload["agent_launch_authority"][field]
+
     path = tmp_path / "session.json"
-    write_session_manifest(path, payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
     loaded = load_session_manifest(path)
+    write_session_manifest(path, payload)
+    assert load_session_manifest(path) == loaded
 
     assert loaded.path == path
     assert loaded.payload["schema_version"] == 6
@@ -175,6 +186,7 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
     assert loaded.payload["agent_launch_authority"]["primary_window_index"] == "0"
     assert loaded.payload["agent_launch_authority"]["primary_window_id"] == "@7"
     assert loaded.payload["agent_launch_authority"]["primary_pane_id"] == "%7"
+    assert all(loaded.payload["agent_launch_authority"][field] is None for field in adoption_fields)
     assert loaded.payload["headless"]["session_id"] == "sess-1"
     assert loaded.payload["backend_state"]["tmux_session_name"] == "HOUMAO-claude"
     assert loaded.payload["launch_policy_provenance"]["selected_strategy_id"] == (
@@ -191,6 +203,68 @@ def test_session_manifest_write_and_load_round_trip(tmp_path: Path) -> None:
         "source": "launch_plan.role_injection.prompt",
     }
     assert "secret" not in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("headless", [False, True], ids=["tui", "headless"])
+def test_retired_joined_manifest_cannot_be_loaded_or_written(
+    tmp_path: Path, *, headless: bool
+) -> None:
+    plan = _sample_plan(tmp_path) if headless else _sample_local_interactive_plan(tmp_path)
+    native = build_session_manifest_payload(
+        SessionManifestRequest(
+            launch_plan=plan,
+            role_name="gpu-kernel-coder",
+            brain_manifest_path=tmp_path / "brain.yaml",
+            **_identity_fields("HOUMAO-claude"),
+            backend_state={"tmux_window_id": "@7", "tmux_pane_id": "%7"},
+        )
+    )
+    retired = deepcopy(native)
+    authority = retired["agent_launch_authority"]
+    authority["session_origin"] = "joined_tmux"
+    authority["posture_kind"] = "headless_launch_options" if headless else "unavailable"
+    if headless:
+        authority["launch_args"] = ["-p"]
+    retired["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
+
+    new_path = tmp_path / "new" / "manifest.json"
+    with pytest.raises(RetiredJoinedSessionError, match="fresh supported managed launch"):
+        write_session_manifest(new_path, retired)
+    assert not new_path.parent.exists()
+
+    path = tmp_path / "manifest.json"
+    stored = json.dumps(retired)
+    path.write_text(stored, encoding="utf-8")
+    with pytest.raises(RetiredJoinedSessionError, match="owning Houmao release") as rejected:
+        load_session_manifest(path)
+    assert rejected.value.agent_id == native["agent_id"]
+    assert rejected.value.agent_name == native["agent_name"]
+    assert rejected.value.brain_manifest_path == str(tmp_path / "brain.yaml")
+    assert rejected.value.home_path == str(plan.home_path)
+    with pytest.raises(RetiredJoinedSessionError):
+        write_session_manifest(path, native)
+    assert list(tmp_path.iterdir()) == [path]
+    assert path.read_text(encoding="utf-8") == stored
+
+
+@pytest.mark.parametrize("marker", ["authority", "metadata"])
+def test_partial_manifest_still_reports_retired_adoption(marker: str) -> None:
+    launch_plan = {
+        "mailboxes": {
+            "offline": {"binding": {"credential_ref": "archive-ref"}},
+            "online": {"binding": None},
+        }
+    }
+    payload = {"schema_version": 6, "launch_plan": launch_plan}
+    if marker == "authority":
+        payload["agent_launch_authority"] = {"session_origin": "joined_tmux"}
+    else:
+        launch_plan["metadata"] = {"session_origin": "joined_tmux"}
+
+    with pytest.raises(RetiredJoinedSessionError) as rejected:
+        parse_session_manifest_payload(payload, source="legacy fixture")
+    assert rejected.value.mailbox_credential_refs == ("archive-ref",)
+    assert "archive-ref" not in str(rejected.value)
 
 
 def test_codex_service_manifest_requires_current_owner_binding(tmp_path: Path) -> None:

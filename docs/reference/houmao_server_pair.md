@@ -11,7 +11,7 @@ houmao-passive-server serve --port 9891
 
 ## What Replaced It
 
-`houmao-mgr` remains the primary local management CLI for project overlays, agent launch and join, gateway attach, mailbox workflows, credentials, cleanup, and system-skill installation.
+`houmao-mgr` remains the primary local management CLI for project overlays, managed agent launch, gateway attach, mailbox workflows, credentials, cleanup, and system-skill installation.
 
 `houmao-passive-server` is the maintained server/API authority. It discovers running agents from the shared registry, observes local tmux-backed agents, proxies to attached gateways, exposes mailbox and memory proxy routes, and can own native headless agents with durable turn records.
 
@@ -36,7 +36,6 @@ Use these replacements for current workflows:
 |---|---|
 | Start the server API | `houmao-passive-server serve --port 9891` |
 | Launch a local managed agent | `houmao-mgr project agents launch ...` |
-| Adopt an existing tmux agent | `houmao-mgr agents self join ...` |
 | Attach or inspect a gateway on the owning host | `houmao-mgr agents single ... gateway ...` or `houmao-mgr agents self gateway ...` |
 | Inspect or prompt through a server API authority | `houmao-mgr agents single ... state|prompt|mail|turn ... --port 9891` or passive-server `/houmao/agents/*` routes |
 | Manage passive-server-owned headless turns | `houmao-mgr agents single ... turn ... --port 9891` or `/houmao/agents/{agent_ref}/turns` |

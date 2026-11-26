@@ -116,25 +116,13 @@ def _manifest(
     return path, payload
 
 
-def test_primary_selector_preserves_owned_and_joined_contracts(tmp_path: Path) -> None:
-    """A saved owned pane can have a nonzero index and a joined pane uses index zero."""
+def test_primary_selector_preserves_owned_pane_at_nonzero_index(tmp_path: Path) -> None:
+    """The primary pane is identified by its saved handles within window zero."""
 
     binding = _saved_binding(tmp_path)
     owned = _pane()
     auxiliary = _pane(pane_id="%9", window_id="@2", window_index="1", pane_active=True)
     assert select_primary_tmux_surface(binding, (owned, auxiliary)).pane == owned
-
-    joined = _pane(pane_index="0")
-    assert select_primary_tmux_surface(binding, (joined, auxiliary), joined=True).pane == joined
-    assert (
-        select_primary_tmux_surface(binding, (owned, auxiliary), joined=True).state
-        == "missing_pane"
-    )
-    renamed = replace(joined, window_name="other")
-    assert (
-        select_primary_tmux_surface(binding, (renamed, auxiliary), joined=True).state
-        == "missing_pane"
-    )
 
 
 def test_primary_selector_distinguishes_inconclusive_surfaces(tmp_path: Path) -> None:
@@ -305,11 +293,11 @@ def test_gateway_identity_requires_valid_canonical_primary(
     monkeypatch.setattr(adapter, "inspect_target", lambda: target)
     pane = _pane()
 
-    def observe(selected: SessionManifestTmuxSectionV1, *, joined: bool) -> PrimaryTmuxObservation:
+    def observe(selected: SessionManifestTmuxSectionV1) -> PrimaryTmuxObservation:
         """Verify the gateway uses the saved owner scope and one primary observation."""
 
         assert current_tmux_socket_path() == binding.socket_path
-        return select_primary_tmux_surface(selected, (pane,), joined=joined)
+        return select_primary_tmux_surface(selected, (pane,))
 
     monkeypatch.setattr(gateway_service, "observe_primary_tmux", observe)
     with tmux_server_scope(tmp_path / "unrelated.sock"):

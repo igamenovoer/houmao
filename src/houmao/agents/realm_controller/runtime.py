@@ -102,6 +102,7 @@ from houmao.agents.realm_controller.runtime_launch_environment import (
     write_runtime_launch_environment,
 )
 from houmao.agents.realm_controller.owner_admission import (
+    _owner_operation_gate,
     guard_owner_operation,
     owner_operation_guard_exists,
     owner_process_has_exited,
@@ -172,7 +173,6 @@ from .backends.tmux_runtime import (
     TmuxPaneRecord,
     list_tmux_sessions as list_tmux_sessions_shared,
     overlay_tmux_rich_color_environment,
-    read_tmux_session_environment_value as read_tmux_session_environment_value_shared,
     set_tmux_session_environment as set_tmux_session_environment_shared,
     show_tmux_environment as show_tmux_environment_shared,
     tmux_error_detail as tmux_error_detail_shared,
@@ -190,6 +190,7 @@ from .errors import (
     GatewayUnsupportedBackendError,
     LaunchPlanError,
     LaunchPolicyResolutionError,
+    RetiredJoinedSessionError,
     SessionManifestError,
 )
 from .gateway_client import GatewayClient, GatewayEndpoint
@@ -266,7 +267,17 @@ from .launch_plan import (
     validate_dsh_launch_version,
     validate_kimi_web_launch_version,
 )
-from houmao.agents.realm_controller.run_modes import RunMode, mode_for_backend, resolve_run_mode
+from houmao.agents.realm_controller.run_modes import (
+    RUNTIME_OWNED_TMUX_BACKENDS,
+    RunMode,
+    gateway_backend_capabilities,
+    mode_for_backend,
+    resolve_run_mode,
+)
+from houmao.agents.realm_controller.startup_rollback import (
+    current_runtime_startup,
+    runtime_startup_scope,
+)
 from houmao.agents.realm_controller.managed_control import (
     ManagedControlCapabilitiesV1,
     ManagedControlObservationV1,
@@ -347,63 +358,12 @@ from houmao.mailbox.managed import (
     register_mailbox,
 )
 
-_TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
-    {
-        "local_interactive",
-        "codex_headless",
-        "codex_app_server",
-        "claude_headless",
-        "kimi_headless",
-        "kimi_acp",
-        "dsh_headless",
-        "dsh_acp",
-        "dsh_web",
-        "hermes_headless",
-        "hermes_service",
-        "hermes_tui",
-        "kimi_web",
-        "cao_rest",
-    }
-)
-# Keep this narrow allowlist aligned with `_build_gateway_execution_adapter()`.
-_GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
-    "local_interactive",
-    "codex_headless",
-    "codex_app_server",
-    "claude_headless",
-    "kimi_headless",
-    "kimi_acp",
-    "dsh_headless",
-    "dsh_acp",
-    "dsh_web",
-    "hermes_headless",
-    "hermes_service",
-    "hermes_tui",
-    "kimi_web",
-    "cao_rest",
-)
-_STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
-    {
-        "local_interactive",
-        "codex_headless",
-        "codex_app_server",
-        "claude_headless",
-        "kimi_headless",
-        "kimi_acp",
-        "dsh_headless",
-        "dsh_acp",
-        "dsh_web",
-        "hermes_headless",
-        "hermes_service",
-        "hermes_tui",
-        "kimi_web",
-    }
-)
+_TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(RUNTIME_OWNED_TMUX_BACKENDS)
+_STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = _TMUX_BACKED_BACKENDS - {"cao_rest"}
 _PRIMARY_AGENT_WINDOW_INDEX = "0"
 _GATEWAY_AUXILIARY_WINDOW_NAME = "gateway"
 _GATEWAY_EXECUTION_MODE_ENV_VAR = "HOUMAO_GATEWAY_EXECUTION_MODE"
 _BRAIN_ONLY_ROLE_NAME = "brain-only"
-_JOINED_SESSION_ORIGIN = "joined_tmux"
 _LOGGER = logging.getLogger(__name__)
 _OWNER_MAINTENANCE_GUARDED_OPERATIONS = frozenset(
     {
@@ -701,7 +661,7 @@ def _execution_scoped_start(
             allow_start = not (
                 socket_path == current_tmux_socket_path() and current_tmux_allow_start() is False
             )
-        with tmux_server_scope(socket_path, allow_start=allow_start):
+        with tmux_server_scope(socket_path, allow_start=allow_start), runtime_startup_scope():
             return operation(*args, **kwargs)
 
     return bound
@@ -892,7 +852,7 @@ class RuntimeSessionController:
             or authority.registry_generation_id is None
         ):
             raise SessionManifestError("Managed terminal owner or primary binding changed")
-        live = observe_primary_tmux(expected_binding, joined=_is_joined_tmux_manifest(authority))
+        live = observe_primary_tmux(expected_binding)
         candidate = live.replacement
         if candidate is None or (
             candidate.session_id,
@@ -2270,6 +2230,7 @@ def start_runtime_session(
     launch_env_overrides: dict[str, str] | None = None,
     managed_force_mode: ManagedLaunchForceMode | None = None,
     registry_launch_authority: RegistryLaunchAuthorityV1 = "runtime",
+    publish_external_startup: Callable[[RuntimeSessionController], None] | None = None,
 ) -> RuntimeSessionController:
     """Start a new runtime session and persist its session manifest."""
 
@@ -2277,6 +2238,10 @@ def start_runtime_session(
         raise SessionManifestError(
             "backend='houmao_server_rest' is retired. Use maintained local/headless "
             "manager workflows or `houmao-passive-server` API-managed launches instead."
+        )
+    if publish_external_startup is not None and registry_launch_authority != "external":
+        raise SessionManifestError(
+            "External startup publication requires external registry authority."
         )
     if (gateway_host is not None or gateway_port is not None) and not gateway_auto_attach:
         raise SessionManifestError(
@@ -2343,9 +2308,8 @@ def start_runtime_session(
         effective_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
-    if (
-        mode_for_backend(selected_backend) in {"web", "service"} or selected_backend == "hermes_tui"
-    ) and (
+    gateway_capabilities = gateway_backend_capabilities(selected_backend)
+    if not gateway_capabilities.runtime_launch_timings and (
         cao_parsing_mode is not None
         or headless_display_style is not None
         or headless_display_detail is not None
@@ -2354,11 +2318,11 @@ def start_runtime_session(
             and gateway_tui_tracking_timing_overrides.has_values()
         )
     ):
-        if mode_for_backend(selected_backend) == "web":
+        if gateway_capabilities.mode == "web":
             raise SessionManifestError(
                 "Web mode does not support terminal parser, display, or timing controls."
             )
-        if selected_backend == "hermes_tui":
+        if gateway_capabilities.structured_tui:
             raise SessionManifestError(
                 "Hermes TUI uses native control and does not support terminal parser, display, "
                 "or timing controls."
@@ -2366,7 +2330,7 @@ def start_runtime_session(
         raise SessionManifestError(
             "Managed service mode does not support terminal parser, display, or timing controls."
         )
-    if selected_backend in {"dsh_headless", "dsh_acp", "dsh_web"}:
+    if tool == "dsh":
         executable = manifest["runtime"].get("launch_executable")
         if not isinstance(executable, str) or not executable.strip():
             raise LaunchPlanError("DSH brain manifest is missing runtime.launch_executable.")
@@ -2442,8 +2406,11 @@ def start_runtime_session(
         manifest, source=str(brain_manifest_path)
     )
     manifest_path = default_manifest_path(
-        effective_runtime_root, selected_backend, session_id
-    ).resolve()
+        effective_runtime_root.resolve(), selected_backend, session_id
+    )
+    startup = current_runtime_startup()
+    assert startup is not None
+    startup.create_directory(manifest_path.parent)
     overrides = {
         "transport_override": mailbox_transport,
         "filesystem_root_override": mailbox_root,
@@ -2572,6 +2539,11 @@ def start_runtime_session(
     )
     if registry_generation_id is not None:
         assert launch_plan.execution_binding is not None
+        startup.watch_registry_publication(
+            registry_root=launch_plan.execution_binding.registry_root,
+            manifest_path=manifest_path,
+            generation_id=registry_generation_id,
+        )
         gateway_admin_seed = gateway_admin_seed or GatewayLaunchSeed()
         provision_gateway_generation(
             binding=launch_plan.execution_binding,
@@ -2583,7 +2555,7 @@ def start_runtime_session(
         raise SessionManifestError(
             "Gateway admin seeding requires a managed gateway-capable backend."
         )
-    if mode_for_backend(selected_backend) == "web":
+    if gateway_capabilities.mode == "web":
         launch_plan = replace(
             launch_plan,
             metadata={
@@ -2608,25 +2580,21 @@ def start_runtime_session(
         launch_plan,
         session_root=hook_observation_root,
     )
-    try:
-        backend_session = _create_backend_session(
-            launch_plan=launch_plan,
-            role_name=role_package.role_name,
-            role_prompt=role_package.system_prompt,
-            agent_def_dir=agent_def_dir,
-            api_base_url=api_base_url,
-            cao_profile_store_dir=cao_profile_store_dir,
-            session_manifest_path=manifest_path,
-            agent_identity=(
-                resolved_runtime_identity.tmux_session_name
-                if resolved_runtime_identity is not None
-                else None
-            ),
-            cao_parsing_mode=cao_parsing_mode,
-        )
-    except BaseException:
-        stop_hook_observation(hook_observation_root, tool=launch_plan.tool)
-        raise
+    backend_session = _create_backend_session(
+        launch_plan=launch_plan,
+        role_name=role_package.role_name,
+        role_prompt=role_package.system_prompt,
+        agent_def_dir=agent_def_dir,
+        api_base_url=api_base_url,
+        cao_profile_store_dir=cao_profile_store_dir,
+        session_manifest_path=manifest_path,
+        agent_identity=(
+            resolved_runtime_identity.tmux_session_name
+            if resolved_runtime_identity is not None
+            else None
+        ),
+        cao_parsing_mode=cao_parsing_mode,
+    )
 
     resolved_tmux_session_name: str | None = None
     resolved_parsing_mode: CaoParsingMode | None = None
@@ -2668,29 +2636,28 @@ def start_runtime_session(
         registry_launch_authority=registry_launch_authority,
         agent_launch_authority=None,
     )
-    try:
-        controller.persist_manifest(refresh_registry=False)
-        controller.ensure_gateway_capability(
-            blueprint_gateway_defaults=resolved_gateway_defaults,
-        )
-    except Exception:
-        if launch_plan.tool == "hermes":
-            try:
-                rollback = backend_session.terminate()
-                if rollback.status != "ok":
-                    _LOGGER.warning("Hermes startup cleanup failed: %s", rollback.detail)
-            except Exception:
-                _LOGGER.exception("Hermes startup cleanup failed")
-        raise
+    if registry_generation_id is not None and resolved_tmux_session_name is not None:
+        startup.hold(_owner_operation_gate(manifest_path))
+    controller.persist_manifest(refresh_registry=False)
+    controller.ensure_gateway_capability(
+        blueprint_gateway_defaults=resolved_gateway_defaults,
+    )
+    if publish_external_startup is not None:
+        publish_external_startup(controller)
+    startup.commit()
     if gateway_auto_attach:
-        attach_result = controller.attach_gateway(
-            host_override=gateway_host,
-            port_override=gateway_port,
-            execution_mode_override=gateway_execution_mode_override,
-            tui_tracking_timing_overrides=gateway_tui_tracking_timing_overrides,
-            plugin_config=gateway_plugins,
-            access_config=gateway_access_config,
-        )
+        try:
+            attach_result = controller.attach_gateway(
+                host_override=gateway_host,
+                port_override=gateway_port,
+                execution_mode_override=gateway_execution_mode_override,
+                tui_tracking_timing_overrides=gateway_tui_tracking_timing_overrides,
+                plugin_config=gateway_plugins,
+                access_config=gateway_access_config,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            controller.gateway_auto_attach_error = str(exc) or type(exc).__name__
+            return controller
         if attach_result.status == "error":
             controller.gateway_auto_attach_error = attach_result.detail
         else:
@@ -2724,8 +2691,7 @@ def resolve_agent_identity(
 
     if is_path_like_agent_identity(agent_identity):
         manifest_path = _resolve_manifest_path(agent_identity, base=base)
-        if not manifest_path.is_file():
-            raise SessionManifestError(f"Session manifest not found: {manifest_path}")
+        load_session_manifest(manifest_path)
         return AgentIdentityResolution(
             session_manifest_path=manifest_path.resolve(), agent_def_dir=explicit_agent_def_dir
         )
@@ -2745,6 +2711,8 @@ def resolve_agent_identity(
             explicit_agent_def_dir=explicit_agent_def_dir,
             warnings=normalized.warnings,
         )
+    except RetiredJoinedSessionError:
+        raise
     except SessionManifestError as exc:
         tmux_resolution_error = exc
 
@@ -2880,11 +2848,7 @@ def _resume_runtime_session_controller(
         launch_metadata["tmux_socket_path"] = tmux_binding.socket_path
     launch_plan = replace(launch_plan, metadata=launch_metadata)
     launch_plan = _launch_plan_with_memory(launch_plan, memory=memory)
-    if (
-        launch_plan.public_env is None
-        and launch_plan.execution_binding is not None
-        and not _is_joined_tmux_manifest(manifest_payload)
-    ):
+    if launch_plan.public_env is None and launch_plan.execution_binding is not None:
         # Older private records lack visibility provenance. Keep their values in the
         # native process environment and rebuild only the verified discovery bindings.
         private_names = frozenset(launch_plan.env).difference(
@@ -3292,7 +3256,6 @@ def _resume_headless_state(
         tmux_pane_id=None if stopped_revival else binding.primary_pane_id,
         resume_selection_kind=headless.resume_selection_kind,
         resume_selection_value=headless.resume_selection_value,
-        joined_session=_is_joined_tmux_manifest(payload),
     )
 
 
@@ -3332,7 +3295,6 @@ def _resume_local_interactive_state(
         tmux_window_name=binding.primary_window_name,
         tmux_window_id=None if stopped_revival else binding.primary_window_id,
         tmux_pane_id=None if stopped_revival else binding.primary_pane_id,
-        joined_session=_is_joined_tmux_manifest(payload),
     )
 
 
@@ -3426,17 +3388,6 @@ def _manifest_pair_managed_agent_ref(
     return None
 
 
-def _is_joined_tmux_manifest(
-    payload: SessionManifestPayloadV4,
-) -> bool:
-    """Return whether one manifest payload describes a joined tmux session."""
-
-    return (
-        payload.agent_launch_authority is not None
-        and payload.agent_launch_authority.session_origin == _JOINED_SESSION_ORIGIN
-    )
-
-
 def persist_runtime_launch_inputs(launch_plan: LaunchPlan, *, session_root: Path) -> LaunchPlan:
     """Capture the selected private environment for the new live runtime."""
 
@@ -3474,8 +3425,6 @@ def _restore_runtime_launch_plan(
     saved = payload.launch_plan
     metadata = dict(saved.metadata)
     metadata.pop("env_source_file", None)
-    if _is_joined_tmux_manifest(payload):
-        metadata.setdefault("session_origin", _JOINED_SESSION_ORIGIN)
     environment = {saved.home_selector.env_var: saved.home_selector.home_path}
     transient_names: frozenset[str] = frozenset()
     public_env: dict[str, str] | None = None
@@ -3528,83 +3477,6 @@ def _restore_runtime_launch_plan(
         if provenance is not None
         else None,
     )
-
-
-def _build_joined_launch_plan_from_manifest_payload(
-    *,
-    payload: SessionManifestPayloadV4,
-    role_package: RolePackage,
-    mailboxes: MailboxesResolvedConfig,
-) -> LaunchPlan:
-    """Rebuild a join-derived launch plan from the persisted session manifest."""
-
-    if payload.agent_launch_authority is None:
-        raise SessionManifestError("Joined-session resume requires v4 agent_launch_authority data.")
-    authority = payload.agent_launch_authority
-    if authority.session_origin != _JOINED_SESSION_ORIGIN:
-        raise SessionManifestError("Joined-session resume requires session_origin=joined_tmux.")
-
-    launch_payload = payload.launch_plan
-    env = _resolve_joined_launch_env_values(
-        authority=authority,
-        tmux_session_name=authority.tmux_session_name,
-    )
-    metadata = dict(launch_payload.metadata)
-    metadata.setdefault("session_origin", _JOINED_SESSION_ORIGIN)
-    return LaunchPlan(
-        backend=launch_payload.backend,
-        native_surface_kind=launch_payload.native_surface_kind,
-        tool=launch_payload.tool,
-        executable=launch_payload.executable,
-        args=list(launch_payload.args),
-        working_directory=Path(launch_payload.working_directory).resolve(),
-        home_env_var=launch_payload.home_selector.env_var,
-        home_path=Path(launch_payload.home_selector.home_path).resolve(),
-        env=env,
-        env_var_names=list(launch_payload.env_var_names),
-        role_injection=RoleInjectionPlan(
-            method=launch_payload.role_injection.method,
-            role_name=launch_payload.role_injection.role_name,
-            prompt=role_package.system_prompt,
-            bootstrap_message=(
-                role_package.system_prompt
-                if launch_payload.role_injection.method == "bootstrap_message"
-                else None
-            ),
-        ),
-        metadata=metadata,
-        mailboxes=mailboxes,
-        launch_policy_provenance=None,
-    )
-
-
-def _resolve_joined_launch_env_values(
-    *,
-    authority: SessionManifestAgentLaunchAuthorityV1,
-    tmux_session_name: str | None,
-) -> dict[str, str]:
-    """Resolve persisted joined-session launch env bindings into concrete values."""
-
-    resolved: dict[str, str] = {}
-    for binding in authority.launch_env or ():
-        if binding.mode == "literal":
-            resolved[binding.name] = binding.value
-            continue
-        if tmux_session_name is None or not tmux_session_name.strip():
-            raise SessionManifestError(
-                f"Joined relaunch requires tmux session authority to resolve `{binding.name}`."
-            )
-        value = read_tmux_session_environment_value_shared(
-            session_name=tmux_session_name,
-            variable_name=binding.name,
-        )
-        if value is None or not value.strip():
-            raise SessionManifestError(
-                "Joined relaunch could not resolve inherited launch env "
-                f"`{binding.name}` from tmux session `{tmux_session_name}`."
-            )
-        resolved[binding.name] = value
-    return resolved
 
 
 def _optional_non_empty_backend_value(value: object) -> str | None:
@@ -4333,21 +4205,7 @@ def _launch_plan_with_headless_display_controls(
 def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
     """Return whether one backend relaunch must rebuild provider-start state."""
 
-    return backend in {
-        "local_interactive",
-        "codex_headless",
-        "codex_app_server",
-        "claude_headless",
-        "kimi_headless",
-        "kimi_acp",
-        "dsh_headless",
-        "dsh_acp",
-        "dsh_web",
-        "hermes_headless",
-        "hermes_service",
-        "hermes_tui",
-        "kimi_web",
-    }
+    return backend in _STOPPED_SESSION_RELAUNCH_BACKENDS
 
 
 def _backend_supports_stopped_session_relaunch(backend: BackendKind) -> bool:
@@ -4360,46 +4218,6 @@ def _build_provider_start_launch_plan_for_relaunch(
     controller: RuntimeSessionController,
 ) -> LaunchPlan:
     """Rebuild a provider-start launch plan for one local tmux-backed relaunch."""
-
-    if controller.agent_launch_authority is not None:
-        authority = controller.agent_launch_authority
-        if authority.session_origin == _JOINED_SESSION_ORIGIN:
-            if authority.posture_kind == "unavailable":
-                raise SessionManifestError(
-                    "Joined-session relaunch is unavailable because no launch options were recorded."
-                )
-            if controller.agent_def_dir is None:
-                raise SessionManifestError(
-                    "Joined-session relaunch requires a persisted agent-definition directory."
-                )
-            handle = load_session_manifest(controller.manifest_path)
-            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-            role_package = load_role_package(controller.agent_def_dir, controller.role_name)
-            updated_launch_plan = _build_joined_launch_plan_from_manifest_payload(
-                payload=payload,
-                role_package=role_package,
-                mailboxes=_resolved_mailbox_from_manifest_payload(
-                    payload,
-                    session_manifest_path=controller.manifest_path,
-                ),
-            )
-            if updated_launch_plan.tool == "kimi":
-                reject_kimi_config_env(updated_launch_plan.env, source="Joined launch environment")
-                updated_launch_plan = _resolve_managed_launch_environment(
-                    _preserve_controller_execution_authority(controller, updated_launch_plan),
-                    root_context={},
-                    agent_id=controller.agent_id,
-                    manifest_path=controller.manifest_path,
-                    agent_def_dir=controller.agent_def_dir,
-                )
-            updated_launch_plan = _launch_plan_with_memory(
-                updated_launch_plan,
-                memory=_memory_from_controller(controller),
-            )
-            return persist_runtime_launch_inputs(
-                _preserve_controller_execution_authority(controller, updated_launch_plan),
-                session_root=controller.manifest_path.parent,
-            )
 
     if controller.agent_def_dir is None:
         raise SessionManifestError(
@@ -4890,6 +4708,8 @@ def _resolve_agent_identity_from_tmux_local(
             explicit_agent_def_dir=explicit_agent_def_dir,
             warnings=warnings,
         )
+    except RetiredJoinedSessionError:
+        raise
     except (SessionManifestError, _TmuxLocalDiscoveryUnavailableError) as exc:
         direct_error = exc
 
@@ -4901,6 +4721,10 @@ def _resolve_agent_identity_from_tmux_local(
         raise SessionManifestError("Agent-name resolution requires `tmux` on PATH.") from exc
 
     matches: list[tuple[str, Path, SessionManifestPayloadV4]] = []
+    selected_names = {
+        canonical_agent_identity,
+        canonical_agent_identity.removeprefix(AGENT_NAMESPACE_PREFIX),
+    }
     for session_name in session_names:
         try:
             manifest_path = _resolve_manifest_path_from_tmux_session(session_name=session_name)
@@ -4908,6 +4732,10 @@ def _resolve_agent_identity_from_tmux_local(
                 load_session_manifest(manifest_path).payload,
                 source=str(manifest_path),
             )
+        except RetiredJoinedSessionError as exc:
+            if exc.agent_name in selected_names:
+                raise
+            continue
         except (SessionManifestError, _TmuxLocalDiscoveryUnavailableError):
             continue
         if payload.backend not in _TMUX_BACKED_BACKENDS:
@@ -5409,11 +5237,9 @@ def _attach_gateway_for_controller(
         Structured attach outcome for CLI and API callers.
     """
 
-    if controller.launch_plan.backend not in _GATEWAY_ATTACH_SUPPORTED_BACKENDS:
+    if controller.launch_plan.backend not in _TMUX_BACKED_BACKENDS:
         paths = _require_gateway_paths_for_controller(controller)
-        supported_backends = ", ".join(
-            repr(backend) for backend in _GATEWAY_ATTACH_SUPPORTED_BACKENDS
-        )
+        supported_backends = ", ".join(repr(backend) for backend in RUNTIME_OWNED_TMUX_BACKENDS)
         detail = (
             "Gateway attach is only implemented for runtime-owned tmux-backed backends "
             f"{{{supported_backends}}} in v1, got "
@@ -5427,11 +5253,9 @@ def _attach_gateway_for_controller(
         )
 
     paths = _require_gateway_paths_for_controller(controller)
+    gateway_capabilities = gateway_backend_capabilities(controller.launch_plan.backend)
     if (
-        (
-            mode_for_backend(controller.launch_plan.backend) == "web"
-            or controller.launch_plan.backend == "hermes_tui"
-        )
+        not gateway_capabilities.attach_timings
         and tui_tracking_timing_overrides is not None
         and tui_tracking_timing_overrides.has_values()
     ):
@@ -5440,7 +5264,7 @@ def _attach_gateway_for_controller(
             action="gateway_attach",
             detail=(
                 "Hermes TUI does not support terminal tracking timing controls."
-                if controller.launch_plan.backend == "hermes_tui"
+                if gateway_capabilities.structured_tui
                 else "DSH Web does not support terminal tracking timing controls."
             ),
             gateway_root=str(paths.gateway_root),
@@ -6165,10 +5989,9 @@ def _launch_same_session_gateway_window(
         host=host,
         port=port,
         tui_tracking_timings=(
-            None
-            if mode_for_backend(controller.launch_plan.backend) == "web"
-            or controller.launch_plan.backend == "hermes_tui"
-            else tui_tracking_timings
+            tui_tracking_timings
+            if gateway_backend_capabilities(controller.launch_plan.backend).attach_timings
+            else None
         ),
     )
     try:
@@ -6442,8 +6265,7 @@ def _start_gateway_process(
             str(port),
             *(
                 _gateway_tui_tracking_timing_cli_args(tui_tracking_timings)
-                if mode_for_backend(controller.launch_plan.backend) != "web"
-                and controller.launch_plan.backend != "hermes_tui"
+                if gateway_backend_capabilities(controller.launch_plan.backend).attach_timings
                 else ()
             ),
         ],

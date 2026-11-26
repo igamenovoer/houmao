@@ -87,6 +87,7 @@ from houmao.agents.system_skills import (
     parse_system_skill_selection_policy,
 )
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR, AgentIdMode
+from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.gateway_models import (
     GatewayCurrentExecutionMode,
     GatewayTuiTrackingTimingOverridesV1,
@@ -101,9 +102,7 @@ from houmao.agents.realm_controller.gateway_storage import (
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
-    TmuxPaneRecord,
     attach_tmux_session as attach_tmux_session_shared,
-    list_tmux_panes,
 )
 from houmao.agents.realm_controller.backends.headless_output import (
     HeadlessDisplayDetail,
@@ -120,7 +119,12 @@ from houmao.agents.realm_controller.native_surface import (
     TerminalNativeSurfaceV1,
     WebNativeSurfaceV1,
 )
-from houmao.agents.realm_controller.run_modes import RUN_MODES, RunMode, resolve_run_mode
+from houmao.agents.realm_controller.run_modes import (
+    RUN_MODES,
+    RunMode,
+    gateway_backend_capabilities,
+    resolve_run_mode,
+)
 from houmao.agents.realm_controller.loaders import load_brain_manifest
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
@@ -135,8 +139,6 @@ from houmao.agents.realm_controller.errors import (
     SessionManifestError,
 )
 from houmao.agents.realm_controller.models import (
-    HeadlessResumeSelection,
-    JoinedLaunchEnvBinding,
     RelaunchChatSessionSelection,
 )
 from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
@@ -166,14 +168,12 @@ from houmao.project.launch_profiles import (
     profile_run_mode,
     resolve_launch_profile,
 )
-from houmao.server.tui.process import PaneProcessInspector
 
 from .access import self_access_group, single_access_group
 from .files import self_files_group, single_files_group
 from .cleanup import cleanup_group
 from .external import external_group
 from .gateway import (
-    _require_current_tmux_session_name,
     gateway_group,
     web_entry_gateway_command,
 )
@@ -185,7 +185,6 @@ from .self_identity import identity_from_manifest
 from .turn import turn_group
 from .workspace import memory_group
 from .instance_state import admin_instance_state_group, self_instance_state_group
-from ..runtime_artifacts import JoinedSessionArtifacts, materialize_joined_launch
 from ..common import (
     ManagedAgentScopeContext,
     get_managed_agent_scope_context,
@@ -302,6 +301,15 @@ class LocalManagedAgentLaunchResult:
     project_overlay_bootstrapped: bool
     overlay_bootstrap_detail: str
     memo_seed_application: LaunchProfileMemoSeedApplication | None = None
+
+
+@dataclass(frozen=True)
+class LocalManagedAgentLaunchCompletion:
+    """Verified launch facts shared by the CLI and owner protocol adapters."""
+
+    manifest: SessionManifestPayloadV4
+    payload: dict[str, Any]
+    gateway_auto_attach_error: str | None
 
 
 @dataclass(frozen=True)
@@ -1035,14 +1043,15 @@ def launch_managed_agent_locally(
             force_mode=normalized_force_mode,
             reuse_home=reuse_home,
         )
+        gateway_capabilities = gateway_backend_capabilities(resolved_backend)
         if (
-            (selection.human_surface_kind != "terminal" or resolved_backend == "hermes_tui")
+            not gateway_capabilities.manager_launch_timings
             and gateway_tui_tracking_timing_overrides is not None
             and gateway_tui_tracking_timing_overrides.has_values()
         ):
             raise click.ClickException(
                 "Hermes TUI uses native readiness and does not support parser timing overrides."
-                if resolved_backend == "hermes_tui"
+                if gateway_capabilities.structured_tui
                 else "Gateway TUI timing overrides require a terminal native surface."
             )
         build_request = BuildRequest(
@@ -1259,7 +1268,7 @@ def launch_managed_agent_locally(
             )
         ) from exc
     except (
-        FileNotFoundError,
+        OSError,
         LaunchPlanError,
         RuntimeError,
         SessionManifestError,
@@ -1323,13 +1332,13 @@ def launch_managed_agent_locally(
     )
 
 
-def emit_local_launch_completion(
+def build_local_launch_completion(
     *,
     launch_result: LocalManagedAgentLaunchResult,
     agent_name: str | None,
     session_name: str | None,
-) -> None:
-    """Print the verified native interface or the managed control handoff."""
+) -> LocalManagedAgentLaunchCompletion:
+    """Read the saved runtime and describe its verified native interface."""
 
     controller = launch_result.controller
     handle = load_session_manifest(controller.manifest_path)
@@ -1381,13 +1390,10 @@ def emit_local_launch_completion(
     if gateway_auto_attach_error is not None:
         payload["gateway_auto_attach_error"] = gateway_auto_attach_error
 
-    terminal_handoff = (
-        isinstance(surface, TerminalNativeSurfaceV1) and _caller_has_interactive_terminal()
-    )
     socket_path = manifest.tmux.socket_path if manifest.tmux is not None else None
     allow_start = manifest.tmux is None or manifest.tmux.server_allow_start is not False
     if isinstance(surface, TerminalNativeSurfaceV1):
-        payload["terminal_handoff"] = "attach" if terminal_handoff else "skipped_non_interactive"
+        payload["terminal_handoff"] = "skipped_non_interactive"
         command = ["tmux", "-S", socket_path] if socket_path else ["tmux"]
         if not allow_start:
             command.append("-N")
@@ -1400,12 +1406,30 @@ def emit_local_launch_completion(
     else:
         payload["control_command"] = f"houmao-mgr agents single --agent-id {manifest.agent_id}"
 
+    return LocalManagedAgentLaunchCompletion(
+        manifest=manifest, payload=payload, gateway_auto_attach_error=gateway_auto_attach_error
+    )
+
+
+def render_local_launch_completion(*, completion: LocalManagedAgentLaunchCompletion) -> None:
+    """Print a launch result and hand off to the verified terminal when interactive."""
+
+    manifest = completion.manifest
+    payload = dict(completion.payload)
+    surface = manifest.native_surface
+    terminal_handoff = (
+        isinstance(surface, TerminalNativeSurfaceV1) and _caller_has_interactive_terminal()
+    )
+    if terminal_handoff:
+        payload["terminal_handoff"] = "attach"
     emit(
         payload,
         plain_renderer=render_launch_completion_plain,
         fancy_renderer=render_launch_completion_fancy,
     )
     if terminal_handoff and isinstance(surface, TerminalNativeSurfaceV1):
+        socket_path = manifest.tmux.socket_path if manifest.tmux is not None else None
+        allow_start = manifest.tmux is None or manifest.tmux.server_allow_start is not False
         try:
             with tmux_server_scope(socket_path, allow_start=allow_start):
                 attach_tmux_session_shared(session_name=surface.tmux_session_name)
@@ -1413,8 +1437,23 @@ def emit_local_launch_completion(
             raise click.ClickException(
                 f"Managed agent launch succeeded, but tmux handoff failed: {exc}"
             ) from exc
-    if gateway_auto_attach_error is not None:
+    if completion.gateway_auto_attach_error is not None:
         raise SystemExit(2)
+
+
+def emit_local_launch_completion(
+    *,
+    launch_result: LocalManagedAgentLaunchResult,
+    agent_name: str | None,
+    session_name: str | None,
+) -> None:
+    """Render completion of a local native launch."""
+
+    render_local_launch_completion(
+        completion=build_local_launch_completion(
+            launch_result=launch_result, agent_name=agent_name, session_name=session_name
+        )
+    )
 
 
 @click.group(name="agents")
@@ -1962,137 +2001,6 @@ def launch_agents_command(
     )
 
 
-@agents_group.command(name="join")
-@click.option("--agent-name", required=True, help="Friendly managed-agent name.")
-@click.option("--agent-id", default=None, help="Optional authoritative managed-agent id.")
-@click.option(
-    "--agent-id-mode",
-    type=click.Choice(["uuid", "name-hash"]),
-    default=None,
-    help="ID generation mode (default: uuid); cannot be combined with --agent-id.",
-)
-@click.option("--headless", is_flag=True, help="Adopt a native headless logical session.")
-@click.option(
-    "--provider",
-    default=None,
-    help="Provider identifier to adopt (`claude_code`, `codex`, or `kimi`).",
-)
-@click.option(
-    "--launch-args",
-    multiple=True,
-    help="Repeatable provider launch argument for later relaunch/turn control.",
-)
-@click.option(
-    "--launch-env",
-    multiple=True,
-    help="Repeatable Docker-style env spec (`NAME=value` or `NAME`).",
-)
-@click.option(
-    "--workdir",
-    type=click.Path(path_type=Path, file_okay=False, dir_okay=True, exists=True),
-    default=None,
-    help="Optional working directory override; defaults from tmux window `0`, pane `0`.",
-)
-@click.option(
-    "--resume-id",
-    default=None,
-    help="Optional headless resume selector: omitted, `last`, or an exact provider session id.",
-)
-@click.option(
-    "--no-install-houmao-skills",
-    is_flag=True,
-    help="Skip default Houmao-owned system-skill installation into the adopted tool home.",
-)
-def join_agents_command(
-    agent_name: str,
-    agent_id: str | None,
-    agent_id_mode: AgentIdMode | None,
-    headless: bool,
-    provider: str | None,
-    launch_args: tuple[str, ...],
-    launch_env: tuple[str, ...],
-    workdir: Path | None,
-    resume_id: str | None,
-    no_install_houmao_skills: bool,
-) -> None:
-    """Adopt an existing tmux-backed TUI or headless session into Houmao control."""
-
-    launch_env_bindings = _parse_join_launch_env(launch_env)
-    requested_provider = provider.strip() if provider is not None else None
-    if requested_provider == "hermes":
-        raise click.ClickException(
-            "Hermes terminal join is unsupported. Launch Hermes through Houmao instead."
-        )
-    if requested_provider == "dsh":
-        raise click.ClickException(
-            "DSH adoption is unsupported. Launch a managed DSH Web agent from a project profile."
-        )
-    if requested_provider is not None and requested_provider not in _PROVIDERS:
-        raise click.ClickException(
-            f"Invalid provider `{requested_provider}`. Available providers: {', '.join(sorted(_PROVIDERS))}."
-        )
-    if headless and requested_provider is None:
-        raise click.ClickException("Headless join requires `--provider`.")
-    if headless and not launch_args:
-        raise click.ClickException("Headless join requires at least one `--launch-args` value.")
-
-    tmux_session_name = _require_current_tmux_session_name()
-    pane = _require_join_primary_pane(tmux_session_name)
-    pane_current_path = _resolve_join_pane_current_path(tmux_session_name, pane.pane_id)
-    detected_provider = _detect_join_provider(pane.pane_pid)
-
-    if headless:
-        if detected_provider is not None:
-            raise click.ClickException(
-                "Headless join requires window `0`, pane `0` to be an idle logical console, "
-                f"but detected a live `{detected_provider}` TUI there."
-            )
-        assert requested_provider is not None
-        _validate_headless_launch_args(provider=requested_provider, launch_args=launch_args)
-        resolved_resume_selection = _resolve_headless_resume_selection(resume_id)
-        effective_provider = requested_provider
-    else:
-        effective_provider = _resolve_tui_join_provider(
-            requested_provider=requested_provider,
-            detected_provider=detected_provider,
-        )
-        resolved_resume_selection = None
-
-    try:
-        result = materialize_joined_launch(
-            runtime_root=None,
-            agent_name=agent_name,
-            agent_id=agent_id,
-            agent_id_mode=agent_id_mode,
-            provider=effective_provider,
-            headless=headless,
-            tmux_session_name=tmux_session_name,
-            tmux_window_name=pane.window_name,
-            tmux_window_id=pane.window_id,
-            tmux_pane_id=pane.pane_id,
-            working_directory=(workdir or pane_current_path).resolve(),
-            launch_args=launch_args,
-            launch_env=launch_env_bindings,
-            install_houmao_skills=not no_install_houmao_skills,
-            resume_selection=resolved_resume_selection,
-        )
-    except (
-        FileNotFoundError,
-        LaunchPlanError,
-        RuntimeError,
-        SessionManifestError,
-        TmuxCommandError,
-        ValueError,
-    ) as exc:
-        raise click.ClickException(str(exc)) from exc
-
-    _emit_join_result(
-        result=result,
-        tmux_session_name=tmux_session_name,
-        provider=effective_provider,
-    )
-
-
 @agents_group.command(name="list")
 @pair_port_option()
 @click.option(
@@ -2480,7 +2388,6 @@ def _install_scoped_agents_commands() -> None:
             )
         )
 
-    agents_self_group.add_command(legacy_commands["join"])
     agents_self_group.add_command(
         clone_scoped_command_tree(
             legacy_commands["gateway"],
@@ -2526,171 +2433,3 @@ agents_self_group.add_command(self_access_group)
 agents_self_group.add_command(self_files_group)
 agents_single_group.add_command(admin_instance_state_group)
 agents_self_group.add_command(self_instance_state_group)
-
-
-def _parse_join_launch_env(values: tuple[str, ...]) -> tuple[JoinedLaunchEnvBinding, ...]:
-    bindings: list[JoinedLaunchEnvBinding] = []
-    for raw_value in values:
-        if "=" in raw_value:
-            name, value = raw_value.split("=", 1)
-            stripped_name = name.strip()
-            if not stripped_name:
-                raise click.ClickException(f"Invalid `--launch-env` literal `{raw_value}`.")
-            bindings.append(JoinedLaunchEnvBinding(mode="literal", name=stripped_name, value=value))
-            continue
-        stripped_name = raw_value.strip()
-        if not stripped_name:
-            raise click.ClickException("`--launch-env` must not be blank.")
-        bindings.append(JoinedLaunchEnvBinding(mode="inherit", name=stripped_name))
-    return tuple(bindings)
-
-
-def _require_join_primary_pane(session_name: str) -> TmuxPaneRecord:
-    try:
-        panes = list_tmux_panes(session_name=session_name)
-    except TmuxCommandError as exc:
-        raise click.ClickException(str(exc)) from exc
-    pane = next(
-        (
-            candidate
-            for candidate in panes
-            if candidate.window_index == "0" and candidate.pane_index == "0"
-        ),
-        None,
-    )
-    if pane is None:
-        raise click.ClickException(
-            f"Join requires tmux window `0`, pane `0` in session `{session_name}`."
-        )
-    return pane
-
-
-def _resolve_join_pane_current_path(session_name: str, pane_id: str) -> Path:
-    """Read the checked join pane's current working directory."""
-
-    try:
-        result = TmuxServer().checked_command(
-            ["display-message", "-p", "-t", pane_id, "#{pane_current_path}"]
-        )
-    except TmuxCommandError as exc:
-        raise click.ClickException(
-            f"Failed to read pane current path from tmux session `{session_name}`."
-        ) from exc
-    value = result.stdout.strip()
-    if not value:
-        raise click.ClickException(
-            f"Join requires a usable pane current path for `{session_name}:0.0`."
-        )
-    return Path(value).expanduser().resolve()
-
-
-def _detect_join_provider(pane_pid: int | None) -> str | None:
-    inspector = PaneProcessInspector(supported_processes=_JOIN_SUPPORTED_PROCESSES)
-    matched_providers: list[str] = []
-    for tool, provider in _PROVIDER_BY_TOOL.items():
-        inspection = inspector.inspect(tool=tool, pane_pid=pane_pid)
-        if inspection.process_state == "probe_error":
-            raise click.ClickException(
-                inspection.error_message or "Failed to inspect the primary pane process tree."
-            )
-        if inspection.process_state == "tui_up":
-            matched_providers.append(provider)
-    if len(matched_providers) > 1:
-        raise click.ClickException(
-            "Join could not auto-detect one provider because multiple supported processes were "
-            f"found in window `0`, pane `0`: {', '.join(sorted(matched_providers))}."
-        )
-    return matched_providers[0] if matched_providers else None
-
-
-def _resolve_tui_join_provider(
-    *,
-    requested_provider: str | None,
-    detected_provider: str | None,
-) -> str:
-    if requested_provider is None:
-        if detected_provider is None:
-            raise click.ClickException(
-                "Join could not auto-detect a supported TUI provider from window `0`, pane `0`; "
-                "retry with `--provider`."
-            )
-        return detected_provider
-    if detected_provider is None:
-        raise click.ClickException(
-            f"Requested provider `{requested_provider}` does not match any supported live TUI "
-            "process in window `0`, pane `0`."
-        )
-    if requested_provider != detected_provider:
-        raise click.ClickException(
-            f"Requested provider `{requested_provider}` does not match detected provider "
-            f"`{detected_provider}` in window `0`, pane `0`."
-        )
-    return requested_provider
-
-
-def _resolve_headless_resume_selection(value: str | None) -> HeadlessResumeSelection | None:
-    if value is None:
-        return HeadlessResumeSelection(kind="none")
-    stripped = value.strip()
-    if not stripped:
-        raise click.ClickException("`--resume-id` must not be blank.")
-    if stripped == "last":
-        return HeadlessResumeSelection(kind="last")
-    return HeadlessResumeSelection(kind="exact", value=stripped)
-
-
-def _validate_headless_launch_args(*, provider: str, launch_args: tuple[str, ...]) -> None:
-    launch_arg_set = set(launch_args)
-    if provider == "codex":
-        if "exec" not in launch_arg_set:
-            raise click.ClickException(
-                "Codex headless join requires `--launch-args exec` in the recorded launch options."
-            )
-        if "--json" not in launch_arg_set:
-            raise click.ClickException(
-                "Codex headless join requires `--launch-args=--json` for machine-readable turns."
-            )
-        return
-    if provider == "claude_code":
-        if "-p" not in launch_arg_set and "--print" not in launch_arg_set:
-            raise click.ClickException(
-                "Claude headless join requires `--launch-args -p` or `--launch-args=--print`."
-            )
-        return
-
-
-def _emit_join_result(
-    *,
-    result: JoinedSessionArtifacts,
-    tmux_session_name: str,
-    provider: str,
-) -> None:
-    """Publish the mode and interface verified during adoption."""
-
-    handle = load_session_manifest(result.manifest_path)
-    manifest = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-    emit(
-        {
-            "status": "Managed agent join complete",
-            "agent_name": result.agent_name,
-            "agent_id": result.agent_id,
-            "provider": provider,
-            "tool": manifest.tool,
-            "backend": manifest.backend,
-            "mode": manifest.mode,
-            "native_surface": manifest.native_surface.model_dump(mode="json")
-            if manifest.native_surface is not None
-            else None,
-            "tmux_session_name": tmux_session_name,
-            "manifest_path": str(result.manifest_path),
-            "runtime_root": str(result.runtime_root),
-            "runtime_root_detail": result.runtime_root_detail,
-            "memory_root": str(result.memory_root),
-            "memo_file": str(result.memo_file),
-            "pages_dir": str(result.pages_dir),
-            "overlay_root": str(result.overlay_root),
-            "overlay_root_detail": result.overlay_root_detail,
-            "project_overlay_bootstrapped": result.project_overlay_bootstrapped,
-            "overlay_bootstrap_detail": result.overlay_bootstrap_detail,
-        }
-    )

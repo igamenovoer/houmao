@@ -88,7 +88,7 @@ For dedicated coverage of complex nested command families, see:
 | `global` | Zero-or-many local managed-agent registry/fleet operations. Maintained command: `list`. |
 | `single --agent-id <id>` | Exactly one explicitly selected local managed-agent identity by authoritative id. |
 | `single --agent-name <name>` | Exactly one explicitly selected local managed-agent identity by friendly name. |
-| `self` | The caller's verified managed runtime. Includes tmux session adoption through `join`. |
+| `self` | The caller's verified managed runtime. |
 | `external` | External-agent registry/reference onboarding: `register`, `list`, `get`, `verify`, and `remove`. External lifecycle stays with the remote owner. |
 
 #### Target Cardinality And Authority
@@ -99,7 +99,6 @@ For dedicated coverage of complex nested command families, see:
 - `agents single` owns selected-agent lifecycle controls: `state`, `home`, `refresh`, `prompt`, `interrupt`, `stop`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, `turn`, and `cleanup`.
 - `agents single request --text` submits an attributed work request to the selected agent. It uses the current managed caller's configured peer signer when available. `--source-agent-id` selects another verified owned source, while `--unsigned` selects anonymous admission. Add `--url` for a remote gateway or `--passive-url` for a detached agent's direct passive listener. For a remote target, select `--agent-id` and provide `--context-id`, `--generation`, and `--presence`. The command reports acceptance or handoff for one submission.
 - `agents single relaunch` has selected-agent recovery authority. It may refresh an active tmux-backed surface, revive stopped relaunchable records, and recover degraded or stale active records where the runtime supports those paths.
-- `agents self join` adopts the current tmux session as one managed-agent identity. `join` may accept identity creation fields such as `--agent-name`; those fields do not select another existing agent.
 - `agents self` follow-up commands use the verified current runtime as their target. Tmux-backed runtimes use their owning socket and session. A supported headless runtime can supply its runtime manifest locator directly.
 - `agents self identity` reads the verified session manifest and checks the live registry generation. It works with a detached gateway and with the launch definition directory unavailable.
 - `agents self` exposes `identity`, `state`, `home`, `refresh`, `prompt`, `interrupt`, `relaunch`, `gateway`, `mail`, `mailbox`, `memory`, and `turn`. It intentionally does not expose `stop`, `cleanup`, or an effective-system-prompt retrieval command. Inspect secret-free prompt method and digest provenance in maintained manifests instead of retrieving prompt text through the manager.
@@ -124,7 +123,6 @@ Project launch can select an already-provisioned execution owner with `--executo
 | Check current skill/MCP freshness | `houmao-mgr agents self refresh --check` |
 | Refresh native resources without agent restart | `houmao-mgr agents self refresh` |
 | Relaunch the current managed session | `houmao-mgr agents self relaunch` |
-| Adopt the current tmux session | `houmao-mgr agents self join --agent-name <name>` |
 | Selected-agent gateway operation | `houmao-mgr agents single --agent-id <id> gateway status` |
 | Current-session gateway operation | `houmao-mgr agents self gateway status` |
 | Selected-agent mail operation | `houmao-mgr agents single --agent-name <name> mail read --channel offline --message-ref <ref>` |
@@ -148,7 +146,7 @@ A selected-agent `prompt` can reach a TUI peer with its gateway detached. Houmao
 | `houmao-mgr agents list` | `houmao-mgr agents global list` |
 | `houmao-mgr agents stop --agent-id <id>` | `houmao-mgr agents single --agent-id <id> stop` |
 | `houmao-mgr agents prompt --agent-name <name> --prompt <text>` | `houmao-mgr agents single --agent-name <name> prompt --prompt <text>` |
-| `houmao-mgr agents join --agent-name <name>` | `houmao-mgr agents self join --agent-name <name>` |
+| Manual session adoption | Start a new managed agent with `houmao-mgr project agents launch --profile <name>`. See [Upgrading From Manual Session Adoption](../run-phase/session-lifecycle.md#upgrading-from-manual-session-adoption) for existing sessions. |
 | `houmao-mgr agents prompt --prompt <text>` from inside the managed session | `houmao-mgr agents self prompt --prompt <text>` |
 | `houmao-mgr agents interrupt` from inside the managed session | `houmao-mgr agents self interrupt` |
 | `houmao-mgr agents relaunch` from inside the managed session | `houmao-mgr agents self relaunch` |
@@ -248,7 +246,7 @@ Operational notes:
 - the project-scoped defaults are `<cwd>/.claude` for Claude, `<cwd>/.codex` for Codex, `<cwd>/.kimi-code` for Kimi, and `<cwd>/.github` for Copilot
 - `kimi` means Kimi Code CLI, not legacy MoonshotAI `kimi-cli`, which upstream says is being wound down in favor of Kimi Code CLI
 - `universal --home <path>` treats `<path>` as the `.agents` root that contains `skills/`; omitted-home universal installs land under `~/.agents/skills/`
-- omitting `--pack` on `install` or `upgrade` selects the external `admin` default; managed launches and joined sessions separately default to `agent`
+- omitting `--pack` on `install` or `upgrade` selects the external `admin` default. Managed launches default to `agent`.
 - repeatable `--pack` accepts only complete static packs, `admin` or `agent`; standalone names and parent-scoped child ids are not pack selectors
 - old `--skill`, `--set`, and `--skill-set` selectors fail with a migration diagnostic
 - copy projection is the default; optional `--symlink` links each top-level destination directly to its complete packaged source
@@ -257,7 +255,7 @@ Operational notes:
 - the lifecycle config records the Houmao release and collection projection mode plus one name, destination, complete-tree digest, and non-empty pack-owner set per standalone skill; unrelated and untracked paths remain outside Houmao ownership
 - `status` classifies each pack as absent, complete, incomplete, drifted, or conflicting without mutating the home
 - `upgrade` preserves modified, unknown, and partial legacy flat projections for operator review; `uninstall` removes only selected config-owned paths and preserves ownership conflicts
-- managed brain build, relaunch, and `agents self join` use exact copy-based agent-pack synchronization; stored source/profile policy may override or disable that managed default
+- managed brain build and relaunch use exact copy-based agent-pack synchronization; stored source/profile policy may override or disable that managed default
 
 For the detailed catalog, projection, and ownership contract, see [system-skills](system-skills.md).
 
@@ -562,8 +560,8 @@ Both project profile authoring lanes validate and save the selector without cont
 - `--mail-account-dir` must resolve outside the shared mailbox root; safe launch fails if the address slot already exists as a real directory or as a symlink to a different target.
 - `--mail-transport email` is reserved for a future real-email path and currently fails fast as not implemented.
 - when the managed session starts but launch-time gateway attach fails afterward, the command still reports the live session identity and manifest path, includes `gateway_auto_attach_error`, and exits with degraded-success status code `2`.
+- For a launch with `--executor`, the owner returns that same result. The operator publishes the locator before printing the result and exiting with status `2`.
 - Project-backed launch also accepts `--workdir`; the selected project stays authoritative for overlay-local defaults even if the runtime cwd points somewhere else.
-- `agents self join` uses `--workdir` instead of `--working-directory`; when omitted, the adopted cwd comes from tmux window `0`, pane `0`.
 
 #### Headless Display Options
 

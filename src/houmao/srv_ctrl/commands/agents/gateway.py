@@ -29,7 +29,7 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     TmuxCommandError,
     read_tmux_session_environment_value,
 )
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import (
     GatewayMailNotifierContextErrorPolicy,
     GatewayMailNotifierMode,
@@ -1686,6 +1686,8 @@ def _load_tmux_session_manifest_authority(
             manifest_path=handle.path,
             payload=payload,
         )
+    except RetiredJoinedSessionError:
+        raise
     except SessionManifestError as exc:
         raise click.ClickException(f"Current-session attach metadata is invalid: {exc}") from exc
 
@@ -1695,22 +1697,6 @@ def _load_tmux_session_manifest_authority(
             f"`{authority.tmux_session_name}`, not `{session_name}`."
         )
     return authority
-
-
-def _require_current_tmux_session_name() -> str:
-    """Return the current tmux session name or fail clearly."""
-
-    try:
-        owner = enclosing_tmux_session()
-    except (TmuxCommandError, ValueError) as exc:
-        raise click.ClickException(
-            f"Current-session attach could not determine the current tmux session: {exc}"
-        ) from exc
-    if owner is None:
-        raise click.ClickException(
-            "Current-session attach must be run from inside the target tmux session."
-        )
-    return owner[1]
 
 
 def _try_current_tmux_session_name() -> str | None:

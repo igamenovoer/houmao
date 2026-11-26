@@ -1,6 +1,6 @@
 # Gateway Troubleshooting
 
-If gateway attach reports unavailable owner access after the native agent starts, check that the selected owner can read the current generation's retained policy and matching self key. A revoked key or missing private record needs effective admin recovery while the native runtime is live. A superseded generation needs a new managed launch or join. Keep the database and its sidecars owned by the runtime account with mode `0600` in its private `0700` authorization directory. [Gateway Access and Remote Deployment](access.md#provision-and-retain-admin-access)
+If gateway attach reports unavailable owner access after the native agent starts, check that the selected owner can read the current generation's retained policy and matching self key. A revoked key or missing private record needs effective admin recovery while the native runtime is live. Use a supported managed launch if the selected generation has been superseded. Keep the database and its sidecars owned by the runtime account with mode `0600` in its private `0700` authorization directory. [Gateway Access and Remote Deployment](access.md#provision-and-retain-admin-access)
 
 This page covers the current operator-facing failure modes for gateway attach, live readiness, and same-session gateway lifecycle.
 
@@ -67,7 +67,7 @@ If current-session attach says the tmux session does not publish `HOUMAO_MANIFES
 Check:
 
 - you are inside the target tmux session, not another shell or another tmux session
-- the session was launched or adopted through a maintained project/self flow that seeds gateway capability
+- the session started through a supported managed launch that seeds gateway capability
 - the session is not an older launch that predates the shared capability-publication seam
 
 If you need to attach before current-session metadata is available, use explicit attach instead:

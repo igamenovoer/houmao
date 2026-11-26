@@ -2052,7 +2052,7 @@ The public operator surface SHALL be `houmao-mgr agents relaunch`, and gateway-m
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-The persisted manifest SHALL carry secret-free `agent_launch_authority` describing the relaunch posture. Houmao-started sessions SHALL rebuild the provider environment from durable launch inputs. Joined sessions SHALL resolve explicit inherited env bindings through their adopted tmux launch contract.
+The persisted manifest SHALL carry secret-free `agent_launch_authority` describing the relaunch posture. Houmao-started sessions SHALL rebuild the provider environment from durable launch inputs.
 
 Tmux-backed relaunch SHALL resolve the target session through the same manifest-first discovery contract used by current-session attach.
 
@@ -2313,7 +2313,7 @@ Generated `launch.sh` helpers SHALL remain shell wrappers that invoke that share
 - **AND THEN** raw helper launches resolve and apply the same unattended strategy family as runtime-managed launches
 
 #### Scenario: Runtime-managed sessions use the same local launch-policy engine
-- **WHEN** a maintained runtime-managed unattended launch starts through local managed, headless, joined, or passive-server-owned launch flow
+- **WHEN** a maintained runtime-managed unattended launch starts through a local managed, headless, or passive-server-owned launch flow
 - **THEN** the local runtime resolves and applies the same launch-policy engine before provider startup
 - **AND THEN** maintained runtime-managed sessions do not bypass version detection, override handling, or fail-closed unattended checks
 
@@ -2610,142 +2610,6 @@ If a previously strategy-owned file is blank or malformed due to a prior interru
 - **THEN** the runtime may rebuild that declared owned file from its strategy-owned baseline inside the serialized pre-start mutation phase
 - **AND THEN** ordinary read-only resumed control does not need to perform that repair itself
 
-### Requirement: Joined tmux-backed sessions materialize the standard runtime session envelope
-The runtime SHALL support materializing a standard Houmao session envelope around an existing tmux session that was not originally started by Houmao, so later control can use the same manifest-first contract as native launches.
-
-For joined TUI adoption, the effective backend SHALL be `local_interactive`. For joined native headless adoption, the effective backend SHALL be the provider-specific native headless backend (`claude_headless`, `codex_headless`, or `gemini_headless`).
-
-#### Scenario: Acceptance criteria
-
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-The join materialization path SHALL create all of the following under the effective runtime root for the adopted session:
-
-- a session root,
-- placeholder `agent_def/` content,
-- placeholder `brain_manifest.json`,
-- a persisted session manifest,
-- session-local gateway artifacts under `gateway/`,
-- a shared-registry record for the adopted managed agent.
-
-The join materialization path SHALL construct the persisted joined-session `launch_plan` directly from join inputs rather than deriving runtime launch behavior from the placeholder `brain_manifest.json`.
-
-If a placeholder `brain_manifest.json` is written for a joined session, it SHALL remain a path or invariant artifact only and SHALL NOT be the authoritative source of runtime launch or relaunch behavior for that joined session.
-
-The join materialization path SHALL create the managed memory root, memo file, and pages directory before publishing managed memory environment variables.
-
-The join materialization path SHALL publish `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_NATIVE_AGENT_ROOT`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into the adopted tmux session environment.
-
-For joined TUI adoption, the persisted manifest and later manifest rewrites SHALL preserve the adopted tmux window identity needed to find the live provider surface. Resume-time capability publication and other post-join local control paths SHALL NOT overwrite that adopted window metadata with `null` or a default launch-time window name.
-
-The adopted session SHALL reuse the current tmux session name as the live tmux handle and SHALL keep tmux window `0` as the canonical managed agent surface even when the join command itself runs from another window of that same tmux session.
-
-After successful join, the runtime SHALL treat shared-registry publication and later refresh or teardown for that adopted session as runtime-owned publication state even though the current provider process was originally started by the user.
-
-For joined sessions, the initial shared-registry publication SHALL use a long sentinel lease that keeps the adopted session discoverable after the one-shot join command exits until the session is explicitly stopped or cleaned up.
-
-The resulting manifest and tmux session environment SHALL remain the authoritative inputs for later `state`, `show`, `prompt`, `interrupt`, `gateway attach`, and related runtime-managed control paths rather than introducing a join-only discovery store.
-
-#### Scenario: TUI join materializes a normal `local_interactive` runtime envelope
-- **WHEN** the local join path adopts a live Codex TUI from tmux window `0`, pane `0`
-- **THEN** it writes a normal session root containing placeholder `agent_def/`, placeholder `brain_manifest.json`, a persisted session manifest, and session-local `gateway/` artifacts
-- **AND THEN** it publishes `HOUMAO_MANIFEST_PATH`, `HOUMAO_AGENT_ID`, `HOUMAO_NATIVE_AGENT_ROOT`, `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR` into that tmux session environment
-- **AND THEN** it publishes a shared-registry record for the adopted managed agent without requiring a separate join-only discovery store
-
-#### Scenario: Headless join materializes a native headless runtime envelope between turns
-- **WHEN** the local join path adopts a tmux-backed Codex headless logical session between turns
-- **THEN** it persists that adopted session as `backend = "codex_headless"` with the normal manifest, gateway, tmux-env, and shared-registry artifacts
-- **AND THEN** later runtime-controlled headless turn submission can resume the same logical session from that manifest-backed authority
-
-#### Scenario: Joined session launch behavior does not depend on the placeholder brain manifest
-- **WHEN** the local join path materializes a joined session with a placeholder `brain_manifest.json`
-- **THEN** the joined session's persisted `launch_plan` remains the authoritative launch and relaunch input for runtime control
-- **AND THEN** runtime behavior does not require reconstructing provider launch semantics from the placeholder brain manifest
-
-#### Scenario: Joined registry publication survives the one-shot join command
-- **WHEN** a joined session is published to the shared registry
-- **AND WHEN** the one-shot `houmao-mgr agents join` command exits successfully
-- **THEN** the adopted session remains discoverable through its initial long sentinel lease
-- **AND THEN** the design does not require a background lease-renewal daemon just to keep that joined session visible
-
-#### Scenario: Joined local TUI resume preserves the adopted tmux window metadata
-- **WHEN** a live Claude TUI is joined from tmux window `0` whose current window name is `claude`
-- **AND WHEN** a later local control path resumes that joined session and republishes manifest-backed gateway capability
-- **THEN** the persisted manifest still records the adopted window identity needed to find window `0`
-- **AND THEN** later local TUI tracking does not fall back to probing window name `agent` only because the resume path rewrote the manifest
-
-### Requirement: Joined tmux-backed sessions persist explicit adopted relaunch posture
-For tmux-backed joined sessions, the persisted relaunch authority SHALL record that the session origin is tmux join adoption rather than Houmao-started provider launch.
-
-For joined sessions, the persisted session manifest's `agent_launch_authority` SHALL be the source of truth for secret-free relaunch posture.
-
-#### Scenario: Acceptance criteria
-
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-For this change, joined-session relaunch metadata SHALL remain a backward-compatible extension of the existing session manifest v4 contract rather than requiring a new manifest version solely for joined-session posture fields.
-
-That persisted relaunch authority SHALL distinguish at minimum all of the following postures:
-
-- `runtime_launch_plan`,
-- `tui_launch_options`,
-- `headless_launch_options`,
-- `unavailable`.
-
-The persisted relaunch authority SHALL include an explicit `posture_kind` discriminator. Runtime relaunch logic SHALL NOT infer the joined-session relaunch posture solely from field presence.
-
-For `tui_launch_options` and `headless_launch_options`, the persisted relaunch authority SHALL store structured launch args together with structured Docker-style launch env specs:
-
-- `NAME=value` is persisted as a literal binding record,
-- `NAME` is persisted as an inherited binding record that resolves `NAME` from the adopted tmux session environment at relaunch time.
-
-When a joined TUI session is adopted without any structured launch options, later `houmao-mgr agents relaunch` and gateway-managed relaunch SHALL fail explicitly with an unavailable-relaunch error while other manifest-backed control paths remain valid.
-
-When a joined TUI or native headless session includes operator-supplied relaunch posture, later relaunch SHALL reuse tmux window `0` and SHALL NOT rebuild a brain home or invent a replacement launch contract.
-
-For joined native headless sessions that persist `headless_launch_options`, the provider continuity state needed to continue later work SHALL remain in the backend-specific manifest section for that provider rather than being duplicated into the shared registry.
-
-That backend-specific continuity state SHALL support all of the following meanings:
-
-- no known-chat resume,
-- resume the provider's most current known chat,
-- resume one exact provider chat or session id.
-
-The tmux session environment SHALL NOT become a second persistence store for relaunch posture. It SHALL be used only for existing manifest-discovery pointers and for resolving inherited launch-env bindings at relaunch time.
-
-The shared registry SHALL NOT persist a second copy of joined-session relaunch posture. Shared-registry publication for joined sessions remains limited to discovery and stable runtime pointers.
-
-The persisted operator-supplied relaunch posture SHALL remain secret-free manifest metadata. The runtime SHALL NOT copy credentials into the shared registry or into synthesized launcher directories just to relaunch a joined session.
-
-#### Scenario: Joined TUI without structured launch options remains controllable but not relaunchable
-- **WHEN** a live Claude Code TUI is adopted through `houmao-mgr agents join` without any `--launch-args` or `--launch-env`
-- **THEN** later manifest-backed `state`, `show`, `prompt`, `interrupt`, and `gateway attach` operations remain valid for that joined session
-- **AND THEN** a later `houmao-mgr agents relaunch` fails with an explicit unavailable-relaunch error instead of inventing a restart command
-
-#### Scenario: Joined headless relaunch uses the persisted launch options and exact resume id
-- **WHEN** a Codex native headless logical session was adopted with `--launch-args exec --launch-args --json --launch-env CODEX_HOME` and `--resume-id thread_123`
-- **THEN** later relaunch uses those persisted launch args and launch env specs together with the persisted `resume_id`
-- **AND THEN** the relaunched work reuses tmux window `0`
-- **AND THEN** the runtime does not rebuild a brain home for that joined headless session
-
-#### Scenario: Joined headless relaunch can use the latest known chat
-- **WHEN** a Codex native headless logical session was adopted with `--launch-args exec --launch-args --json --resume-id last`
-- **THEN** later runtime-controlled headless work uses the provider's most current known chat rather than requiring one exact persisted thread id
-- **AND THEN** the relaunched work reuses tmux window `0`
-
-#### Scenario: Joined headless relaunch can intentionally avoid known-chat resume
-- **WHEN** a Codex native headless logical session was adopted with `--launch-args exec --launch-args --json` and without `--resume-id`
-- **THEN** later runtime-controlled headless work does not resume a known provider chat
-- **AND THEN** the relaunched work starts from a fresh provider session
-
-#### Scenario: Joined relaunch resolves inherited env from tmux env while registry stays pointer-only
-- **WHEN** a joined session persists launch env specs that include inherited entry `CODEX_HOME`
-- **AND WHEN** the adopted tmux session environment currently publishes `CODEX_HOME=/tmp/codex-home`
-- **THEN** later relaunch resolves `CODEX_HOME` from that tmux session environment
-- **AND THEN** the shared-registry record for that joined session does not need to persist a second copy of the relaunch posture or inherited env value
-
 ### Requirement: Project-aware build and launch results describe selected local roots explicitly
 Maintained project-aware build and launch surfaces SHALL describe overlay-local default roots, explicit root overrides, and implicit overlay bootstrap in operator-facing result text and machine-readable payload details.
 
@@ -2895,39 +2759,6 @@ For older manifests that do not persist `houmao_system_prompt_layout`, relaunch 
 - **WHEN** a relaunch targets an older manifest that lacks `houmao_system_prompt_layout`
 - **THEN** relaunch still succeeds using the maintained fallback prompt-resolution behavior
 - **AND THEN** the runtime does not require retroactive layout metadata in order to relaunch that session
-
-### Requirement: Runtime resolves managed memory pages before session publication
-For tmux-backed managed sessions, the runtime SHALL resolve memory root, memo file, and pages directory before publishing the session as live.
-
-That resolved memory state SHALL be preserved for native managed launch, managed join of an existing tmux-backed session, and managed relaunch of an existing runtime-owned tmux-backed session.
-
-#### Scenario: Acceptance criteria
-
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-When memory state resolves in the default mode, the runtime SHALL derive the memory root from the selected active overlay and authoritative `agent-id` rather than from `session-id` or runtime workdir.
-
-#### Scenario: Native managed launch persists the overlay-local memory root
-- **WHEN** a native tmux-backed managed launch selects overlay `/repo/.houmao` for agent id `researcher-id`
-- **THEN** the runtime resolves memory root `/repo/.houmao/memory/agents/researcher-id/`
-- **AND THEN** it resolves memo file `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
-- **AND THEN** it resolves pages directory `/repo/.houmao/memory/agents/researcher-id/pages/`
-- **AND THEN** it persists that resolved memory state before publishing the live session
-
-#### Scenario: Managed join persists memory pages for the adopted session
-- **WHEN** an operator joins an existing tmux-backed session for agent id `reviewer-id`
-- **AND WHEN** the active overlay is `/repo/.houmao`
-- **THEN** the join runtime persists memory root `/repo/.houmao/memory/agents/reviewer-id/`
-- **AND THEN** the join runtime persists memo file `/repo/.houmao/memory/agents/reviewer-id/houmao-memo.md`
-- **AND THEN** the join runtime persists pages directory `/repo/.houmao/memory/agents/reviewer-id/pages/`
-- **AND THEN** later managed inspection and control use that persisted memory state rather than recomputing a different default
-
-#### Scenario: Relaunch preserves the previously resolved memory paths
-- **WHEN** managed agent `researcher` already has manifest-persisted memory root `/repo/.houmao/memory/agents/researcher-id/`
-- **AND WHEN** an operator relaunches that managed agent through the supported relaunch surface
-- **THEN** the relaunched session reuses the manifest-persisted memory root, memo file, and pages directory
-- **AND THEN** relaunch does not derive memory paths from the new session id
 
 ### Requirement: Runtime publishes memory pages through manifest-backed state and environment
 For tmux-backed managed sessions, the runtime SHALL persist `memory_root`, `memo_file`, and `pages_dir` as session-owned runtime metadata.
@@ -3815,7 +3646,7 @@ Managed provider start and explicit relaunch SHALL project the resolved native l
 Managed runtime publication SHALL record the effective agent metadata and observation bindings needed by supported queries in the session manifest. Queries SHALL use those fields for agent metadata. Live observations SHALL use the runtime authorities identified by the manifest.
 
 #### Scenario: Launch publishes query-ready metadata
-- **WHEN** Houmao publishes a managed session after launch, join, or relaunch
+- **WHEN** Houmao publishes a managed session after launch or relaunch
 - **THEN** its manifest supplies the effective identity, mode, backend, native home and surface, execution binding, and applicable observation and control locators
 - **AND THEN** publication keeps credentials and raw provider environment values in their private runtime locations
 
@@ -3894,3 +3725,91 @@ For a new launch, the runtime SHALL commit the `managed-self` key and public bin
 - **WHEN** Houmao verifies that a later turn or recovered process still belongs to Bob's same live managed generation
 - **THEN** self commands can use the previously registered key from SQLite without a new registration
 - **AND THEN** an authorized relaunch that creates a new generation provisions a fresh key
+### Requirement: Retired Manual Adoption Confers No Runtime Authority
+
+A saved manifest identifying a `joined_tmux` origin SHALL yield a distinct retirement result before Houmao reconstructs runtime authority. Registry records, tmux discovery pointers, runtime-root scans, and derived gateway artifacts SHALL confer no active authority for that session. A selected retired runtime SHALL produce guidance to wind down management with the owning release and use a fresh supported launch.
+
+#### Scenario: Both Adopted Modes Are Retired
+- **WHEN** Houmao resolves a previously adopted TUI or headless session through a saved manifest, registry pointer, or current tmux discovery pointer
+- **THEN** it recognizes the retired origin regardless of the saved relaunch posture
+- **AND THEN** it refuses managed control without changing the manifest, republishing discovery, or trying an alternate source of authority for that session
+
+#### Scenario: Derived Attach State Does Not Restore Ownership
+- **WHEN** a retired adopted runtime has saved gateway attach metadata or a live-looking registry record
+- **THEN** that metadata confers no authority to attach, admit work, or publish an active endpoint
+
+### Requirement: Native v6 Runtime Authority Remains Valid
+
+Houmao SHALL continue to read and write native session manifests under schema v6. The reader SHALL accept explicit null or omitted adoption fields on native records. Supported native relaunch and headless continuation SHALL continue to use verified durable launch and chat authority.
+
+#### Scenario: Previously Written Native v6 Record Is Resumed
+- **WHEN** a valid native v6 manifest supplies null values for `session_origin`, `launch_args`, and `launch_env` in `agent_launch_authority`, or omits them
+- **THEN** Houmao can load, resume, and persist that native session with its existing execution owner and generation
+- **AND THEN** native TUI handoff and gateway attach remain available through the existing authority checks
+
+#### Scenario: Native Headless Relaunch Continues a Saved Chat
+- **WHEN** an operator relaunches a supported native headless session with a qualified latest or exact chat selection
+- **THEN** Houmao preserves that selection and uses the existing provider-qualified continuation behavior
+
+### Requirement: Retirement Preserves Manual Execution and Data
+
+Rejecting or discovering a retired adoption SHALL leave its process, tmux surface, discovery pointers, native home, workspace, conversations, memory, and artifacts intact. Lifecycle and cleanup paths SHALL distinguish retirement from missing or malformed authority. A retired record SHALL confer no authorization for recovery or purge.
+
+#### Scenario: Selected Lifecycle and Cleanup Refuse Retired Authority
+- **WHEN** an operator selects a retired adopted runtime for stop, relaunch, or session cleanup by a supported identity, manifest, or session-root selector
+- **THEN** Houmao reports retirement and performs no provider, tmux, registry, or artifact mutation
+- **AND THEN** a degraded primary pane, a stale record, and an explicit registry-purge option do not bypass retirement
+
+#### Scenario: Bulk Cleanup Preserves Retired Runtime Artifacts
+- **WHEN** bulk runtime cleanup examines a retired adopted envelope, with or without a registry record
+- **THEN** dry-run identifies it as preserved and cleanup leaves its artifacts intact
+- **AND THEN** other envelopes remain eligible for their ordinary verified cleanup rules
+
+### Requirement: Runtime Resolves Native Managed Memory Before Session Publication
+For tmux-backed managed sessions, the runtime SHALL resolve memory root, memo file, and pages directory before publishing the session as live.
+
+That resolved memory state SHALL be preserved for native managed launch and managed relaunch of an existing runtime-owned tmux-backed session.
+
+#### Scenario: Acceptance criteria
+
+- **GIVEN** a case covered by this requirement
+- **THEN** the applicable criteria below hold
+
+When memory state resolves in the default mode, the runtime SHALL derive the memory root from the selected active overlay and authoritative `agent-id` rather than from `session-id` or runtime workdir.
+
+#### Scenario: Native managed launch persists the overlay-local memory root
+- **WHEN** a native tmux-backed managed launch selects overlay `/repo/.houmao` for agent id `researcher-id`
+- **THEN** the runtime resolves memory root `/repo/.houmao/memory/agents/researcher-id/`
+- **AND THEN** it resolves memo file `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
+- **AND THEN** it resolves pages directory `/repo/.houmao/memory/agents/researcher-id/pages/`
+- **AND THEN** it persists that resolved memory state before publishing the live session
+
+#### Scenario: Relaunch preserves the previously resolved memory paths
+- **WHEN** managed agent `researcher` already has manifest-persisted memory root `/repo/.houmao/memory/agents/researcher-id/`
+- **AND WHEN** an operator relaunches that managed agent through the supported relaunch surface
+- **THEN** the relaunched session reuses the manifest-persisted memory root, memo file, and pages directory
+- **AND THEN** relaunch does not derive memory paths from the new session id
+### Requirement: Required runtime startup releases resources on failure
+If a managed launch fails before required startup and publication succeed, Houmao SHALL roll back resources acquired for that attempt, withdraw its partial active discovery, and report the launch failure. Cleanup SHALL be scoped to the attempt and its verified execution owner.
+
+#### Scenario: Manifest write fails after the backend starts
+- **WHEN** a new managed backend and its observer start but the runtime fails to write the session manifest
+- **THEN** Houmao stops the backend and observer resources acquired for that attempt
+- **AND THEN** the failed attempt has no live managed discovery record
+- **AND THEN** a fresh launch can be attempted after the underlying error is resolved
+
+#### Scenario: Required publication fails after a session manifest is created
+- **WHEN** a managed launch writes its manifest but fails to publish required gateway capability or readiness authority
+- **THEN** Houmao rolls back the new launch resources and withdraws any partial discovery owned by that generation
+- **AND THEN** another generation, preexisting provider resources, operator-owned paths, and the shared tmux server remain intact
+- **AND THEN** the result identifies the startup failure and reports any incomplete cleanup
+
+#### Scenario: Optional gateway auto-attach fails after startup
+- **WHEN** required startup succeeds and optional launch-time gateway auto-attach subsequently fails
+- **THEN** the agent remains live and the result identifies the agent and its gateway-attach failure
+
+#### Scenario: A delegated launch reports an optional gateway failure
+- **WHEN** required startup succeeds in a delegated owner and optional gateway auto-attach fails
+- **THEN** owner stdio returns a correlated v1 completed result with the live identity and gateway auto-attach error
+- **AND THEN** the caller publishes the locator and reports the partial result with the existing local CLI exit status of 2
+- **AND THEN** the caller does not repeat the launch

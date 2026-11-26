@@ -3,7 +3,6 @@ schema_version = "houmao-system-skills.v5"
 [defaults]
 cli = ["admin"]
 managed_launch = ["agent"]
-managed_join = ["agent"]
 
 [[packs]]
 pack_id = "admin"
@@ -17,7 +16,7 @@ pack_id = "agent"
 audience = "agent"
 description = "Verified managed-agent router, shared routines, and manual loops."
 standalone_skills = ["houmao-agent-entrypoint", "houmao-shared-routines", "houmao-agent-loop-pro", "houmao-agent-loop-lite"]
-default_lanes = ["managed_launch", "managed_join"]
+default_lanes = ["managed_launch"]
 
 [[standalone_skills]]
 name = "houmao-admin-welcome"
@@ -196,7 +195,7 @@ member_name = "houmao-agent-instance"
 route_name = "agent-instance"
 audiences = ["admin", "agent"]
 dependencies = []
-commands = ["help", "launch", "join", "list", "stop", "relaunch", "cleanup", "native-resources", "runtime-variables", "mindsets", "private-workspace"]
+commands = ["help", "launch", "list", "stop", "relaunch", "cleanup", "native-resources", "runtime-variables", "mindsets", "private-workspace"]
 aliases = []
 
 [[shared_routines]]

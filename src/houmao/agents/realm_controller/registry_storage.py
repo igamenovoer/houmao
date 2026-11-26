@@ -6,6 +6,7 @@ import json
 import uuid
 import fcntl
 import os
+from errno import EEXIST, ENOTEMPTY
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -27,7 +28,11 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_user_managed_agent_name,
 )
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
-from houmao.agents.realm_controller.errors import SchemaValidationError, SessionManifestError
+from houmao.agents.realm_controller.errors import (
+    RetiredJoinedSessionError,
+    SchemaValidationError,
+    SessionManifestError,
+)
 from houmao.agents.realm_controller.registry_models import (
     ExternalManagedAgentRegistryRecordV1,
     LiveAgentRegistryRecordV2,
@@ -37,10 +42,10 @@ from houmao.agents.realm_controller.registry_models import (
     parse_managed_agent_registry_record,
 )
 from houmao.agents.realm_controller.schema_validation import validate_payload
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 
 DEFAULT_REGISTRY_LEASE_TTL = timedelta(hours=24)
 TMUX_BACKED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=36500)
-JOINED_REGISTRY_SENTINEL_LEASE_TTL = timedelta(days=30)
 DEFAULT_REGISTRY_CLEANUP_GRACE_PERIOD = timedelta(minutes=5)
 MANAGED_AGENT_REGISTRY_SCHEMA = "managed_agent_registry_record.v5.schema.json"
 LIVE_AGENT_REGISTRY_SCHEMA = MANAGED_AGENT_REGISTRY_SCHEMA
@@ -61,6 +66,28 @@ def _record_tmux_session_exists(record: ManagedAgentRegistryRecordV3) -> bool | 
             return tmux_session_exists(session_name=session_name)
     except (TmuxCommandError, OSError, ValueError):
         return None
+
+
+def _record_retirement_for_cleanup(
+    record: ManagedAgentRegistryRecordV3,
+) -> RetiredJoinedSessionError | None:
+    """Recognize retired records before lease or liveness cleanup."""
+
+    from houmao.agents.realm_controller.manifest import load_session_manifest
+
+    manifest_paths = {Path(record.runtime.manifest_path)}
+    if record.runtime.session_root is not None:
+        manifest_paths.add(Path(record.runtime.session_root) / "manifest.json")
+    for manifest_path in manifest_paths:
+        if not manifest_path.is_absolute():
+            continue
+        try:
+            load_session_manifest(manifest_path)
+        except RetiredJoinedSessionError as exc:
+            return exc
+        except SessionManifestError:
+            continue
+    return None
 
 
 @dataclass(frozen=True)
@@ -555,12 +582,36 @@ def _publish_managed_agent_record_locked(
 
     path = record_path_for_agent_id(publish_record.agent_id, env=env)
     live_agents_dir = global_registry_paths(env=env).live_agents_dir
+    startup = current_runtime_startup()
+    owns_startup_publication = startup is not None and startup.owns_registry_publication(
+        registry_root=live_agents_dir.parent,
+        manifest_path=publish_record.runtime.manifest_path,
+        generation_id=publish_record.generation_id,
+    )
+    if owns_startup_publication and (
+        live_agents_dir.is_symlink() or path.parent.is_symlink() or path.is_symlink()
+    ):
+        raise SessionManifestError("Shared-registry startup publication path is unsafe")
     if live_agents_dir.is_symlink():
         remove_tree_or_path(live_agents_dir, allowed_roots=(global_registry_paths(env=env).root,))
     if path.parent.is_symlink():
         remove_tree_or_path(path.parent, allowed_roots=(live_agents_dir,))
     live_agents_dir.mkdir(parents=True, exist_ok=True)
+    new_directory = owns_startup_publication and not path.parent.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
+    if startup is not None and owns_startup_publication:
+        previous = json.loads(path.read_text(encoding="utf-8")) if existing is not None else None
+        if new_directory:
+            directory = path.parent.lstat()
+            directory_identity = (directory.st_dev, directory.st_ino)
+        else:
+            directory_identity = None
+        startup.add(
+            "shared registry publication",
+            lambda: _rollback_startup_registry_publication(
+                publish_record, previous, directory_identity=directory_identity, env=env
+            ),
+        )
     _write_json_atomically(path, payload)
 
     observed = load_managed_agent_record_by_agent_id(publish_record.agent_id, env=env)
@@ -575,6 +626,40 @@ def _publish_managed_agent_record_locked(
         post_publish_check=True,
     )
     return observed
+
+
+def _rollback_startup_registry_publication(
+    published: ManagedAgentRegistryRecordV3,
+    previous: dict[str, object] | None,
+    *,
+    directory_identity: tuple[int, int] | None,
+    env: Mapping[str, str] | None,
+) -> None:
+    """Withdraw the failed birth only while it still owns the published record."""
+
+    with _managed_agent_record_lock(published.agent_id, env=env):
+        current = load_managed_agent_record_by_agent_id(published.agent_id, env=env)
+        path = record_path_for_agent_id(published.agent_id, env=env)
+        if current is not None:
+            if (
+                current.generation_id != published.generation_id
+                or current.runtime != published.runtime
+                or current.execution_binding != published.execution_binding
+            ):
+                return
+            _require_current_runtime_manifest_generation(current)
+            if previous is None:
+                path.unlink()
+            else:
+                _write_json_atomically(path, previous)
+        if directory_identity is not None and path.parent.exists():
+            directory = path.parent.lstat()
+            if (directory.st_dev, directory.st_ino) == directory_identity:
+                try:
+                    path.parent.rmdir()
+                except OSError as exc:
+                    if exc.errno not in {EEXIST, ENOTEMPTY}:
+                        raise
 
 
 def publish_external_managed_agent_record(
@@ -790,7 +875,10 @@ def cleanup_stale_managed_agent_records(
                         should_remove = True
                         remove_reason = "shared-registry record.json is malformed"
                     else:
-                        if record.lifecycle.state in {"stopped", "retired"}:
+                        retirement = _record_retirement_for_cleanup(record)
+                        if retirement is not None:
+                            preserve_reason = str(retirement)
+                        elif record.lifecycle.state in {"stopped", "retired"}:
                             preserve_reason = (
                                 f"lifecycle state `{record.lifecycle.state}` is durable"
                             )

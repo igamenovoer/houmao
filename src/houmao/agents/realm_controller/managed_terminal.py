@@ -14,7 +14,6 @@ PrimaryTmuxState = Literal[
     "stale_handles",
     "missing_session",
     "missing_window",
-    "missing_pane",
     "dead_pane",
     "ambiguous_pane",
 ]
@@ -34,48 +33,32 @@ class PrimaryTmuxObservation:
     replacement: TmuxPaneRecord | None = None
 
 
-def observe_primary_tmux(
-    binding: SessionManifestTmuxSectionV1, *, joined: bool = False
-) -> PrimaryTmuxObservation:
+def observe_primary_tmux(binding: SessionManifestTmuxSectionV1) -> PrimaryTmuxObservation:
     """Inspect the recorded owner socket and select the managed primary surface."""
 
     if binding.socket_path is None:
         raise SessionManifestError("Managed terminal observation requires a saved tmux socket")
     panes = TmuxServer(binding.socket_path).observe_session(binding.session_name)
-    return select_primary_tmux_surface(binding, panes, joined=joined)
+    return select_primary_tmux_surface(binding, panes)
 
 
 def select_primary_tmux_surface(
     binding: SessionManifestTmuxSectionV1,
     panes: tuple[TmuxPaneRecord, ...] | None,
-    *,
-    joined: bool = False,
 ) -> PrimaryTmuxObservation:
     """Resolve window zero and its pane from one checked session-wide observation."""
 
     if binding.primary_window_index != "0":
         raise SessionManifestError("Managed terminal binding requires primary window index 0")
-    primary_window = tuple(
+    candidates = tuple(
         pane
         for pane in panes or ()
         if pane.session_name == binding.session_name and pane.window_index == "0"
     )
-    candidates = tuple(
-        pane
-        for pane in primary_window
-        if not joined
-        or (
-            pane.pane_index == "0"
-            and (
-                binding.primary_window_name is None
-                or pane.window_name == binding.primary_window_name
-            )
-        )
-    )
     saved_window_id = binding.primary_window_id
     saved_pane_id = binding.primary_pane_id
     saved_window_valid = (
-        any(pane.window_id == saved_window_id for pane in primary_window)
+        any(pane.window_id == saved_window_id for pane in candidates)
         if saved_window_id is not None
         else None
     )
@@ -91,10 +74,8 @@ def select_primary_tmux_surface(
         state = "dead_pane" if exact.pane_dead else "valid"
     elif panes is None:
         state = "missing_session"
-    elif not primary_window:
-        state = "missing_window"
     elif not candidates:
-        state = "missing_pane"
+        state = "missing_window"
     elif not live:
         state = "dead_pane"
     elif len(live) == 1:
@@ -105,7 +86,7 @@ def select_primary_tmux_surface(
     return PrimaryTmuxObservation(
         state=state,
         session_exists=panes is not None,
-        primary_window_exists=bool(primary_window),
+        primary_window_exists=bool(candidates),
         primary_pane_exists=bool(candidates),
         primary_window_handle_valid=saved_window_valid,
         primary_pane_handle_valid=bool(saved_panes) if saved_pane_id is not None else None,

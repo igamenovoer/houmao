@@ -42,8 +42,10 @@ from houmao.agents.realm_controller.errors import (
     GatewayAttachError,
     GatewayHttpError,
     LaunchPlanError,
+    RetiredJoinedSessionError,
     SessionManifestError,
 )
+from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.gateway_client import GatewayEndpoint
 from houmao.agents.realm_controller.gateway_models import (
     BlueprintGatewayDefaults,
@@ -92,6 +94,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     GatewayCapabilityPublication,
     GatewayPaths,
+    build_gateway_manifest,
     ensure_gateway_capability,
     gateway_paths_from_manifest_path,
     gateway_paths_from_session_root,
@@ -1384,11 +1387,26 @@ def test_gateway_service_routes_local_interactive_raw_send_keys_through_control_
     assert _FakeGatewayTrackingRuntime.m_prompt_notes == []
 
 
-def test_gateway_service_builds_local_interactive_tui_tracking_identity_from_manifest_authority(
+def test_gateway_service_tracks_the_saved_version_and_primary_pane(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    gateway_root = _seed_local_interactive_gateway_root(tmp_path)
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, tool="kimi")
     manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    payload = load_session_manifest(manifest_path).payload
+    payload["launch_plan"]["launch_policy_provenance"] = {
+        "requested_operator_prompt_mode": "as_is",
+        "detected_tool_version": "9.0.0",
+        "selected_strategy_id": "fixture",
+        "selection_source": "registry",
+    }
+    payload["tmux"].update(
+        socket_path=str(tmp_path / "owner.sock"), primary_window_id="@42", primary_pane_id="%24"
+    )
+    write_session_manifest(manifest_path, payload)
+    monkeypatch.setattr(
+        gateway_service_module.SingleSessionTrackingRuntime, "start", lambda _: None
+    )
 
     runtime = GatewayServiceRuntime.from_gateway_root(
         gateway_root=gateway_root,
@@ -1396,18 +1414,27 @@ def test_gateway_service_builds_local_interactive_tui_tracking_identity_from_man
         port=43123,
     )
 
-    identity = runtime._tui_tracking_identity_locked()
+    runtime._start_tui_tracking_locked()
+    tracker = runtime.m_tui_tracking
 
-    assert identity is not None
+    assert tracker is not None
+    identity = tracker.identity
     assert identity.tracked_session_id == "local-interactive-1"
     assert identity.session_name == "local-interactive-1"
-    assert identity.tool == "codex"
+    assert identity.tool == "kimi"
+    assert identity.observed_tool_version == "9.0.0"
     assert identity.tmux_session_name == "HOUMAO-local"
     assert identity.tmux_window_name == "agent"
     assert identity.terminal_aliases == []
     assert identity.agent_name == "HOUMAO-local"
     assert identity.agent_id == derive_agent_id_from_name("HOUMAO-local")
     assert identity.manifest_path == str(manifest_path)
+    binding = tracker.m_primary_binding
+    assert binding is not None
+    assert binding.socket_path == str(tmp_path / "owner.sock")
+    assert binding.primary_window_id == "@42"
+    assert binding.primary_pane_id == "%24"
+    assert tracker.m_tracker.parser_qualification.detector_version == "2.1.x"
 
 
 def test_gateway_service_exposes_local_interactive_state_and_prompt_note_routes(
@@ -5817,6 +5844,59 @@ def test_gateway_mail_notifier_rejects_enablement_when_manifest_is_missing(
             host="127.0.0.1",
             port=43123,
         )
+
+
+def test_retired_manifest_blocks_gateway_bootstrap_and_notifier_enablement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cached attach data cannot establish authority or change notifier state."""
+
+    gateway_root = _seed_local_interactive_gateway_root(tmp_path, mailbox_enabled=True)
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root, host="127.0.0.1", port=43123
+    )
+    assert runtime.get_mail_notifier(channel="offline").supported
+    manifest_path = default_manifest_path(tmp_path, "local_interactive", "local-interactive-1")
+    paths = gateway_paths_from_manifest_path(manifest_path)
+    assert paths is not None
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["agent_launch_authority"] = {"session_origin": "joined_tmux"}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    saved_gateway_files = {
+        path: path.read_bytes() for path in gateway_root.rglob("*") if path.is_file()
+    }
+    assert paths.attach_path in saved_gateway_files
+    assert paths.queue_path in saved_gateway_files
+
+    with pytest.raises(RetiredJoinedSessionError, match="Manual tmux adoption is retired"):
+        GatewayServiceRuntime.from_gateway_root(
+            gateway_root=gateway_root, host="127.0.0.1", port=43123
+        )
+    with pytest.raises(RetiredJoinedSessionError):
+        ensure_gateway_capability(
+            GatewayCapabilityPublication(
+                manifest_path=manifest_path,
+                backend="local_interactive",
+                tool="codex",
+                session_id="local-interactive-1",
+                tmux_session_name="HOUMAO-local",
+                working_directory=tmp_path,
+                backend_state={},
+            )
+        )
+    with pytest.raises(RetiredJoinedSessionError):
+        build_gateway_manifest(attach_contract=runtime.m_attach_contract)
+    monkeypatch.setattr(
+        gateway_service_module, "gateway_access_for_manifest", gateway_access_for_manifest
+    )
+    with pytest.raises(RetiredJoinedSessionError):
+        runtime.prepare_access()
+    with pytest.raises(HTTPException, match="Manual tmux adoption is retired") as refused:
+        runtime.put_mail_notifier(GatewayMailNotifierPutV1(interval_seconds=60), channel="offline")
+    assert refused.value.status_code == 422
+    assert {
+        path: path.read_bytes() for path in gateway_root.rglob("*") if path.is_file()
+    } == saved_gateway_files
 
 
 def test_gateway_mail_notifier_supports_manifest_backed_mailbox_without_tmux_projection(

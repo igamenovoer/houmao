@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from time import monotonic
-from typing import Any, cast
+from typing import cast
 
 import click
 
@@ -20,6 +19,7 @@ from houmao.execution.models import (
 )
 from houmao.execution.profiles import load_execution_profile
 from houmao.execution.transports import execute_request
+from houmao.project.launch_request import ProjectLaunchRequest
 
 
 def execute_bound_operation(
@@ -112,17 +112,16 @@ def require_execution_result(response: ExecutionResponseV1) -> JsonObject:
     return response.result
 
 
-def launch_with_executor(executor: str, parameters: dict[str, Any]) -> None:
+def launch_with_executor(
+    executor: str, request: ProjectLaunchRequest, *, project_dir: Path | None = None
+) -> None:
     """Enter a trusted target before any caller-side project or runtime preparation."""
 
     from houmao.srv_ctrl.commands.output import emit
-    from houmao.srv_ctrl.commands.project_context import active_project_dir
 
     profile = load_execution_profile(executor)
-    values = dict(parameters)
-    project_dir = active_project_dir()
-    values["project_dir"] = str(project_dir) if project_dir is not None else profile.project_root
-    arguments = cast(JsonObject, json.loads(json.dumps(values, default=_json_path)))
+    arguments = cast(JsonObject, request.model_dump(mode="json"))
+    arguments["project_dir"] = str(project_dir) if project_dir is not None else profile.project_root
     response = execute_request(
         profile,
         ExecutionRequestV1(
@@ -175,6 +174,8 @@ def launch_with_executor(executor: str, parameters: dict[str, Any]) -> None:
         result.pop("attach_command", None)
         result["terminal_handoff"] = "owner_context_required"
     emit({**result, "execution_context": response.binding.model_dump(mode="json")})
+    if result.get("gateway_auto_attach_error") is not None:
+        raise SystemExit(2)
 
 
 def reconcile_executor_agent(executor: str, agent_id: str) -> ExecutorAgentLocatorV1:
@@ -210,11 +211,3 @@ def reconcile_executor_agent(executor: str, agent_id: str) -> ExecutorAgentLocat
             }
         )
     )
-
-
-def _json_path(value: object) -> str:
-    """Serialize explicit target path inputs without resolving them locally."""
-
-    if isinstance(value, Path):
-        return str(value)
-    raise TypeError("Unsupported launch input")

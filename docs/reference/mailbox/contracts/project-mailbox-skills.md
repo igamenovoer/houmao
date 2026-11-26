@@ -1,6 +1,6 @@
 # Project Mailbox Skills
 
-Managed launch and join project the complete four-member `agent` system-skill pack into the agent's runtime home. The public `houmao-agent-entrypoint` delegates mailbox work to parent-scoped children owned by its `houmao-shared-routines` sibling.
+Managed launch projects the complete four-member `agent` system-skill pack into the agent's runtime home. The public `houmao-agent-entrypoint` delegates mailbox work to parent-scoped children owned by its `houmao-shared-routines` sibling.
 
 ## When Skills Are Projected
 

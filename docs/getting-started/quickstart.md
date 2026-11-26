@@ -1,6 +1,6 @@
 # Quickstart
 
-Houmao is designed to be driven from the CLI agent you already use. You talk to Claude Code, Codex, Kimi, or another supported agent surface; that agent reads Houmao system skills; the skills guide it through maintained `houmao-mgr` commands; Houmao then creates, adopts, prompts, inspects, and stops managed agents.
+Houmao is designed to be driven from the CLI agent you already use. You talk to Claude Code, Codex, Kimi, or another supported agent surface; that agent reads Houmao system skills; the skills guide it through maintained `houmao-mgr` commands; Houmao then launches, prompts, inspects, and stops managed agents.
 
 ```text
 you -> your CLI agent -> Houmao system skills -> houmao-mgr -> managed agents
@@ -78,7 +78,7 @@ The agent should route through Houmao skills and supported commands. Depending o
 - inspect state, screen posture, logs, mailbox posture, memory, or turn evidence;
 - stop the managed agent when you ask it to.
 
-The important split is that your current CLI agent remains the operator. The managed agent is the worker Houmao created or adopted. You can keep asking your current agent for higher-level outcomes:
+The important split is that your current CLI agent remains the operator. The managed agent is the worker Houmao launched. You can keep asking your current agent for higher-level outcomes:
 
 ```text
 Ask reviewer-1 if the migration plan is safe, then summarize its answer.
@@ -178,52 +178,13 @@ houmao-mgr project mailbox accounts list
 
 For flag-level command details, use the [`houmao-mgr` CLI reference](../reference/cli/houmao-mgr.md), [agents gateway reference](../reference/cli/agents-gateway.md), [agents mail reference](../reference/cli/agents-mail.md), [agents mailbox reference](../reference/cli/agents-mailbox.md), and [system-skills reference](../reference/cli/system-skills.md).
 
-## Adopt An Existing Provider TUI
+## Upgrading From Manual Session Adoption
 
-Use `agents self join` when a provider session already exists and you want Houmao to wrap it instead of building a new managed home first. This is an adoption workflow, not the default first-run path.
-
-Start your provider TUI in tmux window `0`, pane `0`:
-
-```bash
-tmux new-session -s hm-demo
-claude
-```
-
-From inside that same tmux session, adopt it:
-
-```bash
-houmao-mgr agents self join --agent-name research
-houmao-mgr agents self state
-houmao-mgr agents self prompt --prompt "Summarize the current state."
-houmao-mgr agents single --agent-name research stop
-```
-
-```mermaid
-sequenceDiagram
-    participant Op as Operator
-    participant Tmux as tmux session
-    participant Provider as Provider TUI
-    participant CLI as houmao-mgr agents self join
-    participant RT as Houmao runtime
-    participant Gateway as Gateway artifacts
-    participant Reg as Shared registry
-    Op->>Tmux: start session window 0 pane 0
-    Tmux->>Provider: run claude, codex, or kimi
-    Op->>CLI: join --agent-name research
-    CLI->>RT: inspect current tmux authority
-    RT->>RT: write manifest and managed-agent memory root
-    RT->>Gateway: prepare gateway-capable runtime artifacts
-    RT->>Reg: publish managed-agent record
-    RT-->>Op: managed-agent control is ready
-```
-
-If the adopted session should record a different cwd than tmux window `0`, pane `0`, add `--workdir /path/to/worktree`.
-
-Managed join auto-installs the four-member `agent` pack into the adopted home. Later skill-driven self work enters through `$houmao-agent-entrypoint`, which verifies current identity before delegating inspection, messaging, gateway, mailbox, or memory work to its shared sibling. Selected-agent commands under `agents single --agent-name research ...` can operate the same managed agent from outside its tmux session.
+Use a supported managed launch for new workers. If you used an earlier release to adopt a manually started TUI or headless session, see [Upgrading From Manual Session Adoption](../reference/run-phase/session-lifecycle.md#upgrading-from-manual-session-adoption) before replacing that release.
 
 ## Local State And Project Roots
 
-For maintained local-state command families such as `project agents launch`, `agents self join`, `mailbox`, and `admin cleanup runtime`, Houmao resolves runtime, managed-agent memory, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/memory`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
+For maintained local-state command families such as `project agents launch`, `mailbox`, and `admin cleanup runtime`, Houmao resolves runtime, managed-agent memory, and mailbox roots from one active project overlay. In project context that means `<active-overlay>/runtime`, `<active-overlay>/memory`, and `<active-overlay>/mailbox`; when no overlay exists yet and the command needs local state, Houmao bootstraps `<cwd>/.houmao` first.
 
 Ambient overlay selection defaults to nearest-ancestor `.houmao/houmao-config.toml` discovery within the current Git boundary. Set `HOUMAO_PROJECT_OVERLAY_DISCOVERY_MODE=cwd_only` when commands run from a subdirectory should ignore a parent overlay and consider only `<cwd>/.houmao`. `HOUMAO_PROJECT_OVERLAY_DIR=/abs/path` remains the stronger explicit overlay-root override.
 

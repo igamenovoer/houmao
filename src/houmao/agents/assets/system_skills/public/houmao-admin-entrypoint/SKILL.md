@@ -32,8 +32,7 @@ When this skill is invoked, execute the following steps in order.
 4. **Select one eligible route** from **Subcommands**. Reject agent-only `process-emails-via-gateway`; if loop work omits `pro` vs `lite`, ask the operator to choose rather than guessing.
 5. **Enforce the Target Gate** before mutation: require an explicit or unambiguously stated project path, agent ID/name, mailbox root, or `<loop-dir>`; if multiple candidates exist, ask one concise `Required` / `Optional` question.
 6. **Delegate with the Sibling Handoff Frame** to `$houmao-shared-routines`, `$houmao-agent-loop-pro`, or `$houmao-agent-loop-lite` (applying **Specialist Compatibility Alias** when `specialist-mgr` is named).
-7. **Honor Joined-Session Adoption** on `agent-instance join`: remain `admin` until `houmao-mgr agents self join` succeeds, then verify `houmao-mgr --print-json agents self identity` and hand subsequent work to `$houmao-agent-entrypoint`.
-8. **Return the routed outcome** leading with status (`completed`, `unchanged`, `blocked`, or `failed`), target, and material evidence.
+7. **Return the routed outcome** leading with status (`completed`, `unchanged`, `blocked`, or `failed`), target, and material evidence.
 
 If the user's task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the eligible subcommands, target gate, sibling contracts, and user request, then execute the plan.
 
@@ -56,7 +55,7 @@ Entrypoint route calls use `houmao-admin-entrypoint->agent-inspect()`; delegated
 | `ext-graphing` | `houmao-shared-routines->houmao-ext-graphing` | Author, validate, repair, and render Plotly (`plotly2d` v3) or Vega-Lite (`v1`) graphics for AG-UI delivery. |
 | `mailbox-mgr` | `houmao-shared-routines->houmao-mailbox-mgr` | Administer offline filesystem or project mailbox roots, accounts, structural messages, exports, and late `mailbox offline` or Stalwart `mailbox online` bindings. |
 | `memory-mgr` | `houmao-shared-routines->houmao-memory-mgr` | Read, write, or remove live `houmao-memo.md` and `pages/` entries or inspect birth-time profile memo seeds. |
-| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | Launch, join, list, stop, relaunch, or clean up sessions, register `agents external` imports, maintain `admin executors` locators, or manage native resources, runtime variables, mindsets, and private workspaces. |
+| `agent-instance` | `houmao-shared-routines->houmao-agent-instance` | Launch, list, stop, relaunch, or clean up sessions, register `agents external` imports, maintain `admin executors` locators, or manage native resources, runtime variables, mindsets, and private workspaces. |
 | `agent-inspect` | `houmao-shared-routines->houmao-agent-inspect` | Inspect read-only liveness, `service`/`web`/TUI state, durable usage (`/v1/usage`), `agents external` records, mailbox summaries, artifacts, or logs. |
 | `agent-messaging` | `houmao-shared-routines->houmao-agent-messaging` | Send an attributed `request`, verbatim `prompt`, interrupt, gateway queue check, raw `send-keys`, mail handoff, or context reset, keeping `houmao-cccc` chat distinct. |
 | `agent-gateway` | `houmao-shared-routines->houmao-agent-gateway` | Attach or inspect a gateway, pass `--plugin-config-override`, operate `houmao-cccc` plugin routes, open `web-entry` or `open-browser`, or manage reminders and `mail-notifier`. |
@@ -77,5 +76,5 @@ Entrypoint route calls use `houmao-admin-entrypoint->agent-inspect()`; delegated
 - DO NOT treat the current session as managed self or call `agents self` operational commands as an admin default.
 - DO NOT load a local `subskills/` tree beneath this entrypoint.
 - DO NOT invoke the agent-only `process-emails-via-gateway` route from an admin frame.
-- DO NOT mutate actor identity from prompt wording or continue an admin route after `agents self join` succeeds.
+- DO NOT mutate actor identity from prompt wording.
 - DO NOT execute welcome-style or `help` requests as mutating operations, or invoke `$houmao-admin-welcome` automatically.

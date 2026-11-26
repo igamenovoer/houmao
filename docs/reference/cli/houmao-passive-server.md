@@ -12,7 +12,7 @@ houmao-passive-server [OPTIONS] COMMAND [ARGS]...
 
 ## When to Use It
 
-Use `houmao-passive-server` when you need a global HTTP authority for collecting, observing, or managing running Houmao agents from the shared registry. Typical operators still launch local agents through `houmao-mgr project agents launch` or adopt the current tmux session through `houmao-mgr agents self join`; passive-server then provides API-based discovery, observation, gateway proxying, mailbox proxying, and managed-headless turn handling.
+Use `houmao-passive-server` when you need a global HTTP authority for collecting, observing, or managing running Houmao agents from the shared registry. Operators launch local agents through `houmao-mgr project agents launch`. Passive-server then provides API-based discovery, observation, gateway proxying, mailbox proxying, and managed-headless turn handling.
 
 Passive-server is not a Houmao project-bound command. It can start from any directory without a `.houmao` project overlay, and its durable state and registry target come from explicit root configuration, environment variables, or global defaults.
 
@@ -85,7 +85,7 @@ Passive-server is registry-driven. It scans the configured shared registry root 
 
 Agents are discoverable only when their launching authority and passive-server use the same shared registry root. For example, an agent launched with `HOUMAO_GLOBAL_REGISTRY_DIR=/tmp/a` will not appear in a passive-server that uses `--registry-root /tmp/b`.
 
-Agent routes use `{agent_ref}` for either an exact agent id or an unambiguous agent name. Missing agents return `404`; ambiguous names return `409`.
+Agent routes use `{agent_ref}` for either an exact agent id or an unambiguous agent name. Missing agents return `404`; ambiguous names return `409`. An address retained from earlier manual session adoption can resolve as offline, without gateway coordinates. A protected operation that selects a retired runtime returns `410`.
 
 ## Selected-Agent Access
 

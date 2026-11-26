@@ -718,6 +718,13 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
     cao: CaoSectionV2 | None = None
     houmao_server: HoumaoServerSectionV1 | None = None
 
+    @property
+    def observed_tool_version(self) -> str | None:
+        """Return the provider version recorded for this runtime's launch."""
+
+        provenance = self.launch_policy_provenance or self.launch_plan.launch_policy_provenance
+        return provenance.detected_tool_version.strip() if provenance is not None else None
+
     @field_validator("gateway_admin_seed", mode="before")
     @classmethod
     def _parse_gateway_admin_seed(cls, value: object) -> object:

@@ -158,7 +158,7 @@ Each published command SHALL use the same canonical name in its owner route tabl
 - **THEN** `SKILL.md` states concise actor-selection steps and links `references/actor-frame.md` for the six-field frame contract without repeating the full block
 
 ### Requirement: Shared routines preserves explicit activation, frame validation, and selective child loading
-`houmao-shared-routines` SHALL preserve explicit-only activation, help before actor verification or child loading, immutable inherited six-field frame validation, `as-agent` fresh `agents self identity`, selective single-child `SKILL-MAIN.md` loading, `specialist-mgr` alias, and join transition rules.
+`houmao-shared-routines` SHALL preserve explicit-only activation, help before actor verification or child loading, immutable inherited six-field frame validation, `as-agent` fresh `agents self identity`, selective single-child `SKILL-MAIN.md` loading, and the `specialist-mgr` alias.
 
 #### Scenario: Selective child loading never scans sibling directories
 - **WHEN** `houmao-shared-routines` resolves a valid route for the verified actor frame

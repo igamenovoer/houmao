@@ -15,11 +15,10 @@
     "defaults": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cli", "managed_launch", "managed_join"],
+      "required": ["cli", "managed_launch"],
       "properties": {
         "cli": {"$ref": "#/$defs/packIds"},
-        "managed_launch": {"$ref": "#/$defs/packIds"},
-        "managed_join": {"$ref": "#/$defs/packIds"}
+        "managed_launch": {"$ref": "#/$defs/packIds"}
       }
     },
     "packs": {
@@ -81,7 +80,7 @@
         },
         "default_lanes": {
           "type": "array",
-          "items": {"enum": ["cli", "managed_launch", "managed_join"]},
+          "items": {"enum": ["cli", "managed_launch"]},
           "uniqueItems": true
         }
       }

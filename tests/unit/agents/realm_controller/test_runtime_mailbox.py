@@ -13,7 +13,6 @@ from typing import Any
 import pytest
 
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
-from houmao.agents.realm_controller.boundary_models import SessionManifestAgentLaunchAuthorityV1
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.launch_plan import LaunchPlanRequest, build_launch_plan
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
@@ -1067,79 +1066,6 @@ def test_relaunch_of_older_manifest_recomputes_default_managed_header(
     assert (
         "<role_prompt>\nRole prompt\n</role_prompt>" in controller.launch_plan.role_injection.prompt
     )
-
-
-def test_late_mailbox_registration_supports_joined_sessions_without_relaunch_posture(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    controller, _ = _controller_for_mailbox_mutation(
-        tmp_path=tmp_path,
-        backend="codex_headless",
-        mailbox=None,
-    )
-    controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
-        backend="codex_headless",
-        tool="codex",
-        tmux_session_name="HOUMAO-research",
-        working_directory=str(tmp_path),
-        session_origin="joined_tmux",
-        posture_kind="unavailable",
-    )
-
-    result = _join_configured_mailbox(
-        controller,
-        mailbox_root=tmp_path / "shared-mail",
-        principal_id="HOUMAO-research",
-        address="HOUMAO-research@agents.localhost",
-    )
-
-    assert result.activation_state == "active"
-    assert controller.mailbox_activation_state() == "active"
-    assert controller.launch_plan.mailboxes.offline.binding is not None
-    assert controller.agent_launch_authority is not None
-    assert controller.agent_launch_authority.posture_kind == "unavailable"
-
-
-def test_late_mailbox_unregistration_supports_joined_sessions_without_relaunch_posture(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    existing_mailbox = _offline_binding(
-        transport="filesystem",
-        principal_id="HOUMAO-research",
-        address="HOUMAO-research@agents.localhost",
-        filesystem_root=(tmp_path / "shared-mail").resolve(),
-        bindings_version="2026-03-26T00:00:00.000001Z",
-    )
-    bootstrap_filesystem_mailbox(
-        existing_mailbox.filesystem_root,
-        principal=MailboxPrincipal(
-            principal_id=existing_mailbox.principal_id,
-            address=existing_mailbox.address,
-        ),
-    )
-    controller, _ = _controller_for_mailbox_mutation(
-        tmp_path=tmp_path,
-        backend="codex_headless",
-        mailbox=existing_mailbox,
-    )
-    controller.agent_launch_authority = SessionManifestAgentLaunchAuthorityV1(
-        backend="codex_headless",
-        tool="codex",
-        tmux_session_name="HOUMAO-research",
-        working_directory=str(tmp_path),
-        session_origin="joined_tmux",
-        posture_kind="unavailable",
-    )
-
-    result = controller.unregister_filesystem_mailbox()
-
-    assert result.activation_state == "active"
-    assert controller.launch_plan.mailboxes.offline.binding is None
-    assert controller.mailbox_activation_state() is None
-    assert controller.agent_launch_authority is not None
-    assert controller.agent_launch_authority.posture_kind == "unavailable"
 
 
 def test_refresh_cannot_move_offline_registration_to_another_store(tmp_path: Path) -> None:

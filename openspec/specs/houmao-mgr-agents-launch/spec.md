@@ -38,12 +38,12 @@ houmao-mgr project [--project-dir <dir>] agents launch
 
 Direct native/provider construction plumbing, when retained, SHALL live under internal native-agent command surfaces rather than `houmao-mgr agents global`.
 
-Existing local managed-agent identities MAY be adopted into the registry through `houmao-mgr agents self join` when the target is the caller's current tmux session.
+A supported Houmao launch SHALL establish local managed-agent identity and lifecycle authority.
 
 #### Scenario: Global management omits launch
 - **WHEN** an operator runs `houmao-mgr agents global --help`
 - **THEN** the help output does not list `launch`
-- **AND THEN** the operator must choose a source-scoped birth command or a join/import command instead
+- **AND THEN** the operator must choose a source-scoped managed launch to create a local managed agent
 
 #### Scenario: Project launch remains public birth path
 - **WHEN** an operator wants to create a managed agent from project profile `reviewer`

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -45,13 +46,15 @@ from houmao.execution.models import (
     route_fingerprint,
 )
 from houmao.execution.owner import OwnerAdmissionError, OwnerPolicyV1, handle_request
+from houmao.execution.protocol import decode_response, encode_request
 from houmao.execution.profiles import ExecutionProfileError
 from houmao.execution.tmux import tmux_server_scope
 from houmao.passive_server.models import PassiveHeadlessLaunchRequest
+from houmao.project.launch_request import ProjectLaunchRequest
 from houmao.srv_ctrl.commands import managed_agents as managed
 from houmao.srv_ctrl.commands import project_easy
 from houmao.srv_ctrl.commands.main import cli
-from houmao.srv_ctrl.commands.output import collect_output_payloads, emit
+from houmao.srv_ctrl.commands.output import collect_output_payloads
 
 
 @pytest.fixture
@@ -347,20 +350,21 @@ def test_invalid_operation_parameters_fail_before_runtime_resolution(
     resolve.assert_not_called()
 
 
-def test_owner_launch_reuses_shared_service_and_output_collector(
+def test_owner_launch_serializes_shared_completion_without_rendering(
     boundary: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The delegated path preserves maintained launch preparation and captures its result."""
+    """Dispatch validated launch inputs and serialize the typed launch completion."""
 
     seen = []
 
-    def launch(**parameters: object) -> None:
+    def launch(request: ProjectLaunchRequest, *, project_dir: Path) -> SimpleNamespace:
         """Act as the maintained application boundary without starting a harness."""
 
         assert managed._OWNER_LOCAL_TARGET_SCOPE.get()
-        seen.append(parameters)
-        emit(
-            {
+        assert project_dir == Path(boundary.profile.project_root)
+        seen.append(request.model_dump())
+        return SimpleNamespace(
+            payload={
                 "agent_id": "agent-1",
                 "agent_name": "reviewer",
                 "manifest_path": "/owner/manifest.json",
@@ -392,6 +396,87 @@ def test_owner_launch_reuses_shared_service_and_output_collector(
     assert seen[0]["tmux_socket_path"] == "/owner/worker.sock"
     assert seen[0]["workdir"] == Path(boundary.profile.project_root)
     assert "executor" not in seen[0]
+
+
+@pytest.mark.parametrize("delegated", (False, True))
+def test_project_launch_reports_optional_gateway_failure_after_admission(
+    boundary: SimpleNamespace,
+    owner_manifest: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    delegated: bool,
+) -> None:
+    """Both CLI adapters report the live identity and exit two after one launch."""
+
+    from houmao.agents.agent_workspace import AgentMemoryPaths
+    from houmao.execution import owner
+    from houmao.srv_ctrl.commands.agents.core import (
+        LocalManagedAgentLaunchResult,
+        build_local_launch_completion,
+    )
+
+    runtime = owner_manifest.parent
+    start = LocalManagedAgentLaunchResult(
+        controller=SimpleNamespace(
+            agent_identity="reviewer",
+            agent_id="agent-1",
+            tmux_session_name="owner-session",
+            manifest_path=owner_manifest,
+            gateway_auto_attach_error="loopback listener unavailable",
+        ),
+        memory=AgentMemoryPaths(runtime / "memory", runtime / "memo.md", runtime / "pages"),
+        runtime_root=runtime,
+        mailbox_root=runtime / "mail",
+        runtime_root_detail="owner runtime",
+        mailbox_root_detail="owner mailbox",
+        overlay_root=runtime / ".houmao",
+        overlay_root_detail="owner overlay",
+        project_overlay_bootstrapped=False,
+        overlay_bootstrap_detail="existing overlay",
+    )
+    completion = build_local_launch_completion(
+        launch_result=start, agent_name=None, session_name=None
+    )
+    launch = Mock(return_value=completion)
+    monkeypatch.setattr(project_easy, "launch_project_agent", launch)
+    monkeypatch.setattr(router, "load_execution_profile", lambda _: boundary.profile)
+    monkeypatch.setattr(owner, "load_owner_policy", lambda _: boundary.policy)
+    monkeypatch.setattr(owner, "observe_binding", lambda *_, **__: boundary.binding)
+    publish = Mock()
+    monkeypatch.setattr(router, "publish_executor_locator", publish)
+
+    def send_to_stdio(_profile: object, request: ExecutionRequestV1) -> ExecutionResponseV1:
+        """Exercise owner framing and dispatch through the fixed stdio service."""
+
+        output = BytesIO()
+        status = owner.serve_stdio(
+            Path(boundary.profile.policy_path),
+            input_stream=BytesIO(encode_request(request)),
+            output_stream=output,
+        )
+        response = decode_response(output.getvalue())
+        assert status == 0
+        assert response.request_id == request.request_id
+        assert response.outcome == "completed" and response.admitted
+        assert response.result == completion.payload
+        return response
+
+    transport = Mock(side_effect=send_to_stdio)
+    monkeypatch.setattr(router, "execute_request", transport)
+    args = ["--print-json", "project", "agents", "launch", "--profile", "reviewer"]
+    if delegated:
+        args.extend(("--executor", "worker"))
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 2, (result.output, result.exception)
+    report = json.loads(result.output)
+    if delegated:
+        transport.assert_called_once()
+        publish.assert_called_once_with(boundary.locator)
+        assert report.pop("execution_context") == boundary.binding.model_dump(mode="json")
+    else:
+        transport.assert_not_called()
+        publish.assert_not_called()
+    assert report == completion.payload
+    launch.assert_called_once()
 
 
 def test_owner_resolves_launch_inputs_in_the_target_context(
@@ -443,7 +528,9 @@ def test_owner_resolves_launch_inputs_in_the_target_context(
 
     monkeypatch.setattr(project_easy, "launch_managed_agent_locally", launch)
     monkeypatch.setattr(
-        project_easy, "emit_local_launch_completion", lambda launch_result, **_: emit(launch_result)
+        project_easy,
+        "build_local_launch_completion",
+        lambda launch_result, **_: SimpleNamespace(payload=launch_result),
     )
     response = handle_request(
         ExecutionRequestV1(
@@ -507,7 +594,7 @@ def test_owner_rejects_invalid_launch_posture_before_force_launch(
 
     project = Path(boundary.profile.project_root)
     monkeypatch.setattr(
-        project_easy, "_ensure_project_overlay", lambda: SimpleNamespace(project_root=project)
+        project_easy, "_ensure_project_overlay", lambda **_: SimpleNamespace(project_root=project)
     )
     monkeypatch.setattr(
         project_easy,
@@ -652,12 +739,16 @@ def test_routed_web_launch_emits_only_the_verified_owner_relative_origin(
     with collect_output_payloads() as output:
         if unsafe_origin:
             with pytest.raises(click.ClickException, match="locator publication failed"):
-                router.launch_with_executor("worker", {"profile": "reviewer", "mode": "web"})
+                router.launch_with_executor(
+                    "worker", ProjectLaunchRequest(profile="reviewer", mode="web")
+                )
             publish.assert_not_called()
             assert output[0]["locator_published"] is False
             assert "browser_origin" not in output[0]
         else:
-            router.launch_with_executor("worker", {"profile": "reviewer", "mode": "web"})
+            router.launch_with_executor(
+                "worker", ProjectLaunchRequest(profile="reviewer", mode="web")
+            )
             assert publish.call_args.args[0].mode == "web"
             assert output[0]["browser_origin"] == origin
             assert output[0]["native_session_id"] == session_id
@@ -689,7 +780,7 @@ def test_lost_launch_response_never_publishes_or_replays(
     monkeypatch.setattr(router, "execute_request", transport)
     monkeypatch.setattr(router, "publish_executor_locator", publish)
     with pytest.raises(click.ClickException, match="request=request-1"):
-        router.launch_with_executor("worker", {"profile": "reviewer"})
+        router.launch_with_executor("worker", ProjectLaunchRequest(profile="reviewer"))
     assert transport.call_count == 1
     publish.assert_not_called()
 
@@ -719,7 +810,7 @@ def test_failed_operator_publication_reports_admitted_identity_without_second_bi
     )
     with collect_output_payloads() as output:
         with pytest.raises(click.ClickException, match="Do not launch again"):
-            router.launch_with_executor("worker", {"profile": "reviewer"})
+            router.launch_with_executor("worker", ProjectLaunchRequest(profile="reviewer"))
     assert transport.call_count == 1
     assert output[0]["outcome"] == "partial_success"
     assert output[0]["agent_id"] == "agent-1"
@@ -891,7 +982,7 @@ def test_unconfigured_execution_target_cannot_spawn_transport(
     transport = Mock(side_effect=AssertionError("unconfigured target must not spawn"))
     monkeypatch.setattr(router, "execute_request", transport)
     with pytest.raises(ExecutionProfileError):
-        router.launch_with_executor("unconfigured", {"profile": "reviewer"})
+        router.launch_with_executor("unconfigured", ProjectLaunchRequest(profile="reviewer"))
     transport.assert_not_called()
 
 

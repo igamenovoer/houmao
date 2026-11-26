@@ -19,7 +19,7 @@ The Quick Start SHALL NOT require a reader to walk through a numbered 0-through-
 - **WHEN** a reader opens README.md and scans section headings
 - **THEN** they see a concise Quick Start before detailed usage references
 - **AND THEN** they see agent-driven examples before low-level CLI command details
-- **AND THEN** the README does not present project init, specialist creation, agent join, and full recipes as a long numbered manual tutorial
+- **AND THEN** the README does not present project init, specialist creation, managed launch, and full recipes as a long numbered manual tutorial
 
 ### Requirement: Drive with Your CLI Agent is step 1
 The README Quick Start SHALL present the skill-driven human-operator path as the primary recommended entry point. It SHALL instruct the user to install Houmao, verify `tmux`, install the admin system-skill pack into the target CLI-agent home, start that CLI agent from the target directory, and invoke `$houmao-admin-welcome start-guided-tour`.
@@ -103,17 +103,6 @@ The README MAY keep or link to the writer-team example, but it SHALL frame it as
 - **THEN** it describes lite as the lightweight Markdown/direct-SQL loop option
 - **AND THEN** it does not make lite replace pro as the primary complex-plan story
 
-### Requirement: agents join is a secondary path (step 4)
-
-The README SHALL treat `agents join` as a secondary advanced or reference path for adopting an already-running provider TUI, not as part of the first-run onboarding flow.
-
-The README MAY summarize joined-session capability at a high level and SHALL link to detailed docs for step-by-step commands, capabilities, and managed-header behavior.
-
-#### Scenario: Join section positioning
-- **WHEN** a reader encounters `agents join` in the README
-- **THEN** it is clearly framed as "if you already have a running provider session" rather than the default starting path
-- **AND THEN** detailed join commands are available through docs links rather than expanded as the main README flow
-
 ### Requirement: System Skills section lists every shipped skill with its purpose
 The README System Skills section SHALL be a concise summary of the public roles and the actor-driven model, not a table of protected routines and not an inline reference for pack lifecycle behavior.
 
@@ -138,14 +127,6 @@ It SHALL keep the table of the six shipped skills with pack membership and role,
 - **WHEN** a reader wants pack membership, route-selection, or install-lifecycle detail
 - **THEN** they follow the README link to the System Skills Overview or CLI reference
 - **AND THEN** the moved detail is present in that linked doc, merged with its existing content rather than duplicated
-
-### Requirement: agents join capabilities table mentions agents memory
-
-The capabilities table in step 5 (Adopt an Existing Session) SHALL include at least one row describing `houmao-mgr agents memory` commands, covering memory path inspection, memo file operations, and page link/path resolution.
-
-#### Scenario: Reader sees memory commands in join capabilities table
-- **WHEN** a reader scans the capabilities table in step 5
-- **THEN** they find a row for memory inspection, memo operations, or page resolution that references `houmao-mgr agents memory`
 
 ### Requirement: README What It Is section acknowledges Copilot system-skills target
 The README opening "What It Is" paragraph SHALL mention Copilot as a supported system-skills install target alongside the three primary launch-capable tools (`claude`, `codex`, `kimi`). The mention SHALL make clear that Copilot is a skill-install surface, not a launch backend.
@@ -232,7 +213,7 @@ The first example prompt in the README SHALL invoke the entrypoint skill explici
 
 ### Requirement: README leaves command detail to docs
 
-The README SHALL keep command examples short and illustrative. Detailed command flags, full lifecycle command lists, complete system-skill catalogs, join diagrams, managed-header details, and recipe/launch-dossier reference material SHALL be linked to existing docs or reference pages instead of expanded inline.
+The README SHALL keep command examples short and illustrative. Detailed command flags, full lifecycle command lists, complete system-skill catalogs, managed-header details, and recipe/launch-dossier reference material SHALL be linked to existing docs or reference pages instead of expanded inline.
 
 #### Scenario: Reader wants command details
 - **WHEN** a reader wants exact CLI syntax beyond the concise README examples
@@ -401,3 +382,10 @@ The README SHALL state the project's license, either as a short section or as a 
 
 - **WHEN** a reader scans the README for licensing information
 - **THEN** they find the license named without leaving the document
+### Requirement: README links to managed agent memory guidance
+
+The README SHALL link to maintained memory documentation for managed agents.
+
+#### Scenario: Reader Seeks Managed Agent Memory Commands
+- **WHEN** a reader needs to inspect memory paths, work with memo files, or resolve page paths
+- **THEN** the linked documentation shows the supported scoped memory commands

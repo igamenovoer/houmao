@@ -16,7 +16,9 @@ def test_launch_handoff_preserves_target_only_paths(monkeypatch, tmp_path: Path)
 
     calls = []
     monkeypatch.setattr(
-        router, "launch_with_executor", lambda name, values: calls.append((name, values))
+        router,
+        "launch_with_executor",
+        lambda name, request, *, project_dir: calls.append((name, request, project_dir)),
     )
     monkeypatch.setattr(
         project_easy,
@@ -47,10 +49,11 @@ def test_launch_handoff_preserves_target_only_paths(monkeypatch, tmp_path: Path)
     )
     assert result.exit_code == 0, result.output
     assert calls[0][0] == "alice"
-    assert calls[0][1]["workdir"] == Path("/foreign/workdir")
-    assert calls[0][1]["tool_params"] == "@/foreign/params.yaml"
-    assert calls[0][1]["tmux_server"] == "socket"
-    assert calls[0][1]["tmux_socket_path"] == "/foreign/tmux.sock"
+    assert calls[0][1].workdir == Path("/foreign/workdir")
+    assert calls[0][1].tool_params == "@/foreign/params.yaml"
+    assert calls[0][1].tmux_server == "socket"
+    assert calls[0][1].tmux_socket_path == "/foreign/tmux.sock"
+    assert calls[0][2] == tmp_path / "foreign-project"
     assert not (tmp_path / "foreign-project").exists()
 
 

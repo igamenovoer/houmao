@@ -7,13 +7,10 @@ only by an admitted mutation; read-only discovery never initializes state.
 
 from __future__ import annotations
 
-from houmao.gateway.deployment import validate_gateway_access_config_path
-
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager, redirect_stdout
 import hashlib
 import json
-import math
 import os
 from pathlib import Path
 import pwd
@@ -21,6 +18,7 @@ import socket
 import stat
 import sys
 import tempfile
+from time import monotonic
 from typing import BinaryIO, Literal
 from uuid import UUID, uuid4
 
@@ -37,6 +35,12 @@ from houmao.execution.models import (
     route_fingerprint,
     validate_absolute_path,
 )
+from houmao.execution.arguments import (
+    LaunchArguments,
+    OwnerAdmissionError as OwnerAdmissionError,
+    OwnerOperation,
+    validate_owner_operation,
+)
 from houmao.execution.context import execution_binding_scope
 from houmao.execution.protocol import (
     MAX_REQUEST_BYTES,
@@ -47,39 +51,6 @@ from houmao.execution.protocol import (
 from houmao.execution.tmux import tmux_server_scope
 
 MAX_OWNER_POLICY_BYTES = 65_536
-_READ_ONLY_OPERATIONS = frozenset(
-    {
-        "describe",
-        "state",
-        "inspect",
-        "capture",
-        "resume",
-        "home",
-        "status",
-        "refresh_check",
-        "gateway_status",
-    }
-)
-
-
-class OwnerAdmissionError(ValueError):
-    """Reject an operation before mutation using a safe public diagnostic.
-
-    Dispatchers may raise this only when no runtime mutation has begun. Once
-    admitted work may have changed state, an uncertain result is required.
-    """
-
-    def __init__(self, code: str, message: str) -> None:
-        """Keep an explicit safe code separate from an optional internal exception."""
-
-        super().__init__(message)
-        self.m_code: str = code
-
-    @property
-    def code(self) -> str:
-        """Return the stable machine-readable refusal code."""
-
-        return self.m_code
 
 
 class OwnerPolicyV1(BaseModel):
@@ -169,7 +140,7 @@ class _OwnerContextV1(BaseModel):
         return value
 
 
-OwnerDispatcher = Callable[[ExecutionRequestV1, ExecutionBindingV1, OwnerPolicyV1], JsonObject]
+OwnerDispatcher = Callable[[OwnerOperation, ExecutionBindingV1, OwnerPolicyV1], JsonObject]
 
 
 def load_owner_policy(path: Path) -> OwnerPolicyV1:
@@ -368,14 +339,10 @@ def handle_request(
                 "operation_denied", "Owner policy does not allow this operation."
             )
         with owner_environment(policy):
-            _validate_request_shape(request)
-            _validate_project_scope(request, policy)
-        mutating = request.operation not in _READ_ONLY_OPERATIONS and not (
-            request.operation == "cleanup" and request.arguments.get("dry_run") is True
-        )
+            operation = prepare_owner_operation(request, policy)
         binding = observe_binding(
             policy,
-            initialize=mutating and request.expected_binding is None,
+            initialize=not operation.read_only and request.expected_binding is None,
         )
         if request.expected_binding is not None and binding != request.expected_binding:
             raise OwnerAdmissionError(
@@ -402,7 +369,7 @@ def handle_request(
             # Protocol stdout must contain only the response, even if an existing
             # application helper writes a diagnostic during execution.
             with redirect_stdout(sys.stderr):
-                result = dispatch(request, binding, policy)
+                result = dispatch(operation, binding, policy)
         return ExecutionResponseV1(
             request_id=request.request_id,
             outcome="completed",
@@ -508,7 +475,7 @@ def serve_stdio(
 
 
 def _application_dispatch(
-    request: ExecutionRequestV1,
+    operation: OwnerOperation,
     binding: ExecutionBindingV1,
     policy: OwnerPolicyV1,
 ) -> JsonObject:
@@ -516,7 +483,7 @@ def _application_dispatch(
 
     from houmao.execution.application import dispatch_operation
 
-    return dispatch_operation(request, binding, policy)
+    return dispatch_operation(operation, binding, policy)
 
 
 def _validate_identity(policy: OwnerPolicyV1) -> None:
@@ -542,187 +509,58 @@ def _validate_identity(policy: OwnerPolicyV1) -> None:
         )
 
 
-def _validate_project_scope(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> None:
-    """Resolve requested project/workdir inside the owner before admitting runtime work."""
+def prepare_owner_operation(request: ExecutionRequestV1, policy: OwnerPolicyV1) -> OwnerOperation:
+    """Validate the finite operation and resolve its project paths inside the owner."""
+
+    started = monotonic()
+    operation = validate_owner_operation(request)
+    arguments = operation.arguments
+    if not isinstance(arguments, LaunchArguments):
+        return operation
 
     roots = tuple(
         Path(root).resolve()
         for root in (policy.controller.project_roots or (policy.profile.project_root,))
     )
-    for field in ("project_dir", "project_root", "workdir", "working_directory"):
-        value = request.arguments.get(field)
-        if value is None:
-            continue
-        if not isinstance(value, str) or not value or "\x00" in value:
-            raise OwnerAdmissionError("invalid_target_path", "Requested owner path is invalid.")
-        path = Path(value).expanduser()
-        if not path.is_absolute():
-            path = Path(policy.profile.project_root) / path
-        if not any(path.resolve().is_relative_to(root) for root in roots):
-            raise OwnerAdmissionError(
-                "project_scope_denied", "Requested path is outside the admitted project scope."
-            )
-
-
-def _validate_request_shape(request: ExecutionRequestV1) -> None:
-    """Reject unsupported fields and invalid mutation values before creating owner state."""
-
-    if request.operation == "launch":
-        _validate_launch_shape(request.arguments)
-        return
-    allowed = {
-        "describe": set(),
-        "state": set(),
-        "inspect": set(),
-        "capture": set(),
-        "resume": set(),
-        "home": set(),
-        "status": set(),
-        "refresh_check": set(),
-        "interrupt": set(),
-        "stop": set(),
-        "gateway_status": set(),
-        "gateway_detach": set(),
-        "prompt": {"prompt", "model", "reasoning_level"},
-        "refresh": {"timeout_seconds"},
-        "relaunch": {"chat_session"},
-        "gateway_attach": {"background", "tui_tracking_timing_overrides", "access_config_path"},
-        "cleanup": {"kind", "dry_run", "purge_registry"},
-    }
-    fields = allowed.get(request.operation)
-    if fields is None or set(request.arguments) - fields:
-        raise OwnerAdmissionError("invalid_arguments", "Unsupported finite operation arguments.")
-    if request.operation != "describe" and request.agent_id is None:
-        raise OwnerAdmissionError("agent_required", "An exact managed-agent ID is required.")
-    arguments = request.arguments
-    invalid = False
-    if request.operation == "prompt":
-        prompt, model = arguments.get("prompt"), arguments.get("model")
-        reasoning = arguments.get("reasoning_level")
-        invalid = (
-            not isinstance(prompt, str)
-            or not prompt
-            or (model is not None and not isinstance(model, str))
-            or (
-                reasoning is not None
-                and (isinstance(reasoning, bool) or not isinstance(reasoning, int) or reasoning < 0)
-            )
-        )
-    elif request.operation == "refresh" and "timeout_seconds" in arguments:
-        timeout = arguments["timeout_seconds"]
-        invalid = (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
-            or not math.isfinite(timeout)
-            or not 0 < timeout <= 120
-        )
-    elif request.operation == "cleanup":
-        kind = arguments.get("kind")
-        invalid = (
-            not isinstance(kind, str)
-            or kind not in {"session", "logs", "mailbox"}
-            or not isinstance(arguments.get("dry_run", False), bool)
-            or not isinstance(arguments.get("purge_registry", False), bool)
-        )
-    elif request.operation == "gateway_attach":
-        invalid = not isinstance(arguments.get("background", False), bool)
-        if "access_config_path" in arguments:
-            try:
-                validate_gateway_access_config_path(arguments["access_config_path"])
-            except ValueError:
-                invalid = True
-        timing = arguments.get("tui_tracking_timing_overrides")
-        if timing is not None:
-            from houmao.agents.realm_controller.gateway_models import (
-                GatewayTuiTrackingTimingOverridesV1,
-            )
-
-            try:
-                GatewayTuiTrackingTimingOverridesV1.model_validate(timing)
-            except ValueError:
-                invalid = True
-    elif request.operation == "relaunch" and arguments.get("chat_session") is not None:
-        from pydantic import TypeAdapter
-        from houmao.agents.realm_controller.models import RelaunchChatSessionSelection
-
-        try:
-            TypeAdapter(RelaunchChatSessionSelection).validate_json(
-                json.dumps(arguments["chat_session"])
-            )
-        except ValueError:
-            invalid = True
-    if invalid:
-        raise OwnerAdmissionError("invalid_arguments", "Invalid finite operation arguments.")
-
-
-def _validate_launch_shape(arguments: JsonObject) -> None:
-    """Validate provided launch values using maintained option types without callbacks."""
-
-    import click
-    from houmao.execution.tmux_selection import TmuxServerSelector
-    from houmao.srv_ctrl.commands.project_easy import launch_easy_instance_command
-
-    parameters = {
-        parameter.name: parameter
-        for parameter in launch_easy_instance_command.params
-        if parameter.name is not None and parameter.name != "executor"
-    }
-    if set(arguments) - (set(parameters) | {"project_dir"}):
-        raise OwnerAdmissionError("invalid_arguments", "Unsupported project launch parameter.")
-    sources = [arguments.get(name) for name in ("profile", "specialist")]
-    selected = [value for value in sources if value is not None]
-    if len(selected) != 1 or not isinstance(selected[0], str) or not selected[0].strip():
+    owner_root = Path(policy.profile.project_root)
+    project = _scoped_launch_path(arguments.project_dir, base=owner_root, roots=roots)
+    workdir = _scoped_launch_path(request.arguments.get("workdir"), base=project, roots=roots)
+    if arguments.workdir is not None and not workdir.is_dir():
+        raise OwnerAdmissionError("invalid_target_path", "Target workdir is unavailable.")
+    for directory in (arguments.mail_root, arguments.mail_account_dir):
+        if directory is not None and directory.exists() and not directory.is_dir():
+            raise OwnerAdmissionError("invalid_arguments", "Invalid project launch value.")
+    seed = arguments.gateway_admin_seed_path
+    if seed is not None and (project / seed).is_dir():
+        raise OwnerAdmissionError("invalid_arguments", "Invalid project launch value.")
+    tool_params = arguments.tool_params
+    if tool_params is not None and tool_params.startswith("@") and len(tool_params) > 1:
+        tool_params = f"@{project / Path(tool_params[1:]).expanduser()}"
+    if monotonic() - started >= request.deadline_seconds:
         raise OwnerAdmissionError(
-            "invalid_arguments", "Select exactly one nonempty project launch source."
+            "deadline_exhausted", "Execution deadline expired before launch preparation."
         )
-    if "project_dir" in arguments and not isinstance(arguments["project_dir"], str):
-        raise OwnerAdmissionError("invalid_arguments", "Invalid project launch path.")
-    tmux_server = arguments.get("tmux_server")
-    tmux_socket_path = arguments.get("tmux_socket_path")
-    if tmux_server is not None or tmux_socket_path is not None:
-        try:
-            TmuxServerSelector.model_validate(
-                {"server": tmux_server, "socket_path": tmux_socket_path}
-            )
-        except ValueError:
-            raise OwnerAdmissionError(
-                "invalid_tmux_server",
-                "Invalid tmux selector. Use an absolute --tmux-socket-path with --tmux-server socket.",
-            ) from None
-    with click.Context(launch_easy_instance_command) as context:
-        for name, value in arguments.items():
-            if name == "project_dir" or value is None:
-                continue
-            parameter = parameters[name]
-            values = value if parameter.multiple and isinstance(value, list) else [value]
-            if parameter.multiple and not isinstance(value, list):
-                raise OwnerAdmissionError(
-                    "invalid_arguments", "Invalid repeatable launch argument."
-                )
-            for item in values:
-                kind = parameter.type
-                if isinstance(kind, click.types.BoolParamType):
-                    valid = isinstance(item, bool)
-                elif isinstance(kind, click.types.IntParamType):
-                    valid = isinstance(item, int) and not isinstance(item, bool)
-                elif isinstance(kind, click.types.FloatParamType):
-                    valid = (
-                        isinstance(item, (int, float))
-                        and not isinstance(item, bool)
-                        and math.isfinite(item)
-                    )
-                else:
-                    valid = isinstance(item, str)
-                if not valid:
-                    raise OwnerAdmissionError(
-                        "invalid_arguments", "Invalid project launch value type."
-                    )
-                try:
-                    kind.convert(item, parameter, context)
-                except (click.BadParameter, TypeError, ValueError):
-                    raise OwnerAdmissionError(
-                        "invalid_arguments", "Invalid project launch value."
-                    ) from None
+
+    return OwnerOperation(
+        request,
+        arguments.model_copy(
+            update={"project_dir": str(project), "workdir": workdir, "tool_params": tool_params}
+        ),
+        operation.read_only,
+    )
+
+
+def _scoped_launch_path(value: object, *, base: Path, roots: tuple[Path, ...]) -> Path:
+    """Resolve an owner path against its effective project and admitted roots."""
+
+    if value is not None and (not isinstance(value, str) or not value or "\x00" in value):
+        raise OwnerAdmissionError("invalid_target_path", "Requested owner path is invalid.")
+    path = base.resolve() if value is None else (base / Path(value).expanduser()).resolve()
+    if not any(path.is_relative_to(root) for root in roots):
+        raise OwnerAdmissionError(
+            "project_scope_denied", "Requested path is outside the admitted project scope."
+        )
+    return path
 
 
 def _read_trusted_file(path: Path, *, limit: int) -> bytes:

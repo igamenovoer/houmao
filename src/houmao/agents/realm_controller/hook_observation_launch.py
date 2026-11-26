@@ -42,6 +42,10 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Final, Mapping
 
+from houmao.agents.realm_controller.startup_rollback import (
+    current_runtime_startup,
+    stop_owned_startup_child,
+)
 from houmao.hook_observation.codex_hooks_generator import build_collector_emitter_command
 from houmao.hook_observation.install import (
     COLLECTOR_RECORD_FILENAME,
@@ -305,6 +309,12 @@ def start_collector(
     finally:
         os.close(stderr_descriptor)
 
+    startup = current_runtime_startup()
+    if startup is not None:
+        startup.add(
+            "new hook observer",
+            lambda: _rollback_started_collector(session_root, tool, process),
+        )
     try:
         port = _read_port_line(process, timeout_seconds=timeout_seconds)
         _wait_for_collector_health(
@@ -317,6 +327,17 @@ def start_collector(
         raise
     _COLLECTOR_PROCESSES[(session_root.resolve(), tool)] = process
     return CollectorHandle(pid=process.pid, port=port, generation=generation)
+
+
+def _rollback_started_collector(
+    session_root: Path, tool: str, process: subprocess.Popen[bytes]
+) -> None:
+    """Stop this launch's collector without trusting a replaceable PID record."""
+
+    stop_owned_startup_child(process)
+    key = (session_root.resolve(), tool)
+    if _COLLECTOR_PROCESSES.get(key) is process:
+        _COLLECTOR_PROCESSES.pop(key)
 
 
 def stop_collector(

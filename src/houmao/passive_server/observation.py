@@ -54,7 +54,7 @@ from houmao.server.models import (
     TrackedDiagnosticsAvailability,
     TransportState,
 )
-from houmao.server.tui.parser import OfficialTuiParserAdapter
+from houmao.server.tui.parser import OfficialTuiParserAdapter, TuiParserQualification
 from houmao.server.tui.process import PaneProcessInspector
 from houmao.server.tui.transport import TmuxTransportResolver
 from houmao.shared_tui_tracking.models import TrackerConfig, TrackedStateSnapshot
@@ -168,7 +168,6 @@ class AgentTuiObserver:
         self.m_parse_error: HoumaoErrorDetail | None = None
 
         app_id = app_id_from_tool(tool=tool)
-        self.m_tracking_error: UnsupportedToolVersionError | None = None
         try:
             self.m_tracker_session: TuiTrackerSession | None = TuiTrackerSession(
                 app_id=app_id,
@@ -183,11 +182,14 @@ class AgentTuiObserver:
             # Per-session containment: a below-floor or unversioned tool marks
             # this observer errored without disturbing other sessions.
             self.m_tracker_session = None
-            self.m_tracking_error = exc
+            self.m_parser_qualification = TuiParserQualification(
+                detector_version=None, version_error=exc
+            )
             self.m_parse_status = "parse_error"
-            self.m_parse_error = HoumaoErrorDetail(
-                kind="unsupported_tool_version",
-                message=str(exc),
+            self.m_parse_error = self.m_parser_qualification.diagnostic
+        else:
+            self.m_parser_qualification = TuiParserQualification(
+                detector_version=self.m_tracker_session.detector_version, version_error=None
             )
 
         self.m_transport_resolver: TmuxTransportResolver = TmuxTransportResolver()
@@ -362,7 +364,8 @@ class AgentTuiObserver:
                 self._drain_and_record_transitions()
                 return
 
-        parse_result = self.m_parser_adapter.parse(
+        parse_result = self.m_parser_qualification.parse(
+            self.m_parser_adapter,
             tool=self.m_tool,
             output_text=output_text,
             baseline_pos=self.m_baseline_pos,
@@ -754,6 +757,7 @@ class TuiObservationService:
             or observer.m_tmux_socket_path != terminals[agent_id][0].terminal.socket_path
             or observer.m_session_name != terminals[agent_id][1].tmux_session_name
             or observer.m_pane_id != terminals[agent_id][1].pane_id
+            or observer.m_observed_version != terminals[agent_id][2]
         }
         for agent_id in stale_ids:
             observer = self.m_observers.pop(agent_id)

@@ -98,8 +98,10 @@ from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
     GatewayHttpError,
     LaunchPlanError,
+    RuntimeStartupRollbackError,
     SessionManifestError,
 )
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.agents.realm_controller.loaders import load_brain_manifest, load_role_package
 from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSectionV1
 from houmao.agents.realm_controller.managed_terminal import select_primary_tmux_surface
@@ -892,6 +894,44 @@ class HoumaoServerService:
                 ),
             )
 
+        authority: ManagedHeadlessAuthorityRecord | None = None
+
+        def publish_startup(controller: RuntimeSessionController) -> None:
+            """Publish discovery for the server-owned launch as part of startup."""
+
+            nonlocal authority
+            tracked_agent_id = controller.manifest_path.parent.name
+            try:
+                self._publish_server_launched_registry_record(controller)
+                authority = ManagedHeadlessAuthorityRecord(
+                    tracked_agent_id=tracked_agent_id,
+                    backend=resolved_headless_backend,
+                    tool=resolved_tool,
+                    manifest_path=str(controller.manifest_path),
+                    session_root=str(controller.manifest_path.parent),
+                    tmux_session_name=self._require_controller_tmux_session_name(controller),
+                    tmux_socket_path=controller.tmux_socket_path,
+                    tmux_window_id=_controller_primary_tmux_window_id(controller),
+                    tmux_pane_id=_controller_primary_tmux_pane_id(controller),
+                    agent_def_dir=str(agent_def_dir),
+                    agent_name=controller.agent_identity,
+                    agent_id=controller.agent_id,
+                    created_at_utc=utc_now_iso(),
+                    updated_at_utc=utc_now_iso(),
+                )
+                startup = current_runtime_startup()
+                assert startup is not None
+                startup.create_directory(
+                    self.m_managed_headless_store.agent_root(tracked_agent_id=tracked_agent_id)
+                )
+                self.m_managed_headless_store.write_authority(authority)
+                self._publish_server_managed_headless_gateway_metadata(authority)
+            except (OSError, SessionManifestError) as exc:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Managed headless launch could not publish shared-registry state: {exc}",
+                ) from exc
+
         try:
             selection = resolve_run_mode(resolved_tool, entrypoint="passive_headless")
             resolved_headless_backend = cast(
@@ -918,44 +958,20 @@ class HoumaoServerService:
                 headless_display_style=request_model.headless_display_style,
                 headless_display_detail=request_model.headless_display_detail,
                 registry_launch_authority="external",
+                publish_external_startup=publish_startup,
             )
+        except RuntimeStartupRollbackError as exc:
+            if isinstance(exc.startup_error, HTTPException):
+                raise HTTPException(
+                    status_code=exc.startup_error.status_code, detail=str(exc)
+                ) from exc
+            if isinstance(exc.startup_error, RuntimeError):
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            raise
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-        try:
-            self._publish_server_launched_registry_record(controller)
-        except (OSError, SessionManifestError) as exc:
-            try:
-                controller.stop(force_cleanup=True)
-            except Exception:
-                LOGGER.warning(
-                    "Failed to rollback managed headless launch after shared-registry publish failure",
-                    exc_info=True,
-                )
-            raise HTTPException(
-                status_code=503,
-                detail=f"Managed headless launch could not publish shared-registry state: {exc}",
-            ) from exc
-
-        tracked_agent_id = controller.manifest_path.parent.name
-        authority = ManagedHeadlessAuthorityRecord(
-            tracked_agent_id=tracked_agent_id,
-            backend=resolved_headless_backend,
-            tool=resolved_tool,
-            manifest_path=str(controller.manifest_path),
-            session_root=str(controller.manifest_path.parent),
-            tmux_session_name=self._require_controller_tmux_session_name(controller),
-            tmux_socket_path=controller.tmux_socket_path,
-            tmux_window_id=_controller_primary_tmux_window_id(controller),
-            tmux_pane_id=_controller_primary_tmux_pane_id(controller),
-            agent_def_dir=str(agent_def_dir),
-            agent_name=controller.agent_identity,
-            agent_id=controller.agent_id,
-            created_at_utc=utc_now_iso(),
-            updated_at_utc=utc_now_iso(),
-        )
-        self.m_managed_headless_store.write_authority(authority)
-        self._publish_server_managed_headless_gateway_metadata(authority)
+        assert authority is not None
+        tracked_agent_id = authority.tracked_agent_id
         handle = _ManagedHeadlessAgentHandle(authority=authority, controller=controller)
         with self.m_lock:
             self.m_headless_agents[tracked_agent_id] = handle
@@ -2022,7 +2038,8 @@ class HoumaoServerService:
             )
             return True
 
-        if tracker.tracking_error is not None:
+        qualification = tracker.parser_qualification
+        if (version_diagnostic := qualification.diagnostic) is not None:
             tracker.record_cycle(
                 identity=identity,
                 observed_at_utc=observed_at_utc,
@@ -2032,10 +2049,7 @@ class HoumaoServerService:
                 parse_status="parse_error",
                 probe_snapshot=probe_snapshot,
                 probe_error=None,
-                parse_error=HoumaoErrorDetail(
-                    kind="unsupported_tool_version",
-                    message=str(tracker.tracking_error),
-                ),
+                parse_error=version_diagnostic,
                 parsed_surface=None,
                 output_text=None,
             )
@@ -2113,11 +2127,11 @@ class HoumaoServerService:
                 return True
             tracker.set_baseline_pos(baseline_pos)
 
-        parse_result = self.m_parser_adapter.parse(
+        parse_result = qualification.parse(
+            self.m_parser_adapter,
             tool=identity.tool,
             output_text=output_text,
             baseline_pos=baseline_pos,
-            detector_version=tracker.resolved_detector_version,
         )
         tracker.record_cycle(
             identity=identity,

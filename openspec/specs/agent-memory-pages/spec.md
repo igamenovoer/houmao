@@ -8,7 +8,7 @@ For each tmux-backed managed agent, Houmao SHALL resolve a per-agent memory root
 
 The memory root SHALL contain a fixed `houmao-memo.md` file and exactly one Houmao-managed subdirectory named `pages/`.
 
-Houmao SHALL create the memory root, `houmao-memo.md`, and `pages/` before a managed launch or join is considered complete.
+Houmao SHALL create the memory root, `houmao-memo.md`, and `pages/` before a managed launch is considered complete.
 
 #### Scenario: Acceptance criteria
 
@@ -27,7 +27,7 @@ Houmao SHALL NOT create or publish managed `scratch/` or `persist/` subdirectori
 
 #### Scenario: Memo file is not overwritten
 - **WHEN** managed agent `researcher` already has `/repo/.houmao/memory/agents/researcher-id/houmao-memo.md`
-- **AND WHEN** Houmao starts, joins, or relaunches that managed agent
+- **AND WHEN** Houmao starts or relaunches that managed agent
 - **THEN** Houmao preserves the existing memo file content
 - **AND THEN** Houmao does not inspect the memo for generated index markers
 
@@ -95,9 +95,9 @@ Houmao SHALL NOT expose a supported operation that reindexes pages into `houmao-
 - **AND THEN** the request cannot redirect the append to another memory-root file
 
 ### Requirement: Managed launches cue agents to consult the fixed memo
-For every tmux-backed managed launch or join that renders the default managed prompt header, Houmao SHALL provide agent-facing prompt guidance that identifies the fixed `houmao-memo.md` file as durable per-agent context.
+For every tmux-backed managed launch that renders the default managed prompt header, Houmao SHALL provide agent-facing prompt guidance that identifies the fixed `houmao-memo.md` file as durable per-agent context.
 
-That guidance SHALL include the resolved absolute memo file path for the launched or joined managed agent.
+That guidance SHALL include the resolved absolute memo file path for the launched managed agent.
 
 That guidance SHALL instruct the agent to read `houmao-memo.md` at the start of each prompt turn before planning or acting.
 
@@ -158,4 +158,3 @@ A represented pages target SHALL clear then rewrite only the contained `pages/` 
 - **AND WHEN** the target managed memory already contains `houmao-memo.md` and one page under `pages/`
 - **THEN** Houmao clears the contained pages
 - **AND THEN** it leaves `houmao-memo.md` unchanged
-

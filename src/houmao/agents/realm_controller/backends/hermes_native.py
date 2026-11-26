@@ -37,6 +37,10 @@ from houmao.agents.realm_controller.backends.headless_runner import (
 )
 from houmao.agents.realm_controller.errors import BackendExecutionError
 from houmao.agents.realm_controller.models import LaunchPlan
+from houmao.agents.realm_controller.startup_rollback import (
+    current_runtime_startup,
+    stop_owned_startup_child,
+)
 from houmao.agents.realm_controller.owner_admission import owner_process_has_exited
 
 _CANONICAL_PROTOCOL = "hermes-gateway-v1"
@@ -319,6 +323,7 @@ class HermesDaemon:
         """Start the foreground daemon with private stderr and stdout."""
 
         log_path = self.m_root / "hermes-daemon.log"
+        startup = current_runtime_startup()
         try:
             descriptor = os.open(
                 log_path,
@@ -326,7 +331,9 @@ class HermesDaemon:
                 0o600,
             )
             with os.fdopen(descriptor, "ab") as log:
-                self.m_child = subprocess.Popen(
+                if startup is not None:
+                    startup.retain_diagnostic(log_path)
+                process = subprocess.Popen(
                     [self.m_executable, "gateway", "run", "--external-supervisor"],
                     cwd=self.m_workspace,
                     env=self.m_env,
@@ -335,6 +342,9 @@ class HermesDaemon:
                     stderr=log,
                     start_new_session=True,
                 )
+                self.m_child = process
+                if startup is not None:
+                    startup.add("new Hermes daemon", lambda: stop_owned_startup_child(process))
         except OSError as exc:
             raise HermesNativeError(
                 f"Could not start the local Hermes daemon ({exc.strerror})."

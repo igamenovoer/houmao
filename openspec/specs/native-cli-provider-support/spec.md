@@ -6,7 +6,7 @@ Define Claude Code, Codex, Kimi Code, and qualified DeepSeek Harness operations 
 ### Requirement: Maintained native CLI provider set excludes Gemini CLI
 Houmao SHALL maintain qualified native CLI launch operations for Claude Code, Codex, Kimi Code, DeepSeek Harness (`dsh`), and Hermes Agent (`hermes`).
 
-The identifiers `gemini`, `gemini_cli`, and `gemini_headless` SHALL NOT be accepted as current provider, tool, compatibility-adapter, or backend values by maintained launch, join, resume, relaunch, gateway, server, passive-server, project, credential, model-selection, or system-skill interfaces.
+The identifiers `gemini`, `gemini_cli`, and `gemini_headless` SHALL NOT be accepted as current provider, tool, compatibility-adapter, or backend values by maintained launch, resume, relaunch, gateway, server, passive-server, project, credential, model-selection, or system-skill interfaces.
 
 #### Scenario: Current provider selection rejects Gemini
 - **WHEN** a caller supplies a Gemini tool, provider, or backend identifier to a maintained Houmao interface
@@ -46,4 +46,3 @@ Archived OpenSpec changes and immutable historical logs MAY retain factual Gemin
 - **WHEN** maintainers run the documented Gemini audit across maintained source, tests, docs, demos, context, and system-skill roots
 - **THEN** no non-exempt match represents a current Gemini provider workflow
 - **AND THEN** every retained match belongs to an explicit historical or provider-neutral safety exclusion
-

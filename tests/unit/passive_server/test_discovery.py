@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
+from houmao.agents.realm_controller.gateway_models import GatewayMailNotifierPutV1
 from houmao.agents.realm_controller.run_modes import mode_for_backend
 from houmao.agents.realm_controller.manifest import (
     SessionManifestRequest,
@@ -26,8 +27,10 @@ from houmao.passive_server.discovery import (
     RegistryDiscoveryService,
     _summary_from_record,
 )
+from houmao.passive_server.service import PassiveServerService
 from houmao.agents.realm_controller.registry_models import (
     ManagedAgentRegistryRecordV3,
+    RegistryGatewayV1,
     RegistryLifecycleV1,
     RegistryLivenessV1,
     RegistryMailboxesV1,
@@ -287,6 +290,68 @@ class TestRegistryDiscoveryScan:
         assert discovered is not None
         assert discovered.summary.mode == "headless"
         assert discovered.observed_tool_version == "2.1.296"
+
+    def test_retired_agent_has_only_an_offline_address_even_with_cached_discovery(
+        self, tmp_path: Path
+    ) -> None:
+        """Reject cached activity and retain the durable address without changing any files."""
+
+        registry_root = tmp_path / "registry"
+        service = PassiveServerService(
+            PassiveServerConfig(runtime_root=tmp_path / "runtime", registry_root=registry_root)
+        )
+        native = _make_record(agent_id="native-agent", session_name="native-session")
+        retired = _make_record(
+            agent_id="retired-agent", agent_name="HOUMAO-retired", session_name="retired-session"
+        )
+        retired.gateway = RegistryGatewayV1(
+            host="127.0.0.1", port=43123, state_path="/owner/state.json", protocol_version="v1"
+        )
+        for record in (native, retired):
+            _write_record(registry_root, record)
+
+        with patch(
+            "houmao.passive_server.discovery._get_live_tmux_session_names",
+            return_value={"native-session", "retired-session"},
+        ):
+            service.m_discovery.scan_once()
+            assert service.resolve_agent_address(retired.agent_id).status == "live_with_gateway"
+
+            manifest_path = Path(retired.runtime.manifest_path)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["launch_plan"]["metadata"]["session_origin"] = "joined_tmux"
+            retired_manifest = json.dumps(manifest)
+            manifest_path.write_text(retired_manifest, encoding="utf-8")
+            record_path = manifest_path.with_name("record.json")
+            registry_record = record_path.read_bytes()
+
+            assert service.resolve_agent(retired.agent_id) is None
+            assert service.resolve_agent("retired") is None
+            assert [agent.agent_id for agent in service.list_agents().agents] == [native.agent_id]
+            address = service.resolve_agent_address(retired.agent_id)
+            assert address.status == "offline"
+            assert address.agent_id == retired.agent_id
+            assert address.gateway is None
+            assert address.generation_id is None
+            assert address.relaunchable is False
+            assert "fresh supported managed launch" in address.detail
+            with patch.object(service, "_gateway_client_for_agent") as gateway_client:
+                result = service.gateway_mail_notifier_enable(
+                    retired.agent_id,
+                    GatewayMailNotifierPutV1(interval_seconds=60),
+                    channel="offline",
+                )
+                assert isinstance(result, tuple) and result[0] == 410
+                gateway_client.assert_not_called()
+
+            service.m_discovery.scan_once()
+
+        assert service.m_discovery.index.get_by_id(retired.agent_id) is None
+        assert service.m_discovery.index.get_by_id(native.agent_id) is not None
+        selection = service.resolve_access_target(retired.agent_id)
+        assert isinstance(selection, tuple) and selection[0] == 410
+        assert manifest_path.read_text(encoding="utf-8") == retired_manifest
+        assert record_path.read_bytes() == registry_record
 
     def test_manifest_mode_mismatch_excludes_live_record(self, tmp_path: Path) -> None:
         record = _make_record()

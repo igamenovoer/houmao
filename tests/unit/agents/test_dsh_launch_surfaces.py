@@ -786,25 +786,6 @@ def test_dsh_native_tools_and_recipe_selection_are_maintained(tmp_path: Path) ->
     assert "dsh" in help_result.output
 
 
-def test_dsh_join_refuses_before_accessing_any_tmux_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Require a managed launch rather than adopting an unverified native process."""
-
-    def unexpected_tmux() -> str:
-        """Fail if unsupported adoption reaches terminal inspection."""
-
-        pytest.fail("Unsupported DSH join must not inspect tmux")
-
-    monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core._require_current_tmux_session_name", unexpected_tmux
-    )
-    result = CliRunner().invoke(
-        cli,
-        ["agents", "self", "join", "--agent-name", "controlled", "--provider", "dsh", "--headless"],
-    )
-    assert result.exit_code != 0
-    assert "DSH adoption is unsupported" in result.output
-
-
 @pytest.mark.parametrize("prompt_mode", ["unattended", "as_is"])
 @pytest.mark.parametrize("adapter", ["deepseek", "pi-ai"])
 @pytest.mark.parametrize("selected_mode", [None, "web", "headless"])
@@ -916,7 +897,10 @@ def test_dsh_project_profile_prepares_the_selected_managed_native_surface(
         lambda **_: ToolVersion.parse("0.2.2-rc.3"),
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.project_easy.emit_local_launch_completion", lambda **_: None
+        "houmao.srv_ctrl.commands.project_easy.build_local_launch_completion", lambda **_: None
+    )
+    monkeypatch.setattr(
+        "houmao.srv_ctrl.commands.project_easy.render_local_launch_completion", lambda **_: None
     )
     launched = runner.invoke(
         cli, ["project", "agents", "launch", "--profile", "controlled", "--no-gateway"]

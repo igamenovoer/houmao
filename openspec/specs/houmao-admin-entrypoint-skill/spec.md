@@ -1,7 +1,7 @@
 # houmao-admin-entrypoint-skill Specification
 
 ## Purpose
-Give human operators a public entrypoint that resolves intent and explicit targets before routing work through protected admin routines. Keep authoring, deployment, launch, adoption, and instance operations tied to the requested action.
+Give human operators a public entrypoint that resolves intent and explicit targets before routing work through protected admin routines. Keep authoring, deployment, managed launch, and instance operations tied to the requested action.
 ## Requirements
 ### Requirement: Houmao provides a public human-operator entrypoint
 Houmao SHALL provide a public skill named `houmao-admin-entrypoint` as the executable entrypoint of the admin pack.
@@ -42,16 +42,6 @@ The entrypoint SHALL preserve supplied context during delegation and SHALL NOT m
 - **WHEN** a user invokes `houmao-admin-entrypoint` without an executable operation
 - **THEN** the entrypoint routes to `houmao-admin-welcome`
 - **AND THEN** the response stays read-only until the user requests a concrete handoff
-
-### Requirement: Admin entrypoint owns explicit joined-session adoption handoff
-The admin entrypoint SHALL route joined-session adoption only when the human explicitly asks to adopt the current session.
-
-After successful adoption it SHALL stop admin routing, refresh skill discovery when necessary, verify managed self identity, and hand later work to `houmao-agent-entrypoint`.
-
-#### Scenario: Adoption succeeds
-- **WHEN** the explicit joined-session adoption command succeeds
-- **THEN** the admin entrypoint reports the actor transition
-- **AND THEN** subsequent managed self work enters through `houmao-agent-entrypoint`
 
 ### Requirement: Admin entrypoint distinguishes authoring from deployment
 The admin entrypoint SHALL route human requirements for a reusable agent to Agent Definition authoring and SHALL route an existing materialized revision plus a target project to deployment.
@@ -129,10 +119,11 @@ The admin entrypoint SHALL present member launch handoffs after apply and SHALL 
 - **WHEN** a reviewer checks `houmao-admin-entrypoint/SKILL.md`
 - **THEN** `## Workflow` states intent classification, admin frame construction, and target gate once without repeating full contract paragraphs verbatim
 
-### Requirement: Admin entrypoint preserves actor frame, target gate, and adoption invariants
-`houmao-admin-entrypoint` SHALL preserve `narrow-implicit` activation, intent-first classification, immutable admin frame (`actor_kind=admin`, `verified_self_identity=null`), explicit target gate, `specialist-mgr` alias, `Joined-Session Adoption`, non-collapsing `pro`/`lite`, and `process-emails-via-gateway` rejection.
+### Requirement: Admin entrypoint preserves actor frame and target gate
+`houmao-admin-entrypoint` SHALL preserve `narrow-implicit` activation, intent-first classification, an immutable admin frame (`actor_kind=admin`, `verified_self_identity=null`), the explicit target gate, the `specialist-mgr` alias, distinct `pro` and `lite` routes, and rejection of `process-emails-via-gateway` in admin posture.
 
-#### Scenario: Joined session adopts managed agent entrypoint
-- **WHEN** `agent-instance join` succeeds under `houmao-admin-entrypoint`
-- **THEN** the router keeps the admin frame until `agents self join` succeeds, runs `houmao-mgr --print-json agents self identity`, and hands off to `$houmao-agent-entrypoint`
-- **AND THEN** it continues rejecting agent-only `process-emails-via-gateway` in admin posture
+#### Scenario: Admin receives a manual session adoption request
+- **WHEN** a human asks the admin entrypoint to adopt the current session into Houmao
+- **THEN** the entrypoint explains that local lifecycle management requires a managed launch
+- **AND THEN** the admin frame remains active and unchanged
+- **AND THEN** the router continues to reject the agent-only `process-emails-via-gateway` route in that frame

@@ -14,23 +14,30 @@ from unittest.mock import Mock
 from fastapi import HTTPException
 import pytest
 
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import BackendExecutionError, GatewayError
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
 from houmao.ag_ui.mapper import AgUiEventMapper
 from houmao.ag_ui.runtime import ag_ui_target_transport_family_for_backend
 from houmao.agents.realm_controller.gateway_models import (
+    GatewayAttachBackendMetadataHeadlessV1,
+    GatewayAttachBackendMetadataServiceV1,
+    GatewayAttachContractV1,
     GatewayControlInputRequestV1,
     GatewayPromptControlRequestV1,
     GatewayRequestCreateV1,
     GatewayWebActiveTurnV1,
     GatewayStatusV1,
     GatewayTuiTrackingTimingConfigV1,
+    GatewayTuiTrackingTimingOverridesV1,
 )
 from houmao.agents.realm_controller import runtime as runtime_module
 from houmao.agents.realm_controller.gateway_service import (
     GatewayServiceRuntime,
+    _LocalHeadlessGatewayAdapter,
+    _ManagedServiceGatewayAdapter,
     _NativeWebGatewayAdapter,
 )
+from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.web_observation import WebObservation
 from houmao.agents.realm_controller.models import SessionEvent
 from houmao.agents.realm_controller.gateway_storage import (
@@ -43,14 +50,30 @@ from tests.unit.agents.realm_controller.test_dsh_web_observation import _metadat
 
 
 @pytest.mark.parametrize("execution_mode", ["detached_process", "tmux_auxiliary_window"])
-def test_web_internal_gateway_start_omits_terminal_timing_flags(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, execution_mode: str
+@pytest.mark.parametrize(
+    ("backend", "timing_flags"),
+    [
+        ("dsh_web", False),
+        ("kimi_web", False),
+        ("hermes_tui", False),
+        ("dsh_acp", True),
+        ("hermes_service", True),
+        ("hermes_headless", True),
+        ("local_interactive", True),
+    ],
+)
+def test_gateway_launch_modes_forward_timings_for_the_selected_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    execution_mode: str,
+    backend: str,
+    timing_flags: bool,
 ) -> None:
-    """Resolved defaults do not become explicit terminal options in a Web companion child."""
+    """Pass resolved timings only when the selected gateway process accepts them."""
 
     captured: list[object] = []
     controller = SimpleNamespace(
-        launch_plan=SimpleNamespace(backend="dsh_web", mode="web", working_directory=tmp_path),
+        launch_plan=SimpleNamespace(backend=backend, working_directory=tmp_path),
         _require_tmux_session_name=lambda: "owned-supervisor",
     )
     paths = SimpleNamespace(gateway_root=tmp_path, log_path=tmp_path / "gateway.log")
@@ -96,7 +119,76 @@ def test_web_internal_gateway_start_omits_terminal_timing_flags(
             port=0,
             tui_tracking_timings=GatewayTuiTrackingTimingConfigV1(),
         )
-    assert captured and "--tui-" not in str(captured[0])
+    assert len(captured) == 1
+    assert ("--tui-watch-poll-interval-seconds" in str(captured[0])) == timing_flags
+
+
+@pytest.mark.parametrize("explicit_timings", [False, True])
+@pytest.mark.parametrize(
+    ("backend", "tool", "adapter"),
+    [
+        ("dsh_web", "dsh", _NativeWebGatewayAdapter),
+        ("dsh_acp", "dsh", _ManagedServiceGatewayAdapter),
+        ("hermes_service", "hermes", _ManagedServiceGatewayAdapter),
+        ("hermes_headless", "hermes", _LocalHeadlessGatewayAdapter),
+        ("local_interactive", "codex", _LocalHeadlessGatewayAdapter),
+    ],
+)
+def test_gateway_process_loads_backend_and_accepted_timings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    tool: str,
+    adapter: type,
+    explicit_timings: bool,
+) -> None:
+    """Use the actual attach schema, adapter, and process startup timing policy."""
+
+    native_surface = None
+    if adapter is _NativeWebGatewayAdapter:
+        metadata = _metadata()
+        native_surface = WebNativeSurfaceV1(
+            origin=metadata.origin, native_session_id=metadata.identity.native_session_id
+        )
+    elif adapter is _ManagedServiceGatewayAdapter:
+        metadata = GatewayAttachBackendMetadataServiceV1(tool=tool)
+    else:
+        metadata = GatewayAttachBackendMetadataHeadlessV1(tool=tool)
+    contract = GatewayAttachContractV1(
+        attach_identity="agent",
+        backend=backend,
+        tmux_session_name="agent",
+        working_directory=str(tmp_path),
+        manifest_path=str(tmp_path / "manifest.json"),
+        backend_metadata=metadata,
+        native_surface=native_surface,
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.gateway_service.resolve_internal_gateway_attach_contract",
+        lambda _: contract,
+    )
+    timings = (
+        GatewayTuiTrackingTimingOverridesV1(watch_poll_interval_seconds=0.25)
+        if explicit_timings
+        else None
+    )
+
+    def build() -> GatewayServiceRuntime:
+        """Start gateway initialization from the selected attach contract."""
+
+        return GatewayServiceRuntime.from_gateway_root(
+            gateway_root=tmp_path, host="127.0.0.1", port=12345, tui_tracking_timings=timings
+        )
+
+    if backend == "dsh_web" and explicit_timings:
+        with pytest.raises(GatewayError, match="TUI tracking timings are unsupported for Web"):
+            build()
+    else:
+        gateway = build()
+        assert isinstance(gateway.m_adapter, adapter)
+        assert gateway.m_tui_tracking_timings.watch_poll_interval_seconds == (
+            0.25 if explicit_timings else 0.5
+        )
 
 
 def _runtime(

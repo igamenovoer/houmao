@@ -1,6 +1,6 @@
 # `system-skills`
 
-`houmao-mgr system-skills` installs, diagnoses, inspects, upgrades, and removes complete Houmao actor packs in external or project-scoped tool homes. Managed launch and join use the same static pack lifecycle internally.
+`houmao-mgr system-skills` installs, diagnoses, inspects, upgrades, and removes complete Houmao actor packs in external or project-scoped tool homes. Managed launch uses the same static pack lifecycle internally.
 
 ```text
 houmao-mgr system-skills list
@@ -29,7 +29,7 @@ The `houmao-system-skills.v5` manifest records six standalone source directories
 | Pack | Audience | Static Top-Level Members | Default Lane |
 |---|---|---|---|
 | `admin` | Human operator | `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Explicit CLI install |
-| `agent` | Managed Houmao agent | `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Managed launch, rebuild, relaunch, and join |
+| `agent` | Managed Houmao agent | `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Managed launch, rebuild, and relaunch |
 
 `houmao-shared-routines`, `houmao-agent-loop-pro`, and `houmao-agent-loop-lite` belong to both packs. A combined install has six unique destinations and records both owners on those three shared records.
 
@@ -51,7 +51,7 @@ Three values answer different questions:
 | Config `houmao_version` | Houmao package release recorded by the last lifecycle mutation; it does not replace installed frontmatter evidence. |
 | Content digest | Exact complete-tree compatibility with the running packaged source, including commands, assets, scripts, references, and shared children. |
 
-Version metadata is diagnostic only. Install, sync, status, upgrade, managed launch, rebuild, relaunch, join, runtime authorization, generated prompts, and skill invocation do not reject a root because its version is old, missing, or malformed.
+Version metadata is diagnostic only. Install, sync, status, upgrade, managed launch, rebuild, relaunch, runtime authorization, generated prompts, and skill invocation do not reject a root because its version is old, missing, or malformed.
 
 ## Standard External Installation
 
@@ -246,7 +246,7 @@ Structured output reports requested, removed, and absent packs; removed destinat
 
 ## Managed-Home Policy
 
-Managed launch, rebuild, relaunch, and join use `agent` when policy is omitted. Source policy modes are `default`, `extend`, `replace`, and `none`; profile policy modes are `inherit`, `extend`, `replace`, and `none`.
+Managed launch, rebuild, and relaunch use `agent` when policy is omitted. Source policy modes are `default`, `extend`, `replace`, and `none`; profile policy modes are `inherit`, `extend`, `replace`, and `none`.
 
 ```yaml
 launch:

@@ -33,7 +33,7 @@ from .boundary_models import (
     SessionManifestTmuxSectionV1,
     format_pydantic_error,
 )
-from .errors import SessionManifestError
+from .errors import RetiredJoinedSessionError, SessionManifestError
 from .models import LaunchPlan, SessionManifestHandle
 from houmao.agents.mailbox_runtime_models import MailboxChannel, MailboxResolvedConfig
 from houmao.agents.realm_controller.native_surface import (
@@ -326,7 +326,12 @@ def write_session_manifest(
         Saved manifest handle.
     """
 
-    with _session_manifest_lock(path):
+    _require_supported_session_origin(payload)
+    handoff = (
+        expected_registry_generation_id is not None
+        and expected_registry_generation_id != payload.get("registry_generation_id")
+    )
+    with _session_manifest_lock(path, require_manifest=handoff):
         proposed = dict(payload)
         if path.exists():
             current = load_session_manifest(path).payload
@@ -477,14 +482,34 @@ class MailboxBindingConflict(SessionManifestError):
 
 
 @contextmanager
-def _session_manifest_lock(path: Path) -> Iterator[None]:
+def _session_manifest_lock(path: Path, *, require_manifest: bool = False) -> Iterator[None]:
     """Serialize participating processes without holding a replaceable inode lock."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(f".{path.name}.lock")
-    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    if not lock_path.exists() and path.is_file():
+        # Declining a retired manifest must not create a lock artifact beside it.
+        try:
+            previous = _read_session_manifest_payload(path)
+        except SessionManifestError:
+            pass  # Ordinary readers handle invalid or unavailable payloads under the lock.
+        else:
+            _require_supported_session_origin(previous)
+    if not require_manifest:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+    except FileNotFoundError:
+        if require_manifest:
+            raise SessionManifestError(
+                "Runtime generation handoff requires the existing session manifest"
+            ) from None
+        raise
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        if require_manifest and not path.is_file():
+            raise SessionManifestError(
+                "Runtime generation handoff requires the existing session manifest"
+            )
         yield
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
@@ -606,19 +631,26 @@ def load_session_manifest(path: Path) -> SessionManifestHandle:
         Loaded manifest handle.
     """
 
+    payload = _read_session_manifest_payload(path)
+    model = parse_session_manifest_payload(payload, source=str(path))
+    return SessionManifestHandle(path=path, payload=model.model_dump(mode="json"))
+
+
+def _read_session_manifest_payload(path: Path) -> object:
+    """Decode a manifest without treating its contents as runtime authority."""
+
     if not path.is_file():
         raise SessionManifestError(f"Session manifest not found: {path}")
 
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=_manifest_fields)
+        payload: object = json.loads(
+            path.read_text(encoding="utf-8"), object_pairs_hook=_manifest_fields
+        )
     except OSError as exc:
         raise SessionManifestError(f"Cannot read session manifest: {path}") from exc
     except ValueError as exc:
         raise SessionManifestError(f"Invalid JSON in session manifest: {path}") from exc
-
-    model = parse_session_manifest_payload(payload, source=str(path))
-
-    return SessionManifestHandle(path=path, payload=model.model_dump(mode="json"))
+    return payload
 
 
 def _manifest_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -633,6 +665,7 @@ def _manifest_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def parse_session_manifest_payload(payload: object, *, source: str) -> SessionManifestPayloadV4:
     """Parse a current session manifest payload into a typed Pydantic model."""
 
+    _require_supported_session_origin(payload)
     schema_version = _schema_version_from_payload(payload)
     if schema_version != SESSION_MANIFEST_SCHEMA_VERSION:
         raise SessionManifestError(
@@ -757,6 +790,7 @@ def _validate_launch_plan_payload(payload: object, *, context: str) -> LaunchPla
 def _validate_session_manifest_payload(
     payload: object, *, context: str, verify_service_projection: bool = False
 ) -> SessionManifestPayloadV4:
+    _require_supported_session_origin(payload)
     try:
         if isinstance(payload, dict) and payload.get("tmux") is not None:
             binding = SessionManifestTmuxSectionV1.model_validate(payload["tmux"])
@@ -771,6 +805,44 @@ def _validate_session_manifest_payload(
                 "legacy backend-specific authority synthesis is not supported before 1.0."
             ) from exc
         raise SessionManifestError(format_pydantic_error(context, exc)) from exc
+
+
+def _require_supported_session_origin(payload: object) -> None:
+    """Fence saved adoption markers before model validation can obscure retirement."""
+
+    if not isinstance(payload, dict):
+        return
+    authority = payload.get("agent_launch_authority")
+    launch_plan = payload.get("launch_plan")
+    metadata = launch_plan.get("metadata") if isinstance(launch_plan, dict) else None
+    if not (
+        isinstance(authority, dict) and authority.get("session_origin") == "joined_tmux"
+    ) and not (isinstance(metadata, dict) and metadata.get("session_origin") == "joined_tmux"):
+        return
+
+    home_selector = launch_plan.get("home_selector") if isinstance(launch_plan, dict) else None
+    mailboxes = launch_plan.get("mailboxes") if isinstance(launch_plan, dict) else None
+    credential_refs: list[str] = []
+    if isinstance(mailboxes, dict):
+        for channel in ("offline", "online"):
+            slot = mailboxes.get(channel)
+            binding = slot.get("binding") if isinstance(slot, dict) else None
+            credential_ref = (
+                _optional_non_empty_str(binding.get("credential_ref"))
+                if isinstance(binding, dict)
+                else None
+            )
+            if credential_ref is not None:
+                credential_refs.append(credential_ref)
+    raise RetiredJoinedSessionError(
+        agent_id=_optional_non_empty_str(payload.get("agent_id")),
+        agent_name=_optional_non_empty_str(payload.get("agent_name")),
+        brain_manifest_path=_optional_non_empty_str(payload.get("brain_manifest_path")),
+        home_path=_optional_non_empty_str(home_selector.get("home_path"))
+        if isinstance(home_selector, dict)
+        else None,
+        mailbox_credential_refs=tuple(credential_refs),
+    )
 
 
 def _project_manifest_tmux_binding(

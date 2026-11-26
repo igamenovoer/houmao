@@ -65,7 +65,7 @@ Informational requests SHALL be answered locally and read-only. They SHALL NOT p
 
 For operational requests, the admin entrypoint SHALL establish its immutable admin frame before substantive routing. The agent entrypoint SHALL run exactly `houmao-mgr --print-json agents self identity`, validate fresh context-matching evidence, and fail closed before selecting or delegating a substantive route when verification fails.
 
-After the actor gate, the entrypoint SHALL select exactly one eligible route, resolve required inputs and targets, delegate with the immutable handoff frame when needed, honor the supported admin join transition, and report the outcome.
+After the actor gate, the entrypoint SHALL select exactly one eligible route, resolve required inputs and targets, delegate with the immutable handoff frame when needed, and report the outcome.
 
 #### Scenario: Managed agent asks an informational question
 - **WHEN** a managed agent naturally asks what Houmao capabilities are available to it
@@ -148,7 +148,7 @@ Generic loop wording SHALL NOT select pro or lite automatically.
 - **AND THEN** an eligible actor entrypoint MAY ask for or explain the required choice without creating loop files
 
 ### Requirement: Deployment selects the actor pack independently of activation
-Explicit operator installation without a pack override SHALL continue to select the admin pack. Managed launch and managed join SHALL continue to select the agent pack by default.
+Explicit operator installation without a pack override SHALL continue to select the admin pack. Managed launch SHALL continue to select the agent pack by default.
 
 The admin pack SHALL contain admin welcome, admin entrypoint, shared routines, and both loop siblings. The agent pack SHALL contain agent entrypoint, shared routines, and both loop siblings, and SHALL NOT contain admin welcome or admin entrypoint.
 
@@ -165,7 +165,7 @@ Changing activation posture MUST NOT dynamically compose skill content, alter st
 - **AND THEN** that selection occurs only because the user invoked installation
 
 #### Scenario: Houmao constructs a managed home
-- **WHEN** managed launch or join performs default system-skill installation
+- **WHEN** managed launch performs default system-skill installation
 - **THEN** it installs the agent pack and not the admin pack
 - **AND THEN** the managed agent receives `houmao-agent-entrypoint` as its only actor entrypoint
 
@@ -189,4 +189,3 @@ Raw human-operator context SHALL select the admin entrypoint for Houmao-related 
 - **THEN** a Houmao-related request selects the agent entrypoint
 - **AND THEN** operational work performs fresh identity verification
 - **AND THEN** the admin entrypoint is not selected merely because a human supplied the task
-

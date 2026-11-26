@@ -39,10 +39,36 @@ _TOOL_MODE_BACKENDS: Final[dict[str, dict[RunMode, BackendKind]]] = {
 _MODE_BY_BACKEND: Final[dict[BackendKind, RunMode]] = {
     backend: mode for modes in _TOOL_MODE_BACKENDS.values() for mode, backend in modes.items()
 } | {"cao_rest": "tui", "houmao_server_rest": "tui"}
+MANAGED_WEB_BACKENDS: Final[frozenset[BackendKind]] = frozenset(
+    backend for backend, mode in _MODE_BY_BACKEND.items() if mode == "web"
+)
+MANAGED_SERVICE_BACKENDS: Final[frozenset[BackendKind]] = frozenset(
+    backend for backend, mode in _MODE_BY_BACKEND.items() if mode == "service"
+)
+MANAGED_HEADLESS_BACKENDS: Final[frozenset[BackendKind]] = frozenset(
+    backend for backend, mode in _MODE_BY_BACKEND.items() if mode == "headless"
+)
+MANAGED_STRUCTURED_TUI_BACKENDS: Final[frozenset[BackendKind]] = frozenset({"hermes_tui"})
 _COMPATIBILITY_TUI_TOOLS: Final[dict[str, frozenset[str]]] = {
     "cao_rest": frozenset({"claude", "codex", "kimi"}),
     "houmao_server_rest": frozenset({"claude", "codex", "kimi", "kiro_cli", "q_cli"}),
 }
+RUNTIME_OWNED_TMUX_BACKENDS: Final[tuple[BackendKind, ...]] = (
+    "local_interactive",
+    "codex_headless",
+    "codex_app_server",
+    "claude_headless",
+    "kimi_headless",
+    "kimi_acp",
+    "dsh_headless",
+    "dsh_acp",
+    "dsh_web",
+    "hermes_headless",
+    "hermes_service",
+    "hermes_tui",
+    "kimi_web",
+    "cao_rest",
+)
 
 
 @dataclass(frozen=True)
@@ -53,6 +79,34 @@ class RunModeSelection:
     mode: RunMode
     backend: BackendKind
     human_surface_kind: NativeSurfaceKind | None
+
+
+@dataclass(frozen=True)
+class GatewayBackendCapabilities:
+    """Describe gateway tracking and timing policy for an existing backend."""
+
+    mode: RunMode
+    structured_tui: bool
+    parser_backed_tui: bool
+    manager_launch_timings: bool
+    runtime_launch_timings: bool
+    attach_timings: bool
+
+
+def gateway_backend_capabilities(backend: BackendKind) -> GatewayBackendCapabilities:
+    """Return backend facts used across launch, attach, and gateway startup."""
+
+    mode = mode_for_backend(backend)
+    structured_tui = backend in MANAGED_STRUCTURED_TUI_BACKENDS
+    parser_backed_tui = mode == "tui" and not structured_tui
+    return GatewayBackendCapabilities(
+        mode=mode,
+        structured_tui=structured_tui,
+        parser_backed_tui=parser_backed_tui,
+        manager_launch_timings=parser_backed_tui,
+        runtime_launch_timings=parser_backed_tui or mode == "headless",
+        attach_timings=not structured_tui and mode != "web",
+    )
 
 
 def mode_for_backend(backend: BackendKind) -> RunMode:

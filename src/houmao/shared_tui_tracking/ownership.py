@@ -52,7 +52,6 @@ class SingleSessionTrackingRuntime:
         identity: HoumaoTrackedSessionIdentity,
         tmux_socket_path: str | None = None,
         primary_binding: SessionManifestTmuxSectionV1 | None = None,
-        joined: bool = False,
         watch_poll_interval_seconds: float = 0.5,
         recent_transition_limit: int = 24,
         snapshot_history_limit: int = 1000,
@@ -72,7 +71,6 @@ class SingleSessionTrackingRuntime:
                 raise ValueError("Tracker session differs from the primary tmux binding")
             tmux_socket_path = primary_binding.socket_path
         self.m_primary_binding: SessionManifestTmuxSectionV1 | None = primary_binding
-        self.m_joined: bool = joined
         self.m_tmux_socket_path: str | None = (
             validate_tmux_socket_path(tmux_socket_path) if tmux_socket_path is not None else None
         )
@@ -176,7 +174,7 @@ class SingleSessionTrackingRuntime:
         if binding is not None:
             if binding.socket_path is None:
                 raise TmuxObservationUnavailable("Managed terminal has no saved tmux socket.")
-            observation = observe_primary_tmux(binding, joined=self.m_joined)
+            observation = observe_primary_tmux(binding)
             if observation.state == "missing_session":
                 return None
             if observation.state != "valid" or observation.pane is None:
@@ -286,6 +284,23 @@ class SingleSessionTrackingRuntime:
             )
             return
 
+        qualification = self.m_tracker.parser_qualification
+        if (version_diagnostic := qualification.diagnostic) is not None:
+            self.m_tracker.record_cycle(
+                identity=identity,
+                observed_at_utc=observed_at_utc,
+                monotonic_ts=monotonic_ts,
+                transport_state="tmux_up",
+                process_state=process_inspection.process_state,
+                parse_status="parse_error",
+                probe_snapshot=probe_snapshot,
+                probe_error=None,
+                parse_error=version_diagnostic,
+                parsed_surface=None,
+                output_text=None,
+            )
+            return
+
         try:
             output_text = self.m_transport_resolver.capture_text(target=target)
         except TmuxCommandError as exc:
@@ -355,7 +370,8 @@ class SingleSessionTrackingRuntime:
                 return
             self.m_tracker.set_baseline_pos(baseline_pos)
 
-        parse_result = self.m_parser_adapter.parse(
+        parse_result = qualification.parse(
+            self.m_parser_adapter,
             tool=identity.tool,
             output_text=output_text,
             baseline_pos=baseline_pos,

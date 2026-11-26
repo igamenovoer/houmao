@@ -6,8 +6,14 @@ from pathlib import Path
 import subprocess
 import threading
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
+
+from houmao.agents.realm_controller.startup_rollback import (
+    current_runtime_startup,
+    runtime_startup_scope,
+)
 from fastapi import HTTPException
 from pydantic import ValidationError
 
@@ -69,6 +75,7 @@ from tests.unit.passive_server.test_discovery import _make_record
 from houmao.server.tui import (
     KnownSessionRecord,
     OfficialParseResult,
+    OfficialTuiParserAdapter,
     PaneProcessInspection,
     ResolvedTmuxTarget,
 )
@@ -288,6 +295,16 @@ class _FakeHeadlessController:
         self.m_stop_calls: list[bool] = []
         self.m_persist_calls = 0
         self.m_send_prompt_calls: list[dict[str, object]] = []
+
+    def finish_launch(self, **kwargs):
+        """Run the external publisher at the fake runtime's commit point."""
+
+        with runtime_startup_scope():
+            kwargs["publish_external_startup"](self)
+            startup = current_runtime_startup()
+            assert startup is not None
+            startup.commit()
+        return self
 
     def stop(self, *, force_cleanup: bool = False):
         self.m_stop_calls.append(force_cleanup)
@@ -972,6 +989,69 @@ def test_refresh_terminal_state_records_tui_down_but_keeps_tracker(
     assert state.diagnostics.availability == "tui_down"
     assert state.turn.phase == "unknown"
     assert service.terminal_state("abcd1234").diagnostics.availability == "tui_down"
+
+
+@pytest.mark.parametrize(
+    ("observed_version", "qualified"),
+    [("2.0.99", False), (None, False), ("dev-build", False), ("2.1.1", True), ("9.0.0", True)],
+)
+def test_retained_server_poll_uses_recorded_detector_qualification(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    observed_version: str | None,
+    qualified: bool,
+) -> None:
+    """The retained poll keeps its lifecycle and uses the resolved profile for parsing."""
+
+    monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_: True)
+    parser = OfficialTuiParserAdapter()
+    resolver = _FakeTmuxTransportResolver(output_text="")
+    server = HoumaoServerService(
+        config=HoumaoServerConfig(runtime_root=tmp_path),
+        transport_resolver=resolver,
+        process_inspector=_FakeProcessInspector(
+            PaneProcessInspection(
+                process_state="tui_up", matched_process_names=("kimi",), matched_processes=()
+            )
+        ),
+        parser_adapter=parser,
+    )
+    server.ensure_known_session(
+        KnownSessionRecord(
+            tracked_session_id="kimi",
+            session_name="kimi",
+            terminal_id="kimi-terminal",
+            tool="kimi",
+            observed_tool_version=observed_version,
+            tmux_session_name="kimi",
+            tmux_window_name=None,
+            manifest_path=None,
+            session_root=None,
+            agent_name=None,
+            agent_id=None,
+        )
+    )
+    with (
+        patch.object(parser, "parse", wraps=parser.parse) as parse,
+        patch.object(resolver, "capture_text", wraps=resolver.capture_text) as capture,
+    ):
+        assert server.poll_known_session("kimi")
+    state = server.terminal_state("kimi-terminal")
+
+    if qualified:
+        assert state.diagnostics.availability == "available"
+        assert state.parsed_surface is not None
+        assert state.parsed_surface.parser_preset_version == "2.1.x"
+        parse.assert_called_once_with(
+            tool="kimi", output_text="", baseline_pos=0, detector_version="2.1.x"
+        )
+    else:
+        assert state.diagnostics.availability == "error"
+        assert state.diagnostics.parse_error is not None
+        assert state.diagnostics.parse_error.kind == "unsupported_tool_version"
+        assert state.parsed_surface is None
+        capture.assert_not_called()
+        parse.assert_not_called()
 
 
 @pytest.mark.parametrize("observation_failed", [False, True])
@@ -1662,7 +1742,9 @@ def test_launch_headless_persists_authority_and_projects_shared_state(
     recorded_start_kwargs: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.server.service.start_runtime_session",
-        lambda **kwargs: recorded_start_kwargs.update(kwargs) or fake_controller,
+        lambda **kwargs: (
+            recorded_start_kwargs.update(kwargs) or fake_controller.finish_launch(**kwargs)
+        ),
     )
     seen_sockets: list[str] = []
 
@@ -1769,7 +1851,9 @@ def test_launch_headless_allows_missing_role_name_for_brain_only_launch(
     recorded_start_kwargs: dict[str, object] = {}
     monkeypatch.setattr(
         "houmao.server.service.start_runtime_session",
-        lambda **kwargs: recorded_start_kwargs.update(kwargs) or fake_controller,
+        lambda **kwargs: (
+            recorded_start_kwargs.update(kwargs) or fake_controller.finish_launch(**kwargs)
+        ),
     )
     monkeypatch.setattr("houmao.server.service.tmux_session_exists", lambda **_kwargs: True)
 

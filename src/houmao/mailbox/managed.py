@@ -1919,6 +1919,57 @@ def _recipient_delivery_boxes(
     return boxes
 
 
+def update_local_message_state(
+    connection: sqlite3.Connection,
+    *,
+    message_id: str,
+    read: bool | None = None,
+    answered: bool | None = None,
+    starred: bool | None = None,
+    archived: bool | None = None,
+    deleted: bool | None = None,
+    box: str | None = None,
+) -> dict[str, object] | None:
+    """Update a message and its thread summary within the caller's local transaction."""
+
+    updates = {
+        column: value
+        for column, value in (
+            ("is_read", read),
+            ("is_answered", answered),
+            ("is_starred", starred),
+            ("is_archived", archived),
+            ("is_deleted", deleted),
+            ("box_name", box),
+        )
+        if value is not None
+    }
+    assignments = ", ".join(f"{column} = ?" for column in updates)
+    connection.execute(
+        f"UPDATE message_state SET {assignments} WHERE message_id = ?",
+        (*updates.values(), message_id),
+    )
+    row = connection.execute(
+        """
+        SELECT thread_id, is_read, is_answered, is_starred, is_archived, is_deleted, box_name
+        FROM message_state
+        WHERE message_id = ?
+        """,
+        (message_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    _recompute_local_thread_summary(connection=connection, thread_id=str(row[0]))
+    return {
+        "read": bool(row[1]),
+        "answered": bool(row[2]),
+        "starred": bool(row[3]),
+        "archived": bool(row[4]),
+        "deleted": bool(row[5]),
+        "box": str(row[6]),
+    }
+
+
 def update_mailbox_state(
     mailbox_root: Path,
     request: StateUpdateRequest,
@@ -1941,12 +1992,11 @@ def update_mailbox_state(
             _validate_active_registration(registration)
 
             message_row = connection.execute(
-                "SELECT thread_id FROM messages WHERE message_id = ?",
+                "SELECT 1 FROM messages WHERE message_id = ?",
                 (request.message_id,),
             ).fetchone()
             if message_row is None:
                 raise ManagedMailboxOperationError(f"unknown message id `{request.message_id}`")
-            thread_id = str(message_row[0])
             with _open_local_mailbox_connection(registration) as local_connection:
                 local_connection.execute("BEGIN IMMEDIATE")
                 existing_state = local_connection.execute(
@@ -1988,58 +2038,24 @@ def update_mailbox_state(
                         box_name=_default_box_for_projection_folders(folder_names),
                     )
 
-                assignments: list[str] = []
-                parameters: list[object] = []
-                if request.read is not None:
-                    assignments.append("is_read = ?")
-                    parameters.append(int(request.read))
-                if request.answered is not None:
-                    assignments.append("is_answered = ?")
-                    parameters.append(int(request.answered))
-                if request.starred is not None:
-                    assignments.append("is_starred = ?")
-                    parameters.append(int(request.starred))
-                if request.archived is not None:
-                    assignments.append("is_archived = ?")
-                    parameters.append(int(request.archived))
-                if request.deleted is not None:
-                    assignments.append("is_deleted = ?")
-                    parameters.append(int(request.deleted))
-                parameters.append(request.message_id)
-                local_connection.execute(
-                    f"""
-                    UPDATE message_state
-                    SET {", ".join(assignments)}
-                    WHERE message_id = ?
-                    """,
-                    tuple(parameters),
+                state = update_local_message_state(
+                    local_connection,
+                    message_id=request.message_id,
+                    read=request.read,
+                    answered=request.answered,
+                    starred=request.starred,
+                    archived=request.archived,
+                    deleted=request.deleted,
                 )
-                _recompute_local_thread_summary(
-                    connection=local_connection,
-                    thread_id=thread_id,
-                )
-                state_row = local_connection.execute(
-                    """
-                    SELECT is_read, is_answered, is_starred, is_archived, is_deleted, box_name
-                    FROM message_state
-                    WHERE message_id = ?
-                    """,
-                    (request.message_id,),
-                ).fetchone()
 
-    assert state_row is not None
+    assert state is not None
     return {
         "ok": True,
         "address": request.address,
         "owner_principal_id": registration.owner_principal_id,
         "registration_id": registration.registration_id,
         "message_id": request.message_id,
-        "read": bool(state_row[0]),
-        "answered": bool(state_row[1]),
-        "starred": bool(state_row[2]),
-        "archived": bool(state_row[3]),
-        "deleted": bool(state_row[4]),
-        "box": str(state_row[5]),
+        **state,
     }
 
 

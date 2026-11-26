@@ -118,7 +118,6 @@ def list_system_skills_command() -> None:
         "defaults": {
             "cli": list(manifest.defaults.cli),
             "managed_launch": list(manifest.defaults.managed_launch),
-            "managed_join": list(manifest.defaults.managed_join),
         },
     }
     emit(payload, plain_renderer=_render_list_plain)

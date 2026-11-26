@@ -51,6 +51,7 @@ from houmao.agents.realm_controller.backends.web_entry import (
     owns_ipv4_web_listener as owned_listener,
 )
 from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.agents.realm_controller.gateway_models import GatewayWebExecutionIdentityV1
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
@@ -298,7 +299,11 @@ class KimiWebSession:
         if resume_id is not None:
             kimi_session_journal(home, workspace, resume_id)
         root = home / "houmao-web" / uuid4().hex
-        root.mkdir(parents=True, mode=0o700)
+        startup = current_runtime_startup()
+        if startup is None:
+            root.mkdir(parents=True, mode=0o700)
+        else:
+            startup.create_directory(root)
         control = root / "control.json"
         bootstrap = root / "bootstrap.json"
         _write_private_json(control, cast(dict[str, Any], selection))
@@ -347,6 +352,11 @@ class KimiWebSession:
                     str(invocation),
                 ]
             )
+            if startup is not None:
+                startup.add(
+                    "new Kimi Web supervisor",
+                    lambda: DshWebSession._stop_supervisor_file(root / "supervisor.json"),
+                )
             if run_tmux(["respawn-pane", "-k", "-t", surface.pane_id, command]).returncode:
                 raise BackendExecutionError("Kimi Web supervisor could not start")
             process, client, meta = self._wait_for_host(home, root)
@@ -398,9 +408,10 @@ class KimiWebSession:
                 tmux_pane_id=surface.pane_id,
             )
         except BaseException as exc:
-            DshWebSession._stop_supervisor_file(root / "supervisor.json")
-            if created and self._owns_tmux(name, str(control)):
-                kill_tmux_session(session_name=name)
+            if startup is None:
+                DshWebSession._stop_supervisor_file(root / "supervisor.json")
+                if created and self._owns_tmux(name, str(control)):
+                    kill_tmux_session(session_name=name)
             if isinstance(exc, TmuxCommandError):
                 raise BackendExecutionError(str(exc)) from None
             raise

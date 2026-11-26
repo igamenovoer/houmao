@@ -51,7 +51,7 @@ The first release starts Houmao-owned local hosts. A manually started DSH host c
 
 Public Web surface metadata contains `kind: web`, a token-free `origin`, and the exact `native_session_id`. Process supervision metadata remains separate. A logical runtime identity can survive explicit relaunch, but the host and agent incarnation change. Stale credentials or incarnation tokens cannot authorize the replacement.
 
-Use the recorded managed ID for `houmao-mgr agents single --agent-id ID state` and `gateway status`. Reconnecting or reattaching through that saved owned authority verifies the existing host binding. A token, origin, native session ID, or terminal `join` operation does not grant launch ownership of a manually started Web host.
+Use the recorded managed ID for `houmao-mgr agents single --agent-id ID state` and `gateway status`. Reconnecting or reattaching through that saved owned authority verifies the existing host binding. Only a supported Houmao launch establishes ownership of a managed Web host.
 
 ## Browser Entry and Exact Session Selection
 

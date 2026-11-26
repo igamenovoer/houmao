@@ -94,7 +94,7 @@ Load only the functional-area pages selected by an ordinary case or suite:
 ## Calls to External Skills
 
 - Invoke `$houmao-dev-launch-agents` for raw Claude Code, Codex, or Kimi Code admin-context sessions. Consume its verified tmux target and secret-free launch provenance; do not reproduce its credential or launcher resolver.
-- Use supported `houmao-mgr` managed launch or join surfaces for managed-agent cases so the agent pack, native provider system prompt, effective prompt, and self-identity authority are genuine.
+- Use supported `houmao-mgr` managed launch surfaces for managed-agent cases so the agent pack, native provider system prompt, effective prompt, and self-identity authority are genuine.
 - Invoke `$terminal-recorder-workflow` only when a terminal recording materially strengthens behavioral evidence. Tracker output remains outside the behavior oracle.
 - Invoke `$houmao-dev-tui-testing` separately when the same scenario also needs TUI-state qualification; never merge its tracker verdict into the behavior verdict.
 

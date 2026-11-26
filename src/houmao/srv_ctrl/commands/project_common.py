@@ -136,13 +136,13 @@ _LaunchProfileStoreOperation = Literal["create", "patch", "replace"]
 _RELAUNCH_CHAT_SESSION_MODES: tuple[str, ...] = ("new", "tool_last_or_new", "exact")
 
 
-def _ensure_project_roots() -> ProjectAwareLocalRoots:
+def _ensure_project_roots(*, project_dir: Path | None = None) -> ProjectAwareLocalRoots:
     """Return ensured project-aware roots or raise one operator-facing error."""
 
     try:
         roots = ensure_project_aware_local_roots(
             cwd=Path.cwd().resolve(),
-            project_dir=active_project_dir(),
+            project_dir=project_dir if project_dir is not None else active_project_dir(),
         )
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
@@ -151,10 +151,10 @@ def _ensure_project_roots() -> ProjectAwareLocalRoots:
     return roots
 
 
-def _ensure_project_overlay() -> HoumaoProjectOverlay:
+def _ensure_project_overlay(*, project_dir: Path | None = None) -> HoumaoProjectOverlay:
     """Return the ensured selected project overlay."""
 
-    overlay = _ensure_project_roots().project_overlay
+    overlay = _ensure_project_roots(project_dir=project_dir).project_overlay
     assert overlay is not None
     return overlay
 

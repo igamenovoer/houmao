@@ -16,7 +16,6 @@ from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 from houmao.agents.realm_controller.native_surface import NativeSurfaceKind
 from houmao.agents.realm_controller.run_modes import (
     RunMode,
-    human_surface_for_mode,
     mode_for_backend,
 )
 from houmao.execution.models import ExecutionBindingV1
@@ -47,34 +46,9 @@ RoleInjectionMethod = Literal[
     "bootstrap_message",
     "cao_profile",
 ]
-JoinedSessionOrigin = Literal["joined_tmux"]
-JoinedLaunchPostureKind = Literal[
-    "runtime_launch_plan",
-    "tui_launch_options",
-    "headless_launch_options",
-    "unavailable",
-]
-JoinedLaunchEnvBindingMode = Literal["literal", "inherit"]
 HeadlessResumeSelectionKind = Literal["none", "last", "exact"]
 HeadlessTurnSessionSelectionMode = Literal["new", "tool_last_or_new", "exact"]
 RelaunchChatSessionSelectionMode = Literal["new", "tool_last_or_new", "exact"]
-
-
-@dataclass(frozen=True)
-class JoinedLaunchEnvBinding:
-    """One persisted launch-env binding for joined-session relaunch."""
-
-    mode: JoinedLaunchEnvBindingMode
-    name: str
-    value: str | None = None
-
-
-@dataclass(frozen=True)
-class HeadlessResumeSelection:
-    """Persisted resume selector for joined headless sessions."""
-
-    kind: HeadlessResumeSelectionKind
-    value: str | None = None
 
 
 @dataclass(frozen=True)
@@ -201,49 +175,6 @@ class LaunchPlan:
         """Return the selected lifetime and native interface for this backend."""
 
         return mode_for_backend(self.backend)
-
-    @classmethod
-    def for_joined_session(
-        cls,
-        *,
-        backend: BackendKind,
-        tool: str,
-        executable: str,
-        args: list[str],
-        working_directory: Path,
-        home_env_var: str,
-        home_path: Path,
-        env: dict[str, str],
-        env_var_names: list[str],
-        role_name: str,
-        role_prompt: str,
-        metadata: dict[str, Any] | None = None,
-        mailboxes: MailboxesResolvedConfig | None = None,
-    ) -> LaunchPlan:
-        """Build a join-derived launch plan without brain-manifest reconstruction."""
-
-        joined_metadata = dict(metadata or {})
-        joined_metadata.setdefault("session_origin", "joined_tmux")
-        return cls(
-            backend=backend,
-            tool=tool,
-            executable=executable,
-            args=list(args),
-            working_directory=working_directory.resolve(),
-            home_env_var=home_env_var,
-            home_path=home_path.resolve(),
-            env=dict(env),
-            env_var_names=sorted(set(env_var_names)),
-            role_injection=RoleInjectionPlan(
-                # Joined sessions do not reconstruct launch-time role injection.
-                method="cao_profile",
-                role_name=role_name,
-                prompt=role_prompt,
-            ),
-            metadata=joined_metadata,
-            native_surface_kind=human_surface_for_mode(mode_for_backend(backend)),
-            mailboxes=mailboxes if mailboxes is not None else MailboxesResolvedConfig(),
-        )
 
     def redacted_payload(self) -> dict[str, Any]:
         """Return a secret-free payload suitable for persistence.

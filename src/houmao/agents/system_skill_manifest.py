@@ -87,8 +87,8 @@ PackAudience = Literal["admin", "agent"]
 StandaloneSkillRole = Literal["welcome", "entrypoint", "shared-routines", "loop"]
 ActivationPosture = Literal["narrow-implicit", "explicit"]
 StaticProjectionMode = Literal["copy", "symlink"]
-DefaultLane = Literal["cli", "managed_launch", "managed_join"]
-AutoInstallKind = Literal["managed_launch", "managed_join", "cli_default"]
+DefaultLane = Literal["cli", "managed_launch"]
+AutoInstallKind = Literal["managed_launch", "cli_default"]
 
 
 class SystemSkillManifestError(RuntimeError):
@@ -173,16 +173,15 @@ class SystemSkillDefaults:
 
     cli: tuple[str, ...]
     managed_launch: tuple[str, ...]
-    managed_join: tuple[str, ...]
 
     def pack_ids_for_kind(self, kind: AutoInstallKind) -> tuple[str, ...]:
         """Return pack ids for one automatic-selection lane."""
 
         if kind == "managed_launch":
             return self.managed_launch
-        if kind == "managed_join":
-            return self.managed_join
-        return self.cli
+        if kind == "cli_default":
+            return self.cli
+        raise SystemSkillManifestError(f"Unsupported system-skill installation kind: {kind!r}")
 
 
 @dataclass(frozen=True)
@@ -632,7 +631,6 @@ def _parse_system_skill_manifest(
     defaults = SystemSkillDefaults(
         cli=tuple(defaults_payload["cli"]),
         managed_launch=tuple(defaults_payload["managed_launch"]),
-        managed_join=tuple(defaults_payload["managed_join"]),
     )
     packs: dict[str, SystemSkillPackRecord] = {}
     for item in cast(list[dict[str, Any]], payload["packs"]):
@@ -822,7 +820,7 @@ def _validate_manifest_cross_references(
             aliases=routine.aliases,
             logical_id=routine.logical_id,
         )
-    default_lanes: tuple[DefaultLane, ...] = ("cli", "managed_launch", "managed_join")
+    default_lanes: tuple[DefaultLane, ...] = ("cli", "managed_launch")
     lane_owners: dict[DefaultLane, tuple[str, ...]] = {
         lane: tuple(pack.pack_id for pack in manifest.packs.values() if lane in pack.default_lanes)
         for lane in default_lanes
@@ -832,10 +830,6 @@ def _validate_manifest_cross_references(
     if lane_owners["managed_launch"] != manifest.defaults.managed_launch:
         raise SystemSkillManifestError(
             f"{source}: defaults.managed_launch does not match pack lanes."
-        )
-    if lane_owners["managed_join"] != manifest.defaults.managed_join:
-        raise SystemSkillManifestError(
-            f"{source}: defaults.managed_join does not match pack lanes."
         )
 
 

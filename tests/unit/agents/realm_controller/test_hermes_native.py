@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -15,6 +16,7 @@ from houmao.agents.realm_controller.backends.hermes_native import (
     HermesNativeError,
     read_hermes_evidence,
 )
+from houmao.agents.realm_controller.startup_rollback import runtime_startup_scope
 
 
 @pytest.fixture
@@ -82,6 +84,38 @@ def test_daemon_starts_once_and_waits_for_exact_home(
     monkeypatch.setattr(daemon, "_start", lambda: started.append(str(daemon.workspace)))
     assert daemon.ensure().home == Path(payload["hermes_home"])
     assert started == [str(daemon.workspace)]
+
+
+@pytest.mark.parametrize("already_running", [False, True])
+def test_failed_launch_stops_only_its_new_hermes_daemon(
+    already_running: bool,
+    native_setup: tuple[HermesDaemon, Path, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Use the actual daemon acquisition path without signaling a reused process."""
+
+    daemon, root, payload = native_setup
+    root.mkdir(mode=0o700, exist_ok=True)
+    process = Mock(pid=payload["pid"], **{"poll.return_value": None})
+    spawn = Mock(return_value=process)
+    stop_identity = Mock()
+
+    def identify(*args: object) -> tuple[dict[str, Any], int]:
+        if not already_running and not spawn.called:
+            raise FileNotFoundError
+        return payload, payload["pid"]
+
+    monkeypatch.setattr(hermes_native.subprocess, "Popen", spawn)
+    monkeypatch.setattr(hermes_native, "_control_query", identify)
+    monkeypatch.setattr(hermes_native, "_dispatch_origin_birth_token", lambda pid: "proc:10")
+    monkeypatch.setattr(hermes_native, "_stop_identity", stop_identity)
+    with pytest.raises(OSError, match="injected startup failure"), runtime_startup_scope():
+        assert daemon.ensure().pid == payload["pid"]
+        raise OSError("injected startup failure")
+
+    assert spawn.call_count == int(not already_running)
+    assert process.terminate.call_count == int(not already_running)
+    stop_identity.assert_not_called()
 
 
 def test_daemon_rejects_stale_process_and_non_loopback_endpoint(

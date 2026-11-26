@@ -36,6 +36,8 @@ from houmao.agents.realm_controller.usage_support import UsageService, persist_t
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 
 from ..agent_identity import AGENT_DEF_DIR_ENV_VAR, AGENT_MANIFEST_PATH_ENV_VAR
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
+
 from ..boundary_models import SessionManifestTmuxSectionV1
 from ..errors import BackendExecutionError, SessionManifestError
 from ..managed_terminal import observe_primary_tmux
@@ -95,7 +97,6 @@ class HeadlessSessionState:
     tmux_pane_id: str | None = None
     resume_selection_kind: HeadlessResumeSelectionKind = "none"
     resume_selection_value: str | None = None
-    joined_session: bool = False
 
 
 class HeadlessInteractiveSession:
@@ -597,8 +598,7 @@ class HeadlessInteractiveSession:
     ) -> tuple[list[str], str]:
         command = [self._plan.executable, *self._plan.args]
         command.extend(extra_args or [])
-        if not self._uses_joined_operator_launch_args():
-            command.extend(self._base_command_args())
+        command.extend(self._base_command_args())
         effective_prompt = prompt
 
         if session_selection is not None:
@@ -626,8 +626,7 @@ class HeadlessInteractiveSession:
                 effective_prompt = self._bootstrap_prompt(prompt)
 
         command.append(effective_prompt)
-        if not self._uses_joined_operator_launch_args() or "--output-format" not in self._plan.args:
-            command.extend(["--output-format", self._output_format])
+        command.extend(["--output-format", self._output_format])
         return command, effective_prompt
 
     def _bootstrap_prompt(self, prompt: str) -> str:
@@ -714,7 +713,7 @@ class HeadlessInteractiveSession:
             self._prepare_primary_surface(session_name=session_name, fresh_session=True)
             self._publish_tmux_session_environment()
         except (TmuxCommandError, BackendExecutionError) as exc:
-            if created_session:
+            if created_session and current_runtime_startup() is None:
                 try:
                     kill_tmux_session_shared(session_name=session_name)
                 except TmuxCommandError:
@@ -753,7 +752,7 @@ class HeadlessInteractiveSession:
         binding = self.m_tmux_binding
         if binding is None:
             raise TmuxCommandError("Managed primary tmux binding is unavailable")
-        observation = observe_primary_tmux(binding, joined=self._uses_joined_surface())
+        observation = observe_primary_tmux(binding)
         if observation.pane is not None and (observation.state == "valid" or allow_dead):
             return observation.pane
         repair = self.m_tmux_binding_repair
@@ -792,7 +791,7 @@ class HeadlessInteractiveSession:
             ) from exc
 
     def _publish_tmux_session_environment(self) -> None:
-        """Publish owned launch values or retain the adopted-session projection."""
+        """Publish launch settings and the current native resume identity."""
 
         session_name = self._state.tmux_session_name
         if not session_name:
@@ -861,22 +860,8 @@ class HeadlessInteractiveSession:
         if self._state.resume_selection_kind == "last":
             return self._latest_resume_args()
         if self._state.resume_selection_value is None:
-            raise BackendExecutionError(
-                f"{self.backend}: missing exact resume selector for joined headless launch."
-            )
+            raise BackendExecutionError(f"{self.backend}: missing exact headless resume selector.")
         return self._resume_args(self._state.resume_selection_value)
-
-    def _uses_joined_surface(self) -> bool:
-        """Return whether this backend adopts an existing joined tmux surface."""
-
-        return (
-            self._state.joined_session or self._plan.metadata.get("session_origin") == "joined_tmux"
-        )
-
-    def _uses_joined_operator_launch_args(self) -> bool:
-        """Return whether joined headless operator args already describe provider startup."""
-
-        return bool(self._uses_joined_surface() and self.backend != "local_interactive")
 
 
 def headless_backend_state_payload(state: HeadlessSessionState) -> dict[str, Any]:

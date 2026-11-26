@@ -43,6 +43,37 @@ class SessionManifestError(BrainLaunchRuntimeError):
     """Raised when a persisted session manifest is invalid or unusable."""
 
 
+class RuntimeStartupRollbackError(BrainLaunchRuntimeError):
+    """Report the launch failure and any resources that could not be released."""
+
+    def __init__(self, startup_error: Exception, failures: tuple[str, ...]) -> None:
+        self.startup_error = startup_error
+        super().__init__(f"{startup_error}. Incomplete launch cleanup: {', '.join(failures)}")
+
+
+class RetiredJoinedSessionError(SessionManifestError):
+    """Reject retired adoption, retaining locators only to protect its artifacts."""
+
+    def __init__(
+        self,
+        *,
+        agent_id: str | None = None,
+        agent_name: str | None = None,
+        brain_manifest_path: str | None = None,
+        home_path: str | None = None,
+        mailbox_credential_refs: tuple[str, ...] = (),
+    ) -> None:
+        self.agent_id = agent_id
+        self.agent_name = agent_name
+        self.brain_manifest_path = brain_manifest_path
+        self.home_path = home_path
+        self.mailbox_credential_refs = mailbox_credential_refs
+        super().__init__(
+            "Manual tmux adoption is retired. Use the owning Houmao release to wind down "
+            "management of this session, then start a fresh supported managed launch."
+        )
+
+
 class SchemaValidationError(BrainLaunchRuntimeError):
     """Raised when JSON payloads fail schema validation."""
 

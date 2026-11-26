@@ -175,7 +175,6 @@ def _install_fake_local_interactive_launch_surface(
 ) -> None:
     session._prepare_tool_home = lambda: events.append(("prepare_home", None))  # type: ignore[method-assign]  # noqa: SLF001
     session._require_tmux_session_name = lambda: "HOUMAO-kimi"  # type: ignore[method-assign]  # noqa: SLF001
-    session._uses_joined_surface = lambda: False  # type: ignore[method-assign]  # noqa: SLF001
     session._prepare_primary_surface = lambda *, session_name: events.append(  # type: ignore[method-assign]  # noqa: SLF001
         ("prepare_surface", session_name)
     )

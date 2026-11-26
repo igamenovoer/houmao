@@ -9,7 +9,7 @@ Houmao SHALL provide a public skill named `houmao-agent-entrypoint` as the sole 
 Its startup-visible description and opening workflow SHALL state that the caller is the managed Houmao agent attached to the current session and that substantive routes require verified self identity.
 
 #### Scenario: Managed launch installs the public agent entrypoint
-- **WHEN** Houmao builds or joins a managed tool home with default system skills enabled
+- **WHEN** Houmao builds a managed tool home with default system skills enabled
 - **THEN** the home receives the agent pack and public `houmao-agent-entrypoint`
 - **AND THEN** it does not receive the admin welcome or admin entrypoint by default
 

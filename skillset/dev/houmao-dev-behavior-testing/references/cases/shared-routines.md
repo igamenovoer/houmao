@@ -78,7 +78,7 @@ Every current entrypoint route has a committed bounded probe or explicit isolate
 | `ext-graphing` | covered | covered | `validate` disposable graphic fixture |
 | `mailbox-mgr` | covered | covered | `status` disposable mailbox root |
 | `memory-mgr` | covered | `AGT-002` | `read` missing or disposable memo |
-| `agent-instance` | `ADM-004`, `ADM-008` | covered | `list` read-only; join isolated-only |
+| `agent-instance` | `ADM-004` | covered | Explicit target gate before stop |
 | `agent-inspect` | `ACT-003`, `ADM-003`, `SHR-004`, `SHR-009` | `AGT-008`, `SHR-009` | `discover` read-only |
 | `agent-messaging` | covered | covered | `discover` read-only; send operations isolated-only |
 | `agent-gateway` | covered | covered | `discover` or status read-only |

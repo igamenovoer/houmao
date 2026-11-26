@@ -232,11 +232,10 @@ class RegistryDiscoveryService:
                 continue
 
             summary = _summary_from_record(record)
-            provenance = manifest.launch_policy_provenance
             new_agents[record.agent_id] = DiscoveredAgent(
                 record=record,
                 summary=summary,
-                observed_tool_version=(provenance.detected_tool_version if provenance else None),
+                observed_tool_version=manifest.observed_tool_version,
             )
 
         self.m_index.replace(new_agents)

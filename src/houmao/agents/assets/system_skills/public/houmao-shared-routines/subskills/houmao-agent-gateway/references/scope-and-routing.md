@@ -30,7 +30,7 @@ Use `houmao-shared-routines->houmao-agent-gateway` when the task is about the ma
 - `houmao-shared-routines->houmao-agent-inspect`
   generic managed-agent liveness, mailbox posture, runtime artifacts, non-gateway logs, and tmux-backing inspection
 - `houmao-shared-routines->houmao-agent-instance`
-  start, join, stop, relaunch, or clean up the managed agent session itself
+  start, stop, relaunch, or clean up the managed agent session itself
 - `houmao-shared-routines->houmao-agent-messaging`
   ordinary prompt, interrupt, or mailbox routing across already-running managed agents
 - `houmao-shared-routines->houmao-process-emails-via-gateway`

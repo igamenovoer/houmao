@@ -52,7 +52,7 @@ The independent contract/authority suite passed 53 cases: 27 regressions for str
 | Real native Loader activation failure retains applied common effects | `test_failed_native_replacement_retains_applied_common_effects` |
 | Lifecycle configuration cannot replace the running agent through refresh | `test_refresh_rejects_lifecycle_profile_changes_before_apply` |
 | Public native-home and refresh routes map actual native pending/current/no-op/MCP evidence | `test_public_gateway_native_refresh_preserves_real_common_evidence` in `test_refresh_gateway.py` |
-| Home authority requires the captured live primary surface and exact session bindings | `test_native_refresh_authority.py`: caller/native home separation, headless between-worker envelope, unknown thin joined home, stale/missing/dead/reused identity, explicit native identity allowlist, and private home material left unread |
+| Home authority requires the captured live primary surface and exact session bindings | `test_native_refresh_authority.py`: caller/native home separation, headless between-worker envelope, stale/missing/dead/reused identity, explicit native identity allowlist, and private home material left unread |
 | Two native agents share scoped CLI, direct gateway and passive refresh semantics | `test_two_native_agents_share_cli_gateway_and_passive_refresh_contract` in `test_refresh_gateway.py`; real loopback HTTP, native watcher/no-op, broader partial failure, isolated inventories and unchanged identities |
 
 The native-result probe supplies controlled pending/failure diagnostics around actual native profile reconciliation. These checks establish result preservation, not arbitrary HMR code replacement. Full HMR replacement, arbitrary user extension lifecycle behavior, and external MCP package revisions remain outside the executed claims. The [control contract](dsh-web-control.md#common-plugin-observation-and-refresh) records these limits.
@@ -127,7 +127,7 @@ The cross-account case in `tests/integration/agents/dsh/web/test_gateway_file_ed
 
 | Requirement | Scenario | Evidence Layer | Evidence and Limits |
 | --- | --- | --- | --- |
-| DSH Web Control Requires Houmao Launch Ownership | Operator Tries to Adopt a Manually Started Host | Hermetic + Native | `test_external_supervisor_session_is_refused_without_changing_its_pane`; `test_dsh_join_refuses_before_accessing_any_tmux_server`. |
+| DSH Web Control Requires Houmao Launch Ownership | Operator Tries to Adopt a Manually Started Host | Hermetic + Native | `test_external_supervisor_session_is_refused_without_changing_its_pane`. |
 | DSH Web Control Requires Houmao Launch Ownership | Gateway Reattaches to an Existing Owned Host | Hermetic + Native | `test_two_owned_hosts_reconnect_without_retargeting_or_disclosing_native_output`; `test_owned_web_gateway_plugin_and_public_requests_share_native_state_without_replay_queue`. |
 | DSH Interactive Control Uses the Human Browser's Native Session | Human and Program Alternate Prompts | Hermetic + Native | `test_browser_api_alternation_navigation_and_independent_auth`. |
 | DSH Interactive Control Uses the Human Browser's Native Session | Human Opens Another Browser Session | Hermetic + Native | `test_browser_api_alternation_navigation_and_independent_auth`. |

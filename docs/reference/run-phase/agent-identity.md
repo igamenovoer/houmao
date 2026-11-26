@@ -4,22 +4,22 @@ Houmao uses `agent_id` as an immutable, globally unique logical identity. UUIDs 
 
 ## Creating an Agent
 
-The maintained launch and join commands accept an optional `--agent-id-mode uuid|name-hash`. Omitting it generates a UUID unless `--agent-id` supplies an opaque ID. Supplying both options is an error, including an explicit `--agent-id-mode uuid` with an ID.
+The maintained launch commands accept an optional `--agent-id-mode uuid|name-hash`. Omitting it generates a UUID unless `--agent-id` supplies an opaque ID. Supplying both options is an error, including an explicit `--agent-id-mode uuid` with an ID.
 
 ```bash
 # A new UUID-backed agent; another launch named alice receives a different ID.
-pixi run houmao-mgr agents launch --agents researcher --agent-name alice
+pixi run houmao-mgr project agents launch --profile researcher --name alice
 
 # An explicit stable identity chosen by the caller.
-pixi run houmao-mgr agents launch --agents researcher --agent-name alice --agent-id team-alice
+pixi run houmao-mgr project agents launch --profile researcher --name alice --agent-id team-alice
 
 # Opt-in local convenience: preserve the existing normalized-name hash algorithm.
-pixi run houmao-mgr agents launch --agents researcher --agent-name alice --agent-id-mode name-hash
+pixi run houmao-mgr project agents launch --profile researcher --name alice --agent-id-mode name-hash
 ```
 
 In `name-hash` mode, the caller guarantees name uniqueness. Repeating the same normalized name produces the same ID and addresses the same logical agent. Names are case sensitive. A name lookup can be ambiguous when distinct IDs share a friendly name; select the returned `agent_id` explicitly for later operations.
 
-Adopting an unmanaged tmux body with `houmao-mgr agents join` creates its Houmao identity once. The join command uses the same UUID default and explicit options. Subsequent restart and relaunch preserve that persisted identity.
+A supported launch establishes the managed identity. Subsequent managed relaunches preserve it.
 
 ## Reusing an Agent or a Template
 
@@ -30,7 +30,7 @@ Managed launch resolves the ID before brain materialization and prompt rendering
 Use a persisted ID with `--reuse-home` or `--force`. Explicit `--agent-id-mode name-hash` can select an existing identity in a deliberately name-based local setup. An ordinary friendly name does not select a preserved home under UUID defaults.
 
 ```bash
-pixi run houmao-mgr agents launch --agents researcher --agent-name alice --agent-id <persisted-id> --reuse-home
+pixi run houmao-mgr project agents launch --profile researcher --name alice --agent-id <persisted-id> --reuse-home
 pixi run houmao-mgr agents single --agent-id <persisted-id> relaunch
 ```
 

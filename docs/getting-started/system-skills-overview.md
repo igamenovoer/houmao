@@ -47,7 +47,7 @@ The two packs contain static top-level siblings:
 | Pack | Complete Members | Default Lane |
 |---|---|---|
 | `admin` | `houmao-admin-welcome`, `houmao-admin-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Explicit external install |
-| `agent` | `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Managed launch, rebuild, relaunch, and join |
+| `agent` | `houmao-agent-entrypoint`, `houmao-shared-routines`, `houmao-agent-loop-pro`, `houmao-agent-loop-lite` | Managed launch, rebuild, and relaunch |
 
 Omitting `--pack` from the explicit external install command selects `admin`. Selecting both packs installs six unique roots because shared routines and both loops have two owners, not duplicate destinations.
 
@@ -125,7 +125,7 @@ houmao-mgr --print-json agents self identity
 
 It establishes `actor_kind=agent` only after the command succeeds and returns verified, consistent identity. Verified self is the default for self-scoped inspection, mailbox, memory, gateway, and lifecycle follow-up. Cross-agent work keeps the agent actor and requires an explicit peer target. Admin-only routes fail closed.
 
-Joined-session adoption is the only admin-to-agent transition. The admin frame ends after `agents self join` succeeds; later work starts through a freshly verified agent entrypoint. Houmao does not mutate the existing admin frame in place.
+An operator remains in the admin frame when launching a worker. Inside the new managed runtime, the worker establishes its agent frame through the verified agent entrypoint.
 
 ### Direct Shared-Routines Access
 

@@ -90,6 +90,7 @@ from houmao.agents.realm_controller.errors import (
     SessionManifestError,
 )
 from houmao.agents.realm_controller.errors import LaunchPlanError
+from houmao.agents.realm_controller.errors import RetiredJoinedSessionError
 from houmao.agents.realm_controller.managed_control import (
     MANAGED_SERVICE_BACKENDS,
     MANAGED_WEB_BACKENDS,
@@ -319,7 +320,15 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayMemorySummaryV1,
     resolve_gateway_tui_tracking_timing_config,
 )
-from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
+from houmao.agents.realm_controller.boundary_models import (
+    SessionManifestPayloadV4,
+    SessionManifestTmuxSectionV1,
+)
+from houmao.agents.realm_controller.run_modes import (
+    MANAGED_HEADLESS_BACKENDS,
+    GatewayBackendCapabilities,
+    gateway_backend_capabilities,
+)
 from houmao.agents.realm_controller.gateway_storage import (
     GatewayMailNotifierRecord,
     GatewayNotifierAuditOutcome,
@@ -1562,14 +1571,10 @@ class _LocalHeadlessGatewayAdapter:
         """Resume local runtime authority from the strict attach contract."""
 
         self.m_attach_contract = attach_contract
-        if attach_contract.backend not in {
-            "local_interactive",
-            "claude_headless",
-            "codex_headless",
-            "kimi_headless",
-            "dsh_headless",
-            "hermes_headless",
-        }:
+        if (
+            attach_contract.backend != "local_interactive"
+            and attach_contract.backend not in MANAGED_HEADLESS_BACKENDS
+        ):
             raise GatewayError(
                 "Local tmux gateway adapter only supports native tmux-backed backends, got "
                 f"{attach_contract.backend!r}."
@@ -1826,13 +1831,7 @@ class _ServerManagedHeadlessGatewayAdapter:
         """Initialize the server-managed headless execution adapter."""
 
         self.m_attach_contract = attach_contract
-        if attach_contract.backend not in {
-            "claude_headless",
-            "codex_headless",
-            "kimi_headless",
-            "dsh_headless",
-            "hermes_headless",
-        }:
+        if attach_contract.backend not in MANAGED_HEADLESS_BACKENDS:
             raise GatewayError(
                 "Server-managed headless gateway adapter only supports native headless backends, "
                 f"got {attach_contract.backend!r}."
@@ -1934,14 +1933,7 @@ class _ServerManagedHeadlessGatewayAdapter:
                     raise GatewayError(
                         "Managed execution primary binding differs from gateway target"
                     )
-                launch_authority = payload.agent_launch_authority
-                observed = observe_primary_tmux(
-                    binding,
-                    joined=(
-                        launch_authority is not None
-                        and launch_authority.session_origin == "joined_tmux"
-                    ),
-                )
+                observed = observe_primary_tmux(binding)
                 if observed.state != "valid" or observed.pane is None:
                     raise GatewayError("Managed execution primary binding is unavailable")
                 surface = observed.pane
@@ -2484,37 +2476,27 @@ def _hermes_admission_result(admission: HermesTuiAdmission) -> GatewayJsonObject
 def _build_gateway_execution_adapter(
     *,
     attach_contract: GatewayAttachContractV1,
+    capabilities: GatewayBackendCapabilities,
 ) -> GatewayExecutionAdapter:
     """Build the execution adapter for one gateway attach contract."""
 
     if attach_contract.backend in {"cao_rest", "houmao_server_rest"}:
         return _RestBackedGatewayAdapter(attach_contract=attach_contract)
-    if attach_contract.backend in MANAGED_WEB_BACKENDS:
+    if capabilities.mode == "web":
         return _NativeWebGatewayAdapter(attach_contract=attach_contract)
-    if attach_contract.backend in MANAGED_SERVICE_BACKENDS:
+    if capabilities.mode == "service":
         return _ManagedServiceGatewayAdapter(attach_contract=attach_contract)
-    if attach_contract.backend == "hermes_tui":
+    if capabilities.structured_tui:
         return _HermesTuiGatewayAdapter(attach_contract=attach_contract)
-    if attach_contract.backend in {
-        "local_interactive",
-        "claude_headless",
-        "codex_headless",
-        "kimi_headless",
-        "dsh_headless",
-        "hermes_headless",
-    }:
-        metadata = attach_contract.backend_metadata
-        if (
-            isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1)
-            and metadata.managed_api_base_url is not None
-            and metadata.managed_agent_ref is not None
-            and attach_contract.agent_def_dir is None
-        ):
-            return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
-        return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
-    raise GatewayError(
-        f"Gateway execution adapter is not implemented for backend={attach_contract.backend!r}."
-    )
+    metadata = attach_contract.backend_metadata
+    if (
+        isinstance(metadata, GatewayAttachBackendMetadataHeadlessV1)
+        and metadata.managed_api_base_url is not None
+        and metadata.managed_agent_ref is not None
+        and attach_contract.agent_def_dir is None
+    ):
+        return _ServerManagedHeadlessGatewayAdapter(attach_contract=attach_contract)
+    return _LocalHeadlessGatewayAdapter(attach_contract=attach_contract)
 
 
 class GatewayServiceRuntime:
@@ -2566,17 +2548,23 @@ class GatewayServiceRuntime:
             log_path=self.m_paths.diagnostic_log_path,
         )
         self.m_attach_contract = resolve_internal_gateway_attach_contract(self.m_paths)
-        if tui_tracking_timings is not None and tui_tracking_timings.model_dump(exclude_none=True):
-            if self.m_attach_contract.backend == "hermes_tui":
+        self.m_backend_capabilities: GatewayBackendCapabilities = gateway_backend_capabilities(
+            self.m_attach_contract.backend
+        )
+        if (
+            not self.m_backend_capabilities.attach_timings
+            and tui_tracking_timings is not None
+            and tui_tracking_timings.has_values()
+        ):
+            if self.m_backend_capabilities.structured_tui:
                 raise GatewayError("TUI tracking timings are unsupported for Hermes TUI")
-            if self.m_attach_contract.backend in MANAGED_WEB_BACKENDS:
-                raise GatewayError("TUI tracking timings are unsupported for Web native surfaces")
+            raise GatewayError("TUI tracking timings are unsupported for Web native surfaces")
         manifest_value = self.m_attach_contract.manifest_path
         self.m_manifest_path: Path | None = (
             Path(manifest_value).resolve() if manifest_value else None
         )
         self.m_adapter: GatewayExecutionAdapter = _build_gateway_execution_adapter(
-            attach_contract=self.m_attach_contract
+            attach_contract=self.m_attach_contract, capabilities=self.m_backend_capabilities
         )
         self.m_lock = threading.Lock()
         self.m_reminder_condition = threading.Condition(self.m_lock)
@@ -2675,6 +2663,8 @@ class GatewayServiceRuntime:
             ):
                 raise GatewayAccessError(503, "deployment_unavailable")
             access.require_self_signing_state()
+        except RetiredJoinedSessionError:
+            raise
         except (GatewayAccessError, GatewayError, SessionManifestError, OSError, ValueError):
             raise GatewayError("Gateway startup requires valid owner access state.") from None
         self.m_access_runtime = access
@@ -3786,11 +3776,7 @@ class GatewayServiceRuntime:
         """Register a TUI submission whose usage is collected by the gateway."""
 
         if self.m_attach_contract.backend in {
-            "claude_headless",
-            "codex_headless",
-            "kimi_headless",
-            "dsh_headless",
-            "hermes_headless",
+            *MANAGED_HEADLESS_BACKENDS,
             *MANAGED_WEB_BACKENDS,
             *MANAGED_SERVICE_BACKENDS,
         }:
@@ -10568,17 +10554,20 @@ class GatewayServiceRuntime:
 
         if self.m_tui_tracking is not None:
             return
-        identity = self._tui_tracking_identity_locked()
-        if identity is None:
+        target = self._tui_tracking_target_locked()
+        if target is None:
             return
-        socket_path: str | None = None
-        if self.m_manifest_path is not None and self.m_manifest_path.is_file():
-            handle = load_session_manifest(self.m_manifest_path)
-            selected = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-            socket_path = selected.tmux.socket_path if selected.tmux is not None else None
+        identity, binding = target
         tracking = SingleSessionTrackingRuntime(
             identity=identity,
-            tmux_socket_path=socket_path,
+            tmux_socket_path=binding.socket_path if binding is not None else None,
+            primary_binding=(
+                binding
+                if binding is not None
+                and binding.primary_window_id is not None
+                and binding.primary_pane_id is not None
+                else None
+            ),
             watch_poll_interval_seconds=self.m_tui_tracking_timings.watch_poll_interval_seconds,
             stability_threshold_seconds=self.m_tui_tracking_timings.stability_threshold_seconds,
             completion_stability_seconds=(self.m_tui_tracking_timings.completion_stability_seconds),
@@ -10624,9 +10613,13 @@ class GatewayServiceRuntime:
             )
         return self.m_tui_tracking
 
-    def _tui_tracking_identity_locked(self) -> HoumaoTrackedSessionIdentity | None:
-        """Build the tracked-session identity for gateway-owned TUI tracking."""
+    def _tui_tracking_target_locked(
+        self,
+    ) -> tuple[HoumaoTrackedSessionIdentity, SessionManifestTmuxSectionV1 | None] | None:
+        """Read parser-backed tracking identity and pane authority from one manifest."""
 
+        if not self.m_backend_capabilities.parser_backed_tui:
+            return None
         metadata = self.m_attach_contract.backend_metadata
         tracked_session_id: str
         session_name: str
@@ -10663,24 +10656,17 @@ class GatewayServiceRuntime:
         observed_tool_version: str | None = None
         agent_name: str | None = None
         agent_id: str | None = None
-        manifest_path_value = self.m_attach_contract.manifest_path
-        if manifest_path_value is not None:
-            try:
-                handle = load_session_manifest(Path(manifest_path_value))
-                payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
-            except SessionManifestError:
-                payload = None
-            if payload is not None:
-                tool = payload.tool
-                observed_tool_version = (
-                    payload.launch_policy_provenance.detected_tool_version
-                    if payload.launch_policy_provenance is not None
-                    else None
-                )
-                agent_name = payload.agent_name
-                agent_id = payload.agent_id
+        binding: SessionManifestTmuxSectionV1 | None = None
+        if self.m_manifest_path is not None and self.m_manifest_path.is_file():
+            handle = load_session_manifest(self.m_manifest_path)
+            payload = parse_session_manifest_payload(handle.payload, source=str(handle.path))
+            tool = payload.tool
+            observed_tool_version = payload.observed_tool_version
+            agent_name = payload.agent_name
+            agent_id = payload.agent_id
+            binding = payload.tmux
 
-        return HoumaoTrackedSessionIdentity(
+        identity = HoumaoTrackedSessionIdentity(
             tracked_session_id=tracked_session_id,
             session_name=session_name,
             tool=tool,
@@ -10693,6 +10679,7 @@ class GatewayServiceRuntime:
             manifest_path=self.m_attach_contract.manifest_path,
             session_root=str(self.m_paths.session_root.resolve()),
         )
+        return identity, binding
 
     def _current_pid(self) -> int:
         """Return the current process id."""

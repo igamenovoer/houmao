@@ -122,7 +122,7 @@ def test_system_skill_docs_cover_actor_welcome_and_static_lifecycle() -> None:
     cli_reference = _read("docs/reference/cli/system-skills.md")
 
     assert "houmao-mgr --print-json agents self identity" in overview
-    assert "Joined-session adoption is the only admin-to-agent transition" in overview
+    assert "An operator remains in the admin frame when launching a worker." in overview
     assert "Direct loop calls default to admin posture" in overview
     assert "leading `as-agent`" in overview
     for guided_path in (

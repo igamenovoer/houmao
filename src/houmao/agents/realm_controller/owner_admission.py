@@ -741,19 +741,17 @@ def _reconcile_active(
             "hermes_headless",
         }:
             terminal = _read_native_terminal(attempt, manifest=manifest)
-            if terminal is not None:
-                outcome, evidence = terminal
-                _finish_attempt(connection, attempt.request_id, generation_id, outcome, evidence)
-                continue
             if (
-                manifest.backend == "hermes_tui"
+                terminal is None
+                and manifest.backend == "hermes_tui"
                 and reconcile_tui is not None
                 and attempt.handoff_at_utc is not None
                 and reconcile_tui(attempt)
             ):
-                _finish_attempt(
-                    connection, attempt.request_id, generation_id, "settled", "tui_native"
-                )
+                terminal = _read_native_terminal(attempt, manifest=manifest)
+            if terminal is not None:
+                outcome, evidence = terminal
+                _finish_attempt(connection, attempt.request_id, generation_id, outcome, evidence)
                 continue
         if (
             attempt.mode == "tui"
@@ -828,26 +826,22 @@ def _read_native_terminal(
 
     try:
         if manifest.backend == "hermes_tui":
-            receipt = json.loads((attempt.turn_dir / "hermes-native-admission.json").read_text())
-            if (
-                not isinstance(receipt, dict)
-                or (
-                    receipt.get("request_id"),
-                    receipt.get("generation_id"),
-                    receipt.get("native_session_id"),
-                )
-                != (
-                    attempt.request_id,
-                    attempt.generation_id,
-                    manifest.backend_state.get("native_session_id"),
-                )
-                or not receipt.get("native_admission_id")
-            ):
+            from houmao.agents.realm_controller.backends.hermes_tui_receipts import (
+                HERMES_TUI_ADMISSION_FILE,
+                read_hermes_tui_admission,
+            )
+
+            native_session_id = manifest.backend_state.get("native_session_id")
+            if not isinstance(native_session_id, str):
                 return None
-            outcome = receipt.get("status")
-            if outcome in {"completed", "failed", "interrupted"}:
-                return cast(OwnerPromptTerminal, outcome), "tui_native"
-            return None
+            receipt = read_hermes_tui_admission(
+                attempt.turn_dir / HERMES_TUI_ADMISSION_FILE,
+                request_id=attempt.request_id,
+                generation_id=attempt.generation_id,
+                native_session_id=native_session_id,
+            )
+            outcome = receipt.terminal_outcome if receipt is not None else None
+            return (outcome, "tui_native") if outcome is not None else None
         if manifest.backend == "hermes_headless":
             from houmao.agents.realm_controller.backends.hermes_headless_protocol import (
                 reconcile_hermes_headless_turn,

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BytesIO
+import json
+from pathlib import Path
+import ssl
+import threading
+from urllib import error, request
+
 import pytest
 
 from houmao.agents.realm_controller.gateway_models import (
@@ -12,8 +20,11 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayReminderSendKeysV1,
     GatewayRequestPayloadSubmitPromptV1,
 )
+from houmao.cao.rest_client import CaoApiError
+from houmao.gateway.access import GatewayClientBinding, GatewayOwner
 from houmao.passive_server.client import PassiveServerClient
 from houmao.passive_server.models import (
+    PassiveHealthResponse,
     PassiveHeadlessLaunchRequest,
     PassiveHeadlessLaunchResponse,
     PassiveHeadlessTurnRequest,
@@ -21,6 +32,7 @@ from houmao.passive_server.models import (
 from houmao.mailbox.protocol import HOUMAO_OPERATOR_MAILBOX_REPLY_POLICY_VALUE
 from houmao.server.client import HoumaoServerClient
 from houmao.server.pair_client import (
+    PairAuthorityConnectionError,
     UnsupportedPairAuthorityError,
     resolve_pair_authority_client,
 )
@@ -771,8 +783,9 @@ def test_send_post_and_reply_managed_agent_mail_post_json_body(monkeypatch) -> N
     ]
 
 
-def test_mark_and_archive_managed_agent_mail_post_json_body(monkeypatch) -> None:
-    client = HoumaoServerClient("http://127.0.0.1:9889")
+@pytest.mark.parametrize("client_type", [HoumaoServerClient, PassiveServerClient])
+def test_mark_and_archive_managed_agent_mail_post_json_body(monkeypatch, client_type) -> None:
+    client = client_type("http://127.0.0.1:9889")
     recorded: list[dict[str, object]] = []
     mark_request = HoumaoManagedAgentMailMarkRequest(
         expected_binding_id="binding-offline",
@@ -872,41 +885,173 @@ def test_get_session_uses_explicit_cao_prefix(monkeypatch) -> None:
 
 
 def test_resolve_pair_authority_client_selects_passive_server(monkeypatch) -> None:
-    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
-        del self, method, kwargs
-        assert path == "/health"
-        return model.model_validate({"status": "ok", "houmao_service": "houmao-passive-server"})
+    url = "http://127.0.0.1:9891"
+    calls = []
 
-    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
+    def open_health(outgoing: request.Request, *, timeout: float) -> BytesIO:
+        calls.append((outgoing.get_method(), outgoing.full_url, timeout))
+        return _http_body(b'{"status":"ok","houmao_service":"houmao-passive-server"}')
 
-    resolution = resolve_pair_authority_client(base_url="http://127.0.0.1:9891")
+    monkeypatch.setattr(request, "urlopen", open_health)
+    resolution = resolve_pair_authority_client(
+        base_url=f"{url}/", timeout_seconds=2.0, create_timeout_seconds=60.0
+    )
 
     assert isinstance(resolution.client, PassiveServerClient)
+    assert not isinstance(resolution.client, HoumaoServerClient)
     assert resolution.health.houmao_service == "houmao-passive-server"
+    assert resolution.client.base_url == url
+    assert resolution.client.timeout_seconds == 2.0
+    assert resolution.client.create_timeout_seconds == 60.0
+    assert resolution.client.health() == PassiveHealthResponse()
+    assert calls == [("GET", f"{url}/health", 2.0)] * 2
 
 
-def test_resolve_pair_authority_client_rejects_retired_old_server(monkeypatch) -> None:
-    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
-        del self, method, kwargs
-        assert path == "/health"
-        return model.model_validate({"status": "ok", "houmao_service": "houmao-server"})
-
-    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
+@pytest.mark.parametrize("identity", [None, "houmao-server", "raw-cao", "unknown"])
+def test_resolve_pair_authority_client_rejects_unmaintained_authorities(
+    monkeypatch, identity
+) -> None:
+    health = {"status": "ok"}
+    if identity is not None:
+        health["houmao_service"] = identity
+    monkeypatch.setattr(
+        request, "urlopen", lambda *_args, **_kwargs: _http_body(json.dumps(health).encode())
+    )
 
     with pytest.raises(UnsupportedPairAuthorityError, match="houmao-passive-server"):
         resolve_pair_authority_client(base_url="http://127.0.0.1:9889")
 
 
-def test_resolve_pair_authority_client_rejects_unknown_pair_identity(monkeypatch) -> None:
-    def _request_root_model(self, method: str, path: str, model: type[object], **kwargs):
-        del self, method, kwargs
-        assert path == "/health"
-        return model.model_validate({"status": "ok", "houmao_service": "raw-cao"})
-
-    monkeypatch.setattr(HoumaoServerClient, "_request_root_model", _request_root_model)
-
-    with pytest.raises(UnsupportedPairAuthorityError, match="unsupported houmao_service"):
+def test_resolve_pair_authority_client_reports_invalid_health_response(monkeypatch) -> None:
+    monkeypatch.setattr(request, "urlopen", lambda *_args, **_kwargs: _http_body(b"{}"))
+    with pytest.raises(
+        PairAuthorityConnectionError, match="Failed to reach a Houmao pair authority"
+    ):
         resolve_pair_authority_client(base_url="http://127.0.0.1:9891")
+
+
+@pytest.mark.parametrize(
+    "artifact_name,text", [("stdout", ' {"message"  : "処理済"}\n'), ("stderr", '"quoted"\r\n')]
+)
+def test_passive_client_preserves_unsigned_artifact_text(monkeypatch, artifact_name, text) -> None:
+    def open_artifact(outgoing: request.Request, *, timeout: float) -> BytesIO:
+        assert outgoing.get_method() == "GET"
+        assert outgoing.full_url == (
+            "http://127.0.0.1:9891/houmao/agents/agent%20name/turns/turn%2Fid/artifacts/"
+            f"{artifact_name}"
+        )
+        assert timeout == 15.0
+        return _http_body(text.encode())
+
+    monkeypatch.setattr(request, "urlopen", open_artifact)
+    client = PassiveServerClient("http://127.0.0.1:9891")
+    assert client.create_timeout_seconds == 75.0
+    assert (
+        client.get_headless_turn_artifact_text("agent name", "turn/id", artifact_name=artifact_name)
+        == text
+    )
+
+
+def _http_body(payload: bytes) -> BytesIO:
+    """Return a context-managed byte stream with the expected HTTP status."""
+
+    stream = BytesIO(payload)
+    stream.status = 200
+    return stream
+
+
+def test_passive_bound_client_refuses_redirects() -> None:
+    """Keep a bound client on its selected ingress, including public health requests."""
+
+    paths: list[str] = []
+
+    class Redirect(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            paths.append(self.path)
+            self.send_response(307)
+            self.send_header("Location", "/elsewhere")
+            self.end_headers()
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Redirect) as server:
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            base = f"http://127.0.0.1:{server.server_port}/selected"
+            client = PassiveServerClient(base, binding=_bound_authority(base))
+            with pytest.raises(CaoApiError, match="Passive redirects are refused") as failure:
+                client.health()
+            assert failure.value.status_code == 307
+            assert paths == ["/selected/health"]
+        finally:
+            server.shutdown()
+            worker.join(timeout=2)
+
+
+def test_passive_bound_client_uses_selected_tls_trust(monkeypatch, tmp_path: Path) -> None:
+    """Pass explicit certificate trust from the binding into the HTTPS opener."""
+
+    ca_bundle = tmp_path / "deployment-ca.pem"
+    context = ssl.create_default_context()
+    called = []
+
+    def create_context(*, cafile: str | None) -> ssl.SSLContext:
+        called.append(cafile)
+        return context
+
+    monkeypatch.setattr(ssl, "create_default_context", create_context)
+    base = "https://passive.example.test/selected"
+    client = PassiveServerClient(base, binding=_bound_authority(base, ca_bundle=ca_bundle))
+    assert called == [str(ca_bundle)]
+    assert client.m_signed_transport is not None
+    handler = next(
+        handler
+        for handler in client.m_signed_transport.m_opener.handlers
+        if isinstance(handler, request.HTTPSHandler)
+    )
+    assert handler._context is context
+    assert context.check_hostname and context.verify_mode == ssl.CERT_REQUIRED
+
+
+@pytest.mark.parametrize("status", [200, 409])
+def test_passive_bound_client_caps_response_reads(monkeypatch, status: int) -> None:
+    """Discard over-limit signed-path success and failure bodies."""
+
+    sizes: list[int] = []
+    body = b"x" * (16 * 1024 * 1024 + 1 if status == 200 else 65_537)
+
+    class Oversize(BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            sizes.append(size)
+            return super().read(size)
+
+    def open_response(outgoing: request.Request, *, timeout: float) -> BytesIO:
+        assert timeout == 3.0
+        stream = Oversize(body)
+        if status != 200:
+            raise error.HTTPError(outgoing.full_url, status, "Error", {}, stream)
+        stream.status = status
+        return stream
+
+    base = "http://127.0.0.1:9891"
+    client = PassiveServerClient(base, 3.0, binding=_bound_authority(base))
+    assert client.m_signed_transport is not None
+    monkeypatch.setattr(client.m_signed_transport.m_opener, "open", open_response)
+    with pytest.raises(CaoApiError) as failure:
+        client.health()
+    assert failure.value.payload is None
+    assert sizes == [len(body)]
+
+
+def _bound_authority(base_url: str, *, ca_bundle: Path | None = None) -> GatewayClientBinding:
+    """Build a caller binding for requests that never need the signing key."""
+
+    return GatewayClientBinding(
+        base_url=base_url,
+        owner=GatewayOwner(agent_id="agent", context_id="context"),
+        purpose="caller",
+        private_key_path="/unused-fixture-key",
+        ca_bundle_path=str(ca_bundle) if ca_bundle is not None else None,
+    )
 
 
 def test_passive_server_client_routes_state_detail_and_history_to_compatibility_paths(
@@ -1367,8 +1512,9 @@ def test_pair_clients_gateway_reminder_routes(client_type, base_url, monkeypatch
     ]
 
 
-def test_houmao_server_client_gateway_tui_routes(monkeypatch) -> None:
-    client = HoumaoServerClient("http://127.0.0.1:9889")
+@pytest.mark.parametrize("client_type", [HoumaoServerClient, PassiveServerClient])
+def test_pair_client_gateway_tui_routes(monkeypatch, client_type) -> None:
+    client = client_type("http://127.0.0.1:9889")
     recorded: list[dict[str, object]] = []
     state_payload = {
         "terminal_id": "headless123",

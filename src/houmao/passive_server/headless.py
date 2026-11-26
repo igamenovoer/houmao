@@ -47,8 +47,10 @@ from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
     HeadlessTurnSettlementUnknown,
     LaunchPlanError,
+    RuntimeStartupRollbackError,
     SessionManifestError,
 )
+from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.agents.realm_controller.gateway_access_runtime import gateway_access_for_manifest
 from houmao.agents.realm_controller.gateway_models import GatewayChatSessionSelectorV1
 from houmao.agents.realm_controller.headless_snapshots import (
@@ -243,6 +245,10 @@ class PassiveManagedHeadlessControlState:
     latest_turn: ManagedHeadlessTurnRecord | None
 
 
+class _HeadlessStartupPublicationError(RuntimeError):
+    """Signal a failure to establish passive managed owner authority."""
+
+
 class HeadlessAgentService:
     """Manages server-launched headless agent lifecycle.
 
@@ -369,6 +375,48 @@ class HeadlessAgentService:
 
         tracked_agent_id = uuid.uuid4().hex[:12]
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
+        authority: ManagedHeadlessAuthorityRecord | None = None
+
+        def publish_startup(controller: RuntimeSessionController) -> None:
+            """Commit the passive owner's discovery before returning a live handle."""
+
+            nonlocal authority
+            manifest = controller.manifest_path.resolve()
+            try:
+                access = gateway_access_for_manifest(manifest)
+                self._publish_controller_registry_record(controller)
+                authority = ManagedHeadlessAuthorityRecord(
+                    tracked_agent_id=tracked_agent_id,
+                    backend=backend,
+                    tool=resolved_tool,
+                    manifest_path=str(manifest),
+                    session_root=str(manifest.parent),
+                    tmux_session_name=controller.tmux_session_name or tracked_agent_id,
+                    tmux_socket_path=controller.launch_plan.metadata.get("tmux_socket_path"),
+                    tmux_window_id=_controller_primary_tmux_window_id(controller),
+                    tmux_pane_id=_controller_primary_tmux_pane_id(controller),
+                    agent_def_dir=str(agent_def_dir),
+                    agent_name=controller.agent_identity,
+                    agent_id=controller.agent_id,
+                    created_at_utc=now_utc,
+                    updated_at_utc=now_utc,
+                )
+                startup = current_runtime_startup()
+                assert startup is not None
+                startup.create_directory(self.m_store.agent_root(tracked_agent_id=tracked_agent_id))
+                self.m_store.write_authority(authority)
+                provision_passive_backing(
+                    access.private_root,
+                    PassiveBackingBinding(
+                        target=access.target,
+                        api_base_url=self.m_config.api_base_url,
+                        tracked_agent_id=tracked_agent_id,
+                    ),
+                )
+            except (OSError, SessionManifestError, GatewayAccessError, ValueError) as exc:
+                raise _HeadlessStartupPublicationError(
+                    "Managed headless launch could not establish current owner authority"
+                ) from exc
 
         try:
             execution = observed_local_binding(
@@ -396,58 +444,23 @@ class HeadlessAgentService:
                     headless_display_detail=request.headless_display_detail,
                     registry_launch_authority="external",
                     gateway_admin_seed=request.gateway_admin_seed,
+                    publish_external_startup=publish_startup,
                 )
+        except _HeadlessStartupPublicationError as exc:
+            return (503, {"detail": str(exc)})
+        except RuntimeStartupRollbackError as exc:
+            if isinstance(exc.startup_error, _HeadlessStartupPublicationError):
+                return (503, {"detail": str(exc)})
+            if isinstance(exc.startup_error, RuntimeError):
+                return (422, {"detail": str(exc)})
+            return (500, {"detail": f"Failed to start headless agent: {exc}"})
         except (LaunchPlanError, SessionManifestError, RuntimeError) as exc:
             return (422, {"detail": str(exc)})
         except Exception as exc:
             log.error("Failed to start runtime session for headless agent: %s", exc)
             return (500, {"detail": f"Failed to start headless agent: {exc}"})
 
-        controller_manifest_path = controller.manifest_path.resolve()
-        try:
-            access = gateway_access_for_manifest(controller_manifest_path)
-            provision_passive_backing(
-                access.private_root,
-                PassiveBackingBinding(
-                    target=access.target,
-                    api_base_url=self.m_config.api_base_url,
-                    tracked_agent_id=tracked_agent_id,
-                ),
-            )
-            self._publish_controller_registry_record(controller)
-        except (OSError, SessionManifestError, GatewayAccessError, ValueError):
-            try:
-                controller.stop(force_cleanup=True)
-            except Exception:
-                log.warning(
-                    "Failed to rollback managed headless launch after shared-registry publish failure",
-                    exc_info=True,
-                )
-            return (
-                503,
-                {"detail": "Managed headless launch could not establish current owner authority"},
-            )
-
-        session_root = str(controller_manifest_path.parent)
-
-        authority = ManagedHeadlessAuthorityRecord(
-            tracked_agent_id=tracked_agent_id,
-            backend=backend,
-            tool=resolved_tool,
-            manifest_path=str(controller_manifest_path),
-            session_root=session_root,
-            tmux_session_name=controller.tmux_session_name or tracked_agent_id,
-            tmux_socket_path=controller.launch_plan.metadata.get("tmux_socket_path"),
-            tmux_window_id=_controller_primary_tmux_window_id(controller),
-            tmux_pane_id=_controller_primary_tmux_pane_id(controller),
-            agent_def_dir=str(agent_def_dir),
-            agent_name=controller.agent_identity,
-            agent_id=controller.agent_id,
-            created_at_utc=now_utc,
-            updated_at_utc=now_utc,
-        )
-        self.m_store.write_authority(authority)
-
+        assert authority is not None
         handle = _ManagedHeadlessHandle(authority=authority, controller=controller)
         with self.m_lock:
             self.m_handles[tracked_agent_id] = handle
@@ -463,8 +476,8 @@ class HeadlessAgentService:
         return PassiveHeadlessLaunchResponse(
             tracked_agent_id=tracked_agent_id,
             agent_name=controller.agent_identity or tracked_agent_id,
-            manifest_path=str(controller_manifest_path),
-            session_root=session_root,
+            manifest_path=authority.manifest_path,
+            session_root=authority.session_root,
             detail=f"Headless agent launched: {tracked_agent_id}",
         )
 

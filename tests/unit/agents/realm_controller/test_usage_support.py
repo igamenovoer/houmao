@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from houmao.agents.realm_controller.usage_support import UsageService, persist_terminal_evidence
-from houmao.agents.realm_controller.models import LaunchPlan
+from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.usage_store import UsageStoreError
 
 
@@ -587,7 +587,7 @@ def test_missing_initial_manifest_uses_eventual_runtime_identity(tmp_path: Path)
     """The initial direct backend call uses the stable session-root runtime ID."""
 
     manifest = tmp_path / "runtime-a" / "manifest.json"
-    plan = LaunchPlan.for_joined_session(
+    plan = LaunchPlan(
         backend="codex_headless",
         tool="codex",
         executable="codex",
@@ -597,8 +597,8 @@ def test_missing_initial_manifest_uses_eventual_runtime_identity(tmp_path: Path)
         home_path=tmp_path / "home",
         env={"HOUMAO_AGENT_ID": "agent-a"},
         env_var_names=["HOUMAO_AGENT_ID"],
-        role_name="test",
-        role_prompt="",
+        role_injection=RoleInjectionPlan(method="cao_profile", role_name="test", prompt=""),
+        metadata={},
     )
     service = UsageService.from_launch(manifest, plan, None)
     service.begin_headless_turn(

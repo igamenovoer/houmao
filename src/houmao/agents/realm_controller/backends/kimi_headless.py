@@ -40,13 +40,6 @@ class KimiHeadlessSession(HeadlessInteractiveSession):
         session_selection: HeadlessTurnSessionSelection | None = None,
         extra_args: list[str] | None = None,
     ) -> tuple[list[str], str]:
-        if self._uses_joined_operator_launch_args():
-            return super()._build_command(
-                prompt=prompt,
-                session_selection=session_selection,
-                extra_args=extra_args,
-            )
-
         command = [self._plan.executable, *self._plan.args]
         command.extend(extra_args or [])
         effective_prompt = prompt

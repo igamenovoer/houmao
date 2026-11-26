@@ -13,7 +13,7 @@ The getting-started guide SHALL explain the admin pack for human operators and t
 - **AND THEN** it provides a copyable public invocation for each applicable role
 
 ### Requirement: System-skills overview documents pack installation defaults and lifecycle
-The guide SHALL explain that external-home CLI installation defaults to the admin pack and managed launch, rebuild, relaunch, and join default to the agent pack.
+The guide SHALL explain that external-home CLI installation defaults to the admin pack and managed launch, rebuild, and relaunch default to the agent pack.
 
 #### Scenario: Acceptance criteria
 - **GIVEN** a reader who needs to select a supported tool and manage a skill installation

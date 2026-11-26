@@ -199,6 +199,46 @@ class TestObserverSuccessfulPollCycle:
         assert detail.parsed_surface is not None
         assert detail.parsed_surface.parser_family == "claude"
 
+    @pytest.mark.parametrize(
+        ("observed_version", "qualified"),
+        [("2.0.99", False), (None, False), ("dev-build", False), ("2.1.1", True), ("9.0.0", True)],
+    )
+    def test_poll_applies_discovered_version_to_parser(
+        self, observed_version: str | None, qualified: bool
+    ) -> None:
+        """Passive polling shares parse provenance and retains its early version gate."""
+
+        observer = _make_observer(tool="kimi", observed_version=observed_version)
+        with (
+            patch(
+                "houmao.passive_server.observation.tmux_session_exists", return_value=True
+            ) as probe,
+            patch.object(
+                observer.m_transport_resolver, "resolve_target", return_value=_stub_tmux_target()
+            ),
+            patch.object(observer.m_process_inspector, "inspect", return_value=_stub_process_up()),
+            patch.object(observer.m_transport_resolver, "capture_text", return_value=""),
+            patch.object(
+                observer.m_parser_adapter, "parse", wraps=observer.m_parser_adapter.parse
+            ) as parse,
+        ):
+            observer.poll_cycle()
+
+        detail = observer.current_detail()
+        if qualified:
+            assert detail.diagnostics.availability == "available"
+            assert detail.parsed_surface is not None
+            assert detail.parsed_surface.parser_preset_version == "2.1.x"
+            parse.assert_called_once_with(
+                tool="kimi", output_text="", baseline_pos=0, detector_version="2.1.x"
+            )
+        else:
+            assert detail.diagnostics.parse_error is not None
+            assert detail.diagnostics.parse_error.kind == "unsupported_tool_version"
+            assert detail.parsed_surface is None
+            probe.assert_not_called()
+            parse.assert_not_called()
+
 
 class TestObserverTmuxMissing:
     """Poll cycle with dead tmux session records transport error."""
@@ -480,6 +520,28 @@ class TestObservationServiceReconciliation:
         assert svc.get_observer(record.agent_id, generation_id=agent.record.generation_id) is None
         new = svc.get_observer(record.agent_id, generation_id="replaced")
         assert new is not None and new is not old
+
+    def test_replaces_tracker_when_saved_version_evidence_changes(self, tmp_path: Path) -> None:
+        """The same observed generation uses its latest recorded version evidence."""
+
+        config = PassiveServerConfig(runtime_root=tmp_path)
+        service = TuiObservationService(discovery=RegistryDiscoveryService(config), config=config)
+        agent = replace(_agent(), observed_tool_version="2.1.296")
+        service._reconcile_observers([agent])
+        before = service.get_observer(
+            agent.record.agent_id, generation_id=agent.record.generation_id
+        )
+        assert before is not None and before.m_tracker_session is not None
+
+        service._reconcile_observers([replace(agent, observed_tool_version="2.1.295")])
+
+        after = service.get_observer(
+            agent.record.agent_id, generation_id=agent.record.generation_id
+        )
+        assert after is not None and after is not before
+        diagnostics = after.current_detail().diagnostics
+        assert diagnostics.parse_error is not None
+        assert diagnostics.parse_error.kind == "unsupported_tool_version"
 
     def test_replaces_tracker_when_saved_socket_changes(self, tmp_path: Path) -> None:
         config = PassiveServerConfig(runtime_root=tmp_path)
