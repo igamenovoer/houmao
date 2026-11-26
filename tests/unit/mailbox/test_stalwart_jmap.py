@@ -688,7 +688,9 @@ def test_protected_runtime_rechecks_rights_before_rule_application(
     state, _ = wire
     state.mailboxes[0]["myRights"].update(mayRemoveItems=False, mayAddItems=False)
     state.mailboxes[1]["myRights"].update(mayRemoveItems=False)
-    state.mailboxes[2]["myRights"].update(mayReadItems=False, mayRemoveItems=False, mayAddItems=False)
+    state.mailboxes[2]["myRights"].update(
+        mayReadItems=False, mayRemoveItems=False, mayAddItems=False
+    )
     client = _client(wire)
     client.require_protected_runtime("account-a")
     state.mailboxes[2]["myRights"]["mayReadItems"] = True

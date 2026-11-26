@@ -931,7 +931,9 @@ class StalwartJmapClient:
         self.m_mailboxes = None
         self.m_validated_binding = None
         validated = self.validate_binding()
-        account_capabilities = self.session()["accounts"][validated.account_id]["accountCapabilities"]
+        account_capabilities = self.session()["accounts"][validated.account_id][
+            "accountCapabilities"
+        ]
         if validated.account_id != account_id or JMAP_SIEVE_CAPABILITY in account_capabilities:
             raise StalwartReadinessError("Runtime credentials lack the required isolation.")
         mailboxes: list[dict[str, Any]] = self.m_mailboxes or []

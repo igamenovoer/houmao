@@ -1317,7 +1317,9 @@ class StalwartGatewayMailboxAdapter:
         archived: bool | None,
     ) -> list[GatewayMailboxMessageV1]:
         if archived is not None and not self.status().placement_writable:
-            raise GatewayMailboxUnsupportedError("Online mailbox placement is separately authorized.")
+            raise GatewayMailboxUnsupportedError(
+                "Online mailbox placement is separately authorized."
+            )
         messages: list[GatewayMailboxMessageV1] = []
         for message_ref in message_refs:
             try:
@@ -1339,7 +1341,9 @@ class StalwartGatewayMailboxAdapter:
         destination_box: str,
     ) -> list[GatewayMailboxMessageV1]:
         if not self.status().placement_writable:
-            raise GatewayMailboxUnsupportedError("Online mailbox placement is separately authorized.")
+            raise GatewayMailboxUnsupportedError(
+                "Online mailbox placement is separately authorized."
+            )
         messages: list[GatewayMailboxMessageV1] = []
         for message_ref in message_refs:
             try:

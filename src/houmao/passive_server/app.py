@@ -219,9 +219,7 @@ def create_app(
         return await run_in_threadpool(resolved_service.set_default_permission_group, payload)
 
     @app.put("/houmao/agents/{agent_ref}/admin/principals/{principal_id}/default-fallback")
-    async def set_default_fallback(
-        request: Request, principal_id: str
-    ) -> DefaultFallbackReceipt:
+    async def set_default_fallback(request: Request, principal_id: str) -> DefaultFallbackReceipt:
         """Update one principal in the selected retained policy without a gateway."""
 
         try:
