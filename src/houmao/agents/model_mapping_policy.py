@@ -13,6 +13,7 @@ from houmao.agents.codex_cli_config import (
     codex_config_override_args,
     codex_config_override_payload,
 )
+from houmao.agents.hermes_configuration import HERMES_CONFIG_FILENAME
 from houmao.agents.kimi_configuration import (
     KIMI_CONFIG_FILENAME,
     load_kimi_config,
@@ -26,6 +27,7 @@ from houmao.agents.launch_policy.provider_hooks import (
 )
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.tool_params.dsh import MATERIALIZED_DSH_TOOL_PARAMS, DshEffectiveToolParams
+from houmao.agents.tool_params.hermes import HERMES_REASONING_EFFORTS, HermesReasoningEffort
 
 _CLAUDE_SETTINGS_FILENAME = "settings.json"
 _CODEX_CONFIG_FILENAME = "config.toml"
@@ -138,6 +140,14 @@ def resolve_reasoning_mapping(
         native_settings=native_settings,
         saturated=requested_level > len(positive_presets),
         off_requested=False,
+    )
+
+
+def hermes_reasoning_setting(effort: HermesReasoningEffort) -> dict[str, Any]:
+    """Describe the native projection for a Hermes launch effort."""
+
+    return _native_setting(
+        "agent.reasoning_effort", effort, surface="yaml", path=HERMES_CONFIG_FILENAME
     )
 
 
@@ -437,6 +447,14 @@ def _resolve_reasoning_ladder(
             home_path=home_path, model_name=model_name, dsh_tool_params=dsh_tool_params
         )
 
+    if tool == "hermes":
+        return {
+            "off_preset": (hermes_reasoning_setting(HERMES_REASONING_EFFORTS[0]),),
+            "positive_presets": tuple(
+                (hermes_reasoning_setting(effort),) for effort in HERMES_REASONING_EFFORTS[1:]
+            ),
+        }
+
     raise ValueError(f"Unsupported model-mapping tool {tool!r}")
 
 
@@ -648,6 +666,8 @@ def _projection_key_path_for_scale(native_scale: str) -> list[object]:
         return ["model_reasoning_effort"]
     if native_scale == "reasoning_effort":
         return ["reasoning_effort"]
+    if native_scale == "agent.reasoning_effort":
+        return ["agent", "reasoning_effort"]
     if native_scale == "thinking_enabled":
         return ["thinking", "enabled"]
     if native_scale == "thinking_effort":

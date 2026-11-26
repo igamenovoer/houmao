@@ -659,7 +659,12 @@ def test_hermes_raw_tui_prepares_private_route_and_skills(
         fixture_config.resolve_config(case="self-hosted", client="hermes", process_env=inputs)
     inputs["HOUMAO_TEST_SELF_HOSTED_API_KEY"] = "synthetic-explicit-hermes-key"
     config = fixture_config.resolve_config(
-        case="self-hosted", client="hermes", mode="tui", surface="raw", process_env=inputs
+        case="self-hosted",
+        client="hermes",
+        mode="tui",
+        surface="raw",
+        process_env=inputs,
+        reasoning_effort="xhigh",
     )
     run = fixture_prepare.prepare_run(config, run_root=tmp_path / "runs")
     root = Path(run["run_dir"])
@@ -679,6 +684,7 @@ def test_hermes_raw_tui_prepares_private_route_and_skills(
     native = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8"))
     assert native["model"]["default"] == config.model
     assert native["model"]["base_url"] == config.base_url
+    assert native["agent"]["reasoning_effort"] == "xhigh"
     assert env[native["model"]["key_env"]] == inputs["HOUMAO_TEST_SELF_HOSTED_API_KEY"]
     assert env[native["model"]["key_env"]] not in (root / "run.json").read_text(encoding="utf-8")
 

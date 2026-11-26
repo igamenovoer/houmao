@@ -10,9 +10,12 @@ import tempfile
 
 import yaml
 
+from houmao.agents.tool_params.hermes import HermesReasoningEffort
+
 HERMES_HOME_ENV = "HERMES_HOME"
 HERMES_LOCK_DIR_ENV = "HERMES_GATEWAY_LOCK_DIR"
 HERMES_API_KEY_ENV = "HERMES_MANAGED_API_KEY"
+HERMES_CONFIG_FILENAME = "config.yaml"
 _NATIVE_ENV_PREFIXES = ("HERMES_", "OPENAI_", "OPENROUTER_", "ANTHROPIC_", "DEEPSEEK_")
 
 
@@ -79,10 +82,18 @@ def hermes_runtime_environment(
 
 
 def prepare_hermes_home(
-    home_path: Path, *, base_url: str, model_name: str, role_prompt: str
+    home_path: Path,
+    *,
+    base_url: str,
+    model_name: str,
+    role_prompt: str,
+    reasoning_effort: HermesReasoningEffort | None = None,
 ) -> None:
-    """Project the custom Chat Completions route and the native role file."""
+    """Project the custom Chat Completions route, effort, and native role file."""
 
+    agent: dict[str, object] = {"disabled_toolsets": ["browser", "computer_use"]}
+    if reasoning_effort is not None:
+        agent["reasoning_effort"] = reasoning_effort
     config = {
         "model": {
             "default": model_name,
@@ -92,7 +103,7 @@ def prepare_hermes_home(
             "key_env": HERMES_API_KEY_ENV,
         },
         "fallback_providers": [],
-        "agent": {"disabled_toolsets": ["browser", "computer_use"]},
+        "agent": agent,
         "security": {"allow_lazy_installs": False},
         "approvals": {
             "mode": "manual",
@@ -100,7 +111,7 @@ def prepare_hermes_home(
             "unattended_mode": "deny",
         },
     }
-    _write_private_text(home_path / "config.yaml", yaml.safe_dump(config, sort_keys=False))
+    _write_private_text(home_path / HERMES_CONFIG_FILENAME, yaml.safe_dump(config, sort_keys=False))
     write_hermes_role(home_path, role_prompt)
 
 

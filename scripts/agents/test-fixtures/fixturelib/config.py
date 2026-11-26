@@ -16,6 +16,7 @@ import yaml
 from houmao.agents.dsh_configuration import DshEffectiveToolParams
 from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.run_modes import RunMode, RunModeSelection, resolve_run_mode
+from houmao.agents.tool_params.hermes import HermesReasoningEffort, validate_hermes_reasoning_effort
 
 Client = Literal["claude", "codex", "kimi", "dsh", "hermes"]
 Surface = Literal["raw", "manager", "passive-server"]
@@ -286,6 +287,30 @@ def fixture_run_mode(client: Client, mode: RunMode | None, surface: Surface) -> 
         raise FixtureError(str(exc)) from exc
 
 
+def fixture_hermes_reasoning_effort(value: str | None) -> HermesReasoningEffort | None:
+    """Validate an optional native Hermes effort as a fixture input."""
+
+    if value is None:
+        return None
+    try:
+        return validate_hermes_reasoning_effort(value)
+    except ValueError as exc:
+        raise FixtureError(f"Hermes {exc}") from None
+
+
+def _require_manager_reasoning_level(client: Client, surface: Surface) -> None:
+    """Require the manager profile surface for a numeric fixture selection."""
+
+    if surface == "manager":
+        return
+    if client == "hermes" and surface == "raw":
+        raise FixtureError(
+            "Raw Hermes fixtures use --reasoning-effort or the pool's reasoning_effort field. "
+            "--reasoning-level requires --surface manager."
+        )
+    raise FixtureError("--reasoning-level requires --surface manager")
+
+
 def validate_reasoning_level(
     config: ResolvedConfig,
     *,
@@ -299,8 +324,7 @@ def validate_reasoning_level(
     level = config.reasoning_level
     if level is None:
         return
-    if config.surface != "manager":
-        raise FixtureError("--reasoning-level requires --surface manager")
+    _require_manager_reasoning_level(config.client, config.surface)
     if config.client == "dsh" and config.model_options.dsh_reasoning is False:
         raise FixtureError("--reasoning-level requires declared DSH reasoning slots")
 
@@ -332,6 +356,11 @@ def validate_reasoning_level(
             "check its declared reasoning presets"
         ) from None
     if mapping["saturated"]:
+        if config.client == "hermes":
+            raise FixtureError(
+                f"--reasoning-level {level} is outside the Hermes fixture preset range "
+                f"0 through {mapping['effective_level']}"
+            )
         raise FixtureError(
             f"--reasoning-level {level} exceeds the highest {config.client} preset "
             f"({mapping['effective_level']}) for the selected model"
@@ -368,10 +397,10 @@ def resolve_config(
         raise FixtureError("Select case self-hosted or cloud-api")
     if support_efforts is not None and client != "kimi":
         raise FixtureError("--support-effort requires --client kimi")
-    if reasoning_level is not None and surface != "manager":
-        raise FixtureError("--reasoning-level requires --surface manager")
-    if reasoning_level is not None and reasoning_level < 0:
-        raise FixtureError("--reasoning-level must be nonnegative")
+    if reasoning_level is not None:
+        _require_manager_reasoning_level(client, surface)
+        if reasoning_level < 0:
+            raise FixtureError("--reasoning-level must be nonnegative")
     if client == "dsh" and env_file is None and process_env is None and case == "cloud-api":
         raise FixtureError("Cloud DSH requires an explicitly selected --env-file")
     selection = fixture_run_mode(client, mode, surface)
@@ -440,10 +469,19 @@ def resolve_config(
     raw_output = metadata("max_output_tokens")
     raw_reasoning = dsh_reasoning if dsh_reasoning is not None else metadata("dsh_reasoning")
     raw_compat = dsh_compat if dsh_compat is not None else metadata("dsh_compat")
+    selected_reasoning_key = (
+        reasoning_key if reasoning_key is not None else metadata("reasoning_key")
+    )
     selected_effort = (
         reasoning_effort if reasoning_effort is not None else metadata("reasoning_effort")
     )
-    if selected_effort is not None and (
+    if client == "hermes":
+        if raw_reasoning is not None:
+            raise FixtureError("--dsh-reasoning requires --client dsh")
+        if selected_reasoning_key is not None:
+            raise FixtureError("--reasoning-key requires --client kimi")
+        selected_effort = fixture_hermes_reasoning_effort(selected_effort)
+    elif selected_effort is not None and (
         not selected_effort.strip()
         or (client != "kimi" and not re.fullmatch(r"[A-Za-z0-9_-]+", selected_effort))
     ):
@@ -469,9 +507,7 @@ def resolve_config(
                     if metadata("capabilities")
                     else ["tool_use"]
                 ),
-                "reasoning_key": reasoning_key
-                if reasoning_key is not None
-                else metadata("reasoning_key"),
+                "reasoning_key": selected_reasoning_key,
                 "reasoning_effort": selected_effort,
                 "support_efforts": support_efforts or [],
             }

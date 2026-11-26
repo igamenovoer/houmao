@@ -13,6 +13,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 _REPO = Path(__file__).resolve().parents[3]
 _POOL_TOML = """\
@@ -34,6 +35,16 @@ case = "cloud-api"
 model = "example-cloud"
 env_file = "separate.env"
 """
+_HERMES_POOL_TOML = """\
+schema_version = 1
+
+[models.hermes]
+client = "hermes"
+case = "self-hosted"
+model = "example-hermes"
+base_url = "https://local.example.invalid/v1"
+env_file = "hermes.env"
+"""
 
 
 @pytest.fixture
@@ -51,6 +62,33 @@ def _write_pool(path: Path, contents: str = _POOL_TOML) -> Path:
     path.touch(mode=0o600)
     path.write_text(contents, encoding="utf-8")
     return path
+
+
+@pytest.fixture
+def hermes_env_file(tmp_path: Path) -> Path:
+    """Write an explicit synthetic Hermes credential file."""
+
+    path = tmp_path / "hermes.env"
+    path.touch(mode=0o600)
+    path.write_text("HOUMAO_TEST_SELF_HOSTED_API_KEY=synthetic-hermes-key\n", encoding="utf-8")
+    return path
+
+
+def _hermes_case_args(env_file: Path) -> list[str]:
+    """Return the direct CLI equivalent of the synthetic Hermes pool route."""
+
+    return [
+        "--client",
+        "hermes",
+        "--case",
+        "self-hosted",
+        "--model",
+        "example-hermes",
+        "--base-url",
+        "https://local.example.invalid/v1",
+        "--env-file",
+        str(env_file),
+    ]
 
 
 def test_selects_pool_from_cli_env_then_xdg(pool_module: ModuleType, tmp_path: Path) -> None:
@@ -289,6 +327,78 @@ def test_incompatible_selection_fails_before_creating_run_state(
     assert not run_root.exists()
 
 
+@pytest.mark.parametrize("command", ["check", "prepare"])
+@pytest.mark.parametrize("pooled", [False, True])
+@pytest.mark.parametrize(
+    ("surface", "flags", "pool_options", "message"),
+    [
+        (
+            "manager",
+            ["--reasoning-effort", "ultra", "--reasoning-level", "5"],
+            'reasoning_effort = "ultra"\nreasoning_level = 5\n',
+            "Hermes reasoning_effort must be one of none, minimal, low, medium, high, xhigh, max",
+        ),
+        (
+            "manager",
+            ["--reasoning-level", "7"],
+            "reasoning_level = 7\n",
+            "Hermes fixture preset range 0 through 6",
+        ),
+        (
+            "raw",
+            ["--reasoning-level", "5"],
+            "reasoning_level = 5\n",
+            "Raw Hermes fixtures use --reasoning-effort",
+        ),
+        (
+            "raw",
+            ["--dsh-reasoning", "false"],
+            "dsh_reasoning = false\n",
+            "--dsh-reasoning requires --client dsh",
+        ),
+        (
+            "raw",
+            ["--reasoning-key", "analysis"],
+            'reasoning_key = "analysis"\n',
+            "--reasoning-key requires --client kimi",
+        ),
+        (
+            "raw",
+            ["--support-effort", "high"],
+            'support_efforts = ["high"]\n',
+            "--support-effort requires --client kimi",
+        ),
+    ],
+)
+def test_hermes_fixture_rejects_invalid_reasoning_before_allocating_state(
+    pool_cli: ModuleType,
+    hermes_env_file: Path,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    pooled: bool,
+    surface: str,
+    flags: list[str],
+    pool_options: str,
+    message: str,
+) -> None:
+    """Both fixture preflight entry points validate Hermes effort before allocating state."""
+
+    run_root = hermes_env_file.parent / "runs"
+    args = [command, "--surface", surface, "--mode", "headless"]
+    if command == "prepare":
+        args.extend(["--run-root", str(run_root)])
+    if pooled:
+        pool = _write_pool(
+            hermes_env_file.parent / "model-pool.toml", _HERMES_POOL_TOML + pool_options
+        )
+        args.extend(["--model-pool", str(pool), "--pool-key", "hermes"])
+    else:
+        args.extend([*_hermes_case_args(hermes_env_file), *flags])
+    assert pool_cli.main(args) == 2
+    assert message in json.loads(capsys.readouterr().err)["error"]
+    assert not run_root.exists()
+
+
 @pytest.mark.parametrize(
     ("flag", "value"),
     [("--case", "self-hosted"), ("--auth-method", "api-key"), ("--env-file", "secret.env")],
@@ -500,6 +610,81 @@ def test_pool_and_direct_prepares_project_equivalent_dsh_inputs(
     assert records[0][0]["model"] == {"name": "example-local", "reasoning": {"level": 2}}
     for field in ("tool", "setup", "credential", "launch", "tool_params"):
         assert records[0][1][field] == records[1][1][field]
+
+
+@pytest.mark.parametrize(
+    ("surface", "pool_level", "override_level"),
+    [("raw", None, None), ("manager", None, None), ("manager", 5, None), ("manager", 2, 5)],
+)
+def test_hermes_pool_and_direct_prepares_project_equivalent_reasoning(
+    pool_cli: ModuleType,
+    hermes_env_file: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    surface: str,
+    pool_level: int | None,
+    override_level: int | None,
+) -> None:
+    """Direct and pool inputs render the same reasoning settings on each launch surface."""
+
+    tmp_path = hermes_env_file.parent
+    executable = tmp_path / "hermes"
+    executable.write_text("#!/bin/sh\nexit 99\n")
+    executable.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path) + os.pathsep + os.environ.get("PATH", os.defpath))
+    pool_options = 'reasoning_effort = "xhigh"\n'
+    if pool_level is not None:
+        pool_options += f"reasoning_level = {pool_level}\n"
+    pool = _write_pool(tmp_path / "model-pool.toml", _HERMES_POOL_TOML + pool_options)
+    common = [
+        "prepare",
+        "--surface",
+        surface,
+        "--mode",
+        "headless",
+        "--run-root",
+        str(tmp_path / "runs"),
+    ]
+
+    effective_level = override_level if override_level is not None else pool_level
+    direct = [*_hermes_case_args(hermes_env_file), "--reasoning-effort", "xhigh"]
+    if effective_level is not None:
+        direct.extend(["--reasoning-level", str(effective_level)])
+    pooled = ["--model-pool", str(pool), "--pool-key", "hermes"]
+    if override_level is not None:
+        pooled.extend(["--reasoning-level", str(override_level)])
+
+    reports = []
+    prepare = importlib.import_module("fixturelib.prepare")
+    for args in (direct, pooled):
+        assert pool_cli.main([*common, *args]) == 0
+        report = json.loads(capsys.readouterr().out)
+        reports.append(report)
+        run_root = Path(report["run_dir"])
+        if surface == "raw":
+            native_config = yaml.safe_load((run_root / "home/config.yaml").read_text())
+            assert native_config["agent"]["reasoning_effort"] == "xhigh"
+        else:
+            project = run_root / "workdir"
+            setup = project / ".houmao/agents/tools/hermes/setups/fixture/tool-params.yaml"
+            assert yaml.safe_load(setup.read_text()) == {
+                "base_url": "https://local.example.invalid/v1",
+                "reasoning_effort": "xhigh",
+            }
+            profile = prepare.manager_call(
+                project,
+                ["profile", "get", "--name", "fixture-agent"],
+                env=prepare.isolated_environment({}, run_dir=run_root),
+            )
+            expected_model: dict[str, object] = {"name": "example-hermes"}
+            if effective_level is not None:
+                expected_model["reasoning"] = {"level": effective_level}
+            assert profile["defaults"]["model"] == expected_model
+
+    direct_report, pool_report = reports
+    assert pool_report["configuration"] == direct_report["configuration"]
+    assert pool_report["pool_key"] == "hermes"
+    assert pool_report["run_dir"] != direct_report["run_dir"]
 
 
 def test_pool_prepare_honors_explicit_executable_override(

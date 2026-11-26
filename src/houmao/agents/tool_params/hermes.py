@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Literal, get_args
 from urllib.parse import urlsplit
 
 from pydantic import field_validator
@@ -9,10 +10,30 @@ from pydantic import field_validator
 from houmao.agents.tool_params.base import StrictToolParams, ToolParamsAdapter
 
 
+HermesReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
+HERMES_REASONING_EFFORTS: tuple[HermesReasoningEffort, ...] = get_args(HermesReasoningEffort)
+
+
+def validate_hermes_reasoning_effort(value: object) -> HermesReasoningEffort:
+    """Validate an exact effort label for Hermes custom Chat Completions."""
+
+    if isinstance(value, str) and value in HERMES_REASONING_EFFORTS:
+        return value
+    raise ValueError(f"reasoning_effort must be one of {', '.join(HERMES_REASONING_EFFORTS)}.")
+
+
 class HermesPartialToolParams(StrictToolParams):
     """An authored route layer for the managed Hermes provider."""
 
     base_url: str | None = None
+    reasoning_effort: HermesReasoningEffort | None = None
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, value: object) -> HermesReasoningEffort | None:
+        """Validate an authored Hermes effort when supplied."""
+
+        return None if value is None else validate_hermes_reasoning_effort(value)
 
     @field_validator("base_url")
     @classmethod

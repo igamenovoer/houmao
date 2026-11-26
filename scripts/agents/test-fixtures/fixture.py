@@ -3,7 +3,7 @@
 Native provider metadata and Houmao-owned launch configuration are separate inputs.
 The option help below identifies which mechanism each flag controls. Run
 `fixture.py prepare --help` for the managed source/profile configuration guide,
-including how to select a reasoning preset for DSH and other non-Kimi clients.
+including how to select a reasoning preset.
 """
 
 from __future__ import annotations
@@ -46,13 +46,15 @@ from fixturelib.prepare import load_run, prepare_run
 
 
 _MANAGED_CONFIGURATION_GUIDE = """Houmao managed configuration:
-  Native metadata flags describe the provider and model. In particular,
-  --dsh-reasoning declares available DSH slots but does not select one, and
-  --reasoning-effort sets a native Claude/Codex/Kimi default, not a DSH default.
+  Native metadata flags describe the provider and model. --dsh-reasoning
+  declares the available DSH slots. --reasoning-effort sets a native default
+  for Claude, Codex, Kimi, and Hermes. Raw Hermes uses --reasoning-effort or the
+  selected pool entry's reasoning_effort field.
 
-  Houmao --reasoning-level is a tool/model-specific preset index, not a portable
-  scale. Manager preparation accepts it from the command line or a selected
-  model-pool entry and validates it against the model's supported presets.
+  Houmao --reasoning-level selects a tool/model-specific preset by index.
+  Manager preparation accepts it from the command line or a selected model-pool
+  entry and validates it against the supported presets. For Hermes, level 5
+  selects xhigh and level 0 selects none. A level overrides the native default.
 
   Manager preparation creates a fixture-agent specialist and project profile.
 
@@ -64,11 +66,10 @@ _MANAGED_CONFIGURATION_GUIDE = """Houmao managed configuration:
   project for reusable role, skill, setup, credential, and system-skill
   configuration. See the corresponding Houmao command's --help for its options.
 
-  For an already-running headless managed agent, Houmao prompt and turn-submit
-  commands accept request-scoped --model and --reasoning-level overrides. Those
-  overrides do not rewrite the source or profile. Web/TUI agents must relaunch
-  to pick up changed birth-time defaults. Raw runs have no Houmao project
-  specialist/profile to update.
+  On supported headless agents, Houmao prompt and turn-submit commands accept
+  request-scoped --model and --reasoning-level overrides for a single turn.
+  For Hermes, set the effort at launch. Web and TUI defaults take effect when
+  the agent launches.
 """
 
 _POOL_ROUTING_FIELDS = (
@@ -142,7 +143,7 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--reasoning-key", help="Kimi native reasoning_key model metadata")
     parser.add_argument(
         "--reasoning-effort",
-        help="Native Claude/Codex/Kimi default effort label; does not select DSH reasoning",
+        help="Native default effort for Claude, Codex, Kimi, or Hermes. Example for Hermes is xhigh.",
     )
     parser.add_argument(
         "--support-effort",
@@ -152,7 +153,7 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--reasoning-level",
         type=int,
-        help="Set the manager launch profile's tool/model-specific reasoning preset index",
+        help="Set the manager launch profile's reasoning preset index. Hermes level 5 selects xhigh.",
     )
     parser.add_argument("--mode", choices=RUN_MODES, help="Houmao run mode for the selected client")
     parser.add_argument(

@@ -21,7 +21,7 @@ from houmao.agents.hermes_configuration import (
     resolve_hermes_executable,
     write_hermes_role,
 )
-from houmao.agents.model_selection import ModelConfig
+from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
 from houmao.agents.realm_controller.models import BackendKind, LaunchPlan, RoleInjectionPlan
@@ -91,6 +91,9 @@ def test_hermes_build_projects_native_route_roles_and_skills(build_request: Buil
     }
     assert config["fallback_providers"] == []
     assert config["agent"]["disabled_toolsets"] == ["browser", "computer_use"]
+    assert "reasoning_effort" not in config["agent"]
+    selection = result.manifest["runtime"]["launch_contract"]["model_selection"]
+    assert selection["native_projection"]["reasoning"] is None
     assert config["security"]["allow_lazy_installs"] is False
     assert role_path.read_text(encoding="utf-8") == build_request.role_prompt_override
     assert stat.S_IMODE(result.home_path.stat().st_mode) == 0o700
@@ -104,6 +107,69 @@ def test_hermes_build_projects_native_route_roles_and_skills(build_request: Buil
         assert "synthetic-secret" not in path.read_text(encoding="utf-8")
     assert not (result.home_path / ".env").exists()
     assert HERMES_API_KEY_ENV in result.manifest["credentials"]["env_contract"]["selected_env_vars"]
+
+
+@pytest.mark.parametrize(
+    ("level", "native_default", "expected_effort"),
+    (
+        (None, "xhigh", "xhigh"),
+        (5, None, "xhigh"),
+        (0, None, "none"),
+        (5, "low", "xhigh"),
+        (12, None, "max"),
+    ),
+)
+def test_hermes_build_projects_selected_reasoning(
+    build_request: BuildRequest,
+    level: int | None,
+    native_default: str | None,
+    expected_effort: str,
+) -> None:
+    """Write the winning effort and record its source and native YAML target."""
+
+    tool_params = dict(build_request.direct_tool_params or {})
+    if native_default is not None:
+        tool_params["reasoning_effort"] = native_default
+    profile = ModelConfig(reasoning=ModelReasoningConfig(level)) if level is not None else None
+    result = build_brain_home(
+        replace(build_request, direct_tool_params=tool_params, launch_profile_model_config=profile)
+    )
+
+    config = yaml.safe_load((result.home_path / "config.yaml").read_text(encoding="utf-8"))
+    assert config["agent"]["reasoning_effort"] == expected_effort
+    assert config["agent"]["disabled_toolsets"] == ["browser", "computer_use"]
+    selection = result.manifest["runtime"]["launch_contract"]["model_selection"]
+    projection = selection["native_projection"]["reasoning"]
+    assert projection["source"] == ("tool_params" if level is None else "launch_profile")
+    assert projection["native_value"] == expected_effort
+    assert projection["projection_target"] == {
+        "surface": "yaml",
+        "path": "config.yaml",
+        "key_path": ["agent", "reasoning_effort"],
+    }
+    if level is not None:
+        assert projection["requested_level"] == level
+        assert projection["effective_level"] == min(level, 6)
+        assert projection["saturated"] is (level > 6)
+
+
+@pytest.mark.parametrize("invalid_effort", ("ultra", "XHIGH", True))
+def test_hermes_build_rejects_invalid_reasoning_default_before_preparing_home(
+    build_request: BuildRequest, invalid_effort: object
+) -> None:
+    """Validate every native input even when the numeric preset takes precedence."""
+
+    request = replace(
+        build_request,
+        launch_profile_tool_params={"reasoning_effort": invalid_effort},
+        direct_model_config=ModelConfig(name="fixture-model", reasoning=ModelReasoningConfig(5)),
+    )
+    with pytest.raises(
+        BuildError, match=r"reasoning_effort.*none, minimal, low, medium, high, xhigh, max"
+    ):
+        build_brain_home(request)
+    assert build_request.runtime_root is not None
+    assert not (build_request.runtime_root / "homes").exists()
 
 
 def test_hermes_path_only_command_reaches_native_startup(

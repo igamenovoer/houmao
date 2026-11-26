@@ -33,7 +33,14 @@ from fixturelib.auth import (
     validate_native_bundle,
     write_json,
 )
-from fixturelib.config import FixtureError, HOME_VARIABLE, REPO_ROOT, ResolvedConfig, read_env_file
+from fixturelib.config import (
+    FixtureError,
+    HOME_VARIABLE,
+    REPO_ROOT,
+    ResolvedConfig,
+    fixture_hermes_reasoning_effort,
+    read_env_file,
+)
 
 _COMMAND_LOCK = threading.RLock()
 _FIXTURE_TMUX_SOCKET_ENV = "HOUMAO_FIXTURE_TMUX_SOCKET"
@@ -308,9 +315,10 @@ def _render_setup(config: ResolvedConfig, setup: Path, *, seed: Path) -> None:
         private_write(setup / "tool-params.yaml", yaml.safe_dump(config.dsh_tool_params()).encode())
         return
     if config.client == "hermes":
-        private_write(
-            setup / "tool-params.yaml", yaml.safe_dump({"base_url": config.base_url}).encode()
-        )
+        hermes_params = {"base_url": config.base_url}
+        if config.model_options.reasoning_effort is not None:
+            hermes_params["reasoning_effort"] = config.model_options.reasoning_effort
+        private_write(setup / "tool-params.yaml", yaml.safe_dump(hermes_params).encode())
         return
     if config.auth_method == "native-login":
         default = seed / "tools" / config.client / "setups/default"
@@ -605,7 +613,9 @@ def prepare_run(
     prompt = (prompt_file or seed / "roles" / role / "system-prompt.md").resolve()
     if not prompt.is_file():
         raise FixtureError("Selected role prompt file is missing")
+    hermes_effort = None
     if config.client == "hermes":
+        hermes_effort = fixture_hermes_reasoning_effort(config.model_options.reasoning_effort)
         if executable not in {None, "hermes"}:
             raise FixtureError("Select the Hermes fixture executable through PATH")
         try:
@@ -669,6 +679,7 @@ def prepare_run(
                 base_url=config.base_url,
                 model_name=config.model,
                 role_prompt=prompt.read_text(encoding="utf-8"),
+                reasoning_effort=hermes_effort,
             )
             _copy_files(assets / "skills", home / "skills")
             selected_env = hermes_runtime_environment(home, selected_env)

@@ -30,6 +30,43 @@ def test_resolve_reasoning_mapping_claude_clamps_max_when_model_does_not_support
 
 
 @pytest.mark.parametrize(
+    ("level", "effort"),
+    (
+        (0, "none"),
+        (1, "minimal"),
+        (2, "low"),
+        (3, "medium"),
+        (4, "high"),
+        (5, "xhigh"),
+        (6, "max"),
+        (12, "max"),
+    ),
+)
+def test_resolve_hermes_reasoning_ladder(level: int, effort: str) -> None:
+    """Resolve each level into the exact agent config setting."""
+
+    mapping = resolve_reasoning_mapping(tool="hermes", requested_level=level, model_name="custom")
+
+    assert mapping["requested_level"] == level
+    assert mapping["effective_level"] == min(level, 6)
+    assert mapping["native_value"] == effort
+    assert mapping["saturated"] is (level > 6)
+    assert mapping["off_requested"] is (level == 0)
+    assert mapping["projection_target"] == {
+        "surface": "yaml",
+        "path": "config.yaml",
+        "key_path": ["agent", "reasoning_effort"],
+    }
+
+
+def test_resolve_hermes_reasoning_rejects_negative_level() -> None:
+    """Reject an invalid index before resolving a native effort."""
+
+    with pytest.raises(ValueError, match="non-negative integer"):
+        resolve_reasoning_mapping(tool="hermes", requested_level=-1, model_name="custom")
+
+
+@pytest.mark.parametrize(
     "model_name",
     ("gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex"),
 )

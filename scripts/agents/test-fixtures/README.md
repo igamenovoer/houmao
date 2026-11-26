@@ -168,6 +168,20 @@ Local managed fixtures and raw TUI or Web fixtures use the execution owner's sha
 
 Hermes fixtures resolve the `hermes` command from PATH and use explicit OpenAI-compatible Chat Completions inputs. Select `--case self-hosted` or `--case cloud-api` and an explicit credential env file or model-pool key. Each run gets private workspace, role, skill, and native-home inputs. Choose `--mode service` for persistent ACP, `--mode headless` for one-shot JSONL, or `--mode tui` for Ink. Raw and managed runs have separate homes. Tmux-backed Hermes fixtures use isolated tmux servers.
 
+Set `--reasoning-effort xhigh` to select an exact native effort on either surface. Hermes accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. For manager fixtures, `--reasoning-level 5` stores the `xhigh` preset on the launch profile and takes precedence over the native default. Level `0` selects `none` explicitly. The Hermes fixture accepts manager levels `0` through `6`.
+
+Add an entry like this to your external model pool, using your endpoint, model, and credential file. Select it with `--pool-key local_hermes` on either surface to use the same effort.
+
+```toml
+[models.local_hermes]
+client = "hermes"
+case = "self-hosted"
+model = "your-hermes-model"
+base_url = "https://models.example.invalid/v1"
+env_file = "/external/private/hermes.env"
+reasoning_effort = "xhigh"
+```
+
 For a deterministic loopback provider, start the fixture peer in one terminal and keep it running:
 
 ```bash
@@ -175,19 +189,20 @@ pixi run python scripts/agents/test-fixtures/fixture.py chat-peer \
   --state-dir tmp/hermes-qualification/peer
 ```
 
-The peer writes the model, URL, and synthetic credential to the owner-private `peer.env`. It serves a fixed answer and retains private `requests.jsonl` evidence for the selected model, authentication, role, and conversation messages.
+The peer writes the model, URL, and synthetic credential to the owner-private `peer.env`. It serves a fixed answer and retains private `requests.jsonl` evidence for the selected model, authentication, role, and conversation messages. It records the top-level `reasoning_effort` when present.
 
 ```bash
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prepare \
-  --client hermes --case self-hosted --env-file tmp/hermes-qualification/peer/peer.env \
-  --mode headless --surface manager --run-root tmp/hermes-qualification/runs
+  --client hermes --case self-hosted --model houmao-fixture-chat \
+  --env-file tmp/hermes-qualification/peer/peer.env \
+  --mode headless --surface manager --reasoning-level 5 --run-root tmp/hermes-qualification/runs
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir RUN_DIR
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prompt --run-dir RUN_DIR --prompt 'First turn'
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prompt --run-dir RUN_DIR --prompt 'Second turn'
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py stop --run-dir RUN_DIR
 ```
 
-Replace `RUN_DIR` with the returned `run_dir`. To exercise the stock client independently, prepare a raw run by replacing `--surface manager` with `--surface raw`. Raw headless takes its first prompt at launch with `--prompt`. Raw service launches stock ACP and records its private protocol stream. TUI waits for Ink to become ready and publishes its isolated pane. The `prompt` command submits input to that pane. Run `check --run-dir RUN_DIR --live` to verify live readiness. Compare the peer's private request history with the mode's native turn evidence. Record a provider or mode that cannot start as unavailable.
+Replace `RUN_DIR` with the returned `run_dir`. For an independent stock Hermes run, prepare with `--surface raw --reasoning-effort xhigh` and the same case and env file. Raw headless takes its first prompt at launch with `--prompt`. Raw service launches stock ACP and records its private protocol stream. TUI waits for Ink to become ready and publishes its isolated pane. The `prompt` command submits input to that pane. Run `check --run-dir RUN_DIR --live` to verify live readiness. Compare the peer's private request history with the mode's native turn evidence. Record a provider or mode that cannot start as unavailable.
 
 ## Qualification
 

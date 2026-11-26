@@ -41,6 +41,7 @@ from houmao.agents.definition_parser import (
 )
 from houmao.agents.hermes_configuration import (
     HERMES_API_KEY_ENV,
+    HERMES_CONFIG_FILENAME,
     HERMES_HOME_ENV,
     hermes_owned_environment_name,
     prepare_hermes_home,
@@ -82,7 +83,11 @@ from houmao.agents.mailbox_runtime_support import (
     serialize_declarative_mailboxes_config,
 )
 from houmao.agents.mailbox_runtime_models import MailboxesDeclarativeConfig
-from houmao.agents.model_mapping_policy import project_reasoning_level, resolve_reasoning_mapping
+from houmao.agents.model_mapping_policy import (
+    hermes_reasoning_setting,
+    project_reasoning_level,
+    resolve_reasoning_mapping,
+)
 from houmao.agents.model_selection import (
     ModelConfig,
     ResolvedModelConfig,
@@ -95,7 +100,7 @@ from houmao.agents.tool_params import (
     resolve_tool_params,
     validate_tool_params,
 )
-from houmao.agents.tool_params.hermes import HermesToolParams
+from houmao.agents.tool_params.hermes import HermesReasoningEffort, HermesToolParams
 from houmao.agents.launch_overrides.native import native_setup_permissions
 from houmao.agents.system_skills import (
     SystemSkillCatalog,
@@ -259,6 +264,7 @@ class ValidatedBrainInputs:
     baseline_model: ModelConfig | None
     model: ResolvedModelConfig
     kimi_config: dict[str, Any] | None = field(default=None, repr=False)
+    hermes_reasoning_projection: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -823,6 +829,21 @@ def validate_brain_inputs(
                 kimi_config=kimi_config,
                 dsh_tool_params=dsh_config,
             )
+        hermes_reasoning_projection = None
+        if request.tool == "hermes":
+            if reasoning_mapping is not None:
+                hermes_reasoning_projection = {
+                    **reasoning_mapping,
+                    "source": model.reasoning_source,
+                }
+            elif (effort := effective.get("reasoning_effort")) is not None:
+                native_setting = hermes_reasoning_setting(cast(HermesReasoningEffort, effort))
+                hermes_reasoning_projection = {
+                    "tool": "hermes",
+                    "source": "tool_params",
+                    "native_settings": [native_setting],
+                    **native_setting,
+                }
         if dsh_config is not None:
             require_dsh_credential_roles(
                 auth_env_file,
@@ -894,7 +915,15 @@ def validate_brain_inputs(
     except (OSError, ValueError) as exc:
         raise BuildError(str(exc)) from exc
     return ValidatedBrainInputs(
-        adapter, setup_dir, auth_dir, layers, effective, baseline, model, kimi_config
+        adapter,
+        setup_dir,
+        auth_dir,
+        layers,
+        effective,
+        baseline,
+        model,
+        kimi_config,
+        hermes_reasoning_projection,
     )
 
 
@@ -1055,6 +1084,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         if inputs.kimi_config is not None and setup_destination == home_path
         else ()
     )
+    reasoning_projection = inputs.hermes_reasoning_projection
     if request.tool == "hermes":
         assert inputs.model.config is not None and inputs.model.config.name is not None
         hermes_params = HermesToolParams.model_validate(inputs.tool_params)
@@ -1063,6 +1093,11 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             base_url=hermes_params.base_url,
             model_name=inputs.model.config.name,
             role_prompt=request.role_prompt_override or "",
+            reasoning_effort=(
+                cast(HermesReasoningEffort, reasoning_projection["native_value"])
+                if reasoning_projection is not None
+                else None
+            ),
         )
     else:
         _copy_directory_contents(setup_dir, setup_destination, skip_names=skip_setup_names)
@@ -1183,9 +1218,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         ),
         dsh_tool_params=dsh_config,
     )
-    reasoning_projection = None
     if (
-        resolved_model_config.config is not None
+        request.tool != "hermes"
+        and resolved_model_config.config is not None
         and resolved_model_config.config.reasoning is not None
     ):
         reasoning_projection = project_reasoning_level(
@@ -1696,7 +1731,7 @@ def _project_model_name(
     if tool == "hermes":
         return {
             "surface": "yaml",
-            "path": "config.yaml",
+            "path": HERMES_CONFIG_FILENAME,
             "key_path": ["model", "default"],
             "value": model_name,
         }

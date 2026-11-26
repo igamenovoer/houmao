@@ -2,6 +2,23 @@
 
 Houmao resolves `hermes` on PATH in the selected execution context. The supported modes are `service`, `tui`, and `headless`. A launch without a mode selects `service`. Each agent gets a private Hermes home, configured workspace, and managed conversation. The launch profile selects the model and base URL for its Chat Completions route. The selected credential bundle supplies `HERMES_MANAGED_API_KEY`.
 
+## Reasoning Effort
+
+Set `--reasoning-level` on a Hermes launch or profile to choose an effort for the agent's custom Chat Completions route. Houmao applies the same launch presets in all three modes.
+
+| Level | 0 | 1 | 2 | 3 | 4 | 5 | 6 and higher |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Effort | `none` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max` |
+
+To set an exact native default, supply `tool_params.reasoning_effort` in the launch profile or `reasoning_effort` in the setup's `tool-params.yaml`. Use one of the labels in the table. A resolved numeric level takes precedence over that default. For example, the following profile defaults to `low`, and the one-off launch selects `xhigh`.
+
+```bash
+houmao-mgr project profile set --name hermes-dev --tool-params '{"reasoning_effort":"low"}'
+houmao-mgr project agents launch --profile hermes-dev --reasoning-level 5
+```
+
+Houmao writes the selected value to `agent.reasoning_effort` in the private `$HERMES_HOME/config.yaml` and records its source in launch provenance. If both inputs are absent, Hermes uses its native default. Level `0` or the exact label `none` explicitly requests disabled reasoning.
+
 ## Daemon and Home
 
 The agent's recorded Hermes launch home defines daemon ownership. Houmao starts a daemon when the home has none, or silently adopts the existing daemon regardless of who started it. Independent use of the managed home has undefined behavior. A daemon serving the managed home as a secondary profile belongs to its own launch home.

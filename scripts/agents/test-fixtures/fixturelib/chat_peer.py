@@ -12,6 +12,8 @@ import threading
 from typing import Any
 from uuid import uuid4
 
+from houmao.agents.tool_params.hermes import validate_hermes_reasoning_effort
+
 from fixturelib.auth import external_root, private_write
 from fixturelib.config import FixtureError
 
@@ -70,7 +72,15 @@ class ChatPeerHandler(BaseHTTPRequestHandler):
         except (UnicodeError, ValueError):
             self._send_json(400, {"error": {"message": "Invalid fixture completion request"}})
             return
-        self.m_observe({"model": _MODEL, "messages": messages, "authorization_verified": True})
+        observation = {"model": _MODEL, "messages": messages, "authorization_verified": True}
+        if "reasoning_effort" in body:
+            try:
+                observation["reasoning_effort"] = validate_hermes_reasoning_effort(
+                    body["reasoning_effort"]
+                )
+            except ValueError:
+                observation["reasoning_effort"] = "<invalid>"
+        self.m_observe(observation)
         usage = {"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16}
         base = {"id": "chatcmpl-" + uuid4().hex, "created": 0, "model": _MODEL}
         if body.get("stream") is True:
