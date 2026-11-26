@@ -24,7 +24,7 @@ metadata:
 6. When the notifier prompt arrives, use `houmao-shared-routines->houmao-process-emails-via-gateway` for the current open-mail round when available.
 7. For each relevant loop mail item, invoke the matching generated on-event behavior or apply the loop-specific event procedure.
 8. Send required replies through maintained mail support.
-9. Archive the processed mail only after required work and required replies succeed.
+9. File completed mail after required work and replies succeed. Use ordinary archive where supported or report the completed items for owner filing.
 10. If the prompt or loop contract says to tick, run the specified on-tick behavior once.
 11. End the chat turn. Do not wait for more mail inside the same turn.
 
@@ -67,7 +67,7 @@ The runtime model is:
 6. The agent processes relevant mail through maintained Houmao mail support.
 7. The agent invokes loop-specific on-event behavior for the received message family when applicable.
 8. The agent invokes one on-tick pass after mail processing when the notifier prompt or loop contract says to do so.
-9. The agent archives only successfully processed mail.
+9. The agent archives completed mail only where supported. Protected bindings reserve filing for the mailbox owner.
 10. The agent ends the chat turn.
 
 There is no separate periodic tick driver. On-tick skills are invoked from a notifier or operator prompt turn, do one bounded pass, and stop.
@@ -108,7 +108,7 @@ sequenceDiagram
 
 ## Gateway Mail API Contract
 
-Every notified round requires `Gateway: <base-url>`, `channel`, and `expected_binding_id`. Missing context or a binding mismatch ends the round; do not rediscover a replacement. Every lifecycle JSON body carries `"schema_version": 3` and the same `expected_binding_id`, including fresh `send`/`post`, and omits the rejected `include_body` field (write receipts return top-level `message_ref`; use `peek` when stored details are needed).
+Every notified round requires `Gateway: <base-url>`, `channel`, and `expected_binding_id`. Missing context or a binding mismatch ends the round; do not rediscover a replacement. Every lifecycle JSON body carries `"schema_version": 3` and the same `expected_binding_id`, including fresh `send`/`post`, and omits the rejected `include_body` field in list requests. CLI receipts carry `message_ref` and HTTP action responses carry `message.message_ref`. Use same-binding `peek` when stored details are needed.
 
 Common routes:
 
@@ -119,12 +119,12 @@ Common routes:
 - `POST /v1/mail/{channel}/reply`: reply to one message by opaque `message_ref`.
 - `POST /v1/mail/{channel}/send`: send a new participant mail item.
 - `POST /v1/mail/{channel}/post`: post an operator-origin mailbox note.
-- `POST /v1/mail/{channel}/mark|move|archive`: mutate read, answered, archived, or box state.
+- `POST /v1/mail/{channel}/mark`: update permitted flags. Use `move`, `archive`, or archive-equivalent marks only when the binding permits ordinary placement actions.
 - `GET|PUT|DELETE /v1/mail-notifier/{channel}`: inspect, configure, or disable notifier polling.
 
 `message_ref` and `thread_ref` are opaque. Do not parse filesystem ids, JMAP ids, timestamps, paths, or routing facts out of them. Store them only as references for reply, archive, audit, and recovery. When participants coordinate through a CCCC group instead of Houmao `/v1/mail/*`, use `houmao-cccc` push/pull/delivery commands (see [../references/shared-loop-ledger-and-resend.md](../references/shared-loop-ledger-and-resend.md)) without mixing channels.
 
-Minimal check/read/reply/archive shape (`schema_version: 3`):
+Minimal check/read/reply/archive shape (`schema_version: 3`). Run the archive example only when the pinned binding permits ordinary archive.
 
 ```bash
 curl -sS "$GATEWAY_BASE_URL/v1/mail/$MAIL_CHANNEL/list" \

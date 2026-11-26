@@ -39,6 +39,8 @@ class ValidatedJmapBinding:
     mailbox_roles: dict[str, str]
     max_objects_in_get: int
     max_calls_in_request: int
+    can_archive: bool = False
+    can_move: bool = False
 
 
 @dataclass(frozen=True)

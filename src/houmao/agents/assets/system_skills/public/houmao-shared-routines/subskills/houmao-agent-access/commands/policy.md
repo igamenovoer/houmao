@@ -4,7 +4,7 @@
 
 1. **Select the target agent and verify caller authority**: owner-local policy commands (`--retained`) and detached passive-listener updates (`--passive-url`) work with the gateway detached; live gateway calls use verified local records or explicit `--url`, `--context-id`, `--generation`, `--presence`, and `--ca-bundle` coordinates.
 2. **Inspect before or after changes** using `access list` (shows current `admin_mode` roster posture, `default-group`, principals, key fingerprints, grants, and roles) or `access explain PRINCIPAL RESOURCE ACTION [--key-id KEY_ID]`.
-3. **Apply only the requested mutation**: principal/key enrollment, `grant`/`revoke`, `role-put` (explicit permissions or `--template --resource`), `role-assign`/`role-revoke`, `default-group set`, or `self-key {rotate|revoke}`. Authenticate any peer public key through a trusted channel before enrolling.
+3. **Apply only the requested mutation**: principal/key enrollment, `grant`/`revoke`, `role-put` (explicit permissions or `--template --resource`), `role-assign`/`role-revoke`, `default-group set`, `default-fallback set`, or `self-key {rotate|revoke}`. Authenticate any peer public key through a trusted channel before enrolling.
 4. **Report policy revision and immediate-admission stderr feedback**: `grant` and `revoke` emit stderr guidance explaining whether open-roster admission or another rule still governs at that policy revision, and distinguish retained policy changes from live-only operation checks.
 
 Use the native planning tool when an owner request spans several of these supported policy operations.
@@ -31,24 +31,28 @@ policy=(houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" acce
 
 ## Built-In Group Ladder, `default-group`, and Role Templates
 
-Houmao provides six built-in groups (`builtin:<group>` on `role-assign`, bare `<group>` on `default-group set`):
+The assignable built-in peer roles are cumulative. `role-assign` takes `builtin:<role>` for these three roles.
 
-1. **`agent-observer`**: read-only status/inspection only (denies inbound peer mail and attributed `request`).
-2. **`agent-requester`** *(initial keyed default for unassigned callers)*: adds inbound mail and quoted attributed `request` (`agent.request.submit`).
-3. **`agent-maintainer`**: adds common versioned `skills` and `mcp` mount read/edit/push authority.
-4. **`agent-operator`**: adds direct verbatim `prompt` (`agent.prompt.direct`), supported slash commands, and interruption.
-5. **`agent-admin`**: includes full gateway and policy administration.
-6. **`managed-self`**: bound to the target runtime's own `self-key` for supported self-scoped non-admin actions.
+| Role | Additional Effects |
+| --- | --- |
+| `agent-requester` | Read status and send a quoted work request. |
+| `agent-maintainer` | Read, edit, and publish versions on common skill and MCP mounts. |
+| `agent-operator` | Send direct prompts, invoke supported slash commands, and interrupt. |
 
-Configure `default-group` through one explicit path (live `--url`, local `--retained`, or detached `--passive-url`):
+The default-group choices also include `agent-admin` and `managed-self`. Their roster and runtime memberships are system-controlled. Use an exact grant for status-only access and disable the verified principal's fallback.
 
 ```bash
-houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access role-assign peer-reviewer builtin:agent-observer
-houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access default-group set agent-observer --retained --signer "$TARGET_ADMIN_KEY"
-houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access default-group set agent-requester --passive-url "$TRUSTED_PASSIVE_URL" --signer "$TARGET_ADMIN_KEY"
+policy=(houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access)
+"${policy[@]}" grant peer-reviewer agent agent.status.read
+"${policy[@]}" default-fallback set peer-reviewer disabled --retained --signer "$TARGET_ADMIN_KEY"
+"${policy[@]}" explain peer-reviewer agent agent.status.read
+"${policy[@]}" explain peer-reviewer agent agent.request.submit
+"${policy[@]}" default-group set agent-requester --passive-url "$TRUSTED_PASSIVE_URL" --signer "$TARGET_ADMIN_KEY"
 ```
 
-With an initialized empty admin roster (`open`), reachable callers receive applicable admin permissions; once keyed, unassigned or `--unsigned` callers receive the configured `default-group`, while enrolled principals evaluate their assigned roles/grants (for example, assigning a verified caller `builtin:agent-observer` denies mail and `request` even if `default-group` remains `agent-requester`).
+A retained built-in assignment or disabled principal fallback suppresses the default for that verified caller. Eligible unsigned requests use the target's separate anonymous admission path. An initialized open roster supplies effective administration. A migrated observer default appears as a retained status-only effect in `access list`. Select a current named group when replacing it.
+
+Ordinary email delivery follows mailbox backend rules. For a protected binding, the mailbox owner can sign a mail-only update and relay it through `POST /v1/mail/{channel}/policy/apply`. Verify the applied revision with the trusted backend independently. Gateway grants and mail sender addresses represent separate authorities.
 
 Exact-resource `--template` options on `access role-put`:
 

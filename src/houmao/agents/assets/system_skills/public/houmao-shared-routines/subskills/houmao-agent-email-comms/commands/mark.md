@@ -2,6 +2,8 @@
 
 ## Workflow
 
+Check the selected channel's current `mail status` before changing placement. When the binding reserves placement for the owner, report the completed items for separately authorized backend filing. Keep ordinary read and answered changes within their supported scope.
+
 1. **Preserve actor frame, explicit `--channel` (`offline|online`), and `--expected-binding-id`** from `resolve-live` or current round context.
 2. **Confirm target `--message-ref` values** and at least one explicit state flag (`--read/--unread`, `--answered/--unanswered`, or `--archived/--unarchived`).
 3. **Run the scoped `mail mark` command** (or `POST /v1/mail/{channel}/mark` with `schema_version: 3` and `expected_binding_id`):

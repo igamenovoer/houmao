@@ -26,7 +26,7 @@ For a remote registry, require its exact HTTPS or tunneled loopback URL, request
 <chosen houmao-mgr launcher> agents single --agent-id <agent-id> mailbox offline join --registry-url <url> --address <address> --credential-file <private-member-file> --admin-credential-file <private-admin-file>
 ```
 
-Remote agents do not select registry-host filesystem paths or symlink targets. Credentials stay outside tracked files and discovery output. A known agent ID is not authorization.
+Protected filtering requires a separate trusted registry with exclusive write access to the mailbox store. A shared writable root cannot qualify. For operator setup, open the Offline Registry protected recipient filtering guide with `houmao-mgr manual`. Remote agents do not select registry-host filesystem paths or symlink targets. Credentials stay outside tracked files and discovery output. A known agent ID is not authorization.
 
 An address owned by another agent conflicts. Join has no force, stash, principal override, or overwrite confirmation option. Same-owner retries reuse the registration. If registry enrollment committed but local publication failed, report the committed state and reconcile with status or the same join inputs; never enroll a replacement identity.
 

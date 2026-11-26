@@ -26,3 +26,5 @@ houmao-mgr --print-json agents self mail peek --channel "$MAIL_CHANNEL" \
 Choose JSON on the first reply or on `peek`. If the outcome remains uncertain, check `mail list --box sent` on the replying agent's original binding. Use the parent's thread as a correlation hint. If the sent-box evidence is inconclusive, report the reply outcome as unresolved. An answered parent alone cannot confirm this particular reply.
 
 A gateway reply requires `mail.reply` on the selected binding. A request carrying owner-file attachments also requires `mail.attachment.owner_file` on that binding. Keep transport-local threading identifiers opaque. [Write Permissions](../references/endpoint-contract.md#write-permissions)
+
+Interpret `transport_evidence` on verified writes as offline deposit or provider submission. Confirm uncertainty on the original binding. The receipt does not disclose recipient Inbox placement.

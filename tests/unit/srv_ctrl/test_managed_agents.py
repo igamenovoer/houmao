@@ -2209,6 +2209,7 @@ def test_mail_send_local_headless_uses_verified_manager_direct_result(
         "channel": "offline",
         "binding_id": "binding-test",
         "transport": "filesystem",
+        "transport_evidence": "offline_deposit",
         "principal_id": "HOUMAO-alpha",
         "address": "HOUMAO-alpha@agents.localhost",
         "sender_address": "HOUMAO-alpha@agents.localhost",

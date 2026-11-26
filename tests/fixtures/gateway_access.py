@@ -78,9 +78,6 @@ class FixtureGatewayAccess:
     def require_live_generation(self) -> None:
         """The synthetic target owns the selected fixture generation."""
 
-    def require_keyed_mail_qualification(self) -> None:
-        """The synthetic target has no provider inbox to qualify."""
-
 
 def configure_fixture_gateway_access(
     tmp_path: Path,

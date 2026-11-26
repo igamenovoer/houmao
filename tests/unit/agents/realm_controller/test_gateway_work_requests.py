@@ -14,12 +14,13 @@ import pytest
 
 from houmao.agents.realm_controller.gateway_service import create_app
 from houmao.gateway.access import CHALLENGE_HEADER
-from houmao.gateway.authorization_models import Credential, Principal, RoleAssignment, ScopedGrant
+from houmao.gateway.authorization_models import Credential, Principal, ScopedGrant
 from houmao.gateway.operations import (
     COMMAND_INVOKE,
     CORE_OPERATIONS,
     PROMPT,
     SELECT_SESSION,
+    STATUS,
     direct_text_permissions,
 )
 from tests.fixtures.gateway_access import FixtureProofAuth, enroll_fixture_admin, fixture_admin_key
@@ -110,19 +111,28 @@ def test_wrapped_request_checks_exact_body_and_keeps_attribution_at_handoff(
 
         store.update(
             lambda state: state.model_copy(
-                update={
-                    "role_assignments": (
-                        RoleAssignment(
-                            principal_id="alice",
-                            role_id="builtin:agent-observer",
-                            builtin_version=1,
-                        ),
-                    )
-                }
+                update={"grants": (ScopedGrant(principal_id="alice", permission=STATUS),)}
             ),
             actor="owner",
             action="test.work.observe",
         )
+        pending = client.post("/v1/requests", json=payload, auth=FixtureProofAuth(peer_signer))
+        assert pending.status_code == 200, pending.text
+        setting_path = "/v1/admin/principals/alice/default-fallback"
+        for enabled in (False, True):
+            setting = client.put(setting_path, json={"enabled": enabled}, auth=admin_auth)
+            assert setting.status_code == 200, setting.text
+        assert take_next() is None
+        assert submit.call_count == 1
+        with sqlite3.connect(runtime.m_paths.queue_path) as db:
+            state, result = db.execute(
+                "SELECT state, result_json FROM gateway_requests WHERE request_id=?",
+                (pending.json()["request_id"],),
+            ).fetchone()
+        assert state == "failed"
+        assert json.loads(result)["authority"]["actor"]["principal_id"] == "alice"
+        assert client.put(setting_path, json={"enabled": False}, auth=admin_auth).status_code == 200
+        assert client.get("/v1/status", auth=FixtureProofAuth(peer_signer)).status_code == 200
         assert (
             client.post(
                 "/v1/requests", json=payload, auth=FixtureProofAuth(peer_signer)
@@ -143,7 +153,7 @@ def test_wrapped_request_checks_exact_body_and_keeps_attribution_at_handoff(
         store.update(
             lambda state: state.model_copy(
                 update={
-                    "default_permission_group": "agent-observer",
+                    "default_permission_group": "agent-operator",
                     "default_permission_revision": state.default_permission_revision + 1,
                 }
             ),

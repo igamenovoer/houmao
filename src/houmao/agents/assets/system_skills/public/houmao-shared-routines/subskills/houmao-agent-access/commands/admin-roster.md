@@ -12,6 +12,8 @@ Use the native planning tool for a roster change that requires a bounded sequenc
 
 A verified initialized empty roster gives reachable callers all supported gateway permissions within operation prerequisites. The first enrolled administrator switches the gateway to keyed mode. Use the proposed key's private half for proof of possession.
 
+An existing Stalwart binding remains attached through first-key enrollment. An operator can also attach Stalwart after key enrollment using authorized gateway access. Protected mail policy requires independent mailbox-owner authority. For attachment and provider qualification, use the Mailbox Manager routine's online-binding guidance.
+
 ```bash
 houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" access admin-add \
   --first --signer "$PROPOSED_PRIVATE_KEY" --public-key "$PROPOSED_PUBLIC_KEY_FILE" \

@@ -73,6 +73,8 @@ from houmao.version import get_version
 from houmao.cao.models import CaoSuccessResponse
 from houmao.gateway.access import GatewayAccessError, parse_access_document
 from houmao.gateway.authorization_models import (
+    DefaultFallbackReceipt,
+    DefaultFallbackRequest,
     DefaultPermissionGroupReceipt,
     DefaultPermissionGroupRequest,
 )
@@ -215,6 +217,18 @@ def create_app(
         except ValueError:
             raise GatewayAccessError(422, "invalid_operation") from None
         return await run_in_threadpool(resolved_service.set_default_permission_group, payload)
+
+    @app.put("/houmao/agents/{agent_ref}/admin/principals/{principal_id}/default-fallback")
+    async def set_default_fallback(
+        request: Request, principal_id: str
+    ) -> DefaultFallbackReceipt:
+        """Update one principal in the selected retained policy without a gateway."""
+
+        try:
+            payload = parse_access_document(DefaultFallbackRequest, await request.body())
+        except ValueError:
+            raise GatewayAccessError(422, "invalid_operation") from None
+        return await run_in_threadpool(resolved_service.set_default_fallback, principal_id, payload)
 
     @app.post("/houmao/agents/{agent_ref}/auth/challenge")
     async def auth_challenge(agent_ref: str, request: Request) -> Response:

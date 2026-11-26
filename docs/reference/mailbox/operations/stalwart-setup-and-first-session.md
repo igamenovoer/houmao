@@ -14,11 +14,11 @@ Stalwart owns online messages, delivery, flags, and reply ancestry. Houmao owns 
 
 ## Configure Incoming Mail Policy
 
-Set sender allowlists and blocklists in Stalwart. Use the account's safe and blocked sender lists for spam handling. For a rule that decides who may deliver to the inbox, have the Stalwart administrator configure a system Sieve rule using the authenticated submitting account and the intended recipient. Houmao separately decides when to admit a notification and who may issue privileged gateway commands. [Stalwart filtering](https://stalw.art/docs/mta/filter/) · [Recipient Policy Qualification](stalwart-qualification.md#recipient-policy-qualification)
+Stalwart applies its own rules at delivery. Set provider-managed sender preferences in Stalwart. For Houmao's protected policy, qualify an independent Stalwart connector that uses a native Sieve include to file matching new arrivals directly into Archive. Rule changes apply to future deliveries and preserve existing folders. The gateway consumes the resulting Inbox for reminders. [Recipient Policy Qualification](stalwart-qualification.md#recipient-policy-qualification)
 
 ## Prepare an Existing Account
 
-Have the account administrator provide its normal login, authorized sending address, and JMAP session-discovery URL. An explicitly selected account ID is required when discovery has multiple eligible accounts. Login and address may differ. The selected account needs writable JMAP submission, a matching sender identity, and Inbox, Sent, and Archive roles. Inbox needs rights to read, update flags, and remove items. Sent and Archive need rights to add items. Ask the provider administrator to prepare the missing identity, role, or permission reported by attach, then repeat the operation.
+Have the account administrator provide its normal login, authorized sending address, and JMAP session-discovery URL. Select the account ID explicitly when discovery has multiple eligible accounts. Login and address may differ. The selected account needs writable JMAP submission, a matching sender identity, and Inbox, Sent, and Archive roles. Ordinary operation requires rights to read and update flags in Inbox and add items to Sent. Ordinary archive additionally requires the corresponding folder placement rights. Ask the provider administrator to prepare any missing identity, role, or permission reported by attach, then repeat the operation.
 
 Put the password in an owner-private JSON file **outside the checkout**, on the host running the agent's gateway:
 
@@ -32,7 +32,7 @@ Prefer an explicit discovery URL. The development service uses `http://127.0.0.1
 
 ## Attach the Gateway and Account
 
-Set `agent_id` to the running agent's stable ID. Online attachment currently requires a gateway with an empty administrator key roster, even if the provider has delivery rules. The gateway companion is required for online control commands:
+Set `agent_id` to the running agent's stable ID. Online attachment works with an open or keyed gateway. Attach to an already keyed gateway using the applicable caller authority, or attach on an open gateway and enroll the first administrator afterward. The gateway companion is required for online control commands.
 
 ```bash
 pixi run houmao-mgr agents single --agent-id "$agent_id" gateway attach
@@ -81,9 +81,16 @@ pixi run houmao-mgr agents single --agent-id "$agent_id" mail read \
 pixi run houmao-mgr agents single --agent-id "$agent_id" mail send \
   --channel online --expected-binding-id "$binding_id" \
   --to reviewer@example.test --subject "Review request" --body-content "Please review the result."
+```
+
+When the binding and caller authorize placement, archive processed mail after the work and any required reply succeed.
+
+```bash
 pixi run houmao-mgr agents single --agent-id "$agent_id" mail archive \
   --channel online --expected-binding-id "$binding_id" --message-ref "$message_ref"
 ```
+
+On a protected binding, report completed items for separately authorized mailbox-owner filing through Stalwart. The runtime can continue ordinary authorized participation with restricted credentials.
 
 Copy the online `binding_id` from status and retain message references as opaque values. Lists return finite metadata pages, never bodies. Fetch content explicitly with `peek` or `read`; inspect content completeness and limit fields. All mail lifecycle HTTP requests use schema version `3` and `expected_binding_id`, including fresh sends. Online operator `post` remains unsupported.
 
@@ -98,7 +105,7 @@ pixi run houmao-mgr agents single --agent-id "$agent_id" gateway mail-notifier e
   --channel online --interval-seconds 60 --mode any_inbox
 ```
 
-Read and answered flags do not substitute for archive completion. Eligible unchanged inbox work continues producing periodic reminders. Bounded metadata observation and account-scoped checkpoints support those reminders without reading every retained message body.
+The notifier reads Stalwart's authoritative Inbox. Mail filed directly into Archive at delivery stays outside that work. `any_inbox` can continue reminding while completed mail awaits owner filing. `unread_only` limits reminders to unread Inbox mail. Bounded metadata observation and account-scoped checkpoints support those reminders.
 
 ## Administrative Launch-Time Provisioning
 

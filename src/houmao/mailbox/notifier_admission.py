@@ -7,6 +7,7 @@ provider credentials, resend spool, or generic gateway plugin events.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import sqlite3
 from typing import Literal
@@ -22,6 +23,8 @@ class ReminderOrigin:
     revision: str
     epoch_id: str | None = None
     account_id: str | None = None
+    read_state: Literal["any", "unread"] = "any"
+    eligible_refs: tuple[str, ...] = ()
 
 
 def _ensure_schema(connection: sqlite3.Connection) -> None:
@@ -39,6 +42,13 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
             epoch_id TEXT,
             account_id TEXT,
             PRIMARY KEY(scope_key, cycle_key)
+        )
+    """)
+    connection.execute("""
+        CREATE TABLE IF NOT EXISTS mail_reminder_inbox_evidence (
+            request_id TEXT PRIMARY KEY,
+            read_state TEXT NOT NULL,
+            eligible_refs_json TEXT NOT NULL
         )
     """)
 
@@ -122,6 +132,10 @@ def admit_mail_reminder(
         """,
             (accepted_at_utc, accepted_at_utc, scope_key),
         )
+        connection.execute(
+            "INSERT INTO mail_reminder_inbox_evidence VALUES (?, ?, ?)",
+            (request_id, origin.read_state, json.dumps(origin.eligible_refs)),
+        )
         connection.commit()
     return True
 
@@ -144,6 +158,15 @@ def reminder_origin(sqlite_path: Path, request_id: str) -> ReminderOrigin | None
         """,
             (request_id,),
         ).fetchone()
+        evidence = None
+        if connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mail_reminder_inbox_evidence'"
+        ).fetchone():
+            evidence = connection.execute(
+                "SELECT read_state,eligible_refs_json FROM mail_reminder_inbox_evidence "
+                "WHERE request_id=?",
+                (request_id,),
+            ).fetchone()
     if row is None:
         return None
     return ReminderOrigin(
@@ -153,6 +176,8 @@ def reminder_origin(sqlite_path: Path, request_id: str) -> ReminderOrigin | None
         str(row[3]),
         str(row[4]) if row[4] is not None else None,
         str(row[5]) if row[5] is not None else None,
+        "unread" if evidence is not None and evidence[0] == "unread" else "any",
+        tuple(json.loads(evidence[1])) if evidence is not None else (),
     )
 
 

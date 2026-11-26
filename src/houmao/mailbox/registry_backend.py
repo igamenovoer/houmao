@@ -6,6 +6,8 @@ from functools import wraps
 from pathlib import Path
 from typing import Callable, ParamSpec, Sequence, TypeVar
 
+from pydantic import ValidationError
+
 from houmao.agents.mailbox_runtime_models import RemoteRegistryMailboxResolvedConfig
 from houmao.mailbox.models import (
     GatewayMailArchiveRequestV1,
@@ -20,6 +22,7 @@ from houmao.mailbox.models import (
     MailboxBackendStatusV1,
 )
 from houmao.mailbox.protocol import MailboxNotifyAuth, MailboxNotifyBlock, OperatorOriginReplyPolicy
+from houmao.mailbox.policy import MailPolicyReceipt, SignedMailPolicyUpdate
 from houmao.mailbox.registry import OfflineRegistryError
 from houmao.mailbox.registry_client import OfflineRegistryClient
 from houmao.mailbox.pagination import BackendMailPage
@@ -98,6 +101,35 @@ class RemoteRegistryMailboxAdapter:
             principal_id=member.agent_id,
             address=member.address,
             bindings_version=self.m_mailbox.bindings_version,
+            placement_writable=member.placement_writable,
+        )
+
+    def apply_policy(self, request: SignedMailPolicyUpdate) -> MailPolicyReceipt:
+        """Relay exact owner authority and preserve the transport's evidence."""
+
+        update = request.update
+        if update.binding_id != self.m_mailbox.binding_id:
+            return MailPolicyReceipt(
+                status="refused", operation_id=update.operation_id, detail="binding_conflict"
+            )
+        try:
+            receipt = self.m_client.apply_policy(request)
+        except OfflineRegistryError as exc:
+            if exc.status in {401, 403, 409, 422}:
+                return MailPolicyReceipt(
+                    status="refused", operation_id=update.operation_id, detail=exc.code
+                )
+            if exc.status == 404:
+                return MailPolicyReceipt(
+                    status="unsupported", operation_id=update.operation_id, detail=exc.code
+                )
+        except (OSError, ValidationError):
+            pass
+        else:
+            if receipt.operation_id == update.operation_id:
+                return receipt
+        return MailPolicyReceipt(
+            status="uncertain", operation_id=update.operation_id, detail="registry_unavailable"
         )
 
     def _raw(self, message: GatewayMailboxMessageV1) -> GatewayMailboxMessageV1:

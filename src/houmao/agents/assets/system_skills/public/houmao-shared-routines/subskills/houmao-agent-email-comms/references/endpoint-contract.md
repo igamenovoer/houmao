@@ -18,27 +18,32 @@ Use the exact `gateway_base_url` supplied by current context or returned by `hou
 
 ## Status and Lifecycle Routes (`schema_version: 3`)
 
-`GET /v1/mail/status` reports `offline`, `online`, and `canonical_mail_identity` (`resolve-live` wraps slots under `mailboxes.offline` and `mailboxes.online`). Every `POST /v1/mail/{channel}/*` request body requires `"schema_version": 3` and `"expected_binding_id"` (including fresh `send` and `post`):
+`GET /v1/mail/status` reports `offline`, `online`, and `canonical_mail_identity` (`resolve-live` wraps slots under `mailboxes.offline` and `mailboxes.online`). Every channel-scoped lifecycle request body requires `"schema_version": 3` and `"expected_binding_id"` (including fresh `send` and `post`):
 
 | Route | Required / Optional Fields | Notes |
 | --- | --- | --- |
 | `POST /v1/mail/{channel}/list` | `box`, optional read/answered/archived filters, `limit` (`50`, max `200`), `since`, `cursor` | Metadata-only (`messages`, `next_cursor`, `has_more`, `complete`); `include_body` is rejected. |
 | `POST /v1/mail/{channel}/peek` | `message_ref`, optional `box` | Returns content + `content_complete` / limit fields without marking read. |
 | `POST /v1/mail/{channel}/read` | `message_ref`, optional `box` | Returns content + `content_complete` / limit fields and marks read. |
-| `POST /v1/mail/{channel}/send` | `to`, optional `cc`, `subject`, `body_content`, optional `attachments` | Managed-agent outbound send; returns compact receipt with top-level `message_ref`. |
-| `POST /v1/mail/{channel}/post` | `subject`, `body_content`, optional reply policy & `attachments` | Operator-origin note on supported offline backends; returns compact receipt. |
-| `POST /v1/mail/{channel}/reply` | `message_ref`, `body_content`, optional `attachments` | Replies in-thread (`parent_message_ref` + new `message_ref` receipt). |
-| `POST /v1/mail/{channel}/mark` | `message_refs`, one or more `read`/`answered`/`archived` booleans | Updates message flags on the pinned binding. |
-| `POST /v1/mail/{channel}/move` | `message_refs`, `destination_box` | Moves messages between boxes inside the same binding. |
-| `POST /v1/mail/{channel}/archive` | `message_refs` | Archives completed messages after required replies succeed. |
+| `POST /v1/mail/{channel}/send` | `to`, optional `cc`, `subject`, `body_content`, optional `attachments` | Managed-agent outbound send. The response contains `message.message_ref` and transport evidence. |
+| `POST /v1/mail/{channel}/post` | `subject`, `body_content`, optional reply policy & `attachments` | Operator-origin note on supported offline backends. The response contains `message.message_ref`. |
+| `POST /v1/mail/{channel}/reply` | `message_ref`, `body_content`, optional `attachments` | Replies in-thread. The response contains the new `message.message_ref`. |
+| `POST /v1/mail/{channel}/mark` | `message_refs`, one or more `read`/`answered`/`archived` booleans | Updates flags on the pinned binding. The archived flag requires placement authority. |
+| `POST /v1/mail/{channel}/move` | `message_refs`, `destination_box` | Moves messages between boxes when current placement capabilities permit it. |
+| `POST /v1/mail/{channel}/archive` | `message_refs` | Archives completed messages where the binding permits ordinary archive. |
 
 See [scoped-cli.md](scoped-cli.md) for CLI invocation and [managed-agent-fallback.md](managed-agent-fallback.md) when no gateway is attached.
 
 ## Compact Write Receipts
 
-`send`, `reply`, and `post` return compact receipts (`status`, `authoritative`, top-level `message_ref`, and `parent_message_ref` on `reply`) rather than echoing full message bodies. When full stored fields are needed, run `mail peek` with `--channel` and `--expected-binding-id` for that `message_ref`. If `authoritative: false` is returned on a detached or uncertain write, reconcile read-only (`peek` or `mail list --box sent`) before resending.
+The CLI returns compact receipts with `status`, `authoritative`, top-level `message_ref`, and `parent_message_ref` on reply. The direct gateway HTTP response carries the reference at `message.message_ref`. Both expose `transport_evidence` on success. Inspect stored fields with `mail peek` on the same channel and binding. Reconcile a submission-only or uncertain write with same-binding `peek` or `mail list --box sent` before resending.
 
-## Write Permissions and Recipient Inbound Policy
+## Write Permissions
 
 - **Sender gateway write actions**: the sender's gateway checks `mail.send`, `mail.reply`, or `mail.post` on the selected channel and binding; non-empty `attachments` additionally require `mail.attachment.owner_file` on that same binding.
-- **Recipient inbound mail policy**: peer mail delivery also evaluates the recipient agent's retained inbound mail policy at transport delivery time (independent of whether the recipient's gateway is currently attached or running). The default `agent-requester` group permits inbound peer mail, whereas tightening a recipient's `default-group` to `agent-observer` denies inbound peer mail unless an explicit grant/role allows the sender. Manage policy and grants via `houmao-shared-routines->houmao-agent-access`.
+
+## Backend Delivery and Placement
+
+The selected mail backend owns recipient placement. A matching new arrival on a protected binding goes directly to Archive, including while the recipient gateway is stopped. Rule changes apply to subsequent deliveries. A verified `transport_evidence` value of `offline_deposit` confirms a deposit, and `provider_submission` confirms provider acceptance. Both preserve the sender's channel and binding and omit recipient rules and folder placement.
+
+Check `GET /v1/mail/status` for the selected binding's current lifecycle operations. On protected bindings the mailbox owner handles placement through separately authorized backend access. Use permitted read and answered state changes independently of filing. Gateway and manager fallback both restrict archived-state marks, move, and archive on these bindings.

@@ -19,7 +19,7 @@ metadata:
 1. **Enforce the actor frame and target**: require an explicit `--agent-id` or `--agent-name` in admin posture, or use verified `agents self` in managed-agent posture.
 2. **Select the online lifecycle verb**: choose `status` (safe configured identity without remote probing), `attach` (validate and bind an existing Stalwart account), `reconnect`, `refresh`, or `detach`.
 3. **Verify JMAP and credential prerequisites for `attach`**: require an existing Stalwart account (`--address`, `--login-identity`), an owner-private `--credential-source` JSON file on the agent host, either `--jmap-url` or `--base-url`, and `--trust-jmap-origin` when the JMAP scheme, host, or port requires explicit origin approval (including HTTP intranet endpoints).
-4. **Run the selected `mailbox online` command** without restarting the agent body or altering the `offline` mailbox slot.
+4. **Run the selected `mailbox online` command** using the current gateway authority. An open gateway can enroll its first administrator after attachment. A keyed gateway can attach directly with authorized caller proof. The operation preserves the agent body and the `offline` mailbox slot.
 5. **Confirm Inbox, Sent, and Archive readiness** on `attach`, `reconnect`, or `refresh`, and report the resulting binding ID, revision, and status.
 
 If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the owning skill, [../references/stalwart-boundary.md](../references/stalwart-boundary.md), and the user request, then execute the plan.
@@ -55,9 +55,9 @@ Replace `agents single --agent-id <agent-id>` with `agents self` when operating 
 ## Readiness and Boundary Notes
 
 - Online mailbox attachment requires a live gateway companion on the target managed agent and leaves the `offline` filesystem slot untouched.
-- Stalwart accounts must already exist and expose ready `Inbox`, `Sent`, and `Archive` mailbox roles; `houmao-mgr mailbox ...` and `houmao-mgr project mailbox ...` remain offline-only and never provision Stalwart server roots or accounts.
+- Stalwart accounts must already exist and expose `Inbox`, `Sent`, and `Archive` roles. Ordinary readiness requires authorized Inbox reads and flag updates, a sending identity, and writable submission into Sent. `houmao-mgr mailbox ...` and `houmao-mgr project mailbox ...` administer offline storage.
 - Pass `--replace` only when the caller authorizes replacing an existing online account or endpoint with a fresh binding ID; pass `--expected-revision` to pin an observed online slot revision.
-- Ordinary mail reading, sending, replying, and archiving on an attached `online` channel route to `houmao-shared-routines->houmao-agent-email-comms`.
+- Route ordinary mail reading, sending, replying, and available placement actions on an attached `online` channel to `houmao-shared-routines->houmao-agent-email-comms`. Use the [Stalwart boundary](../references/stalwart-boundary.md) for independently authorized protected policy and owner filing.
 
 ## Guardrails
 

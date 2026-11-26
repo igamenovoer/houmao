@@ -8,7 +8,8 @@ import ipaddress
 import json
 import os
 from pathlib import Path
-from typing import Iterator
+import stat
+from typing import Annotated, Iterator
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -30,6 +31,8 @@ class OfflineRegistryConfig(BaseModel):
     admin_credential_file: Path
     public_url: str = "http://127.0.0.1:9892"
     max_attachment_bytes: int = Field(default=10 * 1024 * 1024, ge=1, le=100 * 1024 * 1024)
+    protected_filtering: bool = False
+    protected_runtime_uids: tuple[Annotated[int, Field(strict=True, ge=1)], ...] | None = None
 
     @field_validator("registry_root", "mailbox_root", "admin_credential_file")
     @classmethod
@@ -99,6 +102,46 @@ def read_private_credential(path: Path) -> str:
             "credential must contain at least 32 non-space characters"
         )
     return credential
+
+
+def protected_registry_isolated(config: OfflineRegistryConfig) -> bool:
+    """Check the declared deployment and private authority paths before enabling rules.
+
+    An empty explicit runtime UID list declares a dedicated registry host.
+    A shared host must instead list its separate, unprivileged runtime UIDs.
+    """
+
+    runtime_uids = config.protected_runtime_uids
+    owner_uid = os.geteuid()
+    if not config.protected_filtering or runtime_uids is None or owner_uid in runtime_uids:
+        return False
+    root = config.mailbox_root
+    try:
+        root_stat = root.stat()
+        if not root.is_dir() or root_stat.st_uid != owner_uid or root_stat.st_mode & 0o077:
+            return False
+        parents = {*root.parents, *config.admin_credential_file.parents}
+        for parent in parents:
+            metadata = parent.stat()
+            if metadata.st_uid not in {0, owner_uid} or (
+                metadata.st_mode & 0o022 and not metadata.st_mode & stat.S_ISVTX
+            ):
+                return False
+        require_private_file(config.admin_credential_file)
+        for path in root.rglob("*"):
+            metadata = path.lstat()
+            if metadata.st_uid != owner_uid:
+                return False
+            if stat.S_ISLNK(metadata.st_mode):
+                if not path.resolve().is_relative_to(root):
+                    return False
+            elif stat.S_ISREG(metadata.st_mode) and metadata.st_nlink != 1:
+                return False
+            elif not (stat.S_ISREG(metadata.st_mode) or stat.S_ISDIR(metadata.st_mode)):
+                return False
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return True
 
 
 @contextmanager

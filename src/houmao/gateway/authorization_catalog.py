@@ -6,17 +6,17 @@ from typing import get_args
 from houmao.gateway.authorization_models import Permission, PermissionGroupName
 
 PERMISSION_GROUPS: tuple[PermissionGroupName, ...] = get_args(PermissionGroupName)
-MAIL_DELIVER = Permission(resource="agent", action="agent.mail.deliver")
 DEFAULT_GROUP_SET = Permission(resource="policy", action="admin.default-group.set")
+DEFAULT_FALLBACK_SET = Permission(resource="policy", action="admin.default-fallback.set")
+RETIRED_MAIL_DELIVER = Permission(resource="agent", action="agent.mail.deliver")
 RETIRED_PROMPT = Permission(resource="agent", action="agent.prompt")
 
 _PEER_EFFECTS: tuple[frozenset[str], ...] = (
-    frozenset({"agent.status.read"}),
-    frozenset({"agent.request.submit", MAIL_DELIVER.action}),
+    frozenset({"agent.status.read", "agent.request.submit"}),
     frozenset(),
     frozenset({"agent.prompt.direct", "agent.command.invoke", "agent.interrupt"}),
 )
-_PEER_GROUPS = PERMISSION_GROUPS[:4]
+_PEER_GROUPS = PERMISSION_GROUPS[:3]
 FILE_ACTIONS = frozenset({"files.read", "files.edit", "files.push"})
 ROLE_TEMPLATE_ACTIONS: dict[str, tuple[str, ...]] = {
     "skill-reviewer": ("files.read",),
@@ -64,7 +64,7 @@ def group_allows(
         permission.resource == "agent"
         and any(permission.action in effects for effects in _PEER_EFFECTS[: tier + 1])
     ) or (
-        tier >= 2
+        tier >= 1
         and permission.action in FILE_ACTIONS
         and permission.resource.startswith("files:")
         and supports_common is not None

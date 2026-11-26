@@ -17,7 +17,6 @@ from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
@@ -27,21 +26,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from houmao.agents import mailbox_runtime_support
-from houmao.agents.mailbox_runtime_models import (
-    MailboxesResolvedConfig,
-    MailboxSlotConfig,
-    StalwartMailboxResolvedConfig,
-)
-from houmao.agents.realm_controller import gateway_access_runtime, gateway_service, manifest
-from houmao.agents.realm_controller.errors import SessionManifestError
-from houmao.mailbox.online_authority import OnlineConnectionAuthority
-from houmao.mailbox.online_binding import OnlineBindingService
-from houmao.mailbox.online_models import (
-    OnlineAttachRequest,
-    OnlineAuthorityContext,
-    OnlineBindingError,
-)
 from houmao.mailbox.stalwart import (
     StalwartConnectionPolicyError,
     StalwartError,
@@ -59,102 +43,10 @@ from houmao.mailbox.stalwart import (
 )
 from houmao.mailbox.stalwart_models import JmapMetadataQuery
 from houmao.mailbox.sync import SyncBudget, SyncObserver, SyncScope
-from houmao.srv_ctrl.commands import managed_agents
 
 CORE = "urn:ietf:params:jmap:core"
 MAIL = "urn:ietf:params:jmap:mail"
 SUBMISSION = "urn:ietf:params:jmap:submission"
-
-
-@pytest.mark.parametrize(
-    ("policy_available", "expected_code"),
-    [(True, "provider_delivery_unqualified"), (False, "recipient_policy_unavailable")],
-)
-def test_managed_stalwart_refuses_before_provider_access(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy_available: bool, expected_code: str
-) -> None:
-    """Refuse keyed or unavailable recipient authority before credentials or provider I/O."""
-
-    context = OnlineAuthorityContext(tmp_path / "manifest.json", "bob", "runtime")
-    monkeypatch.setattr(
-        manifest,
-        "load_session_manifest",
-        lambda _path: SimpleNamespace(payload={"registry_generation_id": "g"}),
-    )
-
-    def resolve(_path: Path) -> SimpleNamespace:
-        if not policy_available:
-            raise SessionManifestError("private owner state unavailable")
-        return SimpleNamespace(
-            store=SimpleNamespace(snapshot=lambda: SimpleNamespace(admin_mode="keyed")),
-            require_current=lambda: None,
-        )
-
-    monkeypatch.setattr(gateway_access_runtime, "gateway_access_for_manifest", resolve)
-    authority = OnlineConnectionAuthority.from_context(context)
-    with pytest.raises(OnlineBindingError) as operation:
-        with authority.operation(expected_binding_id="stale-provider"):
-            pytest.fail("Provider operation was admitted")
-    assert operation.value.code == expected_code
-
-    service = OnlineBindingService.from_context(context)
-    with pytest.raises(OnlineBindingError) as attached:
-        service.attach(
-            OnlineAttachRequest(
-                expected_revision="initial",
-                address="bob@example.test",
-                login_identity="bob",
-                jmap_url="https://provider.example.test/jmap",
-                credential_source_ref=str(tmp_path / "absent-secret"),
-            )
-        )
-    assert attached.value.code == expected_code
-
-    configured = StalwartMailboxResolvedConfig(
-        transport="stalwart",
-        principal_id="bob",
-        address="bob@example.test",
-        jmap_url="https://provider.example.test/jmap",
-        management_url=None,
-        login_identity="bob",
-        credential_ref="absent-secret",
-        bindings_version="initial",
-        agent_id="bob",
-        binding_id="stale-provider",
-    )
-    mailboxes = MailboxesResolvedConfig(online=MailboxSlotConfig(binding=configured))
-    selected_manifest = SimpleNamespace(
-        agent_id="bob",
-        launch_plan=SimpleNamespace(mailboxes=SimpleNamespace(model_dump=lambda **_: {})),
-    )
-
-    def unexpected_provider(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("Status probed a protected provider binding")
-
-    monkeypatch.setattr(
-        mailbox_runtime_support,
-        "mailboxes_resolved_config_from_payload",
-        lambda *_args, **_kwargs: mailboxes,
-    )
-    monkeypatch.setattr(
-        managed_agents,
-        "mailboxes_resolved_config_from_payload",
-        lambda *_args, **_kwargs: mailboxes,
-    )
-    monkeypatch.setattr(
-        managed_agents, "_read_running_agent_manifest", lambda _authority: selected_manifest
-    )
-    monkeypatch.setattr(managed_agents, "build_gateway_mailbox_adapter", unexpected_provider)
-    monkeypatch.setattr(gateway_service, "build_gateway_mailbox_adapter", unexpected_provider)
-    local = managed_agents._local_manager_mail_status(context)
-    remote = gateway_service.GatewayServiceRuntime.get_mail_status(
-        SimpleNamespace(
-            m_manifest_path=context.manifest_path,
-            _load_manifest_payload_for_mailbox_support=lambda: selected_manifest,
-        )
-    )
-    for status in (local, remote):
-        assert status.online is not None and status.online.available is False
 
 
 def _email(
@@ -769,6 +661,59 @@ def test_activation_requires_unique_identity_and_lifecycle_rights(
     with pytest.raises(StalwartReadinessError, match=expected):
         _client(wire).validate_binding()
     assert all(method.endswith("/get") for method, _ in state.methods)
+
+
+def test_runtime_mailbox_can_be_ready_without_placement_rights(
+    wire: tuple[_WireState, Path],
+) -> None:
+    """Readiness requires normal mail rights and preserves placement refusals."""
+
+    state, _ = wire
+    state.mailboxes[0]["myRights"]["mayRemoveItems"] = False
+    state.mailboxes[2]["myRights"]["mayAddItems"] = False
+    client = _client(wire)
+    binding = client.validate_binding()
+    assert not binding.can_archive
+    assert not binding.can_move
+    with pytest.raises(StalwartError, match="mayAddItems"):
+        client.archive(message_ref="1")
+    assert all(method != "Email/set" for method, _ in state.methods)
+
+
+def test_protected_runtime_rechecks_rights_before_rule_application(
+    wire: tuple[_WireState, Path],
+) -> None:
+    """Keep a prior protected check from authorizing subsequent runtime rights."""
+
+    state, _ = wire
+    state.mailboxes[0]["myRights"].update(mayRemoveItems=False, mayAddItems=False)
+    state.mailboxes[1]["myRights"].update(mayRemoveItems=False)
+    state.mailboxes[2]["myRights"].update(mayReadItems=False, mayRemoveItems=False, mayAddItems=False)
+    client = _client(wire)
+    client.require_protected_runtime("account-a")
+    state.mailboxes[2]["myRights"]["mayReadItems"] = True
+    with pytest.raises(StalwartReadinessError, match="required isolation"):
+        client.require_protected_runtime("account-a")
+
+
+def test_provider_work_read_fences_archived_message_before_fetching_content(
+    wire: tuple[_WireState, Path],
+) -> None:
+    """A stale Inbox reference cannot select Archive content or change read state."""
+
+    state, _ = wire
+    message = _email("routed-mail")
+    message["mailboxIds"] = {"archive-id": True}
+    state.messages["routed-mail"] = message
+    client = _client(wire)
+    with pytest.raises(StalwartMethodError, match="notFound"):
+        client.get_email_in_box(email_id="routed-mail", box="inbox")
+    with pytest.raises(StalwartMethodError, match="notFound"):
+        client.mark(
+            message_ref="routed-mail", read=True, answered=None, archived=None, expected_box="inbox"
+        )
+    assert all(method != "Email/set" for method, _ in state.methods)
+    assert all(not args.get("fetchTextBodyValues") for _, args in state.methods)
 
 
 @dataclass

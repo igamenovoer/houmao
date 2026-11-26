@@ -2,6 +2,8 @@
 
 ## Workflow
 
+Check the selected channel's current `mail status` before changing placement. When the binding reserves placement for the owner, report the completed items for separately authorized backend filing. Keep ordinary read and answered changes within their supported scope.
+
 1. **Preserve actor frame, explicit `--channel` (`offline|online`), and `--expected-binding-id`** from `resolve-live` or current round context.
 2. **Confirm target `--message-ref` values and `--destination-box`** within the same mailbox binding.
 3. **Run the scoped `mail move` command** (or `POST /v1/mail/{channel}/move` with `schema_version: 3`, `expected_binding_id`, `message_refs`, and `destination_box`):

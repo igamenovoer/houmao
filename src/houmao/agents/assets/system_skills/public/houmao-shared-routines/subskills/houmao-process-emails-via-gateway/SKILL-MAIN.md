@@ -38,12 +38,12 @@ This parent-scoped routine is `agent`-only under `houmao-shared-routines`. Rejec
 
 | Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `process-round` | Triage, resume stalled work, read, process, reply (`message_ref` receipt), and archive one bounded notifier round. | [commands/process-round.md](commands/process-round.md) |
+| `process-round` | Triage, resume stalled work, read, process, reply (`message_ref` receipt), and complete one bounded notifier round using the binding's authorized filing path. | [commands/process-round.md](commands/process-round.md) |
 | `help` | Explain the fail-closed notifier-round contract and reply hardening read-only. | **Help** |
 
 ## Help
 
-Explain that `process-round` validates prompt-supplied `gateway_base_url`, `channel`, and `expected_binding_id`, prioritizes stalled earlier-round work before unrelated new mail, optionally attaches `one_off` `--after-all` reply-hardening reminders ([references/reply-hardening.md](references/reply-hardening.md)), verifies compact `reply` receipts (`message_ref` + optional `peek`), aborts archiving on `mail.reply` or `mail.attachment.owner_file` denials, archives only completed items, and stops without polling. Concrete round prompts execute `process-round`.
+Explain that `process-round` validates prompt-supplied `gateway_base_url`, `channel`, and `expected_binding_id`, prioritizes stalled earlier-round work before unrelated new mail, optionally attaches `one_off` `--after-all` reply-hardening reminders ([references/reply-hardening.md](references/reply-hardening.md)), verifies compact `reply` receipts (`message_ref` + optional `peek`), aborts archiving on `mail.reply` or `mail.attachment.owner_file` denials, archives completed items only where the binding permits it, otherwise reports them for owner filing, and stops without polling. Concrete round prompts execute `process-round`.
 
 ## Guardrails
 

@@ -51,7 +51,7 @@ This parent-scoped routine loads only through `houmao-shared-routines` and requi
 
 ## Channel Separation and `houmao-cccc` Boundary (`Help`)
 
-- **`request` vs `prompt`**: `request` wraps and attributes task text under the target's standing instructions (`agent-requester` default; `/clear` arrives as quoted text), whereas `prompt` injects a direct turn (`agent-operator` required on keyed gateways).
+- **`request` vs `prompt`**: `request` wraps and attributes task text under the target's standing instructions (`agent-requester` default; `/clear` arrives as quoted text), whereas `prompt` injects a direct turn (requires `agent.prompt.direct`, available through `agent-operator` or an applicable exact grant).
 - **`houmao-cccc` group chat vs Houmao messaging**: `houmao-cccc` (`houmao-cccc chat send|reply|pull|deliveries` over `/v1/plugins/{instance}/*` or `--direct-profile`) is an optional CCCC group-chat and Actor-queue transport, separate from native Houmao `request`, `prompt`, and `/v1/mail/*`.
 
 Explicit `help` explains these channels read-only.

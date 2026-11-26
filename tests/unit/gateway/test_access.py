@@ -272,21 +272,29 @@ def test_managed_self_schema_migration_preserves_policy_and_rejects_unsafe_files
     initial, _ = _admin()
     store.initialize(seed_snapshot(owner, GatewayLaunchSeed(admin_keys=(initial,))))
     expected = store.update(
-        lambda state: state.model_copy(update={"default_permission_group": "agent-observer"}),
+        lambda state: state.model_copy(update={"default_permission_group": "agent-operator"}),
         actor="owner",
         action="admin.default-group.set",
     )
+    previous = expected.model_dump(mode="json")
+    previous.update(schema_version=1)
+    del previous["default_permission_effects"]
+    del previous["principal_default_fallback"]
     database = tmp_path / "access" / "authorization.sqlite3"
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DROP TABLE managed_self_keys")
         connection.execute("DROP TABLE managed_self_registrations")
+        connection.execute("UPDATE policy SET payload = ?", (json.dumps(previous).encode(),))
         connection.execute("PRAGMA user_version = 1")
     with pytest.raises(GatewayAccessError, match="policy is unavailable"):
         store.snapshot(read_only=True)
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
-    assert store.snapshot() == expected
-    assert store.audit_entries(limit=1)[0].policy_revision == expected.revision
+    assert store.snapshot() == expected.model_copy(update={"revision": expected.revision + 1})
+    assert [entry.policy_revision for entry in store.audit_entries(limit=2)] == [
+        expected.revision + 1,
+        expected.revision,
+    ]
     registration = store.provision_self("first")
     assert registration.registration_revision == 1
     assert database.stat().st_mode & 0o777 == 0o600

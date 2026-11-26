@@ -42,7 +42,7 @@ When a supervisor wakeup reviews due rows:
 ## 3. Single Supervisor Reminder + Optional Self-Mail Checkpoint
 
 - **One repeating supervisor reminder per agent**: configure one `repeat` reminder via `houmao-shared-routines->houmao-agent-gateway` (`[edge-supervisor]` or `[relay-supervisor]`) to review the entire active ledger in one bounded pass. Never create one live reminder per active row (the gateway dispatches one reminder at a time, so per-row reminders block one another).
-- **Optional self-mail checkpoint (`[edge-backlog]` / `[relay-backlog]`)**: at most one idempotent unarchived self-mail pointer back to the active ledger when restart backlog anchoring is desired; archive/delete it as soon as the ledger empties so `mail-notifier` stops waking the agent.
+- **Optional self-mail checkpoint (`[edge-backlog]` / `[relay-backlog]`)**: at most one idempotent unarchived self-mail pointer back to the active ledger when restart backlog anchoring is desired and self-mail reaches Inbox. When the ledger empties, archive it where supported or report completion for separately authorized owner filing.
 
 ## 4. Handoff Channel Options: `request`, `prompt`, Mail, and `houmao-cccc`
 

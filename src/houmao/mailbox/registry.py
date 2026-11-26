@@ -40,9 +40,21 @@ from houmao.mailbox.models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
 )
+from houmao.mailbox.policy import (
+    MailPolicyError,
+    MailPolicyReceipt,
+    SignedMailPolicyUpdate,
+    apply_mail_policy,
+    initialize_mail_policy,
+    mail_policy_is_protected,
+    read_mail_policy_receipt,
+    set_mail_policy_owner,
+    verify_mail_policy_update,
+)
 from houmao.mailbox.registry_config import (
     OfflineRegistryConfig,
     associate_registry_store,
+    protected_registry_isolated,
     read_private_credential,
 )
 from houmao.mailbox.protocol import validate_mailbox_address
@@ -50,7 +62,6 @@ from houmao.mailbox.scope import MailScope, MailboxScopeError
 from houmao.mailbox.services import FilesystemGatewayMailboxAdapter, ScopedMailboxAdapter
 
 _MEMBER_SCHEMA = (
-    "CREATE TABLE IF NOT EXISTS offline_policy_members (registration_id TEXT PRIMARY KEY)",
     "CREATE TABLE IF NOT EXISTS offline_members ("
     "agent_id TEXT PRIMARY KEY, address TEXT NOT NULL, registration_id TEXT NOT NULL, "
     "credential_digest TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('active','released')))",
@@ -58,6 +69,8 @@ _MEMBER_SCHEMA = (
     "ON offline_members(address) WHERE status = 'active'",
     "CREATE UNIQUE INDEX IF NOT EXISTS offline_member_active_credential "
     "ON offline_members(credential_digest) WHERE status = 'active'",
+    "CREATE TABLE IF NOT EXISTS offline_policy_backend ("
+    "singleton INTEGER PRIMARY KEY CHECK(singleton = 1), backend_id TEXT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS offline_uploads ("
     "upload_id TEXT PRIMARY KEY, registration_id TEXT NOT NULL, "
     "path TEXT NOT NULL UNIQUE, sha256 TEXT NOT NULL, size_bytes INTEGER NOT NULL, "
@@ -98,6 +111,14 @@ class RegistryMember(BaseModel):
     registration_id: str
     status: Literal["active", "released"]
     presence: Literal["unknown"] = "unknown"
+    policy_backend_id: str | None = None
+    placement_writable: bool = True
+
+
+class RegistryPolicyOwnerResult(RegistryMember):
+    """Owner enrollment evidence visible only to trusted registry administration."""
+
+    policy_revision: int | None = None
 
 
 class RegistryEnrollment(BaseModel):
@@ -108,7 +129,6 @@ class RegistryEnrollment(BaseModel):
     address: str
     member_credential: SecretStr
     display_name: str | None = None
-    require_recipient_policy: bool = False
 
     @field_validator("address")
     @classmethod
@@ -166,6 +186,8 @@ class OfflineRegistryService:
         self.m_config: OfflineRegistryConfig
         self.m_index: Path
         self.m_admin_digest: str
+        self.m_policy_backend_id: str
+        self.m_policy_enabled: bool
 
     @classmethod
     def from_config(cls, config: OfflineRegistryConfig) -> OfflineRegistryService:
@@ -175,14 +197,44 @@ class OfflineRegistryService:
         instance.m_config = config
         instance.m_admin_digest = _digest(read_private_credential(config.admin_credential_file))
         associate_registry_store(config.registry_root, config.mailbox_root)
+        if config.protected_filtering:
+            config.mailbox_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         paths = bootstrap_filesystem_mailbox(config.mailbox_root)
         instance.m_index = paths.sqlite_path
         with offline_authority_lock(config.mailbox_root):
             with sqlite3.connect(instance.m_index) as connection:
                 for statement in _MEMBER_SCHEMA:
                     connection.execute(statement)
+                initialize_mail_policy(connection)
+                connection.execute(
+                    "INSERT OR IGNORE INTO offline_policy_backend VALUES (1, ?)",
+                    ("offline:" + uuid4().hex,),
+                )
+                instance.m_policy_backend_id = str(
+                    connection.execute("SELECT backend_id FROM offline_policy_backend").fetchone()[
+                        0
+                    ]
+                )
+                known_member_credential = connection.execute(
+                    "SELECT 1 FROM offline_members WHERE credential_digest=? LIMIT 1",
+                    (instance.m_admin_digest,),
+                ).fetchone()
                 connection.commit()
             instance.m_index.chmod(0o600)
+            instance.m_policy_enabled = (
+                known_member_credential is None and protected_registry_isolated(config)
+            )
+            if not instance.m_policy_enabled:
+                with sqlite3.connect(instance.m_index) as connection:
+                    active_policy = connection.execute(
+                        "SELECT 1 FROM mailbox_policy LIMIT 1"
+                    ).fetchone()
+                if active_policy is not None:
+                    raise OfflineRegistryError(
+                        "unsafe_policy_store",
+                        "Existing protected policy state requires an isolated registry store",
+                        503,
+                    )
         return instance
 
     @property
@@ -201,6 +253,7 @@ class OfflineRegistryService:
         """Enroll idempotently; ordinary retries never rotate existing credentials."""
 
         digest = _digest(request.member_credential.get_secret_value())
+        self._require_separate_member_digest(digest)
         with offline_authority_lock(self.m_config.mailbox_root):
             with sqlite3.connect(self.m_index) as connection:
                 credential_owner = connection.execute(
@@ -255,17 +308,14 @@ class OfflineRegistryService:
                     "status='active'",
                     (request.agent_id, request.address, registration_id, digest),
                 )
-                if request.require_recipient_policy:
-                    connection.execute(
-                        "INSERT OR IGNORE INTO offline_policy_members (registration_id) VALUES (?)",
-                        (registration_id,),
-                    )
                 connection.commit()
-            return RegistryMember(
-                agent_id=request.agent_id,
-                address=request.address,
-                registration_id=registration_id,
-                status="active",
+            return self._with_policy_status(
+                RegistryMember(
+                    agent_id=request.agent_id,
+                    address=request.address,
+                    registration_id=registration_id,
+                    status="active",
+                )
             )
 
     def replace_credential(self, agent_id: str, credential: str) -> RegistryMember:
@@ -273,12 +323,13 @@ class OfflineRegistryService:
 
         if len(credential) < 32 or any(character.isspace() for character in credential):
             raise OfflineRegistryError("invalid_credential", "member credential is invalid", 422)
+        digest = _digest(credential)
+        self._require_separate_member_digest(digest)
         with offline_authority_lock(self.m_config.mailbox_root):
             member = self._member_for_agent(agent_id)
             if member is None or member.status != "active":
                 raise OfflineRegistryError("not_registered", "active membership required", 404)
             with sqlite3.connect(self.m_index) as connection:
-                digest = _digest(credential)
                 other = connection.execute(
                     "SELECT agent_id FROM offline_members WHERE credential_digest=? "
                     "AND status='active' AND agent_id!=?",
@@ -293,7 +344,15 @@ class OfflineRegistryService:
                     (digest, agent_id),
                 )
                 connection.commit()
-            return member
+            return self._with_policy_status(member)
+
+    def _require_separate_member_digest(self, digest: str) -> None:
+        """Keep the independent registry administrator token out of runtime credentials."""
+
+        if hmac.compare_digest(digest, self.m_admin_digest):
+            raise OfflineRegistryError(
+                "credential_conflict", "registry administrative credential is reserved"
+            )
 
     def release(
         self,
@@ -346,7 +405,7 @@ class OfflineRegistryService:
         with offline_authority_lock(self.m_config.mailbox_root):
             member = self._member_for_agent(agent_id)
             if member is not None:
-                return member
+                return self._with_policy_status(member)
             with sqlite3.connect(self.m_index) as connection:
                 rows = connection.execute(
                     "SELECT address,registration_id FROM mailbox_registrations "
@@ -368,14 +427,169 @@ class OfflineRegistryService:
         """Resolve a private member without relying on runtime presence."""
 
         with offline_authority_lock(self.m_config.mailbox_root):
-            return self._authenticate(credential, require_active=False)
+            return self._with_policy_status(self._authenticate(credential, require_active=False))
 
     def release_self(self, credential: str, *, expected_registration_id: str) -> RegistryMember:
         """Authenticate and release one exact owner without a reassignment race."""
 
         with offline_authority_lock(self.m_config.mailbox_root):
             member = self._authenticate(credential, require_active=False)
+            if member.status == "active":
+                self._require_member_placement(member)
             return self.release(member.agent_id, expected_registration_id=expected_registration_id)
+
+    def set_policy_owner(
+        self, agent_id: str, *, expected_registration_id: str, public_key: str | None
+    ) -> RegistryPolicyOwnerResult:
+        """Enroll or revoke independent rule authority through trusted administration."""
+
+        with offline_authority_lock(self.m_config.mailbox_root):
+            if not self.m_policy_enabled or not protected_registry_isolated(self.m_config):
+                raise OfflineRegistryError(
+                    "unsupported_operation",
+                    "protected filtering requires an isolated registry",
+                    422,
+                )
+            member = self._policy_member(agent_id, expected_registration_id)
+            try:
+                with sqlite3.connect(self.m_index) as connection:
+                    revision = set_mail_policy_owner(connection, member.registration_id, public_key)
+            except MailPolicyError as exc:
+                raise OfflineRegistryError(exc.code, str(exc), exc.status) from exc
+            return RegistryPolicyOwnerResult(
+                **self._with_policy_status(member).model_dump(),
+                policy_revision=revision,
+            )
+
+    def apply_policy(
+        self, request: SignedMailPolicyUpdate, *, credential: str | None = None
+    ) -> MailPolicyReceipt:
+        """Apply a scope-pinned owner proof through member relay or direct submission."""
+
+        update = request.update
+        with offline_authority_lock(self.m_config.mailbox_root):
+            member = self._authenticate(credential) if credential is not None else None
+            if member is not None and member.registration_id != update.binding_id:
+                return MailPolicyReceipt(
+                    status="refused", operation_id=update.operation_id, detail="binding_conflict"
+                )
+            if not self.m_policy_enabled:
+                return MailPolicyReceipt(
+                    status="unsupported",
+                    operation_id=update.operation_id,
+                    detail="registry_not_isolated",
+                )
+            try:
+                with sqlite3.connect(self.m_index) as connection:
+                    row = connection.execute(
+                        "SELECT m.agent_id FROM offline_members m JOIN mailbox_registrations r "
+                        "ON r.registration_id=m.registration_id AND r.address=m.address "
+                        "AND r.owner_principal_id=m.agent_id "
+                        "WHERE m.registration_id=? AND m.status='active' AND r.status='active'",
+                        (update.binding_id,),
+                    ).fetchone()
+                    if row is None:
+                        return MailPolicyReceipt(
+                            status="refused",
+                            operation_id=update.operation_id,
+                            detail="owner_authority_required",
+                        )
+                    prior = verify_mail_policy_update(
+                        connection,
+                        backend_id=self.m_policy_backend_id,
+                        binding_id=update.binding_id,
+                        request=request,
+                    )
+                    if prior is not None:
+                        return prior
+                    if not protected_registry_isolated(self.m_config):
+                        return MailPolicyReceipt(
+                            status="unsupported",
+                            operation_id=update.operation_id,
+                            detail="registry_not_isolated",
+                        )
+                    return apply_mail_policy(
+                        connection,
+                        backend_id=self.m_policy_backend_id,
+                        binding_id=update.binding_id,
+                        request=request,
+                    )
+            except MailPolicyError as exc:
+                return MailPolicyReceipt(
+                    status="refused", operation_id=update.operation_id, detail=exc.code
+                )
+            except sqlite3.Error:
+                return MailPolicyReceipt(
+                    status="uncertain",
+                    operation_id=update.operation_id,
+                    detail="registry_unavailable",
+                )
+
+    def policy_receipt(
+        self, agent_id: str, *, expected_registration_id: str, operation_id: str
+    ) -> MailPolicyReceipt:
+        """Return durable rule-application evidence through trusted administration."""
+
+        with offline_authority_lock(self.m_config.mailbox_root):
+            member = self._policy_member(agent_id, expected_registration_id)
+            with sqlite3.connect(self.m_index) as connection:
+                receipt = read_mail_policy_receipt(
+                    connection, binding_id=member.registration_id, operation_id=operation_id
+                )
+            if receipt is None:
+                raise OfflineRegistryError(
+                    "receipt_not_found", "policy receipt is unavailable", 404
+                )
+            return receipt
+
+    def _policy_member(self, agent_id: str, expected_registration_id: str) -> RegistryMember:
+        """Resolve an active registry member with an exact durable mailbox registration."""
+
+        member = self._member_for_agent(agent_id)
+        if (
+            member is None
+            or member.status != "active"
+            or member.registration_id != expected_registration_id
+        ):
+            raise MailboxScopeError("offline registration changed")
+        try:
+            registration = load_active_mailbox_registration(
+                self.m_config.mailbox_root, address=member.address
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise MailboxScopeError("offline registration changed") from exc
+        if (
+            registration.registration_id != member.registration_id
+            or registration.owner_principal_id != member.agent_id
+        ):
+            raise MailboxScopeError("offline registration changed")
+        return member
+
+    def _with_policy_status(self, member: RegistryMember) -> RegistryMember:
+        """Expose only the selected binding's policy target and placement capability."""
+
+        if not self.m_policy_enabled or member.status != "active":
+            return member
+        return member.model_copy(
+            update={
+                "policy_backend_id": self.m_policy_backend_id,
+                "placement_writable": not self._placement_protected(member),
+            }
+        )
+
+    def _placement_protected(self, member: RegistryMember) -> bool:
+        """Read current protection while caller holds the offline authority lock."""
+
+        with sqlite3.connect(self.m_index) as connection:
+            return mail_policy_is_protected(connection, member.registration_id)
+
+    def _require_member_placement(self, member: RegistryMember) -> None:
+        """Reserve protected filing and registration release for trusted administration."""
+
+        if self._placement_protected(member):
+            raise OfflineRegistryError(
+                "unsupported_operation", "protected placement requires backend authority", 422
+            )
 
     def _member_for_agent(self, agent_id: str) -> RegistryMember | None:
         """Load safe membership without exposing a credential digest."""
@@ -450,23 +664,78 @@ class OfflineRegistryService:
     ) -> GatewayMailListResponseV1:
         """Authorize and page the authoritative offline metadata index."""
 
-        from houmao.mailbox.pagination import build_mail_page_response
-
         with offline_authority_lock(self.m_config.mailbox_root):
             member = self._authenticate(credential)
-            adapter = self._adapter(member)
-            adapter.scope.require_binding(request.expected_binding_id)
-            page = adapter.list_page(
-                box=request.box,
-                read_state=request.read_state,
-                answered_state=request.answered_state,
-                archived=request.archived,
-                limit=request.limit,
-                since=request.since,
-                cursor=request.cursor,
+            if request.box == "archive":
+                self._require_member_placement(member)
+            return self._list_page(member, request)
+
+    def _list_page(
+        self,
+        member: RegistryMember,
+        request: GatewayMailListRequestV1,
+    ) -> GatewayMailListResponseV1:
+        """Page a bound mailbox after the caller's scope has been selected."""
+
+        from houmao.mailbox.pagination import build_mail_page_response
+
+        adapter = self._adapter(member)
+        adapter.scope.require_binding(request.expected_binding_id)
+        page = adapter.list_page(
+            box=request.box,
+            read_state=request.read_state,
+            answered_state=request.answered_state,
+            archived=request.archived,
+            limit=request.limit,
+            since=request.since,
+            cursor=request.cursor,
+        )
+        page.messages[:] = [self._transport_message(message) for message in page.messages]
+        return build_mail_page_response(identity=adapter.status(), box=request.box, page=page)
+
+    def owner_list_page(
+        self, agent_id: str, request: GatewayMailListRequestV1
+    ) -> GatewayMailListResponseV1:
+        """Review a protected recipient's folders through trusted administration."""
+
+        with offline_authority_lock(self.m_config.mailbox_root):
+            member = self._protected_member(agent_id, request.expected_binding_id)
+            if request.box != "archive":
+                raise OfflineRegistryError(
+                    "unsupported_operation", "protected administration reviews Archive", 422
+                )
+            return self._list_page(member, request)
+
+    def owner_peek(
+        self, agent_id: str, request: GatewayMailMessageRequestV1
+    ) -> GatewayMailboxMessageV1:
+        """Review one message in the selected recipient mailbox as the placement authority."""
+
+        with offline_authority_lock(self.m_config.mailbox_root):
+            member = self._protected_member(agent_id, request.expected_binding_id)
+            return self._transport_message(
+                self._adapter(member).peek(message_ref=request.message_ref, box="archive")
             )
-            page.messages[:] = [self._transport_message(message) for message in page.messages]
-            return build_mail_page_response(identity=adapter.status(), box=request.box, page=page)
+
+    def owner_archive(
+        self, agent_id: str, request: GatewayMailArchiveRequestV1
+    ) -> list[GatewayMailboxMessageV1]:
+        """File selected processed mail through trusted administration."""
+
+        with offline_authority_lock(self.m_config.mailbox_root):
+            member = self._protected_member(agent_id, request.expected_binding_id)
+            messages = self._adapter(member).archive(message_refs=request.message_refs)
+            return [self._transport_message(message) for message in messages]
+
+    def _protected_member(self, agent_id: str, expected_registration_id: str) -> RegistryMember:
+        """Scope trusted placement access to an active protected registration."""
+
+        member = self._policy_member(agent_id, expected_registration_id)
+        if not self._placement_protected(member):
+            raise OfflineRegistryError(
+                "unsupported_operation", "membership does not use protected placement", 422
+            )
+        return member
 
     def mail(
         self,
@@ -486,6 +755,7 @@ class OfflineRegistryService:
             adapter = self._adapter(member)
             adapter.scope.require_binding(request.expected_binding_id)
             if isinstance(request, GatewayMailMessageRequestV1) and operation in ("peek", "read"):
+                self._require_member_messages(member, [request.message_ref])
                 method = adapter.peek if operation == "peek" else adapter.read
                 messages = [method(message_ref=request.message_ref, box=request.box)]
             elif isinstance(request, GatewayMailSendRequestV1) and operation == "send":
@@ -501,6 +771,7 @@ class OfflineRegistryService:
                     )
                 ]
             elif isinstance(request, GatewayMailReplyRequestV1) and operation == "reply":
+                self._require_member_messages(member, [request.message_ref])
                 messages = [
                     adapter.reply(
                         message_ref=request.message_ref,
@@ -511,6 +782,9 @@ class OfflineRegistryService:
                     )
                 ]
             elif isinstance(request, GatewayMailMarkRequestV1) and operation == "mark":
+                if request.archived is not None:
+                    self._require_member_placement(member)
+                self._require_member_messages(member, request.message_refs)
                 messages = adapter.mark(
                     message_refs=request.message_refs,
                     read=request.read,
@@ -518,16 +792,39 @@ class OfflineRegistryService:
                     archived=request.archived,
                 )
             elif isinstance(request, GatewayMailMoveRequestV1) and operation == "move":
+                self._require_member_placement(member)
                 messages = adapter.move(
                     message_refs=request.message_refs, destination_box=request.destination_box
                 )
             elif isinstance(request, GatewayMailArchiveRequestV1) and operation == "archive":
+                self._require_member_placement(member)
                 messages = adapter.archive(message_refs=request.message_refs)
             else:
                 raise OfflineRegistryError(
                     "unsupported_operation", "operation is not supported", 422
                 )
             return [self._transport_message(message) for message in messages]
+
+    def _require_member_messages(self, member: RegistryMember, references: list[str]) -> None:
+        """Prevent protected Archive-only content reads through ordinary runtime references."""
+
+        if not self._placement_protected(member):
+            return
+        scope = MailScope(member.agent_id, "offline", member.registration_id)
+        with sqlite3.connect(self.m_index) as connection:
+            for reference in references:
+                raw_ref = scope.decode(reference)
+                prefix, _separator, message_id = raw_ref.partition(":")
+                if (
+                    prefix != "filesystem"
+                    or connection.execute(
+                        "SELECT 1 FROM mailbox_projections "
+                        "WHERE registration_id=? AND message_id=? AND folder_name<>'archive' LIMIT 1",
+                        (member.registration_id, message_id),
+                    ).fetchone()
+                    is None
+                ):
+                    raise OfflineRegistryError("message_not_found", "message is unavailable", 404)
 
     def upload(
         self,
@@ -588,6 +885,7 @@ class OfflineRegistryService:
 
         with offline_authority_lock(self.m_config.mailbox_root):
             member = self._authenticate(credential)
+            protected = self._placement_protected(member)
             with sqlite3.connect(self.m_index) as connection:
                 row = connection.execute(
                     "SELECT registration_id,path,sha256,size_bytes,media_type,label "
@@ -603,8 +901,9 @@ class OfflineRegistryService:
                     or connection.execute(
                         "SELECT 1 FROM attachments a JOIN message_attachments ma USING(attachment_id) "
                         "JOIN mailbox_projections p USING(message_id) "
-                        "WHERE a.locator=? AND p.registration_id=? LIMIT 1",
-                        (str(row[1]), member.registration_id),
+                        "WHERE a.locator=? AND p.registration_id=? "
+                        "AND (? = 0 OR p.folder_name <> 'archive') LIMIT 1",
+                        (str(row[1]), member.registration_id, protected),
                     ).fetchone()
                     is not None
                 )

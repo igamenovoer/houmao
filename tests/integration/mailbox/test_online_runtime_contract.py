@@ -443,6 +443,20 @@ def test_started_prompt_effect_prevents_false_replacement_activation(
         revision = request("GET", "/v1/mail/online/binding")[1]["revision"]
         code, old = _attach(request, state, source, revision)
         assert code == 200
+        code, inbox = request(
+            "POST",
+            "/v1/mail/online/list",
+            {
+                "schema_version": 3,
+                "expected_binding_id": old["binding_id"],
+                "box": "inbox",
+                "read_state": "any",
+                "archived": False,
+            },
+        )
+        assert code == 200, inbox
+        eligible_refs = tuple(message["message_ref"] for message in inbox["messages"])
+        assert len(eligible_refs) == 1
         context = _context(runtime)
         origin = ReminderOrigin(
             context.agent_id,
@@ -451,6 +465,7 @@ def test_started_prompt_effect_prevents_false_replacement_activation(
             old["revision"],
             old["epoch_id"],
             "account-a",
+            eligible_refs=eligible_refs,
         )
         with runtime.m_lock:
             assert admit_mail_reminder(

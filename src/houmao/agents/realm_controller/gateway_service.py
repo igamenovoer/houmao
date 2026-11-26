@@ -155,6 +155,8 @@ from houmao.gateway.access import (
 )
 from houmao.gateway.authorization_models import (
     AuthorizationActor,
+    DefaultFallbackReceipt,
+    DefaultFallbackRequest,
     DefaultPermissionGroupReceipt,
     DefaultPermissionGroupRequest,
     Permission,
@@ -203,6 +205,7 @@ from houmao.agents.realm_controller.native_refresh_models import (
     refresh_guard_can_release,
 )
 from houmao.mailbox.models import MailChannel, MailboxChannelStatusV1
+from houmao.mailbox.policy import GatewayMailPolicyRequest, MailPolicyError, MailPolicyReceipt
 from houmao.mailbox.scope import MailScope, MailboxScopeError
 from houmao.mailbox.errors import GatewayMailboxMutationError
 from houmao.mailbox.stalwart import StalwartError
@@ -717,13 +720,10 @@ def _optional_env_string(variable_name: str) -> str | None:
     return stripped or None
 
 
-def _render_mail_notifier_mailbox_api_summary(_base_url: str) -> str:
+def _render_mail_notifier_mailbox_api_summary(operations: Sequence[str]) -> str:
     """Return one compact mailbox endpoint summary for notifier prompts."""
 
-    return (
-        "Mailbox API: `GET /v1/mail/status`; "
-        "`POST /v1/mail/list|peek|read|reply|send|post|mark|move|archive`."
-    )
+    return f"Mailbox API: `GET /v1/mail/status`; `POST /v1/mail/{'|'.join(operations)}`."
 
 
 def _render_notify_block_entry(*, sender_address: str, text: str) -> str:
@@ -2514,7 +2514,6 @@ class GatewayServiceRuntime:
             supports_common=lambda permission: (
                 self.m_file_edits is not None and self.m_file_edits.supports_common(permission)
             ),
-            require_keyed_transition=access.require_keyed_mail_qualification,
         )
         self.m_file_edits = GatewayFileEdits(
             policy=self._require_access_policy,
@@ -7028,7 +7027,6 @@ class GatewayServiceRuntime:
 
         payload = self._load_manifest_payload_for_mailbox_support()
         from houmao.agents.mailbox_runtime_support import mailboxes_resolved_config_from_payload
-        from houmao.mailbox.delivery_policy import require_open_provider_binding
 
         mailboxes = mailboxes_resolved_config_from_payload(
             payload.launch_plan.mailboxes, manifest_path=self.m_manifest_path or Path("<unknown>")
@@ -7040,16 +7038,20 @@ class GatewayServiceRuntime:
                 summaries[channel] = None
                 continue
             error = None
+            supported_operations: list[str] = []
+            limitations: list[str] = []
             try:
-                with (
-                    require_open_provider_binding(self.m_manifest_path or Path("<unknown>"))
-                    if channel == "online"
-                    else nullcontext()
-                ):
-                    resolve_live_mailbox_binding(durable_mailbox=binding)
-                    build_gateway_mailbox_adapter(binding).status()
+                resolve_live_mailbox_binding(durable_mailbox=binding)
+                status = build_gateway_mailbox_adapter(binding).status()
+                supported_operations = status.supported_operations()
+                if not status.placement_writable:
+                    limitations.append(
+                        "Message placement requires separate mailbox owner authority"
+                    )
             except (ValueError, OSError, GatewayMailboxError, StalwartError):
                 error = f"{channel.capitalize()} mailbox is unavailable"
+            if binding.transport != "filesystem":
+                limitations.append("operator post is unavailable for this backend")
             summaries[channel] = MailboxChannelStatusV1(
                 agent_id=binding.agent_id,
                 channel=channel,
@@ -7059,20 +7061,8 @@ class GatewayServiceRuntime:
                 transport=binding.transport,
                 available=error is None,
                 error=error,
-                supported_operations=[
-                    "list",
-                    "peek",
-                    "read",
-                    "send",
-                    "reply",
-                    "mark",
-                    "move",
-                    "archive",
-                ]
-                + (["post"] if binding.transport == "filesystem" else []),
-                limitations=["operator post is unavailable for this backend"]
-                if binding.transport != "filesystem"
-                else [],
+                supported_operations=supported_operations,
+                limitations=limitations,
             )
         return GatewayMailStatusV1(
             agent_id=payload.agent_id,
@@ -7080,6 +7070,46 @@ class GatewayServiceRuntime:
             online=summaries["online"],
             canonical_mail_identity=mailboxes.canonical_mail_identity,
         )
+
+    def apply_mail_policy(
+        self, request: GatewayMailPolicyRequest, *, channel: MailChannel
+    ) -> MailPolicyReceipt:
+        """Relay a binding-pinned update without using mailbox-owner credentials."""
+
+        from houmao.mailbox.registry import OfflineRegistryError
+        from houmao.mailbox.registry_backend import RemoteRegistryMailboxAdapter
+        from houmao.mailbox.stalwart_policy import StalwartPolicyConnector
+
+        signed = request.signed_update
+        operation_id = signed.update.operation_id
+        try:
+            mailbox = self._load_mailbox_config(channel=channel)
+            MailScope(mailbox.agent_id, channel, mailbox.binding_id).require_binding(
+                request.expected_binding_id
+            )
+            if signed.update.binding_id != mailbox.binding_id:
+                raise MailboxScopeError("Mail policy targets a different mailbox binding.")
+            if mailbox.transport == "registry":
+                return RemoteRegistryMailboxAdapter.from_config(mailbox).apply_policy(signed)
+            if mailbox.transport == "stalwart" and self.m_deployment is not None:
+                connector_url = self.m_deployment.stalwart_policy_url
+                if connector_url is not None:
+                    return StalwartPolicyConnector(connector_url).apply(signed)
+        except MailboxScopeError as exc:
+            raise HTTPException(
+                status_code=409, detail={"error_code": "mail_binding_conflict"}
+            ) from exc
+        except (OfflineRegistryError, MailPolicyError) as exc:
+            if exc.status in {401, 403, 409, 422}:
+                raise HTTPException(
+                    status_code=exc.status, detail={"error_code": exc.code}
+                ) from exc
+            if exc.status in {404, 405, 501} or exc.code == "unsupported_operation":
+                return MailPolicyReceipt(status="unsupported", operation_id=operation_id)
+            return MailPolicyReceipt(status="uncertain", operation_id=operation_id)
+        except (GatewayError, OSError, ValueError):
+            return MailPolicyReceipt(status="uncertain", operation_id=operation_id)
+        return MailPolicyReceipt(status="unsupported", operation_id=operation_id)
 
     def list_mail(
         self, request_payload: GatewayMailListRequestV1, *, channel: MailChannel
@@ -7413,6 +7443,8 @@ class GatewayServiceRuntime:
                 )
             else:
                 messages = adapter.archive(message_refs=request_payload.message_refs)
+        except GatewayMailboxUnsupportedError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         except MailboxScopeError as exc:
             raise HTTPException(
                 status_code=409,
@@ -7858,7 +7890,9 @@ class GatewayServiceRuntime:
 
         observation = None
         try:
-            read_state = "unread" if record.mode == "unread_only" else "any"
+            read_state: Literal["any", "unread"] = (
+                "unread" if record.mode == "unread_only" else "any"
+            )
             confirmed_ineligible: set[str] = set()
             if channel == "online":
                 from houmao.mailbox.observation import observe_online
@@ -7904,6 +7938,7 @@ class GatewayServiceRuntime:
                     confirmed_ineligible.update(
                         set(record.compacted_eligible_message_refs) - current_refs
                     )
+            backend_status = adapter.backend_status() if page_messages else None
             observation_detail = (
                 f"sync_phase={observation.sync_view.phase} methods={observation.sync_view.method_calls} sample_complete={page_complete} has_more={observation.sync_view.has_more}"
                 if observation
@@ -8128,6 +8163,7 @@ class GatewayServiceRuntime:
                 unread_messages=unread_messages,
                 record=record,
                 channel=channel,
+                placement_writable=backend_status.placement_writable if backend_status else False,
             )
             from houmao.mailbox.notifier_admission import ReminderOrigin
 
@@ -8143,6 +8179,8 @@ class GatewayServiceRuntime:
                         source_revision,
                         observation.fence.epoch_id if observation else None,
                         observation.fence.account_id if observation else None,
+                        read_state,
+                        current_eligible_message_refs,
                     ),
                     observation=observation,
                     execution_identity=(
@@ -8239,6 +8277,7 @@ class GatewayServiceRuntime:
         unread_messages: list[_UnreadMailboxMessage],
         record: GatewayMailNotifierRecord,
         channel: MailChannel,
+        placement_writable: bool = True,
     ) -> tuple[str, list[_RenderedNotifyBlockEntry]]:
         """Build the reminder prompt and capture per-block audit entries.
 
@@ -8254,6 +8293,18 @@ class GatewayServiceRuntime:
         base_url = self.owner_connect_url
         rendered = _load_mail_notifier_template()
         mode_guidance = _render_mail_notifier_mode_guidance(mode)
+        operations = ["list", "peek", "read", "reply", "send"]
+        if mailbox.transport == "filesystem":
+            operations.append("post")
+        operations.append("mark")
+        if placement_writable:
+            operations.extend(("move", "archive"))
+            completion = "Archive successfully processed messages after any required reply."
+        else:
+            completion = (
+                "After any required reply, report completed messages for mailbox-owner filing "
+                "and end the round. Read and answered flags do not change folder placement."
+            )
 
         prepend_text, append_text, block_entries = _render_notify_block_slots(
             unread_messages=unread_messages,
@@ -8265,7 +8316,8 @@ class GatewayServiceRuntime:
             "{{NOTIFIER_MODE}}": mode,
             "{{MODE_GUIDANCE}}": mode_guidance,
             "{{GATEWAY_BASE_URL}}": base_url,
-            "{{MAILBOX_API_SUMMARY}}": _render_mail_notifier_mailbox_api_summary(base_url),
+            "{{MAILBOX_API_SUMMARY}}": _render_mail_notifier_mailbox_api_summary(operations),
+            "{{MAIL_COMPLETION_GUIDANCE}}": completion,
             "{{APPENDIX_BLOCK}}": _render_mail_notifier_appendix_block(appendix_text),
             "{{NOTIFY_BLOCKS_PREPEND}}": prepend_text,
             "{{NOTIFY_BLOCKS_APPEND}}": append_text,
@@ -8811,6 +8863,7 @@ class GatewayServiceRuntime:
         if origin.channel != "online":
             if not self._mail_reminder_origin_is_current(request_id):
                 raise GatewayError("Origin mailbox revision retired before dispatch")
+            self._require_current_reminder_inbox(origin)
             yield
             return
         if origin.epoch_id is None or origin.account_id is None:
@@ -8832,9 +8885,33 @@ class GatewayServiceRuntime:
         )
         try:
             with authority.effect_lease(fence):
+                self._require_current_reminder_inbox(origin)
                 yield
         except OnlineBindingError as exc:
             raise GatewayError("Origin mailbox revision retired before dispatch") from exc
+
+    def _require_current_reminder_inbox(self, origin: ReminderOrigin) -> None:
+        """Confirm the queued prompt's bounded Inbox sample before handing it off."""
+
+        if origin.channel not in {"offline", "online"} or not origin.eligible_refs:
+            raise GatewayError("Mail reminder has no current Inbox evidence")
+        channel = cast(MailChannel, origin.channel)
+        try:
+            with self.m_lock:
+                adapter = self._mailbox_adapter_locked(
+                    channel=channel, expected_binding_id=origin.binding_id
+                )
+            page = adapter.list_page(
+                box="inbox",
+                read_state=origin.read_state,
+                answered_state="any",
+                archived=False,
+                limit=200,
+            )
+        except (GatewayMailboxError, HTTPException, OSError, ValueError) as exc:
+            raise GatewayError("Current Inbox could not be confirmed before dispatch") from exc
+        if not set(origin.eligible_refs).issubset(message.message_ref for message in page.messages):
+            raise GatewayError("Mail reminder's Inbox sample changed before dispatch")
 
     def _mail_reminder_origin_is_current(self, request_id: str) -> bool:
         """Recheck queued wakeups against their original mailbox revision and epoch."""
@@ -10682,6 +10759,23 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
             runtime._require_access_policy().set_default_permission_group, grant, payload.group
         )
 
+    @app.put("/v1/admin/principals/{principal_id}/default-fallback")
+    async def _set_default_fallback(request: Request, principal_id: str) -> DefaultFallbackReceipt:
+        """Change fallback for one retained principal under the admitted authority."""
+
+        try:
+            payload = parse_access_document(DefaultFallbackRequest, await request.body())
+        except ValueError:
+            raise GatewayAccessError(422, "invalid_operation") from None
+        grant = _verified_gateway_grant(request)
+        payload.require_expected(grant)
+        return await run_in_threadpool(
+            runtime._require_access_policy().set_default_fallback,
+            grant,
+            principal_id,
+            payload.enabled,
+        )
+
     @app.post("/v1/messages", response_model=_PublicHandoff)
     def _public_message(payload: _PublicMessage) -> _PublicHandoff:
         """Confirm one public notification handoff."""
@@ -11107,6 +11201,17 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
         """Serve shared mailbox availability for the attached session."""
 
         return runtime.get_mail_status()
+
+    @app.post("/v1/mail/{channel}/policy/apply", response_model=MailPolicyReceipt)
+    async def _apply_mail_policy(channel: MailChannel, request: Request) -> MailPolicyReceipt:
+        """Relay an independently signed update after current admin admission."""
+
+        try:
+            payload = parse_access_document(GatewayMailPolicyRequest, await request.body())
+        except ValueError:
+            raise GatewayAccessError(422, "invalid_operation") from None
+        await run_in_threadpool(runtime.fence_access, _verified_gateway_grant(request))
+        return await run_in_threadpool(runtime.apply_mail_policy, payload, channel=channel)
 
     @app.post("/v1/mail/{channel}/list", response_model=GatewayMailListResponseV1)
     def _mail_list(

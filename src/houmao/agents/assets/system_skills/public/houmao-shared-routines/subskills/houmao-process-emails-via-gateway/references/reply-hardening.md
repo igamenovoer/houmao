@@ -9,7 +9,7 @@ Use reply hardening when the notifier or operator prompt asks for extra reply as
 3. Append at lowest priority: pass `--after-all` on `houmao-mgr agents self gateway reminders add`, or on direct `POST /v1/reminders` inspect current reminders first and set `ranking` to `max_ranking + 1`.
 4. Embed exact `gateway_base_url`, `channel`, `expected_binding_id`, `message_ref`, `thread_ref` (or `unknown`), sender, subject, and recipient, instructing the wakeup turn to re-check reply state before calling `POST /v1/mail/{channel}/reply` so duplicate replies are never sent.
 5. Remove any unfired reminder (`houmao-mgr agents self gateway reminders remove --reminder-id <reminder_id>` or `DELETE /v1/reminders/{reminder_id}`) as soon as the normal end-of-round reply succeeds.
-6. Keep hardening scoped to reply assurance; never archive from a reminder unless both the task and the reply succeeded.
+6. Keep hardening scoped to reply assurance. Successful work and reply are prerequisites for ordinary archive, which also requires current placement capability. On a protected binding, report completion for owner filing.
 
 ## Prompt Template
 

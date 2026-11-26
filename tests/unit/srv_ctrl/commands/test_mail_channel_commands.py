@@ -369,6 +369,7 @@ def test_gateway_mail_write_prints_one_scoped_receipt(
         "channel": "offline",
         "binding_id": "registration-a",
         "transport": "filesystem",
+        "transport_evidence": "offline_deposit",
         "principal_id": "owner-a",
         "address": mailbox,
         "sender_address": sender,

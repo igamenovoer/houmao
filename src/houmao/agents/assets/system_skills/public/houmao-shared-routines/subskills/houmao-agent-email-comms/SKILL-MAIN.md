@@ -28,9 +28,9 @@ Perform ordinary Houmao `offline` and Stalwart `online` mailbox operations (`res
 3. **Select `offline` or `online` explicitly** from `mailboxes.offline` / `mailboxes.online` and pin that slot's `binding.binding_id` (`--expected-binding-id`); `canonical_mail_identity` describes the preferred address and never chooses a channel.
 4. **Execute the selected subcommand** via `houmao-mgr agents self|single ... mail <verb> --channel <offline|online> --expected-binding-id <binding_id>` (or exact `/v1/mail/{channel}/*` with `schema_version: 3`; see [references/endpoint-contract.md](references/endpoint-contract.md)). Stop immediately on admission/policy refusal or binding replacement.
 5. **Reconcile writes and pagination cleanly**:
-   - Triage with bounded metadata pages (`limit: 50`, max `200`, never `include_body`), check `content_complete` on `peek`/`read`, and archive only after work and any required reply succeed.
+   - Triage with bounded metadata pages (`limit: 50`, max `200`, never `include_body`), check `content_complete` on `peek`/`read`, and check the binding's supported operations before filing completed work.
    - Confirm `send`, `reply`, and `post` from their compact write receipt (`status`, `authoritative`, top-level `message_ref`) and use `mail peek` on the same channel and binding when message details are needed; if `authoritative: false` leaves a detached write uncertain, verify read-only before retrying.
-   - Respect recipient inbound mail policy (default `agent-requester` admits peer mail, while `agent-observer` denies inbound peer mail at recipient delivery independent of live gateway state).
+   - Treat confirmed offline deposit or provider submission as the sender's transport result. The recipient backend can file a matching new message directly into Archive. A receipt gives no recipient placement or reminder evidence.
 
 If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from **Subcommands**, **References**, and the user request, then execute the plan.
 
@@ -55,13 +55,13 @@ This parent-scoped routine loads only through `houmao-shared-routines` and requi
 | `reply` | Reply to an opaque `message_ref` on the same channel and binding (`mail.reply`). | [Reply](commands/reply.md) |
 | `mark` | Mutate `--read/--unread`, `--answered/--unanswered`, or `--archived/--unarchived` flags. | [Mark](commands/mark.md) |
 | `move` | Move selected messages to `--destination-box` within the same binding. | [Move](commands/move.md) |
-| `archive` | Archive processed messages after required work and replies succeed. | [Archive](commands/archive.md) |
-| `help` | Read-only summary of `offline`/`online` channels, binding pinning, receipts, and recipient policy. | **Help** |
+| `archive` | Archive processed mail after required replies succeed when the binding supports ordinary archive. | [Archive](commands/archive.md) |
+| `help` | Read-only summary of `offline`/`online` channels, binding pinning, receipts, and backend placement. | **Help** |
 
 ## References and Help
 
 - **Transports and contracts**: [references/endpoint-contract.md](references/endpoint-contract.md), [references/scoped-cli.md](references/scoped-cli.md), [references/managed-agent-fallback.md](references/managed-agent-fallback.md), [references/transports/filesystem.md](references/transports/filesystem.md), [references/transports/stalwart.md](references/transports/stalwart.md), [references/filesystem-resolver-fields.md](references/filesystem-resolver-fields.md), [references/stalwart-resolver-fields.md](references/stalwart-resolver-fields.md), and [references/filesystem-layout.md](references/filesystem-layout.md). For multi-step wakeup or loop compositions, see `houmao-shared-routines->houmao-adv-usage-pattern`.
-- **Help**: summarize caller posture (`post` vs `self mail`), `offline` vs Stalwart `online` isolation, `expected_binding_id` pinning, compact receipts, recipient inbound policy, and neighboring routines read-only.
+- **Help**: summarize caller posture (`post` vs `self mail`), `offline` vs Stalwart `online` isolation, `expected_binding_id` pinning, compact receipts, backend delivery rules, and neighboring routines read-only.
 
 ## Guardrails
 

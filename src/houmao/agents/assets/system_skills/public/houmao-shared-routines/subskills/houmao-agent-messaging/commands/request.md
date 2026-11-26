@@ -44,7 +44,7 @@ If the request does not map cleanly to these steps, use the native planning tool
 ```
 
 - **Quoted task framing (`agent.request.submit`)**: Houmao wraps `--text` as attributed task content under the target agent's existing instructions (for example, `--text '/clear'` arrives as quoted request text rather than executing a native slash command, which requires `agent-operator` direct command authority).
-- **Policy evaluation**: keyed targets grant unassigned callers `agent-requester` by default (permitting `agent.request.submit`), whereas a caller assigned `builtin:agent-observer` (or facing a target `default-group` of `agent-observer`) is refused. Manage grants via `houmao-shared-routines->houmao-agent-access`.
+- **Policy evaluation**: keyed targets initially give eligible fallback callers `agent-requester`. A verified caller with only an exact status grant and disabled fallback lacks `agent.request.submit`. Explicit `--unsigned` follows the target's separate anonymous policy. Manage grants via `houmao-shared-routines->houmao-agent-access`.
 
 ## Guardrails
 

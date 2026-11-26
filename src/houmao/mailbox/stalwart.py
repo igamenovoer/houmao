@@ -38,6 +38,8 @@ from houmao.mailbox.stalwart_models import (
 _JMAP_CORE = "urn:ietf:params:jmap:core"
 _JMAP_MAIL = "urn:ietf:params:jmap:mail"
 _JMAP_SUBMISSION = "urn:ietf:params:jmap:submission"
+JMAP_SIEVE_CAPABILITY = "urn:ietf:params:jmap:sieve"
+MAX_SIEVE_SCRIPT_BYTES = 256 * 1024
 _STALWART_REGISTRY = "urn:stalwart:jmap"
 _METADATA_PROPERTIES = (
     "id",
@@ -837,7 +839,7 @@ class StalwartJmapClient:
                 "Configure exactly one Stalwart JMAP identity for this address."
             )
         identity_id = matches[0]
-        self._require_lifecycle_rights()
+        can_archive, can_move = self._validate_lifecycle_rights()
         self.m_identity_id = identity_id
         self.m_sender_address = address
         result = ValidatedJmapBinding(
@@ -850,6 +852,8 @@ class StalwartJmapClient:
             mailbox_roles=dict(self.m_roles),
             max_objects_in_get=self.max_objects_in_get,
             max_calls_in_request=self.max_calls_in_request,
+            can_archive=can_archive,
+            can_move=can_move,
         )
         self.m_validated_binding = result
         return result
@@ -891,8 +895,8 @@ class StalwartJmapClient:
             if isinstance(item.get("email"), str) and item["email"].lower() == address.lower()
         ]
 
-    def _require_lifecycle_rights(self) -> None:
-        """Validate the roles and rights Houmao needs to read, send, reply, and archive."""
+    def _validate_lifecycle_rights(self) -> tuple[bool, bool]:
+        """Require ordinary access and discover optional placement rights separately."""
         self._load_mailboxes()
         by_id = {
             mailbox["id"]: mailbox
@@ -900,9 +904,8 @@ class StalwartJmapClient:
             if isinstance(mailbox.get("id"), str)
         }
         for role, required in (
-            ("inbox", ("mayReadItems", "maySetSeen", "maySetKeywords", "mayRemoveItems")),
+            ("inbox", ("mayReadItems", "maySetSeen", "maySetKeywords")),
             ("sent", ("mayAddItems",)),
-            ("archive", ("mayAddItems",)),
         ):
             mailbox_id = self._cached_mailbox_id(role)
             rights = by_id[mailbox_id].get("myRights")
@@ -912,6 +915,36 @@ class StalwartJmapClient:
                         f"Mailbox role `{role}` requires permission `{right}`. "
                         "Grant that right on the selected mailbox."
                     )
+        inbox_id = self._cached_mailbox_id("inbox")
+        archive_id = self._cached_mailbox_id("archive")
+        inbox_rights = by_id[inbox_id].get("myRights")
+        if not isinstance(inbox_rights, dict) or inbox_rights.get("mayRemoveItems") is not True:
+            return False, False
+        archive_rights = by_id[archive_id].get("myRights")
+        can_archive = isinstance(archive_rights, dict) and archive_rights.get("mayAddItems") is True
+        return can_archive, True
+
+    def require_protected_runtime(self, account_id: str) -> None:
+        """Reject runtime JMAP access that could override protected delivery placement."""
+
+        self.m_session = None
+        self.m_mailboxes = None
+        self.m_validated_binding = None
+        validated = self.validate_binding()
+        account_capabilities = self.session()["accounts"][validated.account_id]["accountCapabilities"]
+        if validated.account_id != account_id or JMAP_SIEVE_CAPABILITY in account_capabilities:
+            raise StalwartReadinessError("Runtime credentials lack the required isolation.")
+        mailboxes: list[dict[str, Any]] = self.m_mailboxes or []
+        for mailbox in mailboxes:
+            rights = mailbox.get("myRights")
+            role = mailbox.get("role")
+            if (
+                not isinstance(rights, dict)
+                or rights.get("mayRemoveItems") is not False
+                or (role != "sent" and rights.get("mayAddItems") is not False)
+                or (role == "archive" and rights.get("mayReadItems") is not False)
+            ):
+                raise StalwartReadinessError("Runtime credentials lack the required isolation.")
 
     @_bounded_operation
     def _ensure_provisioning_resources(self, address: str) -> None:
@@ -1396,6 +1429,21 @@ class StalwartJmapClient:
         """Retrieve explicitly selected content; metadata paths never call this method."""
         return self.get_content(email_id=email_id)
 
+    @_bounded_operation
+    def get_email_in_box(self, *, email_id: str, box: str) -> dict[str, Any]:
+        """Fence a selected work read to membership before and during content retrieval."""
+
+        self._require_box(email_id, box, self._one_metadata(email_id))
+        message = self.get_email(email_id=email_id)
+        self._require_box(email_id, box, message)
+        return message
+
+    def _require_box(self, email_id: str, box: str, message: Mapping[str, Any]) -> None:
+        """Hide a referenced message that no longer belongs to the selected mailbox."""
+
+        if self.mailbox_id_for_role(box) not in message["mailboxIds"]:
+            raise StalwartMethodError(method="Email/get", error_type="notFound", object_id=email_id)
+
     def send(
         self,
         *,
@@ -1541,12 +1589,20 @@ class StalwartJmapClient:
         return sent
 
     def mark(
-        self, *, message_ref: str, read: bool | None, answered: bool | None, archived: bool | None
+        self,
+        *,
+        message_ref: str,
+        read: bool | None,
+        answered: bool | None,
+        archived: bool | None,
+        expected_box: str | None = None,
     ) -> dict[str, Any]:
         """Apply one acknowledged patch; partial and uncertain results are never retried."""
         email_id = _raw_email_id(message_ref)
         patch: dict[str, object] = {}
         original = self._one_metadata(email_id)
+        if expected_box is not None:
+            self._require_box(email_id, expected_box, original)
         mailbox_ids = original["mailboxIds"]
         if read is not None:
             patch["keywords/$seen"] = True if read else None
@@ -1873,7 +1929,11 @@ class StalwartJmapClient:
 
     @_bounded_operation
     def call(
-        self, method_calls: Sequence[Sequence[object]], *, timeout_seconds: float | None = None
+        self,
+        method_calls: Sequence[Sequence[object]],
+        *,
+        timeout_seconds: float | None = None,
+        additional_capabilities: Sequence[str] = (),
     ) -> dict[str, Any]:
         """Call a finite method envelope with no retries and count each attempted method."""
         session = self.session()
@@ -1890,6 +1950,13 @@ class StalwartJmapClient:
         using = [_JMAP_CORE, _JMAP_MAIL]
         if _JMAP_SUBMISSION in capabilities:
             using.append(_JMAP_SUBMISSION)
+        for capability in additional_capabilities:
+            if capability not in capabilities:
+                raise StalwartReadinessError(
+                    "Provider does not expose the requested JMAP capability."
+                )
+            if capability not in using:
+                using.append(capability)
         self.m_method_call_count += len(method_calls)
         return _request_json(
             method="POST",
@@ -1905,6 +1972,64 @@ class StalwartJmapClient:
             timeout=self._timeout(timeout_seconds),
             mailbox_request=True,
         )
+
+    def upload_sieve_script(self, *, account_id: str, script: bytes) -> str:
+        """Upload bounded Sieve content with the connector's pinned provider credentials."""
+
+        if len(script) > MAX_SIEVE_SCRIPT_BYTES:
+            raise StalwartError("Provider script exceeds the transfer limit.")
+        template = _require_string(self.session(), "uploadUrl")
+        url = template.replace("{accountId}", parse.quote(account_id, safe=""))
+        self._validate_advertised_url(url)
+        payload = _request_json(
+            method="POST",
+            url=url,
+            body=script,
+            headers={
+                "Authorization": self.authorization_header(),
+                "Content-Type": "application/sieve",
+                "Accept": "application/json",
+            },
+            timeout=self._timeout(None),
+            mailbox_request=True,
+        )
+        return _require_string(payload, "blobId")
+
+    def download_sieve_script(self, *, account_id: str, blob_id: str) -> bytes:
+        """Read back an existing script without following redirects."""
+
+        from httpx import HTTPError, stream
+
+        url = _require_string(self.session(), "downloadUrl")
+        for name, value in (
+            ("accountId", account_id),
+            ("blobId", blob_id),
+            ("name", "policy.sieve"),
+            ("type", "application/sieve"),
+        ):
+            url = url.replace("{" + name + "}", parse.quote(value, safe=""))
+        self._validate_advertised_url(url)
+        try:
+            with stream(
+                "GET",
+                url,
+                headers={
+                    "Authorization": self.authorization_header(),
+                    "Accept-Encoding": "identity",
+                },
+                follow_redirects=False,
+                timeout=self._timeout(None),
+                trust_env=False,
+            ) as response:
+                response.raise_for_status()
+                result = bytearray()
+                for chunk in response.iter_raw():
+                    result.extend(chunk)
+                    if len(result) > MAX_SIEVE_SCRIPT_BYTES:
+                        raise StalwartError("Provider script exceeds the transfer limit.")
+        except HTTPError as exc:
+            raise StalwartError("Provider script could not be read back.") from exc
+        return bytes(result)
 
     def authorization_header(self) -> str:
         """Return the immutable epoch credential, never rereading an external source."""

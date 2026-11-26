@@ -32,3 +32,5 @@ houmao-mgr --print-json agents self mail peek --channel "$MAIL_CHANNEL" \
 If the outcome is uncertain or the result only confirms submission, keep the receipt's request ID when present. Check `mail list --box sent` on the sender's original channel and binding when authorized. Report the outcome as unresolved if the read is unavailable or inconclusive.
 
 A gateway send requires `mail.send` on the selected binding. A request carrying owner-file attachments also requires `mail.attachment.owner_file` on that binding. [Write Permissions](../references/endpoint-contract.md#write-permissions)
+
+Interpret `transport_evidence` on verified writes as offline deposit or provider submission. Confirm uncertainty on the original binding. The receipt does not disclose recipient Inbox placement.

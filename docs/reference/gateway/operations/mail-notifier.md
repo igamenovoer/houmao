@@ -8,6 +8,8 @@ The gateway mail-notifier is a gateway-owned background polling loop that checks
 
 Use the mail-notifier when a live gateway should wake the agent for shared-mailbox inbox work without requiring another process to poll the mailbox. The default `any_inbox` mode wakes while any inbox mail remains unarchived. The opt-in `unread_only` mode wakes only for unread unarchived inbox mail.
 
+Both modes observe the backend's Inbox. An arrival filtered directly into Archive never enters the reminder or compaction set. A queued reminder rechecks its bounded Inbox sample before handoff.
+
 The notifier is part of the live gateway process:
 
 - it polls eligible inbox state through the configured mailbox adapter,
@@ -151,14 +153,16 @@ That template includes:
 
 - a concise tool-specific skill-usage block,
 - the exact live gateway URL, selected channel, and expected binding ID,
-- a one-line `/v1/mail/*` endpoint summary.
+- a one-line `/v1/mail/*` endpoint summary for operations supported by the binding.
 
 The prompt tells the agent to:
 
 1. process relevant inbox mail through the shared gateway mailbox API,
 2. complete that work,
-3. archive only completed messages after any required reply succeeds,
+3. archive completed messages after any required reply succeeds when ordinary archive is supported,
 4. stop after the round.
+
+On a protected binding the agent reports completed messages for separately authorized mailbox-owner filing. `any_inbox` can keep reminding while the message remains in Inbox. `unread_only` follows the current read state.
 
 The skill-usage block is derived from the runtime-owned manifest and projected mailbox skill installation for the current tool.
 

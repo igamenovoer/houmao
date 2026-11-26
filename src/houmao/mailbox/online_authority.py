@@ -257,11 +257,7 @@ class OnlineConnectionAuthority:
     ) -> Iterator[OnlineConnection]:
         """Pin a managed operation under shared admission through bounded provider I/O."""
 
-        from houmao.mailbox.delivery_policy import require_open_provider_binding
         from houmao.mailbox.online_binding import OnlineBindingService
-
-        with require_open_provider_binding(self.m_context.manifest_path):
-            pass
 
         deadline = time.monotonic() + timeout_seconds
         _, initial = self.snapshot()

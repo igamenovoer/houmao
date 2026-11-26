@@ -1443,7 +1443,6 @@ class RuntimeSessionController:
             address=address,
             member_credential=read_private_credential(credential_file),
             display_name=self.agent_identity,
-            require_recipient_policy=True,
         )
         binding = RemoteRegistryMailboxResolvedConfig(
             transport="registry",
@@ -2521,7 +2520,6 @@ def start_runtime_session(
             agent_id=resolved_agent_id,
             generation_id=registry_generation_id,
             seed=gateway_admin_seed,
-            online_mailbox_configured=resolved_mailboxes.online.binding is not None,
         )
     elif gateway_admin_seed is not None:
         raise SessionManifestError(
@@ -3735,7 +3733,6 @@ def _provision_relaunch_gateway_generation(
         binding=binding,
         agent_id=controller.agent_id,
         generation_id=generation,
-        online_mailbox_configured=controller.launch_plan.mailboxes.online.binding is not None,
     )
 
 

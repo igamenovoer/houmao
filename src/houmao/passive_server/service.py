@@ -103,6 +103,8 @@ from houmao.gateway.access import (
     GatewayTarget,
 )
 from houmao.gateway.authorization_models import (
+    DefaultFallbackReceipt,
+    DefaultFallbackRequest,
     DefaultPermissionGroupReceipt,
     DefaultPermissionGroupRequest,
 )
@@ -549,6 +551,22 @@ class PassiveServerService:
         return admission.target.policy.set_default_permission_group(
             admission.grant,
             payload.group,
+            require_current_target=lambda: self.require_access_target_current(admission.target),
+        )
+
+    def set_default_fallback(
+        self, principal_id: str, payload: DefaultFallbackRequest
+    ) -> DefaultFallbackReceipt:
+        """Commit the passive listener's admitted principal fallback mutation."""
+
+        admission = CURRENT_ADMISSION.get()
+        if admission is None or admission.grant is None:
+            raise GatewayAccessError(403, "insufficient_authority")
+        payload.require_expected(admission.grant)
+        return admission.target.policy.set_default_fallback(
+            admission.grant,
+            principal_id,
+            payload.enabled,
             require_current_target=lambda: self.require_access_target_current(admission.target),
         )
 

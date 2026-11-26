@@ -49,6 +49,7 @@ from houmao.agents.realm_controller.manifest import (
     update_session_manifest,
 )
 from houmao.agents.realm_controller.self_manifest import VerifiedSelfManifest
+from houmao.gateway.authorization_models import STATUS_READ_PERMISSION
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.server.models import (
     HoumaoManagedAgentIdentity,
@@ -1237,15 +1238,25 @@ def detached_state_authority(
 
 
 @pytest.mark.parametrize("style", ["plain", "fancy"])
+@pytest.mark.parametrize("migrated_default", [False, True])
 def test_selected_state_renders_retained_owner_policy(
-    detached_state_authority: GatewayRuntimeAccess, style: str
+    detached_state_authority: GatewayRuntimeAccess, style: str, migrated_default: bool
 ) -> None:
     """Show only summary fields for a verified local agent without a live gateway."""
 
     store = detached_state_authority.store
     store.initialize()
+    default = (
+        {
+            "default_permission_group": None,
+            "default_permission_group_version": None,
+            "default_permission_effects": (STATUS_READ_PERMISSION,),
+        }
+        if migrated_default
+        else {"default_permission_group": "agent-operator"}
+    )
     store.update(
-        lambda snapshot: snapshot.model_copy(update={"default_permission_group": "agent-observer"}),
+        lambda snapshot: snapshot.model_copy(update=default),
         actor="owner",
         action="admin.default-group.set",
     )
@@ -1256,8 +1267,13 @@ def test_selected_state_renders_retained_owner_policy(
 
     assert result.exit_code == 0, result.output
     assert "admin_mode" in result.stdout and "open" in result.stdout
-    assert "default_permission_group" in result.stdout and "agent-observer" in result.stdout
-    assert "default_permission_group_version" in result.stdout
+    if migrated_default:
+        assert (
+            "default_permission_effects" in result.stdout and "agent.status.read" in result.stdout
+        )
+    else:
+        assert "default_permission_group" in result.stdout and "agent-operator" in result.stdout
+        assert "default_permission_group_version" in result.stdout
     assert "can_accept_prompt_now" in result.stdout
     assert "credentials" not in result.stdout
 

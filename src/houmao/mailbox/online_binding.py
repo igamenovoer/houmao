@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from contextlib import nullcontext
 from pathlib import Path
 from uuid import uuid4
 
@@ -24,7 +23,6 @@ from houmao.agents.realm_controller.registry_storage import (
     load_managed_agent_record_by_agent_id,
     publish_managed_agent_record,
 )
-from houmao.mailbox.delivery_policy import require_open_provider_binding
 from houmao.mailbox.notifier_admission import cancel_pending_mail_reminders
 from houmao.mailbox.online_authority import OnlineConnectionAuthority
 from houmao.mailbox.online_models import (
@@ -167,21 +165,16 @@ class OnlineBindingService:
         committed = False
         try:
             with authority.control(expected_revision=expected, timeout_seconds=timeout):
-                with (
-                    require_open_provider_binding(context.manifest_path, for_write=True)
-                    if config is not None
-                    else nullcontext()
-                ):
-                    if not reconnect:
-                        mutate_session_mailbox_binding(
-                            context.manifest_path,
-                            channel="online",
-                            expected_revision=expected,
-                            binding=config,
-                            agent_id=context.agent_id,
-                            session_id=context.session_id,
-                        )
-                        committed = True
+                if not reconnect:
+                    mutate_session_mailbox_binding(
+                        context.manifest_path,
+                        channel="online",
+                        expected_revision=expected,
+                        binding=config,
+                        agent_id=context.agent_id,
+                        session_id=context.session_id,
+                    )
+                    committed = True
                 authority.advance_epoch()
                 committed = True
                 if old is not None and not reconnect:
@@ -241,8 +234,6 @@ class OnlineBindingService:
     def attach(self, request: OnlineAttachRequest) -> OnlineBindingStatus:
         """Validate a private existing account and explicitly replace only when requested."""
 
-        with require_open_provider_binding(self.m_authority.context.manifest_path):
-            pass
         slot, old = self.m_authority.snapshot()
         if slot.revision != request.expected_revision:
             raise OnlineBindingError("mail_binding_conflict", "Online slot revision changed")
@@ -307,8 +298,6 @@ class OnlineBindingService:
     def refresh(self, request: OnlineControlRequest) -> OnlineBindingStatus:
         """Validate the same account using a new immutable credential revision."""
 
-        with require_open_provider_binding(self.m_authority.context.manifest_path):
-            pass
         slot, old = self.m_authority.snapshot()
         if old is None:
             raise OnlineBindingError("online_not_configured", "No online binding is configured")
@@ -349,8 +338,6 @@ class OnlineBindingService:
         """Revalidate immutable current credentials and replace only the connection epoch."""
 
         self._reject_unused_source(request)
-        with require_open_provider_binding(self.m_authority.context.manifest_path):
-            pass
         slot, old = self.m_authority.snapshot()
         if old is None:
             raise OnlineBindingError("online_not_configured", "No online binding is configured")

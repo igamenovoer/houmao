@@ -139,6 +139,17 @@ class MailboxBackendStatusV1(_StrictGatewayModel):
     principal_id: str
     address: str
     bindings_version: str
+    placement_writable: bool = True
+
+    def supported_operations(self) -> list[str]:
+        """Describe lifecycle operations supported by this backend binding."""
+
+        operations = ["list", "peek", "read", "send", "reply", "mark"]
+        if self.placement_writable:
+            operations.extend(("move", "archive"))
+        if self.transport == "filesystem":
+            operations.append("post")
+        return operations
 
     @field_validator("principal_id", "address", "bindings_version")
     @classmethod
@@ -528,6 +539,7 @@ class GatewayMailActionResponseV1(_StrictGatewayModel):
     principal_id: str
     address: str
     message: GatewayMailboxMessageV1
+    transport_evidence: Literal["offline_deposit", "provider_submission"] | None = None
 
     @field_validator("principal_id", "address")
     @classmethod
@@ -540,6 +552,13 @@ class GatewayMailActionResponseV1(_StrictGatewayModel):
     def _validate_schema(self) -> "GatewayMailActionResponseV1":
         if self.schema_version != GATEWAY_MAIL_SCHEMA_VERSION:
             raise ValueError(f"schema_version must be {GATEWAY_MAIL_SCHEMA_VERSION}")
+        expected: Literal["offline_deposit", "provider_submission"] = (
+            "provider_submission" if self.transport == "stalwart" else "offline_deposit"
+        )
+        if self.transport_evidence is None:
+            self.transport_evidence = expected
+        elif self.transport_evidence != expected:
+            raise ValueError("transport_evidence must match the selected transport")
         return self
 
 

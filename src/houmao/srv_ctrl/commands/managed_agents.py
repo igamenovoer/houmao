@@ -2466,6 +2466,14 @@ def managed_agent_state_policy_summary(target: ManagedAgentTarget) -> dict[str, 
         policy = access.store.snapshot(read_only=True)
     except (click.ClickException, GatewayAccessError, SessionManifestError):
         return None
+    if policy.default_permission_group is None:
+        return {
+            "admin_mode": policy.admin_mode,
+            "default_permission_effects": ", ".join(
+                permission.action for permission in policy.default_permission_effects
+            ),
+        }
+    assert policy.default_permission_group_version is not None
     return {
         "admin_mode": policy.admin_mode,
         "default_permission_group": policy.default_permission_group,
@@ -4262,8 +4270,6 @@ def unregister_mailbox_binding(target: ManagedAgentTarget, *, mode: str) -> dict
 def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMailStatusV1:
     """Report both configured channels and independent backend availability."""
 
-    from houmao.mailbox.delivery_policy import require_open_provider_binding
-
     payload = _read_running_agent_manifest(authority)
     mailboxes = mailboxes_resolved_config_from_payload(
         payload.launch_plan.mailboxes.model_dump(mode="json"), manifest_path=authority.manifest_path
@@ -4276,13 +4282,15 @@ def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMail
             summaries[channel] = None
             continue
         error = None
+        supported_operations: list[str] = []
+        limitations: list[str] = []
         try:
-            with (
-                require_open_provider_binding(authority.manifest_path)
-                if channel == "online"
-                else nullcontext()
-            ):
-                build_gateway_mailbox_adapter(binding).status()
+            backend_status = build_gateway_mailbox_adapter(binding).status()
+            supported_operations = [
+                action for action in backend_status.supported_operations() if action != "post"
+            ]
+            if not backend_status.placement_writable:
+                limitations.append("Message placement requires separate mailbox owner authority.")
         except (GatewayMailboxError, ValueError, OSError):
             error = "Mailbox backend is unavailable."
         summaries[channel] = MailboxChannelStatusV1(
@@ -4294,16 +4302,8 @@ def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMail
             transport=binding.transport,
             available=error is None,
             error=error,
-            supported_operations=[
-                "list",
-                "peek",
-                "read",
-                "send",
-                "reply",
-                "mark",
-                "move",
-                "archive",
-            ],
+            supported_operations=supported_operations,
+            limitations=limitations,
         )
     return GatewayMailStatusV1(
         agent_id=payload.agent_id,

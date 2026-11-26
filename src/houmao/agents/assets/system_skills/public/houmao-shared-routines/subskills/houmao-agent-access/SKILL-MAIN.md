@@ -44,14 +44,14 @@ For provider API/OAuth credentials, route to `houmao-shared-routines->houmao-cre
 | --- | --- | --- |
 | `help` | Explain owner, live administrator, `default-group`, `self-key`, and peer workflows. | **Help** |
 | `provision` | Initialize or recover retained policy for the selected execution owner. | [Provision](commands/provision.md) |
-| `policy` | Manage principals, keys, `self-key`, `default-group`, built-in groups, role templates, and grants. | [Policy](commands/policy.md) |
+| `policy` | Manage principals, keys, `self-key`, `default-group` and `default-fallback`, built-in groups, role templates, and grants. | [Policy](commands/policy.md) |
 | `admin-roster` | Add or remove a live gateway administrator qualification (`open` vs `keyed`). | [Admin Roster](commands/admin-roster.md) |
 | `peer-identity` | Configure an owned source signer or export the managed source's public identity. | [Peer Identity](commands/peer-identity.md) |
 | `request` | Send a supported signed JSON request to a verified target gateway. | [Request](commands/request.md) |
 
 ## Help
 
-Explain the supported operations, authority separation, `open` (empty admin roster) vs `keyed` admission, the six built-in groups (`agent-observer` through `agent-admin` plus `managed-self`), role templates, and `self-key {rotate|revoke}`. Example starting points are `$houmao-admin-entrypoint agent-access policy` and `$houmao-agent-entrypoint agent-access peer-identity`. Answer read-only without probing targets, reading keys, or mutating policy.
+Explain the supported operations, authority separation, `open` (empty admin roster) vs `keyed` admission, the three assignable peer roles, the five default-group choices, exact status-only access with disabled fallback, role templates, and `self-key {rotate|revoke}`. Example starting points are `$houmao-admin-entrypoint agent-access policy` and `$houmao-agent-entrypoint agent-access peer-identity`. Answer read-only without probing targets, reading keys, or mutating policy.
 
 ## Guardrails
 

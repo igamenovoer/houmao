@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from functools import cached_property
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal, Self
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -24,15 +24,14 @@ Expiry = Annotated[int, Field(ge=0)]
 AuthorizationBasis = Literal["public", "scoped", "self", "admin", "open", "default"]
 AuthorizationMode = Literal["open", "keyed"]
 PermissionGroupName = Literal[
-    "agent-observer",
     "agent-requester",
     "agent-maintainer",
     "agent-operator",
     "managed-self",
     "agent-admin",
 ]
+RETIRED_OBSERVER_ROLE = "builtin:agent-observer"
 BUILTIN_PEER_ROLES: dict[str, PermissionGroupName] = {
-    "builtin:agent-observer": "agent-observer",
     "builtin:agent-requester": "agent-requester",
     "builtin:agent-maintainer": "agent-maintainer",
     "builtin:agent-operator": "agent-operator",
@@ -52,10 +51,13 @@ class Permission(_AuthorizationModel):
     action: Action
 
 
-class DefaultPermissionGroupRequest(_AuthorizationModel):
-    """Select one versioned built-in group as the unassigned caller default."""
+STATUS_READ_PERMISSION = Permission(resource="agent", action="agent.status.read")
 
-    group: PermissionGroupName
+
+class _ExpectedPolicyTarget(_AuthorizationModel):
+    """Pin an administration request to two optional verified coordinates."""
+
+    schema_version: Literal[1] = 1
     expected_target: GatewayTarget | None = None
     expected_listener_id: Identifier | None = None
 
@@ -71,12 +73,42 @@ class DefaultPermissionGroupRequest(_AuthorizationModel):
             raise GatewayAccessError(409, "authorization_target_conflict")
 
 
+class DefaultPermissionGroupRequest(_ExpectedPolicyTarget):
+    """Select one versioned built-in group as the unassigned caller default."""
+
+    group: PermissionGroupName
+
+
 class DefaultPermissionGroupReceipt(_AuthorizationModel):
     """Report the retained default after a completed policy transaction."""
 
     schema_version: Literal[1] = 1
     default_permission_group: PermissionGroupName
     default_permission_revision: Annotated[int, Field(ge=0)]
+    policy_revision: Annotated[int, Field(ge=0)]
+
+
+class DefaultFallbackRequest(_ExpectedPolicyTarget):
+    """Set whether one verified principal can inherit the current default."""
+
+    enabled: bool
+
+
+class PrincipalDefaultFallback(_AuthorizationModel):
+    """Retain a principal setting and every transition's fence."""
+
+    principal_id: Identifier
+    enabled: bool
+    revision: Annotated[int, Field(ge=1)]
+
+
+class DefaultFallbackReceipt(_AuthorizationModel):
+    """Report the committed principal setting and enclosing policy revision."""
+
+    schema_version: Literal[1] = 1
+    principal_id: Identifier
+    enabled: bool
+    default_fallback_revision: Annotated[int, Field(ge=1)]
     policy_revision: Annotated[int, Field(ge=0)]
 
 
@@ -125,6 +157,15 @@ class ScopedGrant(_AuthorizationModel):
     principal_id: Identifier
     permission: Permission
     expires_at: Expiry | None = None
+    source: Literal["direct", "retired-observer"] = "direct"
+
+    @model_validator(mode="after")
+    def _validate_source(self) -> ScopedGrant:
+        """Only an exact status grant can originate in an observer migration."""
+
+        if self.source == "retired-observer" and self.permission != STATUS_READ_PERMISSION:
+            raise ValueError("migrated observer grant must supply only status access")
+        return self
 
 
 class RoleTemplate(_AuthorizationModel):
@@ -166,26 +207,24 @@ class RoleAssignment(_AuthorizationModel):
     builtin_version: Literal[1] | None = None
 
 
-class PolicySnapshot(_AuthorizationModel):
-    """Contain all retained authorization rows read at one revision."""
+class _PolicyRows(_AuthorizationModel):
+    """Validate owner, identity, and permission rows in retained policy versions."""
 
-    schema_version: Literal[1] = 1
+    builtin_roles: ClassVar[frozenset[str]] = frozenset(BUILTIN_PEER_ROLES)
     owner: GatewayOwner
     policy_id: Identifier = Field(default_factory=lambda: uuid4().hex)
     revision: Annotated[int, Field(ge=0)] = 0
     roster_revision: Annotated[int, Field(ge=0)] = 0
     open_epoch: Annotated[int, Field(ge=0)] = 0
-    default_permission_group: PermissionGroupName = "agent-requester"
-    default_permission_group_version: Literal[1] = 1
     default_permission_revision: Annotated[int, Field(ge=0)] = 0
     principals: tuple[Principal, ...] = Field(default=(), max_length=512)
     credentials: tuple[Credential, ...] = Field(default=(), max_length=512)
     roles: tuple[RoleDefinition, ...] = Field(default=(), max_length=128)
-    grants: tuple[ScopedGrant, ...] = Field(default=(), max_length=4096)
+    grants: tuple[ScopedGrant, ...] = Field(default=(), max_length=4608)
     role_assignments: tuple[RoleAssignment, ...] = Field(default=(), max_length=4096)
 
     @model_validator(mode="after")
-    def _validate_rows(self) -> PolicySnapshot:
+    def _validate_rows(self) -> Self:
         """Reject ambiguous identities, dangling relations, and impossible revisions."""
 
         principal_ids = {principal.principal_id for principal in self.principals}
@@ -198,7 +237,9 @@ class PolicySnapshot(_AuthorizationModel):
             raise ValueError("duplicate credential key")
         if len({key.enrollment_id for key in self.credentials}) != len(self.credentials):
             raise ValueError("duplicate credential enrollment")
-        if len({(row.principal_id, row.permission) for row in self.grants}) != len(self.grants):
+        if len({(row.principal_id, row.permission, row.source) for row in self.grants}) != len(
+            self.grants
+        ):
             raise ValueError("duplicate scoped grant")
         assignments = {
             (row.principal_id, row.role_id, row.builtin_version is not None)
@@ -212,7 +253,7 @@ class PolicySnapshot(_AuthorizationModel):
             raise ValueError("grant principal is missing")
         if any(
             row.principal_id not in principal_ids
-            or row.role_id not in (BUILTIN_PEER_ROLES if row.builtin_version else role_ids)
+            or row.role_id not in (self.builtin_roles if row.builtin_version else role_ids)
             for row in self.role_assignments
         ):
             raise ValueError("role assignment principal or role is missing")
@@ -239,6 +280,63 @@ class PolicySnapshot(_AuthorizationModel):
         """Read the current enrollment for this key on the selected target."""
 
         return next((key for key in self.credentials if key.key_id == key_id), None)
+
+
+class LegacyPolicySnapshot(_PolicyRows):
+    """Read the previous version solely at the retained-policy migration boundary."""
+
+    builtin_roles: ClassVar[frozenset[str]] = _PolicyRows.builtin_roles | {RETIRED_OBSERVER_ROLE}
+    schema_version: Literal[1] = 1
+    default_permission_group: PermissionGroupName | Literal["agent-observer"] = "agent-requester"
+    default_permission_group_version: Literal[1] = 1
+
+    @model_validator(mode="after")
+    def _validate_legacy_grants(self) -> LegacyPolicySnapshot:
+        """Allow only grant rows that could have been written in the previous version."""
+
+        if len(self.grants) > 4096 or any(row.source != "direct" for row in self.grants):
+            raise ValueError("invalid legacy grant rows")
+        return self
+
+
+class PolicySnapshot(_PolicyRows):
+    """Contain all current retained authorization rows read at one revision."""
+
+    schema_version: Literal[2] = 2
+    default_permission_group: PermissionGroupName | None = "agent-requester"
+    default_permission_group_version: Literal[1] | None = 1
+    default_permission_effects: tuple[Permission, ...] = ()
+    principal_default_fallback: tuple[PrincipalDefaultFallback, ...] = Field(
+        default=(), max_length=512
+    )
+
+    @model_validator(mode="after")
+    def _validate_defaults(self) -> PolicySnapshot:
+        """Validate exact migrated defaults and the per-principal fallback fences."""
+
+        exact = self.default_permission_group is None
+        if (self.default_permission_group_version is None) != exact or (
+            self.default_permission_effects != ((STATUS_READ_PERMISSION,) if exact else ())
+        ):
+            raise ValueError("invalid retained default definition")
+        principals = {row.principal_id for row in self.principals}
+        fallback_ids = {row.principal_id for row in self.principal_default_fallback}
+        if (
+            len(fallback_ids) != len(self.principal_default_fallback)
+            or not fallback_ids <= principals
+        ):
+            raise ValueError("invalid principal fallback rows")
+        if any(row.revision > self.revision for row in self.principal_default_fallback):
+            raise ValueError("invalid principal fallback revision")
+        return self
+
+    def find_default_fallback(self, principal_id: str | None) -> PrincipalDefaultFallback | None:
+        """Read the retained override, leaving callers without a row enabled by default."""
+
+        return next(
+            (row for row in self.principal_default_fallback if row.principal_id == principal_id),
+            None,
+        )
 
 
 class AuthorizationActor(_AuthorizationModel):
@@ -324,6 +422,7 @@ class AuthorizationDecision(_AuthorizationModel):
     admin_revision: Annotated[int, Field(ge=0)] | None = None
     default_permission_revision: Annotated[int, Field(ge=0)] | None = None
     default_permissions: tuple[Permission, ...] = Field(default=(), max_length=64)
+    default_fallback_revision: Annotated[int, Field(ge=1)] | None = None
 
     @model_validator(mode="after")
     def _validate_basis(self) -> AuthorizationDecision:
@@ -338,6 +437,10 @@ class AuthorizationDecision(_AuthorizationModel):
             or not set(self.default_permissions).issubset(self.permissions)
         ):
             raise ValueError("invalid default authority evidence")
+        if self.default_fallback_revision is not None and (
+            self.basis != "default" or self.actor.kind != "credential"
+        ):
+            raise ValueError("invalid principal fallback evidence")
         if self.basis == "admin" and self.actor.kind != "credential":
             raise ValueError("an enrolled admin key is required")
         if self.basis == "scoped" and self.actor.kind not in {"credential", "mail"}:

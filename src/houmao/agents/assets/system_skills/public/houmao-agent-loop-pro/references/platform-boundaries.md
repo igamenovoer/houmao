@@ -21,7 +21,7 @@ Use this reference whenever generated pro loops interact with Houmao platform me
 - `houmao-shared-routines->houmao-agent-definition`: specialists, project profiles, `project skills` registration, launch dossiers, credential routing, and `system_skills` pack policy (`houmao-mgr project ...`).
 - `houmao-shared-routines->houmao-utils-workspace-mgr`: multi-agent workspace `plan`, `create`, `validate`, and `summarize` operations (`in-repo-workspace` and `out-of-repo-workspace`).
 - `houmao-shared-routines->houmao-agent-instance`: live agent `launch`, `join`, `relaunch`, `stop`, `cleanup`, `--executor` target selection, and `agents external` registration.
-- `houmao-shared-routines->houmao-agent-access`: gateway admission policy (`open` vs `keyed`), 6-group `default-group` ladder, roles/templates, grants, peer keys, and `self-key` rotation/revocation.
+- `houmao-shared-routines->houmao-agent-access`: gateway admission policy (`open` vs `keyed`), current `default-group` choices and per-principal fallback, roles/templates, grants, peer keys, and `self-key` rotation/revocation.
 - `houmao-shared-routines->houmao-agent-files`: authorized gateway file reads, patches, uploads, and `publish` (`agents self files push --when-idle`) across `workspace`, `memory`, `skills`, and `mcp` mounts.
 - `houmao-shared-routines->houmao-mailbox-mgr`: offline mailbox provisioning/repair/cleanup/export and `agents single|self mailbox online` Stalwart JMAP bindings.
 - `houmao-shared-routines->houmao-agent-email-comms` and `houmao-shared-routines->houmao-process-emails-via-gateway`: ordinary mail `status`/`list`/`read`/`peek`/`send`/`post`/`reply`/`mark`/`move`/`archive` and bounded gateway notifier rounds.

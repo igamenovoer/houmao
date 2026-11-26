@@ -9,8 +9,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, SecretStr
 
-from houmao.mailbox.errors import GatewayMailboxRecipientPolicyError
 from houmao.mailbox.models import (
+    GatewayMailboxMessageV1,
     GatewayMailArchiveRequestV1,
     GatewayMailListRequestV1,
     GatewayMailListResponseV1,
@@ -20,11 +20,13 @@ from houmao.mailbox.models import (
     GatewayMailReplyRequestV1,
     GatewayMailSendRequestV1,
 )
+from houmao.mailbox.policy import MailPolicyReceipt, SignedMailPolicyUpdate
 from houmao.mailbox.registry import (
     OfflineRegistryError,
     OfflineRegistryService,
     RegistryEnrollment,
     RegistryMember,
+    RegistryPolicyOwnerResult,
 )
 from houmao.mailbox.registry_config import OfflineRegistryConfig
 from houmao.mailbox.scope import MailboxScopeError
@@ -37,6 +39,14 @@ class _CredentialReplacement(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     member_credential: SecretStr
+
+
+class _PolicyOwnerReplacement(BaseModel):
+    """Select an active registration and a new independently held owner key."""
+
+    model_config = ConfigDict(extra="forbid")
+    expected_registration_id: str
+    public_key: str | None
 
 
 def create_offline_registry_app(*, config: OfflineRegistryConfig) -> FastAPI:
@@ -99,8 +109,6 @@ def create_offline_registry_app(*, config: OfflineRegistryConfig) -> FastAPI:
     async def mail_error(_request: Request, exc: GatewayMailboxError) -> JSONResponse:
         """Exclude internal filesystem paths from public backend errors."""
 
-        if isinstance(exc, GatewayMailboxRecipientPolicyError):
-            return JSONResponse(status_code=409, content={"code": exc.code, "detail": str(exc)})
         unsupported = isinstance(exc, GatewayMailboxUnsupportedError)
         return JSONResponse(
             status_code=422 if unsupported else 409,
@@ -152,6 +160,81 @@ def create_offline_registry_app(*, config: OfflineRegistryConfig) -> FastAPI:
         """Deliberately replace credentials instead of rotating them on ordinary rejoin."""
 
         return service.replace_credential(agent_id, request.member_credential.get_secret_value())
+
+    @app.put(
+        "/houmao/registry/members/{agent_id}/mail/policy/owner",
+        response_model=RegistryPolicyOwnerResult,
+    )
+    def set_policy_owner(
+        agent_id: str, request: _PolicyOwnerReplacement, _credential: str = Depends(admin_token)
+    ) -> RegistryPolicyOwnerResult:
+        """Enroll, rotate, or revoke the independently held owner key."""
+
+        return service.set_policy_owner(
+            agent_id,
+            expected_registration_id=request.expected_registration_id,
+            public_key=request.public_key,
+        )
+
+    @app.get(
+        "/houmao/registry/members/{agent_id}/mail/policy/receipts/{operation_id}",
+        response_model=MailPolicyReceipt,
+    )
+    def get_policy_receipt(
+        agent_id: str,
+        operation_id: str,
+        expected_registration_id: Annotated[str, Query(min_length=1)],
+        _credential: str = Depends(admin_token),
+    ) -> MailPolicyReceipt:
+        """Verify an applied policy result independently of its relay."""
+
+        return service.policy_receipt(
+            agent_id,
+            expected_registration_id=expected_registration_id,
+            operation_id=operation_id,
+        )
+
+    @app.post(
+        "/houmao/registry/members/{agent_id}/mail/list", response_model=GatewayMailListResponseV1
+    )
+    def owner_list_page(
+        agent_id: str, request: GatewayMailListRequestV1, _credential: str = Depends(admin_token)
+    ) -> GatewayMailListResponseV1:
+        """Allow trusted administration to review the exact mailbox's Archive."""
+
+        return service.owner_list_page(agent_id, request)
+
+    @app.post(
+        "/houmao/registry/members/{agent_id}/mail/peek", response_model=GatewayMailboxMessageV1
+    )
+    def owner_peek(
+        agent_id: str, request: GatewayMailMessageRequestV1, _credential: str = Depends(admin_token)
+    ) -> GatewayMailboxMessageV1:
+        """Review one message through the separately authenticated authority."""
+
+        return service.owner_peek(agent_id, request)
+
+    @app.post("/houmao/registry/members/{agent_id}/mail/archive")
+    def owner_archive(
+        agent_id: str, request: GatewayMailArchiveRequestV1, _credential: str = Depends(admin_token)
+    ) -> dict[str, list[GatewayMailboxMessageV1]]:
+        """File already processed mail through the separate placement authority."""
+
+        return {"messages": service.owner_archive(agent_id, request)}
+
+    @app.post("/houmao/registry/mail/policy/apply", response_model=MailPolicyReceipt)
+    def apply_policy_direct(request: SignedMailPolicyUpdate) -> MailPolicyReceipt:
+        """Authenticate direct policy submission with the exact owner's signature."""
+
+        return service.apply_policy(request)
+
+    @app.post("/houmao/registry/self/mail/policy/apply", response_model=MailPolicyReceipt)
+    def apply_policy_relay(
+        request: SignedMailPolicyUpdate, credential: str = Depends(member_token)
+    ) -> MailPolicyReceipt:
+        """Pin a relayed signature to its runtime credential's own registration."""
+
+        return service.apply_policy(request, credential=credential)
 
     @app.get("/houmao/registry/self", response_model=RegistryMember)
     def self_status(credential: str = Depends(member_token)) -> RegistryMember:

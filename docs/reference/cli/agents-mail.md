@@ -213,11 +213,13 @@ houmao-mgr agents single --agent-id <id> mail archive --channel <offline|online>
 | `--message-ref TEXT` | Message reference. Required and repeatable. |
 | `--port INTEGER` | Houmao pair authority port to use with an explicit selector. |
 
+Use `mail status` to check the selected binding's lifecycle capabilities. On a protected binding, ordinary move, archive, and archived-state marks require the separately authorized mailbox owner path. Reading and replying keep their ordinary scope.
+
 ## Confirm and Inspect a Mail Write
 
 `send`, `reply`, and `post` return a version-1 CLI receipt. Report the status and reference from the first write. Plain, fancy, and JSON output expose the same receipt fields. Choose `--print-json` on the write if a script needs structured output.
 
-An authoritative receipt reports `status: verified` and `execution_path: gateway_backed` or `manager_direct`. It confirms the filesystem commit or provider-acknowledged submission. The receipt gives the `channel`, `binding_id`, `principal_id`, and `address` of the mailbox that owns `message_ref`. It also gives the actual `sender_address`, `to`, `cc`, `subject`, and `created_at_utc`. For a reply, `parent_message_ref` identifies the original message. For an operator post, `address` is the recipient's mailbox and `sender_address` is the reserved operator address.
+An authoritative receipt reports `status: verified` and `execution_path: gateway_backed` or `manager_direct`. Its `transport_evidence` is `offline_deposit` for a committed offline delivery or `provider_submission` for provider acceptance. Recipient block rules and filing outcomes stay private. The receipt gives the `channel`, `binding_id`, `principal_id`, and `address` of the mailbox that owns `message_ref`. It also gives the actual `sender_address`, `to`, `cc`, `subject`, and `created_at_utc`. For a reply, `parent_message_ref` identifies the original message. For an operator post, `address` is the recipient's mailbox and `sender_address` is the reserved operator address.
 
 CLI JSON consumers previously read `message.message_ref`. Read top-level `message_ref` from the receipt now. Gateway and pair HTTP clients continue to receive their existing action response. Use read-only `peek` to inspect the created message, including after it moves to another box.
 
