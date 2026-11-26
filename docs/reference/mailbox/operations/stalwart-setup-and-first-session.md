@@ -12,6 +12,10 @@ Canonical mail identity uses the configured online address, including during an 
 
 Stalwart owns online messages, delivery, flags, and reply ancestry. Houmao owns the runtime binding, immutable private credential copies, connection epochs, gateway routing, and notifier admission. Filesystem mailbox rules, symlink views, and mailbox-local SQLite state apply to offline mail only.
 
+## Configure Incoming Mail Policy
+
+Set sender allowlists and blocklists in Stalwart. Use the account's safe and blocked sender lists for spam handling. For a rule that decides who may deliver to the inbox, have the Stalwart administrator configure a system Sieve rule using the authenticated submitting account and the intended recipient. Houmao separately decides when to admit a notification and who may issue privileged gateway commands. [Stalwart filtering](https://stalw.art/docs/mta/filter/) · [Recipient Policy Qualification](stalwart-qualification.md#recipient-policy-qualification)
+
 ## Prepare an Existing Account
 
 Have the account administrator provide its normal login, authorized sending address, and JMAP session-discovery URL. An explicitly selected account ID is required when discovery has multiple eligible accounts. Login and address may differ. The selected account needs writable JMAP submission, a matching sender identity, and Inbox, Sent, and Archive roles. Inbox needs rights to read, update flags, and remove items. Sent and Archive need rights to add items. Ask the provider administrator to prepare the missing identity, role, or permission reported by attach, then repeat the operation.
@@ -28,7 +32,7 @@ Prefer an explicit discovery URL. The development service uses `http://127.0.0.1
 
 ## Attach the Gateway and Account
 
-Set `agent_id` to the running agent's stable ID. The gateway companion is required for online control commands:
+Set `agent_id` to the running agent's stable ID. Online attachment currently requires a gateway with an empty administrator key roster, even if the provider has delivery rules. The gateway companion is required for online control commands:
 
 ```bash
 pixi run houmao-mgr agents single --agent-id "$agent_id" gateway attach
