@@ -40,7 +40,7 @@ def _local_memory_target(tmp_path: Path) -> ManagedAgentTarget:
     return ManagedAgentTarget(
         mode="local",
         agent_ref="agent-123",
-        identity=cast(Any, SimpleNamespace(agent_id="agent-123")),
+        identity=cast(Any, SimpleNamespace(agent_id="agent-123", backend="local_interactive")),
         controller=cast(Any, controller),
     )
 

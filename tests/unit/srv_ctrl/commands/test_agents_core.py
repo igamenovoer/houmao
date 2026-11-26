@@ -72,6 +72,7 @@ def test_native_open_browser_reports_one_verified_outcome(
 
     target = SimpleNamespace(
         mode="local",
+        identity=SimpleNamespace(backend="kimi_web"),
         controller=SimpleNamespace(
             backend_session=backend,
             execution_scope=nullcontext,
