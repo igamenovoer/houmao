@@ -9,5 +9,6 @@ Run bundles against a live checkout using the project-local Git-ignored temporar
 | Bundle | Harness | Coverage |
 | --- | --- | --- |
 | `agent-cccc` | [agent-cccc/README.md](agent-cccc/README.md) | Two-agent CCCC chat discovery, handle-based threaded replies and receipts, push batching, busy-agent pending delivery, in-turn gateway queue reads, gateway reattachment recovery, and no-mail channel auditing. |
+| `agent-cccc-cuda-coop` | [agent-cccc-cuda-coop/README.md](agent-cccc-cuda-coop/README.md) | Four-agent (`lead`, `algo`, `kernel`, `profiler`) CCCC chat collaboration on manifest-selectable pure-CUDA optimization tasks (`gdn_prefill` default, `fused_moe` optional) using `nvcc`/`ncu`/`nsys` with independent locked-driver verification. |
 | `agent-mail-stalwart` | [agent-mail-stalwart/README.md](agent-mail-stalwart/README.md) | Product provisioning and direct JMAP attachment, notifier wake-up, threaded reply and archive, and a two-agent mail round trip. |
 | `skill-update` | [skill-update/README.md](skill-update/README.md) | Intra-agent and inter-agent versioned `skills` mount updates on managed DSH Web agents, including peer authorization, keyed-roster revocation, busy/queued self-push handling, and next-turn skill loading. |

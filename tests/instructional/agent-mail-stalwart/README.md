@@ -1,13 +1,14 @@
 # Instructional Agent Mail Over a Real Stalwart Service
 
-Agent-driven verification for a managed DSH Web agent that receives and answers real email through a Stalwart server. The suite exercises the online mailbox binding, gateway mail-notifier, provider-side delivery, agent reply and archive, and a two-agent round trip. It uses run-owned accounts and never starts, stops, resets, or reconfigures the selected mail service.
+Status: draft
+
+Agent-driven verification for managed Web agents that receive and answer real email through a Stalwart server. The suite exercises the online mailbox binding, gateway mail-notifier, provider-side delivery, agent reply and archive, and a two-agent round trip. It uses run-owned accounts and never starts, stops, resets, or reconfigures the selected mail service.
 
 ## Baseline Preconditions & Isolation
 
 - Realwork checkout: Houmao repository root on `devel` (`$REPO_ROOT`, resolved via `git rev-parse --show-toplevel`).
 - Manager: select a `houmao-mgr` built from this checkout, such as the editable Pixi or uv installation. Set `HOUMAO_MGR` to the selected executable.
-- Model lane: self-hosted Qwen at `http://127.0.0.1:14888/v1`, model `Qwen/Qwen3.8-27B-FP8`, context window `262144`, maximum output tokens `8192`, reasoning map `{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}`, compatibility `{"supports_developer_role":false}`.
-- DSH executable: the qualified build `0.2.2-rc.3` at `$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`.
+- Model pool: select a Web-capable key with `HOUMAO_TEST_MODEL` for both agents. Set `HOUMAO_TEST_MODEL_A` or `HOUMAO_TEST_MODEL_B` to override either slot. [Model pool setup](../../fixtures/agent-launch/README.md)
 - Mail service: select an already-running Stalwart deployment. The bundled stack publishes JMAP discovery at `http://127.0.0.1:10080/.well-known/jmap` by default. [Local stack setup](../../../dockers/email-system/README.md)
 - Accounts: select a sandbox domain that supports JMAP sending identities. The product provisioner creates two run-owned mailboxes with verified sending identities and Archive roles. Use a separate domain from the bundled development accounts on `houmao.localhost`.
 - Endpoints: provide `trusted_jmap_origins` only for the exact origins approved for this run. Default loopback discovery and same-origin advertised endpoints require no extra approvals.
@@ -35,15 +36,15 @@ export BUNDLE_ROOT="$REPO_ROOT/tests/instructional/agent-mail-stalwart"
 export RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-agent-mail"
 export RUN_TMP="$REPO_ROOT/tmp/instructional-tests/$RUN_ID"
 export HOUMAO_MGR="${HOUMAO_MGR:-$(command -v houmao-mgr || echo "$HOME/.local/share/uv/tools/houmao/bin/houmao-mgr")}"
-export DSH_EXECUTABLE="${DSH_EXECUTABLE:-$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js}"
-export BASE_URL="http://127.0.0.1:14888/v1"
-export MODEL="Qwen/Qwen3.8-27B-FP8"
 export EVIDENCE="$RUN_TMP/evidence/agent-mail-stalwart"
 mkdir -p "$RUN_TMP/scripts" "$RUN_TMP/runtime/runs-a" "$RUN_TMP/runtime/runs-b" "$RUN_TMP/runtime/mail" "$EVIDENCE"
 git check-ignore -q "$RUN_TMP" || { echo "RUN_TMP is not Git-ignored: $RUN_TMP" >&2; exit 1; }
 chmod 700 "$RUN_TMP"
-curl -fsS "$BASE_URL/models" >/dev/null
-test -x "$DSH_EXECUTABLE"
+for slot in a b; do
+  pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" check \
+    --pool-slot "$slot" --mode web --surface manager --live \
+    > "$EVIDENCE/$slot-check.json" || exit 1
+done
 ```
 
 Select the provider in an owner-private `$RUN_TMP/runtime/mail/service.json`. For the bundled stack, use the active Stalwart HTTP port and select its admin username and password from the stack's private configuration. Write those values into a separate owner-private JSON file with `user` and `password` keys. The configuration below uses a relative credential reference.
@@ -88,12 +89,8 @@ Prepare both agents from the tracked correspondent role.
 
 ```bash
 pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" prepare \
-  --case self-hosted --client dsh --mode web --surface manager \
-  --model "$MODEL" --base-url "$BASE_URL" \
-  --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}' \
-  --dsh-compat '{"supports_developer_role":false}' \
-  --executable "$DSH_EXECUTABLE" --prompt-mode unattended --tmux-server new \
+  --pool-slot a --mode web --surface manager \
+  --prompt-mode unattended --tmux-server new \
   --role mail-a \
   --system-prompt-file "$BUNDLE_ROOT/helpers/roles/mail-correspondent.md" \
   --run-root "$RUN_TMP/runtime/runs-a" > "$EVIDENCE/a-prepare.json"
@@ -101,16 +98,12 @@ export RUN_A="$(jq -r '.run_dir' "$EVIDENCE/a-prepare.json")"
 test -f "$RUN_A/run.json"
 ```
 
-Repeat for the peer with `--role mail-b` and `--run-root "$RUN_TMP/runtime/runs-b"`:
+Prepare the peer with slot `b` and its own run root.
 
 ```bash
 pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" prepare \
-  --case self-hosted --client dsh --mode web --surface manager \
-  --model "$MODEL" --base-url "$BASE_URL" \
-  --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}' \
-  --dsh-compat '{"supports_developer_role":false}' \
-  --executable "$DSH_EXECUTABLE" --prompt-mode unattended --tmux-server new \
+  --pool-slot b --mode web --surface manager \
+  --prompt-mode unattended --tmux-server new \
   --role mail-b \
   --system-prompt-file "$BUNDLE_ROOT/helpers/roles/mail-correspondent.md" \
   --run-root "$RUN_TMP/runtime/runs-b" > "$EVIDENCE/b-prepare.json"
@@ -172,7 +165,7 @@ Save every artifact under `$RUN_TMP/evidence/agent-mail-stalwart/<scenario-slug>
 | `peer-send.json` | The provider submission receipt and the selected subject and recipients. |
 | `b-inbox-*.json`, `b-archive.json` | The tagged provider message before handling and its Archive membership afterward. |
 | `a-inbox-reply.json` | The reply message in the peer account, with sender, subject, and thread metadata. |
-| `b-transcript-0.jsonl` | The recipient's actual DSH session transcript showing the mailbox tool calls and reply. |
+| `b-transcript-0.jsonl` | The recipient's native Web transcript showing the mailbox tool calls and reply. |
 | `stop.json` | Agent stop receipts, private tmux cleanup, verified principal absence, and the surviving evidence root. |
 
 A pass requires the triggering action and the resulting state from two views: the agent transcript or command receipt, plus a read-only provider mailbox read. Cleanup must preserve `evidence/`.

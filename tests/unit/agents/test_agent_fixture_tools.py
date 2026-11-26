@@ -748,6 +748,43 @@ def test_kimi_fixtures_share_native_catalog_and_prepare_profile(
     assert "KIMI_MODEL_NAME" not in env_file.read_text()
 
 
+@pytest.mark.parametrize(
+    ("client", "metadata", "surface", "level", "error"),
+    [
+        ("kimi", {"support_efforts": ["brief"]}, "manager", 2, "highest kimi preset"),
+        ("dsh", {"dsh_reasoning": "false"}, "manager", 0, "declared DSH reasoning slots"),
+        ("dsh", {"dsh_reasoning": '{"low":"low"}'}, "manager", 0, "unavailable"),
+        ("dsh", {"dsh_reasoning": '{"low":"low"}'}, "manager", 2, "highest dsh preset"),
+        ("dsh", {}, "raw", 1, "requires --surface manager"),
+        ("kimi", {}, "passive-server", 0, "requires --surface manager"),
+        ("codex", {}, "manager", -1, "must be nonnegative"),
+    ],
+)
+def test_manager_reasoning_rejects_unavailable_presets(
+    fixture_config: ModuleType,
+    client: str,
+    metadata: dict[str, object],
+    surface: str,
+    level: int,
+    error: str,
+) -> None:
+    """Reject invalid birth-time presets instead of clamping them or allocating state."""
+
+    with pytest.raises(fixture_config.FixtureError, match=error):
+        fixture_config.resolve_config(
+            case="self-hosted",
+            client=client,
+            surface=surface,
+            model="fixture-model",
+            base_url="https://models.example.invalid/v1",
+            process_env={},
+            context_window=4096,
+            max_output_tokens=512,
+            reasoning_level=level,
+            **metadata,
+        )
+
+
 def test_sanitized_launch_env_overrides_ambient_accounts_and_tmux_bindings(
     fixture_prepare: ModuleType,
     tmp_path: Path,

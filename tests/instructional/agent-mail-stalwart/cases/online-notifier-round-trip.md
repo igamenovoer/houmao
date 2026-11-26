@@ -60,7 +60,7 @@ pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" transcript \
   --output "$EVIDENCE/online-notifier-round-trip/b"
 ```
 
-  Copy the recipient's `session.v4.jsonl` under that directory. The transcript shows the mailbox read, reply, and archive calls for the selected message.
+  The helper copies the recipient's native journal under that directory. The transcript shows the mailbox read, reply, and archive calls for the selected message.
 
 - **Proof.** The pass requires all of: one tagged provider message in `b-inbox-before.json`; one reply in `a-inbox-reply.json` with a matching thread; no unarchived inbox copy in `b-inbox-after.json` plus the matching provider Archive record; a notifier timestamp advance; and the transcript actions. Save the artifacts under `$EVIDENCE/online-notifier-round-trip/` and confirm they exist after cleanup.
 
@@ -75,5 +75,5 @@ pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" transcript \
 ## Blinding and Transcript Checks
 
 - Keep `eval`, `test`, `judge`, `rubric`, `benchmark`, and `candidate` out of the mail body and notifier appendix. The notifier text is ordinary operator guidance.
-- Grade from the recipient's DSH session transcript and provider mailbox state, not from the agent's final summary.
+- Grade from the recipient's native Web transcript and provider mailbox state. Use the agent's final summary only for context.
 - The correspondent role is a general work role. Do not replace it with an acknowledgement-only prompt for this case.

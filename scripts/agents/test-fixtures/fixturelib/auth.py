@@ -319,6 +319,34 @@ def bundle_path(root: Path, client: Client, name: str) -> Path:
     return root / client / name
 
 
+def validate_native_bundle(config: ResolvedConfig) -> None:
+    """Verify the identity and primary credential file of a selected import."""
+
+    path = config.native_bundle
+    if path is None:
+        raise FixtureError("Select an imported native bundle from the external local store")
+    validate_external_path(path)
+    if not (path / "import.json").is_file():
+        raise FixtureError("Select an imported native bundle from the external local store")
+    try:
+        imported = json.loads((path / "import.json").read_text())
+    except (OSError, ValueError):
+        raise FixtureError("Cannot read native bundle identity") from None
+    if (
+        not isinstance(imported, dict)
+        or imported.get("client") != config.client
+        or imported.get("schema_version") != 1
+    ):
+        raise FixtureError("Imported native bundle belongs to another client or schema")
+    primary = {
+        "claude": ".credentials.json",
+        "codex": "auth.json",
+        "kimi": "credentials/kimi-code.json",
+    }.get(config.client)
+    if primary is None or not (path / "files" / primary).is_file():
+        raise FixtureError("Imported native bundle is missing its supported auth file")
+
+
 def import_auth(
     candidate: AuthCandidate,
     *,

@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 import yaml
 
+from houmao.agents.dsh_configuration import DshEffectiveToolParams
 from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.run_modes import RunMode, RunModeSelection, resolve_run_mode
 
@@ -122,6 +123,14 @@ class ModelOptions(BaseModel):
     reasoning_key: str | None = Field(default=None, pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     reasoning_effort: str | None = Field(default=None, min_length=1)
     support_efforts: list[str] = Field(default_factory=list)
+
+    @property
+    def kimi_effort_catalog(self) -> list[str]:
+        """Return the effort order used by the generated native Kimi config."""
+
+        if self.support_efforts:
+            return self.support_efforts
+        return [self.reasoning_effort] if self.reasoning_effort else []
 
 
 class ResolvedConfig(BaseModel):
@@ -275,6 +284,58 @@ def fixture_run_mode(client: Client, mode: RunMode | None, surface: Surface) -> 
         raise FixtureError(str(exc)) from exc
 
 
+def validate_reasoning_level(
+    config: ResolvedConfig,
+    *,
+    dsh_tool_params: DshEffectiveToolParams | None = None,
+) -> None:
+    """Require an exact manager preset before preparation allocates a run."""
+
+    from houmao.agents.kimi_configuration import load_kimi_config
+    from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
+
+    level = config.reasoning_level
+    if level is None:
+        return
+    if config.surface != "manager":
+        raise FixtureError("--reasoning-level requires --surface manager")
+    if config.client == "dsh" and config.model_options.dsh_reasoning is False:
+        raise FixtureError("--reasoning-level requires declared DSH reasoning slots")
+
+    kimi_config = None
+    try:
+        if config.client == "kimi":
+            if config.native_bundle is not None:
+                kimi_config = load_kimi_config(config.native_bundle / "files/config.toml")
+            else:
+                kimi_config = {
+                    "default_model": config.model,
+                    "models": {
+                        config.model: {
+                            "capabilities": config.model_options.capabilities,
+                            "support_efforts": config.model_options.kimi_effort_catalog,
+                        }
+                    },
+                }
+        mapping = resolve_reasoning_mapping(
+            tool=config.client,
+            requested_level=level,
+            model_name=config.model,
+            kimi_config=kimi_config,
+            dsh_tool_params=dsh_tool_params,
+        )
+    except ValueError:
+        raise FixtureError(
+            f"--reasoning-level {level} is unavailable for the selected {config.client} model; "
+            "check its declared reasoning presets"
+        ) from None
+    if mapping["saturated"]:
+        raise FixtureError(
+            f"--reasoning-level {level} exceeds the highest {config.client} preset "
+            f"({mapping['effective_level']}) for the selected model"
+        )
+
+
 def resolve_config(
     *,
     case: str,
@@ -305,8 +366,8 @@ def resolve_config(
         raise FixtureError("Select case self-hosted or cloud-api")
     if support_efforts is not None and client != "kimi":
         raise FixtureError("--support-effort requires --client kimi")
-    if reasoning_level is not None and (client != "kimi" or surface != "manager"):
-        raise FixtureError("--reasoning-level requires --client kimi --surface manager")
+    if reasoning_level is not None and surface != "manager":
+        raise FixtureError("--reasoning-level requires --surface manager")
     if reasoning_level is not None and reasoning_level < 0:
         raise FixtureError("--reasoning-level must be nonnegative")
     if client == "dsh" and env_file is None and process_env is None and case == "cloud-api":
@@ -418,8 +479,6 @@ def resolve_config(
             raise FixtureError("Kimi --support-effort labels must be nonempty and unique")
         if efforts and options.reasoning_effort and options.reasoning_effort not in efforts:
             raise FixtureError("Kimi --reasoning-effort must appear in the ordered effort catalog")
-        if reasoning_level and not efforts and not options.reasoning_effort:
-            raise FixtureError("A positive Kimi reasoning level requires --support-effort")
     result = ResolvedConfig(
         case=case,
         client=client,
@@ -436,9 +495,8 @@ def resolve_config(
         reasoning_level=reasoning_level,
         dsh=dsh_route,
     )
+    dsh_tool_params = None
     if client == "dsh":
-        from houmao.agents.dsh_configuration import DshEffectiveToolParams
-
         if (
             options.context_window is None
             or options.max_output_tokens is None
@@ -449,7 +507,8 @@ def resolve_config(
                 "or the case's declared metadata references"
             )
         try:
-            DshEffectiveToolParams.from_mapping(result.dsh_tool_params())
+            dsh_tool_params = DshEffectiveToolParams.from_mapping(result.dsh_tool_params())
         except ValueError as exc:
             raise FixtureError("Invalid explicit DSH route or model metadata") from exc
+    validate_reasoning_level(result, dsh_tool_params=dsh_tool_params)
     return result

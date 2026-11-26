@@ -1,0 +1,37 @@
+# Copy this template into the external fixture data directory with mode 0600.
+# Replace example model IDs and routing details with the values for this machine.
+schema_version = 1
+
+[models.local_dsh]
+client = "dsh"
+case = "self-hosted"
+model = "example-local-model"
+base_url = "https://self-hosted.example.invalid/v1"
+executable = "/path/to/bin/dsh"
+context_window = 32768
+max_output_tokens = 4096
+dsh_protocol = "openai-completions"
+dsh_reasoning = { off = "none", low = "low", medium = "medium", xhigh = "xhigh" }
+dsh_compat = { supports_developer_role = false }
+reasoning_level = 3
+supported_modes = ["web", "headless"]
+# For authenticated endpoints, supply an external env_file with the case's API-key reference.
+
+[models.cloud_dsh]
+client = "dsh"
+case = "cloud-api"
+model = "example-cloud-model"
+base_url = "https://cloud.example.invalid/anthropic"
+env_file = "/path/to/private/deepseek.env"
+context_window = 32768
+max_output_tokens = 4096
+dsh_reasoning = false
+supported_modes = ["web"]
+# The separate env file supplies DEEPSEEK_API_KEY for the tracked cloud descriptor.
+
+[models.native_codex]
+client = "codex"
+auth_method = "native-login"
+auth_bundle = "example-imported-bundle"
+model = "example-native-model"
+supported_modes = ["headless", "tui", "service"]

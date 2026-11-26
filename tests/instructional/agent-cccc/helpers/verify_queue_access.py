@@ -10,7 +10,14 @@ import shlex
 import sys
 from typing import Any
 
-from cccc_lab import LabError, cccc_json, load_meta, read_json
+from cccc_lab import (
+    LabError,
+    cccc_json,
+    load_meta,
+    native_tool_calls,
+    native_user_messages,
+    read_json,
+)
 
 
 def _require(condition: bool, message: str) -> None:
@@ -57,59 +64,42 @@ def _attribution(message: dict[str, Any]) -> tuple[str, str, str, str]:
     return message["sender"], message["timestamp"], message["mode"], message["text"]
 
 
-def _recipient_trace(evidence: Path) -> tuple[int, list[str]]:
+def _recipient_trace(evidence: Path) -> tuple[int | str, list[str]]:
     """Find successful queue and reply steps within one recipient turn."""
 
-    calls: dict[str, tuple[int, str, dict[str, Any]]] = {}
-    successes: set[str] = set()
     requests: list[str] = []
+    commands_by_turn: dict[tuple[Path, int | str], list[str]] = {}
     for path in sorted(evidence.glob("b-transcript-*.jsonl")):
-        for line in path.read_text().splitlines():
-            row = json.loads(line)
-            data = row.get("data") or {}
-            kind = row.get("type")
-            if kind == "tool/call" and data.get("name") in {"bash", "write"}:
-                calls[data["callId"]] = (
-                    data["turn"],
-                    data["name"],
-                    json.loads(data["arguments"]),
-                )
-            elif kind == "tool/result":
-                message = data.get("message") or {}
-                if message.get("isError") is False:
-                    successes.add(message.get("toolCallId", ""))
-            elif kind == "user/message":
-                for part in data.get("content", []):
-                    text = part.get("text", "")
-                    if isinstance(text, str) and "<<< BEGIN CCCC REQUEST >>>" in text:
-                        requests.append(text)
-    commands_by_turn: dict[int, list[str]] = {}
-    scripts: dict[tuple[int, str], str] = {}
-    for call, (turn, name, arguments) in calls.items():
-        if call not in successes:
-            continue
-        if name == "write":
-            path, content = arguments.get("file_path"), arguments.get("content")
-            if isinstance(path, str) and isinstance(content, str):
-                scripts[(turn, Path(path).name)] = content
-            continue
-        command = arguments.get("command")
-        if not isinstance(command, str):
-            continue
-        commands = commands_by_turn.setdefault(turn, [])
-        commands.append(command)
-        for line in command.splitlines():
-            if line.lstrip().startswith(("bash ", "sh ")):
-                try:
-                    parts = shlex.split(line)
-                except ValueError:
-                    continue
-                if len(parts) > 1 and (turn, Path(parts[1]).name) in scripts:
-                    commands.append(scripts[(turn, Path(parts[1]).name)])
+        requests.extend(
+            text for _, text in native_user_messages(path) if "<<< BEGIN CCCC REQUEST >>>" in text
+        )
+        scripts: dict[tuple[int | str, str], str] = {}
+        for turn, name, arguments, succeeded in native_tool_calls(path):
+            if not succeeded or turn is None:
+                continue
+            if name == "write":
+                script_path = arguments.get("file_path") or arguments.get("path")
+                content = arguments.get("content")
+                if isinstance(script_path, str) and isinstance(content, str):
+                    scripts[(turn, Path(script_path).name)] = content
+                continue
+            command = arguments.get("command")
+            if name != "bash" or not isinstance(command, str):
+                continue
+            commands = commands_by_turn.setdefault((path, turn), [])
+            commands.append(command)
+            for line in command.splitlines():
+                if line.lstrip().startswith(("bash ", "sh ")):
+                    try:
+                        parts = shlex.split(line)
+                    except ValueError:
+                        continue
+                    if len(parts) > 1 and (turn, Path(parts[1]).name) in scripts:
+                        commands.append(scripts[(turn, Path(parts[1]).name)])
     operations = ("peek", "pop", "ack", "pop-result", "reply")
     turns = [
         turn
-        for turn, commands in commands_by_turn.items()
+        for (_, turn), commands in commands_by_turn.items()
         if all(
             any(re.search(rf"\bchat\s+{operation}(?:\s|$)", command) for command in commands)
             for operation in operations

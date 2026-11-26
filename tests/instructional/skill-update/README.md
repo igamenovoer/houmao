@@ -1,13 +1,14 @@
 # Instructional Skill-Update Suite
 
+Status: draft
+
 Agent-driven verification for intra-agent and inter-agent updates of a managed DSH Web agent's versioned `skills` mount. The suite exercises the real managed-agent surface: `houmao-mgr agents single ... files` discovery, draft leases, commits, publication receipts, target skill loading, and the documented busy refusal for a self-push during the agent's own active turn.
 
 ## Baseline Preconditions & Isolation
 
 - Realwork checkout: Houmao repository root on `devel` (`$REPO_ROOT`, resolved via `git rev-parse --show-toplevel`).
 - Manager: the uv-installed `houmao-mgr` 3.0.0rc6 or newer. Set `HOUMAO_MGR` to that binary (defaulting to `houmao-mgr` on `PATH` or `$HOME/.local/share/uv/tools/houmao/bin/houmao-mgr`).
-- Model lane: self-hosted Qwen at `http://127.0.0.1:14888/v1`, model `Qwen/Qwen3.8-27B-FP8`, context window `262144`, maximum output tokens `8192`, reasoning map `{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}`, compatibility `{"supports_developer_role":false}`.
-- DSH executable: the qualified build `0.2.2-rc.3` at `$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`.
+- Model pool: select a DSH Web key with `HOUMAO_TEST_MODEL` for both agents. Set `HOUMAO_TEST_MODEL_TARGET` or `HOUMAO_TEST_MODEL_SOURCE` to override either slot. Both roles use DSH Web for this suite's native skill-mount and transcript checks. [Model pool setup](../../fixtures/agent-launch/README.md)
 - Project-local temporary root: `$REPO_ROOT/tmp/instructional-tests/<run-id>/`. `tmp/` is Git-ignored; every temporary script (`scripts/`), disposable runtime directory (`runtime/`), and surviving proof artifact (`evidence/skill-update/<scenario-slug>/`) stays there.
 - Isolation: each fixture prepares with `--tmux-server new` and owns a separate tmux socket, registry, runtime root, home, gateway port, and native Web origin. Never touch the caller's default tmux server or any agent this run did not create.
 - Target launch posture: `managed_web_skills: true` in the DSH tool params, prompt mode `as_is`, native permission parameters at their defaults, DSH Web backend, attached gateway.
@@ -16,33 +17,37 @@ Agent-driven verification for intra-agent and inter-agent updates of a managed D
 
 ## Launch
 
-Set the shared shell variables first. These are concrete values, not prompts for user input.
+Set the shared shell variables and verify both model selections.
 
 ```bash
+umask 077
+unset TMUX TMUX_PANE TMUX_TMPDIR
 export REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel)}"
 export BUNDLE_ROOT="$REPO_ROOT/tests/instructional/skill-update"
 export RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-skill-update"
 export RUN_TMP="$REPO_ROOT/tmp/instructional-tests/$RUN_ID"
 export HOUMAO_MGR="${HOUMAO_MGR:-$(command -v houmao-mgr || echo "$HOME/.local/share/uv/tools/houmao/bin/houmao-mgr")}"
-export DSH_EXECUTABLE="${DSH_EXECUTABLE:-$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js}"
-export BASE_URL="http://127.0.0.1:14888/v1"
-export MODEL="Qwen/Qwen3.8-27B-FP8"
 mkdir -p "$RUN_TMP/scripts" "$RUN_TMP/runtime/runs" "$RUN_TMP/runtime/runs-source" "$RUN_TMP/evidence/skill-update"
 git check-ignore -q "$RUN_TMP" || { echo "RUN_TMP is not Git-ignored: $RUN_TMP" >&2; exit 1; }
-curl -fsS "$BASE_URL/models" >/dev/null
-test -x "$DSH_EXECUTABLE"
+for slot in target source; do
+  check_file="$RUN_TMP/evidence/skill-update/$slot-check.json"
+  pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" check \
+    --pool-slot "$slot" --mode web --surface manager > "$check_file" || exit 1
+  jq -e '.configuration.client == "dsh"' "$check_file" >/dev/null || {
+    printf 'Select a DSH Web model pool entry for the %s slot.\n' "$slot" >&2
+    exit 1
+  }
+  pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" check \
+    --pool-slot "$slot" --mode web --surface manager --live > "$check_file" || exit 1
+done
 ```
 
 Prepare the target from the tracked target role. The `skills` mount is exposed only when the target launches with `managed_web_skills: true`.
 
 ```bash
 pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" prepare \
-  --case self-hosted --client dsh --mode web --surface manager \
-  --model "$MODEL" --base-url "$BASE_URL" \
-  --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}' \
-  --dsh-compat '{"supports_developer_role":false}' \
-  --executable "$DSH_EXECUTABLE" --prompt-mode as_is --tmux-server new \
+  --pool-slot target --mode web --surface manager \
+  --prompt-mode as_is --tmux-server new \
   --role skill-target \
   --system-prompt-file "$BUNDLE_ROOT/helpers/roles/skill-target.md" \
   --run-root "$RUN_TMP/runtime/runs" > "$RUN_TMP/evidence/skill-update/target-prepare.json"
@@ -54,12 +59,8 @@ Prepare the source from the tracked source role. The source does not need the mo
 
 ```bash
 pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" prepare \
-  --case self-hosted --client dsh --mode web --surface manager \
-  --model "$MODEL" --base-url "$BASE_URL" \
-  --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}' \
-  --dsh-compat '{"supports_developer_role":false}' \
-  --executable "$DSH_EXECUTABLE" --prompt-mode as_is --tmux-server new \
+  --pool-slot source --mode web --surface manager \
+  --prompt-mode as_is --tmux-server new \
   --role skill-source \
   --system-prompt-file "$BUNDLE_ROOT/helpers/roles/skill-source.md" \
   --run-root "$RUN_TMP/runtime/runs-source" > "$RUN_TMP/evidence/skill-update/source-prepare.json"

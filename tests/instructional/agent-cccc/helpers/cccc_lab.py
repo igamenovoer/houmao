@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator
 import hashlib
 import importlib.metadata
 import json
@@ -307,15 +308,111 @@ def assert_same_body(before: dict[str, Any], after: dict[str, Any]) -> None:
         raise LabError(f"CCCC attachment changed native body identity: {', '.join(changed)}")
 
 
-def session_files(run_dir: Path) -> list[Path]:
-    """Return native DSH transcripts sorted by modification time."""
-    homes = run_dir / "runtime" / "homes"
-    if not homes.is_dir():
-        return []
-    return sorted(
-        (path for path in homes.rglob("session.v4.jsonl") if path.is_file()),
+def session_files(run_dir: Path, *, main_only: bool = False) -> list[Path]:
+    """Return the selected Web client's native transcripts from its fixture home."""
+
+    run = load_run(run_dir)
+    client = run["configuration"]["client"]
+    filename = {"dsh": "session.v4.jsonl", "kimi": "wire.jsonl"}.get(client)
+    if filename is None:
+        raise LabError(f"No native transcript reader for Web client {client}")
+    homes = (run_dir / "runtime" / "homes").resolve()
+    files = sorted(
+        (path for path in homes.rglob(filename) if path.is_file() and path.resolve() == path),
         key=lambda path: path.stat().st_mtime,
     )
+    if client == "kimi":
+        manifest = read_json(
+            Path(run["identity"]["manifest_path"]), label="managed session manifest"
+        )
+        evidence = (manifest.get("backend_state") or {}).get("evidence_path")
+        main = Path(evidence) if isinstance(evidence, str) else None
+        if main is None or main not in files or main.parts[-3:] != ("agents", "main", "wire.jsonl"):
+            raise LabError("Kimi Web manifest does not select a main journal in the fixture home")
+        if main_only:
+            return [main]
+        files.remove(main)
+        files.append(main)
+    return files
+
+
+def _native_rows(path: Path) -> Iterator[dict[str, Any]]:
+    """Read complete native journal records while a Web process may still append."""
+
+    with path.open(encoding="utf-8") as stream:
+        for line in stream:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                if not line.endswith("\n"):
+                    break
+                raise LabError(f"Invalid native transcript record: {path}") from None
+            if isinstance(row, dict):
+                yield row
+
+
+def native_user_messages(path: Path) -> Iterator[tuple[str, str]]:
+    """Read user-input text and message or prompt IDs from either native journal."""
+
+    for row in _native_rows(path):
+        kind = row.get("type")
+        if kind == "user/message":
+            data = row["data"]
+            origin, message_id, content = data.get("source"), data.get("id"), data.get("content")
+        elif kind == "turn.prompt":
+            origin, message_id, content = row.get("origin"), row.get("promptId"), row.get("input")
+        else:
+            continue
+        if not isinstance(origin, dict) or origin.get("kind") != "user" or message_id is None:
+            continue
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    yield str(message_id), part["text"]
+
+
+def native_tool_calls(
+    path: Path,
+) -> Iterator[tuple[int | str | None, str, dict[str, Any], bool]]:
+    """Read each native call and correlate completed results within its journal."""
+
+    calls: list[tuple[str, int | str | None, str, dict[str, Any]]] = []
+    successes: set[str] = set()
+    for row in _native_rows(path):
+        kind = row.get("type")
+        data = row.get("data") or {}
+        if kind == "tool/call":
+            call_id, turn, name = data.get("callId"), data.get("turn"), data.get("name")
+            try:
+                arguments = json.loads(data.get("arguments") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                continue
+        elif kind == "tool/result":
+            result = data.get("message") or {}
+            if result.get("isError") is False and isinstance(result.get("toolCallId"), str):
+                successes.add(result["toolCallId"])
+            continue
+        elif kind == "context.append_loop_event":
+            event = row.get("event") or {}
+            call_id = event.get("toolCallId")
+            if event.get("type") == "tool.result":
+                result = event.get("result")
+                if (
+                    isinstance(result, dict)
+                    and result.get("isError", False) is False
+                    and isinstance(call_id, str)
+                ):
+                    successes.add(call_id)
+                continue
+            if event.get("type") != "tool.call":
+                continue
+            turn, name, arguments = event.get("turnId"), event.get("name"), event.get("args")
+        else:
+            continue
+        if isinstance(call_id, str) and isinstance(name, str) and isinstance(arguments, dict):
+            calls.append((call_id, turn, name.lower(), arguments))
+    for call_id, turn, name, arguments in calls:
+        yield turn, name, arguments, call_id in successes
 
 
 def wait_binding(meta: dict[str, Any], role: str, *, timeout: float = 60) -> dict[str, Any]:
@@ -903,25 +1000,10 @@ def command_verify_batch(args: argparse.Namespace) -> int:
     meta = load_meta(args.run_meta)
     run_dir, _ = role_run(meta, "b")
     candidates: list[tuple[str, str]] = []
-    for path in session_files(run_dir):
-        for line in path.read_text().splitlines():
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if row.get("type") != "user/message":
-                continue
-            data = row["data"]
-            if data.get("source", {}).get("kind") != "user":
-                continue
-            for content in data.get("content", []):
-                text = content.get("text", "")
-                if (
-                    isinstance(text, str)
-                    and _REQUEST_BEGIN in text
-                    and any(token in text for token in args.tokens)
-                ):
-                    candidates.append((str(data["id"]), text))
+    for path in session_files(run_dir, main_only=True):
+        for message_id, text in native_user_messages(path):
+            if _REQUEST_BEGIN in text and any(token in text for token in args.tokens):
+                candidates.append((message_id, text))
     selected: list[tuple[str, str, str, list[dict[str, Any]]]] = []
     for native_id, text in candidates:
         if text.count(_REQUEST_BEGIN) != 1 or text.count(_REQUEST_END) != 1:
@@ -1019,25 +1101,15 @@ def command_transcript(args: argparse.Namespace) -> int:
 
 def audit_role(run_dir: Path) -> dict[str, Any]:
     """Inspect actual tool calls for forbidden peer-mail or provider-admin fallback."""
-    commands: list[dict[str, Any]] = []
-    for path in session_files(run_dir):
-        for line in path.read_text().splitlines():
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if event.get("type") != "tool/call":
-                continue
-            data = event.get("data") or {}
-            if data.get("name") != "bash":
-                continue
-            try:
-                arguments = json.loads(data.get("arguments") or "{}")
-            except json.JSONDecodeError:
-                continue
-            command = arguments.get("command")
-            if isinstance(command, str):
-                commands.append({"turn": data.get("turn"), "command": command})
+    files = session_files(run_dir)
+    if not files:
+        raise LabError(f"No native transcript found under {run_dir}/runtime/homes")
+    commands = [
+        {"turn": turn, "command": arguments["command"]}
+        for path in files
+        for turn, name, arguments, _ in native_tool_calls(path)
+        if name == "bash" and isinstance(arguments.get("command"), str)
+    ]
     forbidden: list[dict[str, Any]] = []
     for item in commands:
         command = item["command"]

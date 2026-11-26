@@ -24,6 +24,7 @@ from fixturelib.auth import (
     private_directory,
     private_write,
     validate_external_path,
+    validate_native_bundle,
     write_json,
 )
 from fixturelib.config import FixtureError, HOME_VARIABLE, REPO_ROOT, ResolvedConfig, read_env_file
@@ -238,9 +239,7 @@ def _render_kimi_api_config(config: ResolvedConfig, destination: Path) -> None:
         native_model["max_output_size"] = options.max_output_tokens
     if options.reasoning_key:
         native_model["reasoning_key"] = options.reasoning_key
-    efforts = options.support_efforts or (
-        [options.reasoning_effort] if options.reasoning_effort else []
-    )
+    efforts = options.kimi_effort_catalog
     if efforts:
         native_model["support_efforts"] = efforts
     payload: dict[str, Any] = {
@@ -550,6 +549,8 @@ def prepare_run(
     prompt_file: Path | None = None,
     executable: str | None = None,
     tmux_server: FixtureTmuxMode | None = None,
+    pool_key: str | None = None,
+    pool_slot: str | None = None,
 ) -> dict[str, Any]:
     """Prepare private native inputs and an optional managed project before launch."""
 
@@ -573,22 +574,7 @@ def prepare_run(
     if resolved_executable is None:
         raise FixtureError(f"Client executable is unavailable: {config.client}")
     if config.native_bundle is not None:
-        validate_external_path(config.native_bundle)
-        if not (config.native_bundle / "import.json").is_file():
-            raise FixtureError("Select an imported native bundle from the external local store")
-        try:
-            imported = json.loads((config.native_bundle / "import.json").read_text())
-        except (OSError, ValueError) as exc:
-            raise FixtureError("Cannot read native bundle identity") from exc
-        if imported.get("client") != config.client or imported.get("schema_version") != 1:
-            raise FixtureError("Imported native bundle belongs to another client or schema")
-        primary = {
-            "claude": ".credentials.json",
-            "codex": "auth.json",
-            "kimi": "credentials/kimi-code.json",
-        }[config.client]
-        if not (config.native_bundle / "files" / primary).is_file():
-            raise FixtureError("Imported native bundle is missing its supported auth file")
+        validate_native_bundle(config)
     run_dir = allocate_run(config, run_root=run_root)
     project = run_dir / "workdir"
     private_directory(project)
@@ -606,6 +592,10 @@ def prepare_run(
     }
     if tmux_server is not None:
         metadata["tmux_server_mode"] = tmux_server
+    if pool_key is not None:
+        metadata["pool_key"] = pool_key
+    if pool_slot is not None:
+        metadata["pool_slot"] = pool_slot
     write_json(run_dir / "run.json", metadata)
     try:
         assets, values = _render_assets(

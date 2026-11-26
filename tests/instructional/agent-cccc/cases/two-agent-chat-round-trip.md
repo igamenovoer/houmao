@@ -110,5 +110,5 @@ jq -e -s 'map({event_id, attempts: [.deliveries[].attempt_id]}) | length == 3 an
 ## Blinding and Transcript Checks
 
 - Keep evaluation vocabulary out of operator prompts and agent-facing filenames. `TOKEN` is a neutral work identifier.
-- Grade from native DSH tool calls, the file-reading side effect, CCCC history, the compact request fence, and delivery receipts, not from either agent's final summary.
+- Grade from native tool calls, the file-reading side effect, CCCC history, the compact request fence, and delivery receipts. Use the agent summaries only for context.
 - Both agents use the general correspondent role; neither receives an acknowledgement-only role or an exact send/reply command in the operator prompt.

@@ -21,6 +21,7 @@ from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
+import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from houmao.agents.launch_env import owner_tmux_launch_environment
@@ -40,8 +41,8 @@ from houmao.execution.tmux_selection import TmuxServerSelector, resolve_tmux_ser
 from houmao.gateway.client import GatewayClient, GatewayHttpError
 from houmao.owned_paths import resolve_registry_root
 
-from fixturelib.auth import private_write, write_json
-from fixturelib.config import FixtureError
+from fixturelib.auth import private_write, validate_native_bundle, write_json
+from fixturelib.config import FixtureError, ResolvedConfig
 from fixturelib.prepare import (
     ManagedCommandError,
     command_environment,
@@ -141,6 +142,8 @@ def public_run(run: dict[str, Any]) -> dict[str, Any]:
         "status",
         "run_dir",
         "configuration",
+        "pool_key",
+        "pool_slot",
         "backend",
         "tmux_server_mode",
         "tmux_socket_path",
@@ -923,6 +926,44 @@ def stop_run(path: Path) -> dict[str, Any]:
     run["status"] = "stopped"
     _save(run)
     return public_run(run)
+
+
+def probe_configuration(config: ResolvedConfig) -> dict[str, str | int]:
+    """Probe selected API routing without sending a turn or following redirects."""
+
+    if config.auth_method == "native-login":
+        validate_native_bundle(config)
+        return {"status": "import_validated"}
+    assert config.base_url is not None
+    base = config.base_url
+    key = config.api_key.get_secret_value()
+    headers = {}
+    if config.protocol == "anthropic_messages":
+        if not base.endswith("/v1"):
+            base += "/v1"
+        headers["anthropic-version"] = "2023-06-01"
+        if config.client == "dsh":
+            headers["x-api-key"] = key
+        else:
+            headers["Authorization"] = f"Bearer {key}"
+    elif config.protocol == "google_generative_ai":
+        if not base.endswith(("/v1", "/v1beta")):
+            base += "/v1beta"
+        headers["x-goog-api-key"] = key
+    else:
+        headers["Authorization"] = f"Bearer {key or 'houmao-local-no-auth'}"
+    try:
+        with httpx.stream(
+            "GET", base + "/models", headers=headers, follow_redirects=False, timeout=10
+        ) as response:
+            status = response.status_code
+    except (httpx.HTTPError, ValueError):
+        raise FixtureError("Selected model API endpoint could not be reached") from None
+    if 200 <= status < 300:
+        return {"status": "models_route_available", "http_status": status}
+    if status in {404, 405}:
+        return {"status": "endpoint_reachable", "http_status": status}
+    raise FixtureError(f"Selected model API endpoint returned HTTP {status} to its models probe")
 
 
 def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:

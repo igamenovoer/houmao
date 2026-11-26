@@ -1,0 +1,54 @@
+schema_version = 1
+default_problem = "gdn_prefill"
+
+[cuda]
+arch = "auto"
+nvcc = "nvcc"
+ncu = "ncu"
+nsys = "nsys"
+
+[delivery]
+default_policy = "batch"
+quiet_interval_seconds = 6.0
+max_wait_seconds = 15.0
+
+[team]
+roles = ["lead", "algo", "kernel", "profiler"]
+
+[team.slots.lead]
+mode = "web"
+
+[team.slots.algo]
+mode = "web"
+
+[team.slots.kernel]
+mode = "web"
+
+[team.slots.profiler]
+mode = "web"
+
+[team.actors]
+lead = "lead"
+algo = "algo"
+kernel = "kernel"
+profiler = "profiler"
+
+[problems.gdn_prefill]
+id = "gdn_prefill"
+title = "Gated Delta Net (GDN) Prefill"
+source_dir = "helpers/problems/gdn_prefill"
+rtol = 1e-3
+atol = 1e-3
+min_speedup = 3.0
+stretch_speedup = 10.0
+budget_seconds = 900
+
+[problems.fused_moe]
+id = "fused_moe"
+title = "Fused Top-K MoE SwiGLU Block"
+source_dir = "helpers/problems/fused_moe"
+rtol = 1e-3
+atol = 1e-3
+min_speedup = 3.0
+stretch_speedup = 10.0
+budget_seconds = 900

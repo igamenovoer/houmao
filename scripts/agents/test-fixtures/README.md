@@ -2,6 +2,23 @@
 
 Run this development utility through `pixi run python scripts/agents/test-fixtures/fixture.py`. It consumes the tracked [API case descriptors](../../../tests/fixtures/agent-launch/README.md) and keeps reusable live credentials outside the checkout.
 
+## Select Models for Instructional Tests
+
+Copy [the example pool](../../../tests/fixtures/agent-launch/model-pool.example.toml) to `${XDG_DATA_HOME:-~/.local/share}/houmao/test-fixtures/model-pool.toml`, set its permissions to `0600`, and customize the entries for your machine. Keep API keys in separate external env files and reference imported native-login bundles by name. Use `HOUMAO_TEST_MODEL_POOL` or `--model-pool PATH` to select another external pool file.
+
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py list-models
+export HOUMAO_TEST_MODEL=local_dsh
+pixi run python scripts/agents/test-fixtures/fixture.py check --pool-slot lead --mode web --surface manager
+pixi run python scripts/agents/test-fixtures/fixture.py prepare --pool-slot lead --mode web --surface manager
+```
+
+Set `HOUMAO_TEST_MODEL_<SLOT>` to override a single agent slot. For example, `HOUMAO_TEST_MODEL_LEAD` overrides the shared key for `lead`. The fixture converts runs of punctuation and whitespace in slot names to underscores, trims leading and trailing underscores, and uppercases the result. Use `--pool-key KEY` to select an entry directly. A missing or invalid key reports the available keys.
+
+Pair pool selection with `--mode` and `--surface` to validate the required run mode. Pool selection supplies the case, client, routing, and native model metadata, so omit those direct flags. `--executable` and `--reasoning-level` can override the entry for preparation. The selected `pool_key` and, when applicable, `pool_slot` appear in the check output and `run.json`.
+
+Add `--live` to a pool-backed check to probe the API's models route with the selected credentials. A reachable endpoint can report that the route is unavailable. Native-login checks validate the local import, with credential acceptance verified at launch.
+
 ## Discover and Import Native Login State
 
 ```bash
@@ -65,6 +82,8 @@ Claude uses Anthropic Messages, Codex uses Responses, and Kimi uses Chat Complet
 Model selection is always explicit for API cases. Kimi additionally requires `--context-window TOKENS` or the case's context reference. Capabilities default to `tool_use`; opt into `thinking` or `image_in` only for a qualified model. Optional `--reasoning-key`, `--reasoning-effort`, `--context-window`, and `--capabilities` project selected values without inheriting historical model assumptions. Codex renders an explicit model/provider and optional context/effort; the generic tracked template requires a selected `OPENAI_BASE_URL` at build time. Empty or conflicting routing fails before launch.
 
 Kimi API fixtures put their provider and model settings in a private credential `config.toml`. Supply each native effort label using a separate `--support-effort LABEL` in the model's declared order. `--reasoning-effort LABEL` sets the native default. With `--surface manager`, `--reasoning-level N` creates a launch profile that selects an effort by its one-based position. Prepare older Kimi env-model fixtures again to generate a native catalog.
+
+Manager fixtures accept `--reasoning-level N` during preparation for models with a supported preset catalog. The level applies at launch through the `fixture-agent` profile. For DSH, level 0 selects a declared `off` slot and positive levels select the declared thinking slots in escalation order. For example, with `off`, `low`, `medium`, and `xhigh` declared, level 3 selects `xhigh`. Preparation rejects unavailable levels before creating run state.
 
 ## Codex App-Server Service
 

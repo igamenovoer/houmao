@@ -23,10 +23,26 @@ from fixturelib.auth import (
     discover_auth,
     external_root,
     import_auth,
+    validate_native_bundle,
 )
-from fixturelib.config import FixtureError, ResolvedConfig, fixture_run_mode, resolve_config
+from fixturelib.config import (
+    FixtureError,
+    ResolvedConfig,
+    fixture_run_mode,
+    resolve_config,
+    validate_reasoning_level,
+)
+from fixturelib.launch import (
+    check_run,
+    interrupt_run,
+    launch_run,
+    probe_configuration,
+    prompt_run,
+    public_run,
+    stop_run,
+)
+from fixturelib.pool import ModelPoolEntry, load_model_pool, select_pool_key
 from fixturelib.prepare import load_run, prepare_run
-from fixturelib.launch import check_run, interrupt_run, launch_run, prompt_run, public_run, stop_run
 
 
 _MANAGED_CONFIGURATION_GUIDE = """Houmao managed configuration:
@@ -35,14 +51,10 @@ _MANAGED_CONFIGURATION_GUIDE = """Houmao managed configuration:
   --reasoning-effort sets a native Claude/Codex/Kimi default, not a DSH default.
 
   Houmao --reasoning-level is a tool/model-specific preset index, not a portable
-  scale. This fixture accepts it directly only for Kimi manager runs. For other
-  manager clients, prepare first and set the generated Houmao source or profile
-  before fixture.py launch.
+  scale. Manager preparation accepts it from the command line or a selected
+  model-pool entry and validates it against the model's supported presets.
 
   Manager preparation creates a fixture-agent specialist and project profile.
-  Update the profile's birth-time defaults before fixture.py launch:
-    houmao-mgr --print-json project --project-dir RUN/workdir \\
-      profile set --name fixture-agent --reasoning-level N
 
   Manager runs default to --tmux-server houmao-default and store that selection
   on the profile. Do not edit generated YAML projections directly. For DSH slots
@@ -59,13 +71,33 @@ _MANAGED_CONFIGURATION_GUIDE = """Houmao managed configuration:
   specialist/profile to update.
 """
 
+_POOL_ROUTING_FIELDS = (
+    "client",
+    "case",
+    "auth_method",
+    "auth_bundle",
+    "model",
+    "base_url",
+    "env_file",
+    "descriptor",
+    "context_window",
+    "max_output_tokens",
+    "dsh_reasoning",
+    "dsh_compat",
+    "dsh_protocol",
+    "capabilities",
+    "reasoning_key",
+    "reasoning_effort",
+    "support_effort",
+)
+
 
 def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     """Add explicit API case, native metadata, and Houmao launch selection options."""
 
     parser.add_argument("--client", choices=("claude", "codex", "kimi", "dsh"))
     parser.add_argument("--case", choices=("self-hosted", "cloud-api"))
-    parser.add_argument("--auth-method", choices=("api-key", "native-login"), default="api-key")
+    parser.add_argument("--auth-method", choices=("api-key", "native-login"))
     parser.add_argument("--auth-bundle")
     parser.add_argument("--auth-root", type=Path)
     parser.add_argument(
@@ -120,10 +152,7 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--reasoning-level",
         type=int,
-        help=(
-            "Kimi manager shortcut for Houmao's tool/model-specific preset index; "
-            "other manager clients use specialist/profile set after prepare"
-        ),
+        help="Set the manager launch profile's tool/model-specific reasoning preset index",
     )
     parser.add_argument("--mode", choices=RUN_MODES, help="Houmao run mode for the selected client")
     parser.add_argument(
@@ -142,6 +171,14 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
         "--no-system-skills",
         action="store_true",
         help="Disable the managed agent system-skill pack (manager surface only)",
+    )
+    pool_selection = parser.add_mutually_exclusive_group()
+    pool_selection.add_argument("--pool-key", help="Select a named entry from the model pool")
+    pool_selection.add_argument(
+        "--pool-slot", help="Resolve a logical agent slot through HOUMAO_TEST_MODEL variables"
+    )
+    parser.add_argument(
+        "--model-pool", type=Path, help="Override the external model-pool.toml path"
     )
 
 
@@ -167,11 +204,15 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     importer.add_argument("--name", required=True)
     importer.add_argument("--auth-root", type=Path)
     importer.add_argument("--replace", action="store_true")
-    check = commands.add_parser("check", help="Validate selected configuration offline")
+    listing = commands.add_parser("list-models", help="List configured model-pool entries")
+    listing.add_argument(
+        "--model-pool", type=Path, help="Override the external model-pool.toml path"
+    )
+    check = commands.add_parser("check", help="Validate selected configuration or a prepared run")
     add_case_arguments(check)
     check.add_argument("--run-dir", type=Path)
     check.add_argument(
-        "--live", action="store_true", help="Explicitly contact a prepared authority"
+        "--live", action="store_true", help="Probe a selected pool endpoint or launched authority"
     )
     prepare = commands.add_parser(
         "prepare",
@@ -216,9 +257,73 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
+def selected_pool_entry(args: argparse.Namespace) -> tuple[str, ModelPoolEntry] | None:
+    """Select one pool entry and check its fixture surface and mode."""
+
+    if args.pool_key is None and args.pool_slot is None:
+        if args.model_pool is not None:
+            raise FixtureError("--model-pool requires --pool-key or --pool-slot")
+        return None
+    conflicts = [
+        "--" + field.replace("_", "-")
+        for field in _POOL_ROUTING_FIELDS
+        if getattr(args, field) is not None
+    ]
+    if conflicts:
+        raise FixtureError("Pool selection conflicts with " + ", ".join(conflicts))
+    pool = load_model_pool(args.model_pool)
+    key = select_pool_key(pool, key=args.pool_key, slot=args.pool_slot)
+    entry = pool.models[key]
+    mode = fixture_run_mode(entry.client, args.mode, args.surface).mode
+    if entry.supported_modes is not None and mode not in entry.supported_modes:
+        raise FixtureError(
+            f"Model pool key {key!r} does not support mode {mode!r}; "
+            f"select one of: {', '.join(entry.supported_modes)}"
+        )
+    return key, entry
+
+
+def list_models(path: Path | None) -> dict[str, object]:
+    """List pool keys and manager-compatible modes without private inputs."""
+
+    models = []
+    for key, entry in sorted(load_model_pool(path).models.items()):
+        supported = []
+        for mode in RUN_MODES if entry.supported_modes is None else entry.supported_modes:
+            try:
+                fixture_run_mode(entry.client, mode, "manager")
+            except FixtureError:
+                continue
+            supported.append(mode)
+        models.append(
+            {
+                "key": key,
+                "client": entry.client,
+                "case": entry.case,
+                "auth_method": entry.auth_method or "api-key",
+                "model": entry.model,
+                "supported_modes": supported,
+            }
+        )
+    return {"models": models}
+
+
+def selected_configuration(
+    args: argparse.Namespace, *, entry: ModelPoolEntry | None = None
+) -> ResolvedConfig:
     """Resolve either an API case or a deliberately selected imported native bundle."""
 
+    if entry is not None:
+        values = entry.model_dump(exclude_unset=True)
+        projected = {field: values[field] for field in _POOL_ROUTING_FIELDS if field in values}
+        for field in ("dsh_reasoning", "dsh_compat"):
+            if field in projected:
+                projected[field] = json.dumps(projected[field])
+        projected.pop("capabilities", None)
+        projected["support_effort"] = values.get("support_efforts")
+        if args.reasoning_level is None:
+            projected["reasoning_level"] = entry.reasoning_level
+        args = argparse.Namespace(**{**vars(args), **projected})
     if args.client is None:
         raise FixtureError("Select --client for configuration preparation")
     if args.no_system_skills and args.surface != "manager":
@@ -231,9 +336,11 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
             raise FixtureError("Native login selection is independent of API case/env routing")
         if not args.auth_bundle:
             raise FixtureError("Native login requires an explicit imported --auth-bundle")
-        if args.support_effort is not None or args.reasoning_level is not None:
-            raise FixtureError("Fixture effort options require a selected Kimi API case")
-        return ResolvedConfig(
+        if args.support_effort is not None:
+            raise FixtureError("--support-effort requires a selected Kimi API case")
+        if args.reasoning_level is not None and args.reasoning_level < 0:
+            raise FixtureError("--reasoning-level must be nonnegative")
+        config = ResolvedConfig(
             client=args.client,
             mode=fixture_run_mode(args.client, args.mode, args.surface).mode,
             surface=args.surface,
@@ -241,10 +348,15 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
             system_skill_policy=system_skill_policy,
             auth_method="native-login",
             model=args.model,
+            reasoning_level=args.reasoning_level,
             native_bundle=bundle_path(
                 external_root("auth", override=args.auth_root), args.client, args.auth_bundle
             ),
         )
+        if config.client == "kimi" and config.reasoning_level is not None:
+            validate_native_bundle(config)
+        validate_reasoning_level(config)
+        return config
     if args.auth_bundle is not None:
         raise FixtureError("API cases do not consume a native auth bundle")
     return resolve_config(
@@ -257,15 +369,20 @@ def selected_configuration(args: argparse.Namespace) -> ResolvedConfig:
         model=args.model,
         base_url=args.base_url,
         env_file=args.env_file,
+        process_env={} if entry is not None else None,
         descriptor_path=args.descriptor,
         context_window=args.context_window,
         max_output_tokens=args.max_output_tokens,
         dsh_reasoning=args.dsh_reasoning,
         dsh_compat=args.dsh_compat,
         dsh_protocol=args.dsh_protocol,
-        capabilities=[item.strip() for item in args.capabilities.split(",")]
-        if args.capabilities is not None
-        else None,
+        capabilities=(
+            entry.capabilities
+            if entry is not None and "capabilities" in entry.model_fields_set
+            else [item.strip() for item in args.capabilities.split(",")]
+            if args.capabilities is not None
+            else None
+        ),
         reasoning_key=args.reasoning_key,
         reasoning_effort=args.reasoning_effort,
         support_efforts=args.support_effort,
@@ -316,7 +433,11 @@ def main(argv: list[str] | None = None) -> int:
                     "name": args.name,
                     "bundle_path": str(destination),
                 }
+        elif args.command == "list-models":
+            payload = list_models(args.model_pool)
         elif args.command == "check" and args.run_dir is not None:
+            if any(value is not None for value in (args.pool_key, args.pool_slot, args.model_pool)):
+                raise FixtureError("--run-dir conflicts with model pool selection")
             if args.no_system_skills:
                 raise FixtureError("Omit --run-dir to select --no-system-skills")
             payload = check_run(args.run_dir, live=args.live)
@@ -337,7 +458,9 @@ def main(argv: list[str] | None = None) -> int:
             connection = browser_connection_file(run)
             payload = {"connection_file": str(connection), "identity": run["identity"]}
         else:
-            config = selected_configuration(args)
+            selection = selected_pool_entry(args)
+            pool_key, entry = selection if selection is not None else (None, None)
+            config = selected_configuration(args, entry=entry)
             if args.command == "prepare":
                 run = prepare_run(
                     config,
@@ -345,18 +468,28 @@ def main(argv: list[str] | None = None) -> int:
                     seed_root=args.seed_root,
                     role=args.role,
                     prompt_file=args.system_prompt_file,
-                    executable=args.executable,
+                    executable=args.executable
+                    if args.executable is not None
+                    else (entry.executable if entry is not None else None),
                     tmux_server=args.tmux_server,
+                    pool_key=pool_key,
+                    pool_slot=args.pool_slot,
                 )
                 payload = public_run(run)
             else:
-                if args.live:
-                    raise FixtureError("Live check requires explicit --run-dir for a prepared run")
                 payload = {
                     "status": "configuration_valid",
                     "configuration": config.summary(),
                     "backend": config.selection().backend,
                 }
+                if pool_key is not None:
+                    payload["pool_key"] = pool_key
+                if args.pool_slot is not None:
+                    payload["pool_slot"] = args.pool_slot
+                if args.live:
+                    if entry is None:
+                        raise FixtureError("Live check requires --run-dir or model pool selection")
+                    payload["live"] = probe_configuration(config)
         print(json.dumps(payload, sort_keys=True, indent=2))
         return 0
     except (FixtureError, OSError, TmuxCommandError) as exc:

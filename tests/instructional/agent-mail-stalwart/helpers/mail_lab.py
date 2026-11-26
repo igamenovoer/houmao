@@ -940,17 +940,40 @@ def command_prompt(args: argparse.Namespace) -> int:
 
 
 def command_transcript(args: argparse.Namespace) -> int:
-    """Copy the selected agent's DSH session transcript into evidence."""
+    """Copy the selected Web client's native transcript into evidence."""
 
     meta = load_meta(args.run_meta.resolve())
     run_dir, _ = _role_run(meta, args.role)
+    run = load_run(run_dir)
+    client = run["configuration"]["client"]
+    homes = (run_dir / "runtime" / "homes").resolve()
+    if client == "kimi":
+        manifest = read_json(
+            Path(run["identity"]["manifest_path"]), label="managed session manifest"
+        )
+        state = manifest.get("backend_state")
+        evidence_path = state.get("evidence_path") if isinstance(state, dict) else None
+        if not isinstance(evidence_path, str):
+            raise LabError("Kimi Web manifest has no native transcript path")
+        journal = Path(evidence_path)
+        if journal.parts[-3:] != ("agents", "main", "wire.jsonl"):
+            raise LabError("Kimi Web manifest does not select its main native transcript")
+        candidates = [journal]
+    elif client == "dsh":
+        candidates = list(homes.rglob("session.v4.jsonl"))
+    else:
+        raise LabError(f"No native transcript reader for Web client {client}")
     sessions = sorted(
-        (run_dir / "runtime" / "homes").rglob("session.v4.jsonl"),
+        (
+            path
+            for path in candidates
+            if path.is_relative_to(homes) and path.is_file() and path.resolve() == path
+        ),
         key=lambda path: path.stat().st_mtime,
         reverse=True,
     )
     if not sessions:
-        raise LabError(f"No DSH session transcript found under {run_dir}/runtime/homes")
+        raise LabError(f"No {client} native transcript found under {homes}")
     output_dir = args.output.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     copied: list[str] = []

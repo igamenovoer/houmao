@@ -1,13 +1,14 @@
 # Instructional CCCC Chat Suite
 
-Agent-driven verification for two Houmao-managed DSH Web agents collaborating through the optional `houmao-cccc` gateway plugin. The suite covers peer discovery, handle-based `request_reply` round trips and receipt lookup, push batching, busy-agent waiting, in-turn gateway queue reads, and recovery of pending deliveries after reattachment. The graded flows use CCCC chat for all peer communication.
+Status: draft
+
+Agent-driven verification for two Houmao-managed Web agents collaborating through the optional `houmao-cccc` gateway plugin. The suite covers peer discovery, handle-based `request_reply` round trips and receipt lookup, push batching, busy-agent waiting, in-turn gateway queue reads, and recovery of pending deliveries after reattachment. The graded flows use CCCC chat for all peer communication.
 
 ## Baseline Preconditions & Isolation
 
 - Realwork checkout: Houmao repository root on `devel` (`$REPO_ROOT`, resolved through `git rev-parse --show-toplevel`).
 - **Manager and plugin.** Use matching builds of `houmao-mgr` and `houmao-cccc` with the fenced request presentation and receiver v2 support. Set `HOUMAO_MGR` and `HOUMAO_CCCC` to those two executables. The default is the workspace Pixi environment at `$REPO_ROOT/.pixi/envs/default/bin/`.
-- Model lane: self-hosted Qwen at `http://127.0.0.1:14888/v1`, model `Qwen/Qwen3.8-27B-FP8`, context window `262144`, maximum output tokens `8192`, reasoning map `{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}`, compatibility `{"supports_developer_role":false}`.
-- DSH executable: qualified build `0.2.2-rc.3` at `$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`.
+- Model pool: select a Web-capable key with `HOUMAO_TEST_MODEL` for both agents. Set `HOUMAO_TEST_MODEL_A` or `HOUMAO_TEST_MODEL_B` to override either slot. Store client executables and reasoning presets in the selected entries. [Model pool setup](../../fixtures/agent-launch/README.md)
 - **CCCC service.** Set `CCCC_ENDPOINT` to an already-running external-receiver protocol 2 service built from the tracked pin and patches. [Native build and service tooling](../../../tools/cccc/README.md)
 - Shared-service boundary: the suite creates one uniquely named Group and two inert external-receiver Actors. It never starts, stops, resets, or reconfigures the selected CCCC service and never touches another Group or grant.
 - Local service identity: the default runtime descriptor is `$HOME/.local/share/houmao-cccc-receiver-v2-queue/runtime.json`; the binary is `$HOME/.local/share/houmao-cccc-receiver-v2-queue/target/debug/cccc`. Configuration verifies the selected PID, `/proc` executable, build receipt, protocol 2, the complete tracked patch series, and binary hash. Omit both identity arguments for a remote or separately administered service; negotiated binding/capability checks remain mandatory.
@@ -38,9 +39,6 @@ export EVIDENCE="$RUN_TMP/evidence/agent-cccc"
 export RUN_META="$RUN_TMP/run-meta.json"
 export HOUMAO_MGR="${HOUMAO_MGR:-$REPO_ROOT/.pixi/envs/default/bin/houmao-mgr}"
 export HOUMAO_CCCC="${HOUMAO_CCCC:-$REPO_ROOT/.pixi/envs/default/bin/houmao-cccc}"
-export DSH_EXECUTABLE="${DSH_EXECUTABLE:-$REPO_ROOT/tmp/dsh/npm-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js}"
-export BASE_URL="http://127.0.0.1:14888/v1"
-export MODEL="Qwen/Qwen3.8-27B-FP8"
 export CCCC_ENDPOINT="${CCCC_ENDPOINT:?Set the receiver v2 service endpoint}"
 export CCCC_SERVICE_RUNTIME="${CCCC_SERVICE_RUNTIME:-$HOME/.local/share/houmao-cccc-receiver-v2-queue/runtime.json}"
 export CCCC_PROVIDER_BINARY="${CCCC_PROVIDER_BINARY:-$HOME/.local/share/houmao-cccc-receiver-v2-queue/target/debug/cccc}"
@@ -48,49 +46,36 @@ export CCCC_PRIVATE_ROOT="${CCCC_PRIVATE_ROOT:-$HOME/.local/state/houmao/cccc-in
 mkdir -p "$RUN_TMP/scripts" "$RUN_TMP/runtime/runs-a" "$RUN_TMP/runtime/runs-b" "$EVIDENCE"
 git check-ignore -q "$RUN_TMP" || { echo "RUN_TMP is not Git-ignored" >&2; exit 1; }
 chmod 700 "$RUN_TMP"
-test -x "$HOUMAO_MGR" && test -x "$HOUMAO_CCCC" && test -x "$DSH_EXECUTABLE"
+test -x "$HOUMAO_MGR" && test -x "$HOUMAO_CCCC"
 test ! -e "$CCCC_PRIVATE_ROOT" || test -d "$CCCC_PRIVATE_ROOT"
-curl -fsS "$BASE_URL/models" >/dev/null
+for slot in a b; do
+  pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" check \
+    --pool-slot "$slot" --mode web --surface manager --live \
+    > "$EVIDENCE/$slot-check.json" || exit 1
+done
 curl -fsS "$CCCC_ENDPOINT/api/v1/health" >/dev/null
 "$HOUMAO_MGR" --version
 "$HOUMAO_CCCC" --version > "$EVIDENCE/cccc-version.txt"
 "$HOUMAO_CCCC" --help >/dev/null
 ```
 
-Prepare two real DSH Web agents with the general CCCC correspondent role:
+Prepare two managed Web agents with the general CCCC correspondent role.
 
 ```bash
 pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" prepare \
-  --case self-hosted --client dsh --mode web --surface manager \
-  --model "$MODEL" --base-url "$BASE_URL" \
-  --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}' \
-  --dsh-compat '{"supports_developer_role":false}' \
-  --executable "$DSH_EXECUTABLE" --prompt-mode unattended --tmux-server new \
+  --pool-slot a --mode web --surface manager \
+  --prompt-mode unattended --tmux-server new \
   --role cccc-a --system-prompt-file "$BUNDLE_ROOT/helpers/roles/cccc-correspondent.md" \
   --run-root "$RUN_TMP/runtime/runs-a" > "$EVIDENCE/a-prepare.json"
 export RUN_A="$(jq -r '.run_dir' "$EVIDENCE/a-prepare.json")"
 
 pixi run python "$REPO_ROOT/scripts/agents/test-fixtures/fixture.py" prepare \
-  --case self-hosted --client dsh --mode web --surface manager \
-  --model "$MODEL" --base-url "$BASE_URL" \
-  --context-window 262144 --max-output-tokens 8192 \
-  --dsh-reasoning '{"low":"low","medium":"medium","off":"none","xhigh":"xhigh"}' \
-  --dsh-compat '{"supports_developer_role":false}' \
-  --executable "$DSH_EXECUTABLE" --prompt-mode unattended --tmux-server new \
+  --pool-slot b --mode web --surface manager \
+  --prompt-mode unattended --tmux-server new \
   --role cccc-b --system-prompt-file "$BUNDLE_ROOT/helpers/roles/cccc-correspondent.md" \
   --run-root "$RUN_TMP/runtime/runs-b" > "$EVIDENCE/b-prepare.json"
 export RUN_B="$(jq -r '.run_dir' "$EVIDENCE/b-prepare.json")"
 test -f "$RUN_A/run.json" && test -f "$RUN_B/run.json"
-```
-
-Pin the intended `xhigh` reasoning preset in each generated profile before launch:
-
-```bash
-"$HOUMAO_MGR" --print-json project --project-dir "$RUN_A/workdir" \
-  profile set --name fixture-agent --reasoning-level 3 > "$EVIDENCE/a-xhigh-profile.json"
-"$HOUMAO_MGR" --print-json project --project-dir "$RUN_B/workdir" \
-  profile set --name fixture-agent --reasoning-level 3 > "$EVIDENCE/b-xhigh-profile.json"
 ```
 
 Launch both agents and seed one ordinary native conversation in each before attaching CCCC. The work file supports the first scenario and is not a communication channel:
@@ -146,7 +131,7 @@ Run the pull round trip first, then push batch and busy ASAP. Run the queue-acce
 
 ## Evidence
 
-Save artifacts under `$RUN_TMP/evidence/agent-cccc/<scenario-slug>/`. Every scenario requires the triggering operator prompt, its effective delivery policy, the compact native request fence, both native DSH transcripts, CCCC history, delivery attempts, and a channel audit. `verify` supplies request/reply ancestry and attempt proof; `verify-batch` supplies the one-fence and routing-privacy proof.
+Save artifacts under `$RUN_TMP/evidence/agent-cccc/<scenario-slug>/`. Every scenario requires the triggering operator prompt, its effective delivery policy, the compact native request fence, both native Web transcripts, CCCC history, delivery attempts, and a channel audit. `verify` supplies request/reply ancestry and attempt proof; `verify-batch` supplies the one-fence and routing-privacy proof.
 
 | Artifact | Required evidence |
 | --- | --- |

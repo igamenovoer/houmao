@@ -69,5 +69,5 @@ pixi run python "$BUNDLE_ROOT/helpers/mail_lab.py" prompt \
 ## Blinding and Transcript Checks
 
 - Keep `eval`, `test`, `judge`, `rubric`, `benchmark`, and `candidate` out of the prompt and both notifier appendices.
-- Grade from both DSH session transcripts and both provider mailboxes. A final chat summary is supporting evidence only.
+- Grade from both native Web transcripts and both provider mailboxes. Use the agent summaries only for context.
 - Use the general correspondent role for both agents; do not reduce either one to an acknowledgement-only smoke role.
