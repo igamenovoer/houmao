@@ -812,20 +812,26 @@ Future mailbox integration MAY submit work through the same validated gateway re
 ### Requirement: Direct human TUI interaction is a supported concurrent activity
 The gateway SHALL treat direct human interaction with the managed TUI as a supported concurrent activity rather than as protocol corruption.
 
-When human interaction leaves the managed surface in a state that is not safely eligible for gateway injection, the gateway SHALL pause or defer queued terminal-mutating work until eligibility returns.
+For parser-backed TUI control, when human interaction leaves the managed surface in a state that is not safely eligible for gateway injection, the gateway SHALL pause or defer queued terminal-mutating work until eligibility returns.
 
 Direct human interaction SHALL NOT, by itself, invalidate already accepted queued work.
 
 #### Scenario: Human interaction pauses queued injection without discarding queued work
-- **WHEN** queued terminal-mutating work exists for a gateway-managed agent
+- **WHEN** queued terminal-mutating work exists for a gateway-managed parser-backed TUI agent
 - **AND WHEN** a human operator changes the managed TUI into a non-submit-ready surface before the queued work begins
 - **THEN** the gateway defers injection until the surface is safely eligible again
 - **AND THEN** the gateway retains the accepted queued work instead of discarding it solely because the human interacted with the TUI
 
 #### Scenario: Human interaction during active work is recorded and reconciled
-- **WHEN** a human operator changes the managed TUI while a gateway-owned request is in progress
+- **WHEN** a human operator changes a parser-backed managed TUI while a gateway-owned request is in progress
 - **THEN** the gateway records that observation in its state or event history
 - **AND THEN** the gateway reevaluates the active request outcome according to its recovery or retry policy instead of assuming the session is irreparably corrupted
+
+#### Scenario: Human and Managed Input Share a Hermes Session
+
+- **WHEN** a human uses the managed Hermes TUI while Houmao observes or submits work
+- **THEN** the gateway records native activity and preserves the pinned conversation and any accepted managed admission
+- **AND THEN** the human turn never settles a managed request
 
 ### Requirement: The gateway supports timers, heartbeats, bounded local recovery, replacement-instance awareness, and snapshot-based later attach
 The gateway SHALL support regular gateway heartbeats, managed-agent liveness observation, timer-driven request creation, and bounded recovery for agent-local failures.
@@ -1239,7 +1245,7 @@ Both semantic gateway prompt surfaces SHALL treat the provided prompt body as li
 
 The dedicated raw control-input endpoint SHALL NOT enqueue a durable `submit_prompt` request, SHALL NOT claim that a managed prompt turn was submitted, and SHALL NOT trigger gateway prompt-submission tracking hooks by itself.
 
-For TUI-backed targets, `POST /v1/control/prompt` SHALL accept `chat_session.mode = new` and SHALL reject `chat_session.mode = auto | current | tool_last_or_new | exact` with validation semantics rather than ignoring the field.
+For parser-backed TUI targets, `POST /v1/control/prompt` SHALL accept `chat_session.mode = new` and SHALL reject `chat_session.mode = auto | current | tool_last_or_new | exact` with validation semantics rather than ignoring the field.
 
 Malformed `chat_session` payloads, including missing `id` for `exact` or unexpected `id` for other modes, SHALL be rejected with validation semantics.
 
@@ -1273,19 +1279,38 @@ Malformed `chat_session` payloads, including missing `id` for `exact` or unexpec
 - **AND THEN** the gateway performs one automatic final submit instead of interpreting that substring as a raw keypress
 
 #### Scenario: Headless direct prompt control accepts explicit tool-native latest selection
-- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with `chat_session.mode = tool_last_or_new`
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target that supports `chat_session.mode = tool_last_or_new` and the caller selects it
 - **THEN** the gateway resolves that request by asking the tool to resume its latest stored chat or start fresh if none exists
 - **AND THEN** the gateway does not reinterpret that selector as the managed agent's current pinned session
 
 #### Scenario: TUI direct prompt control accepts explicit new-session reset request
-- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = new`
+- **WHEN** a caller submits `POST /v1/control/prompt` for a parser-backed TUI gateway target with `chat_session.mode = new`
 - **THEN** the gateway accepts that request as a TUI conversation-reset workflow
 - **AND THEN** it does not reinterpret that selector as headless provider-session state
 
 #### Scenario: TUI direct prompt control rejects unsupported explicit session selector
-- **WHEN** a caller submits `POST /v1/control/prompt` for a TUI-backed gateway target with `chat_session.mode = current`
+- **WHEN** a caller submits `POST /v1/control/prompt` for a parser-backed TUI gateway target with `chat_session.mode = current`
 - **THEN** the gateway rejects that request with validation semantics
 - **AND THEN** it does not ignore the selector and pretend that ordinary prompt control succeeded
+
+#### Scenario: Hermes TUI Prompt Uses Its Pinned Conversation
+
+- **WHEN** a direct semantic prompt targets a managed Hermes TUI
+- **THEN** Houmao submits ordinary prompt text through its supported native control route
+- **AND THEN** an explicit prompt-time session selector is refused before submission
+- **AND THEN** changing the bound TUI conversation requires a verified managed session or lifecycle operation
+
+#### Scenario: Hermes Headless Refuses Native Latest Selection
+
+- **WHEN** a caller selects `chat_session.mode = tool_last_or_new` for a Hermes headless prompt
+- **THEN** the gateway reports unsupported selection before starting the CLI
+- **AND THEN** explicit new, current, and exact selections use the verified Hermes home and workspace
+
+#### Scenario: Hermes Headless Continues a Verified Session
+
+- **WHEN** a caller selects `current` or `exact` for a Hermes headless prompt
+- **THEN** Houmao verifies the full logical session ID and workspace before starting the CLI
+- **AND THEN** Houmao passes the verified ID unchanged to stock `--resume`, whose lookup follows Hermes's native behavior
 
 ### Requirement: Degraded chat context does not force clean-context prompt control
 Gateway prompt control SHALL treat recoverable degraded chat context as compatible with ordinary current-context prompt delivery when the target otherwise satisfies the prompt-ready contract.
@@ -1326,13 +1351,13 @@ Explicit clean-context requests SHALL remain supported. When a caller explicitly
 
 ### Requirement: Gateway raw send-keys bypasses prompt-readiness and busy gating
 
-For gateway-managed raw control input through `POST /v1/control/send-keys`, the gateway SHALL forward the exact control-input request without first requiring that the addressed agent is idle, stable, or prompt-ready.
+For a target with qualified raw control input through `POST /v1/control/send-keys`, the gateway SHALL forward the exact control-input request without first requiring that the addressed agent is idle, stable, or prompt-ready.
 
-The route MAY still reject the request for ordinary gateway availability failures such as detached gateway state, reconciliation blocking, or invalid control-input payloads.
+The route SHALL reject unsupported input capabilities. It MAY still reject the request for ordinary gateway availability failures such as detached gateway state, reconciliation blocking, or invalid control-input payloads.
 
 #### Scenario: Raw send-keys still forwards while the TUI is busy
 
-- **WHEN** a caller submits `POST /v1/control/send-keys` while the gateway-owned TUI state reports active work
+- **WHEN** a caller submits `POST /v1/control/send-keys` for a target with qualified raw control input while the gateway-owned TUI state reports active work
 - **THEN** the gateway forwards that raw control-input request immediately
 - **AND THEN** it does not reject the request only because the agent is not prompt-ready
 
@@ -1505,7 +1530,7 @@ For send-keys reminders:
 - **AND THEN** it does not append an implicit Enter
 
 ### Requirement: Gateway headless prompt surfaces accept request-scoped execution overrides
-For native headless gateway targets, both semantic gateway prompt surfaces SHALL accept an optional request-scoped `execution.model` object:
+For native headless gateway targets with qualified request-scoped execution overrides, both semantic gateway prompt surfaces SHALL accept an optional request-scoped `execution.model` object:
 
 - `POST /v1/control/prompt`
 - `POST /v1/requests` with `kind = submit_prompt`
@@ -1517,7 +1542,7 @@ That `execution.model` object SHALL use the same normalized unified model-select
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-For native headless targets, the gateway SHALL treat `execution` and `chat_session` as orthogonal controls:
+For native headless targets with qualified request-scoped execution overrides, the gateway SHALL treat `execution` and `chat_session` as orthogonal controls:
 
 - `chat_session` selects conversation continuity
 - `execution.model` selects model and reasoning for the accepted prompt
@@ -1528,16 +1553,16 @@ The request-scoped execution override SHALL apply only to the accepted prompt be
 
 The gateway SHALL NOT store execution state inside `chat_session.current`, `chat_session.startup_default`, or `chat_session.next_prompt_override`.
 
-For TUI-backed targets, any supplied `execution` override on either semantic prompt surface SHALL be rejected with validation semantics rather than ignored.
+For TUI targets and Hermes headless targets, any supplied `execution` override on either semantic prompt surface SHALL be rejected with validation semantics rather than ignored.
 
 #### Scenario: Headless direct prompt control accepts execution and chat-session together
-- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target
+- **WHEN** a caller submits `POST /v1/control/prompt` for a native headless gateway target with qualified execution overrides
 - **AND WHEN** the request includes `chat_session.mode = current` and `execution.model.reasoning.level = 4`
 - **THEN** the gateway preserves the explicit current-session selector for conversation continuity
 - **AND THEN** the gateway applies reasoning level `4` only to that accepted prompt execution
 
 #### Scenario: Headless queued prompt submission accepts the same execution override contract
-- **WHEN** a caller submits `POST /v1/requests` with `kind = submit_prompt` for a native headless gateway target
+- **WHEN** a caller submits `POST /v1/requests` with `kind = submit_prompt` for a native headless gateway target with qualified execution overrides
 - **AND WHEN** the request payload includes `execution.model.name = "gpt-5.4-mini"`
 - **THEN** the gateway accepts that queued semantic prompt request using the same execution-override contract as direct prompt control
 - **AND THEN** the later dequeued headless prompt uses `gpt-5.4-mini` only for that queued request
@@ -1555,7 +1580,7 @@ For TUI-backed targets, any supplied `execution` override on either semantic pro
 - **AND THEN** it does not silently queue a TUI prompt while dropping the requested execution override
 
 ### Requirement: Gateway attach applies configurable TUI tracking timings
-The gateway companion SHALL accept optional gateway-owned TUI tracking timing configuration when attaching to a gateway-capable TUI-backed managed session.
+The gateway companion SHALL accept optional gateway-owned TUI tracking timing configuration when attaching to a gateway-capable parser-backed TUI session.
 
 The timing configuration SHALL include:
 
@@ -1582,7 +1607,7 @@ The gateway attach flow SHALL persist the resolved timing configuration in gatew
 The gateway reset-context wait and poll constants SHALL remain unaffected by this timing configuration.
 
 #### Scenario: Explicit attach timings configure gateway-owned TUI tracking
-- **WHEN** an operator attaches a gateway to a TUI-backed managed session with explicit gateway TUI timing overrides
+- **WHEN** an operator attaches a gateway to a parser-backed TUI session with explicit gateway TUI timing overrides
 - **THEN** the gateway service starts its TUI tracking runtime with those resolved timing values
 - **AND THEN** the gateway-owned TUI state lifecycle metadata reflects the configured completion stability, unknown-to-stalled, stale-active recovery, and final stable-active recovery values
 
@@ -1600,6 +1625,11 @@ The gateway reset-context wait and poll constants SHALL remain unaffected by thi
 - **WHEN** a gateway is attached with gateway TUI tracking timing overrides
 - **THEN** those overrides affect continuous TUI tracking, stale-active recovery, and final stable-active recovery
 - **AND THEN** they do not change the gateway reset-context wait or reset-context polling constants
+
+#### Scenario: Hermes Gateway Has No Parser Timing Controls
+
+- **WHEN** a gateway attach request supplies terminal tracking timings for a Hermes TUI
+- **THEN** the gateway refuses the unsupported settings and creates no terminal tracker
 
 ### Requirement: Gateway operator-origin post defaults to operator mailbox replies
 `POST /v1/mail/offline/post` SHALL default omitted `reply_policy` fields to `operator_mailbox`.
@@ -2064,24 +2094,24 @@ Last-sent-thread SHALL NOT participate in future destination fallback decisions.
 
 Gateway direct prompt control through `POST /v1/control/prompt` SHALL accept `admission_policy = ready_only | if_no_pending | always` and SHALL default omitted policy to `ready_only`.
 
-For a terminal TUI-backed target, `ready_only` SHALL require the existing stable prompt-ready contract and `surface.pending_input=no`. It SHALL reject busy, pending, or pending-unknown observations.
+For a parser-backed TUI target, `ready_only` SHALL require the existing stable prompt-ready contract and `surface.pending_input=no`. It SHALL reject busy, pending, or pending-unknown observations.
 
 #### Scenario: Acceptance criteria
 
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-For a terminal TUI-backed target, `if_no_pending` SHALL ignore prompt-readiness and busy posture, dispatch only when the latest gateway-owned tracked snapshot reports `surface.pending_input=no`, reject `yes` with `error_code=pending_input`, and reject `unknown` with `error_code=pending_input_unknown`.
+For a parser-backed TUI target, `if_no_pending` SHALL ignore prompt-readiness and busy posture, dispatch only when the latest gateway-owned tracked snapshot reports `surface.pending_input=no`, reject `yes` with `error_code=pending_input`, and reject `unknown` with `error_code=pending_input_unknown`.
 
-For a terminal TUI-backed target, `always` SHALL bypass tracked readiness and pending-input checks. Every policy SHALL still reject unavailable, detached, reconciliation-blocked, invalid-selector, incompatible-target, and unsupported-target requests.
+For a parser-backed TUI target, `always` SHALL bypass tracked readiness and pending-input checks. Every policy SHALL still reject unavailable, detached, reconciliation-blocked, invalid-selector, incompatible-target, and unsupported-target requests.
 
-When the addressed terminal TUI session has an active hook observation channel, `ready_only` SHALL additionally require that the merged hook posture reports neither an active nor a blocked turn, and `if_no_pending` SHALL additionally require that the hook posture does not report blocked. Hook-reported background work SHALL NOT by itself close any policy, and `always` SHALL remain unaffected by hook posture.
+When the addressed parser-backed TUI session has an active hook observation channel, `ready_only` SHALL additionally require that the merged hook posture reports neither an active nor a blocked turn, and `if_no_pending` SHALL additionally require that the hook posture does not report blocked. Hook-reported background work SHALL NOT by itself close any policy, and `always` SHALL remain unaffected by hook posture.
 
 A hook channel that is unavailable, stale, disabled, untrusted, or errored SHALL NOT add refusal reasons: admission SHALL evaluate exactly the TUI-only facts above. Admission decision records SHALL include the hook channel state, the hook posture facts, and any conflict reasons used in the decision.
 
-For terminal TUI targets, the admission decision SHALL be observational. The gateway SHALL NOT reserve the observed no-pending state or promise atomic compare-and-submit behavior across concurrent requests. Two calls that both observe `pending_input=no` MAY both dispatch before the provider TUI repaints.
+For parser-backed TUI targets, the admission decision SHALL be observational. The gateway SHALL NOT reserve the observed no-pending state or promise atomic compare-and-submit behavior across concurrent requests. Two calls that both observe `pending_input=no` MAY both dispatch before the provider TUI repaints.
 
-Non-default admission policies SHALL be rejected for native headless targets, and native headless prompt control SHALL continue to reject overlapping active execution. Interactive `chat_session.mode=new` SHALL require `ready_only` because reset-then-send depends on stable prompt readiness.
+Non-default admission policies SHALL be rejected for native headless targets, and native headless prompt control SHALL continue to reject overlapping active execution. For targets with reset-then-send support, interactive `chat_session.mode=new` SHALL require `ready_only` because reset-then-send depends on stable prompt readiness.
 
 Prompt submission SHALL continue to arm explicit-input tracking where applicable, but the gateway SHALL NOT synthesize `surface.pending_input` from its dispatch, event, reminder, notifier, raw-input, or durable-request state.
 
@@ -2147,7 +2177,7 @@ For a Web interactive target, `ready_only` SHALL require native idle, unblocked,
 
 #### Scenario: Closely spaced conditional submissions may both dispatch before repaint
 
-- **WHEN** two `if_no_pending` calls for a terminal TUI target independently observe the same latest snapshot with `surface.pending_input=no`
+- **WHEN** two `if_no_pending` calls for a parser-backed TUI target independently observe the same latest snapshot with `surface.pending_input=no`
 - **THEN** both calls may dispatch before a later TUI capture reports the provider queue
 - **AND THEN** the gateway does not claim an exactly-one reservation guarantee
 
@@ -2186,6 +2216,20 @@ For a Web interactive target, `ready_only` SHALL require native idle, unblocked,
 #### Scenario: Web Always Preserves Structural Refusals
 - **WHEN** a Web `always` request carries a stale execution incarnation
 - **THEN** it is refused without activating or targeting a replacement agent
+
+#### Scenario: Hermes Observes an Idle Session Then Receives a Queued Receipt
+
+- **GIVEN** a direct prompt targets a Hermes TUI using its supported `ready_only` policy
+- **WHEN** Houmao verifies native idle and then receives a durable queued receipt for the exact prompt
+- **THEN** the response reports `outcome=queued`, `sent=false`, the operation ID, and the native admission reference
+- **AND THEN** the owner tracks that entry until its own settlement
+- **AND THEN** the queued outcome confirms native acceptance while leaving turn start unconfirmed
+
+#### Scenario: Hermes Cannot Pass Its Native Ready Check
+
+- **WHEN** a direct prompt targets a Hermes TUI with known busy, blocked, stale, or unknown native readiness
+- **THEN** the gateway returns the applicable readiness or availability error before native submit
+- **AND THEN** a non-default admission policy is rejected as unsupported for this backend
 
 ### Requirement: Gateway prompt-control schema and CLI remove binary force behavior
 
@@ -2386,7 +2430,7 @@ Plugin custom routes, credential resolution, workers, and event intake SHALL req
 
 ### Requirement: Ordinary Plugin Event Refusals Are Immediate
 
-The gateway SHALL attempt plugin-event dispatch only with ready gateway/plugin state, open core admission, idle available body, and applicable readiness, pending-input, and active-hook guards. A failed readiness check SHALL return a retryable error without waiting, caching, queueing, or scheduling the message for later delivery.
+The gateway SHALL attempt plugin-event dispatch only with ready gateway/plugin state, open core admission, idle available body, and applicable native readiness or tracked pending-input and active-hook guards. A failed readiness check SHALL return a retryable error without waiting, caching, queueing, or scheduling the message for later delivery.
 
 #### Scenario: Busy Headless Agent Refuses an Event
 
@@ -2396,13 +2440,13 @@ The gateway SHALL attempt plugin-event dispatch only with ready gateway/plugin s
 
 #### Scenario: Ready TUI Still Has Provider Pending Input
 
-- **WHEN** an event targets a TUI whose tracked pending input is `yes` or `unknown`
+- **WHEN** an event targets a parser-backed TUI whose tracked pending input is `yes` or `unknown`
 - **THEN** the gateway returns a retryable readiness error even if the surface otherwise looks ready
 - **AND THEN** it does not enqueue the event through the durable request queue
 
 #### Scenario: Active Hook Posture Blocks a Visually Ready TUI
 
-- **WHEN** a TUI surface is stable and ready with no pending input but an active hook channel reports active or blocked work
+- **WHEN** a parser-backed TUI surface is stable and ready with no pending input but an active hook channel reports active or blocked work
 - **THEN** the event request fails immediately instead of waiting for a different hook posture
 - **AND THEN** stale, unavailable, or disabled hook channels add no gates beyond the established TUI-only rules
 
@@ -2414,7 +2458,7 @@ The gateway SHALL attempt plugin-event dispatch only with ready gateway/plugin s
 
 #### Scenario: Readiness Changes Before Dispatch
 
-- **WHEN** initial checks pass but the body becomes inadmissible before dispatch
+- **WHEN** initial checks pass but the body becomes inadmissible by the final readiness check before dispatch
 - **THEN** the original request returns an error and relinquishes its attempt
 - **AND THEN** later readiness does not resume that request in the background
 
@@ -2424,9 +2468,15 @@ The gateway SHALL attempt plugin-event dispatch only with ready gateway/plugin s
 - **THEN** no queued plugin-event request is created
 - **AND THEN** the public request-kind set remains unchanged
 
+#### Scenario: Hermes Accepts an Event After Native Idle Was Observed
+
+- **WHEN** a Hermes TUI passes its final native readiness check and a human input races the plugin's native submit
+- **THEN** a verified native queue receipt counts as confirmed handoff of the exact event
+- **AND THEN** the gateway reports native queue acceptance separately from turn start and creates no Houmao retry spool
+
 ### Requirement: Body Loss During Plugin Dispatch Fails the Original Request
 
-The gateway SHALL keep a plugin event request in flight until dispatch confirmation to its captured body incarnation. Observed body death, restart, replacement, or unconfirmed handoff before response finalization SHALL fail that request. It SHALL NOT return success from a queued acknowledgement or worker start, retain a resend payload, or continue the attempt against a replacement body.
+The gateway SHALL keep a plugin event in flight until confirming handoff to its captured body incarnation. Body loss, replacement, or unconfirmed handoff before response finalization SHALL fail the request unless the exact Hermes native handoff was already verified and recorded. A local queue acknowledgment or worker start SHALL NOT establish handoff. The gateway SHALL NOT retain a resend payload or continue the attempt against a replacement body.
 
 #### Scenario: Body Dies After Gateway Admission but Before Handoff
 
@@ -2457,6 +2507,18 @@ The gateway SHALL keep a plugin event request in flight until dispatch confirmat
 - **WHEN** a live request cannot confirm handoff within its finite deadline
 - **THEN** it returns an explicit failure and revokes not-yet-dispatched request work
 - **AND THEN** a later callback cannot resume delivery after body recovery
+
+#### Scenario: Hermes Queued Receipt Cannot Be Verified
+
+- **WHEN** the gateway loses the native response or body identity before verifying a Hermes queue receipt for the captured request
+- **THEN** it returns the applicable refusal or uncertainty result
+- **AND THEN** recovery cannot submit the event as a new native input
+
+#### Scenario: Body Loss Follows Confirmed Hermes Native Handoff
+
+- **WHEN** the gateway verifies and records the exact Hermes native receipt before the captured body is lost
+- **THEN** the gateway preserves the recorded handoff and its queued or started disposition
+- **AND THEN** body loss is tracked separately and does not authorize delivery to a replacement
 
 ### Requirement: Gateway Recovery Does Not Resend Plugin Messages
 

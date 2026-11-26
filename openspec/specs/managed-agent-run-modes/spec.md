@@ -8,7 +8,7 @@ Define how a Houmao launch selects a native interaction and process lifetime, an
 
 ### Requirement: Run mode describes the selected native entrypoint
 
-Houmao SHALL identify a managed launch with exactly one run mode. Headless executes one native CLI process per accepted prompt. Service keeps a native protocol host alive across requests. TUI presents a native terminal UI. Web presents the tool's native browser application.
+Houmao SHALL identify a managed launch with exactly one run mode. Headless executes one finite native CLI client per accepted prompt. The client can use an owned native daemon. Service keeps a native protocol connection alive across requests. TUI presents a native terminal UI and can use either terminal tracking or native structured control. Web presents the tool's native browser application.
 
 #### Scenario: Logical history survives one-shot execution
 
@@ -20,9 +20,17 @@ Houmao SHALL identify a managed launch with exactly one run mode. Headless execu
 - **WHEN** a browser host also accepts structured requests
 - **THEN** its run mode is web and the adapter reports its supported control operations separately
 
+#### Scenario: A Terminal Application Exposes a Control API
+
+- **WHEN** a native terminal UI and the managed owner attach to the same native conversation
+- **THEN** its run mode is tui
+- **AND THEN** the adapter reports native structured control separately from terminal handoff
+
 ### Requirement: Selection resolves only a qualified tool and mode
 
 Every managed birth path SHALL resolve the direct selection, stored launch default, or documented entrypoint default to one qualified tool/mode/backend combination. Preflight SHALL reject unsupported combinations before modifying a home, taking over a predecessor, or publishing an agent.
+
+Hermes supports the registered TUI, service, and headless mode/backend combinations. Hermes executable availability is determined by the selected execution context's PATH lookup.
 
 #### Scenario: An operator selects a terminal for DSH
 
@@ -32,8 +40,14 @@ Every managed birth path SHALL resolve the direct selection, stored launch defau
 #### Scenario: Default follows the birth surface
 
 - **WHEN** a project launch omits direct and stored mode
-- **THEN** Claude, Codex, and Kimi select tui and DSH selects web
+- **THEN** Claude, Codex, and Kimi select tui, DSH selects web, and Hermes selects service
 - **AND** a passive headless birth explicitly selects headless and validates that pair
+
+#### Scenario: An Operator Selects the Hermes Web Mode
+
+- **WHEN** an operator requests web mode for Hermes
+- **THEN** preflight rejects the combination and identifies tui, service, and headless as the supported Hermes modes
+- **AND THEN** it leaves the intended predecessor and its home intact
 
 ### Requirement: Run mode and operator handoff are independent
 

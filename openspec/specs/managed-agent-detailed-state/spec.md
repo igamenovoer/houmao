@@ -7,7 +7,7 @@ Expose one managed-agent detail route for TUI, Web, headless, and service agents
 ### Requirement: Managed agents expose a transport-specific detailed state route
 The system SHALL expose `GET /houmao/agents/{agent_ref}/state/detail` as the transport-specific inspection route for managed agents.
 
-The maintained passive server SHALL retain canonical raw TUI detail at `/houmao/agents/{agent_ref}/state/detail` for verified terminal agents. Its curated transport-specific managed response SHALL use `/houmao/agents/{agent_ref}/managed-state/detail` and reference that canonical raw route for TUI. Other modes SHALL receive structured detail in both route families.
+For verified parser-backed terminals, the passive server SHALL retain raw detail on that route. Their curated state SHALL use `/houmao/agents/{agent_ref}/managed-state/detail` and reference raw detail. Structured TUI and other modes SHALL receive structured detail in both route families.
 
 #### Scenario: Acceptance criteria
 
@@ -22,14 +22,14 @@ The response SHALL include:
 - the current coarse summary state for that managed agent, and
 - a detail payload discriminated by the recorded run mode and its actual observation source. For service mode the payload SHALL identify owner and native connection readiness, the bound logical session when available, and current correlated work.
 
-For terminal TUI-backed managed agents, the detail payload SHALL expose a curated projection of key TUI state together with a reference to the canonical terminal-keyed TUI inspection route rather than defining a second incompatible TUI state model.
+For parser-backed TUI agents, the detail payload SHALL expose a curated projection of key TUI state together with a reference to the canonical terminal-keyed TUI inspection route rather than defining a second incompatible TUI state model.
 
 For headless managed agents, the detail payload SHALL use a headless-specific detail model rather than fabricating TUI parser or prompt-surface fields.
 
 For Web-backed interactive managed agents, the detail payload SHALL expose structured native Web control state and the non-secret browser/session reference. It SHALL NOT fabricate a terminal-keyed canonical route or parser projection.
 
 #### Scenario: Caller inspects TUI detail through the managed-agent namespace
-- **WHEN** a caller requests `GET /houmao/agents/{agent_ref}/state/detail` for a managed TUI agent
+- **WHEN** a caller requests `GET /houmao/agents/{agent_ref}/state/detail` for a managed parser-backed TUI agent
 - **THEN** the server returns a transport-specific detail payload for that TUI agent
 - **AND THEN** that payload provides a curated TUI projection plus a reference to the canonical TUI terminal-state route rather than redefining parser semantics under a new incompatible model
 
@@ -47,6 +47,12 @@ For Web-backed interactive managed agents, the detail payload SHALL expose struc
 
 - **WHEN** the selected owner reports a connected native service
 - **THEN** detail exposes its service readiness and active request evidence without terminal-parser fields
+
+#### Scenario: Caller Inspects Hermes TUI Detail
+
+- **WHEN** a caller requests either managed detail route for a Hermes TUI agent
+- **THEN** detail includes the verified terminal attachment, native readiness and freshness, the bound logical session, and any queued or active native admission
+- **AND THEN** the detail omits parser fields and raw terminal tracker links
 
 ### Requirement: Headless detailed state is execution-centric and queryable without raw artifact scraping
 For managed headless agents, the detailed state model SHALL describe execution posture rather than parsed UI posture.
@@ -85,10 +91,10 @@ The headless detail route SHALL NOT require the caller to inspect raw stdout, st
 
 ### Requirement: Detailed state preserves TUI canonicality while giving headless parity
 
-The managed-agent detail route SHALL query TUI, Web, headless, and service agents under one namespace with distinct observation models. Terminal-keyed TUI detail SHALL remain canonical for raw terminal inspection; managed detail SHALL be canonical for rich headless, Web, and service inspection. Web state SHALL use native control/observation evidence and report transport-specific unavailability when no safe live source exists.
+The managed-agent detail route SHALL query TUI, Web, headless, and service agents under one namespace with distinct observation models. Terminal-keyed TUI detail SHALL remain canonical for parser-backed terminal inspection. Managed detail SHALL be canonical for rich structured TUI, headless, Web, and service inspection. Web state SHALL use native control/observation evidence and report transport-specific unavailability when no safe live source exists.
 
 #### Scenario: TUI detail remains canonical while managed-agent detail stays discoverable
-- **WHEN** a caller needs raw TUI-specific observation for a managed TUI agent
+- **WHEN** a caller needs raw TUI-specific observation for a managed parser-backed TUI agent
 - **THEN** the existing terminal-keyed TUI state route remains the canonical detailed source
 - **AND THEN** the managed-agent detail route still provides a discoverable transport-aware entry point with a curated projection and canonical-route reference for that same agent
 
@@ -114,13 +120,13 @@ For managed headless agents, `GET /houmao/agents/{agent_ref}/state/detail` SHALL
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-For managed headless agents, terminal last-turn status SHALL reconcile from authoritative active-turn state plus durable per-turn artifact evidence. When a durable terminal artifact such as the exit-status artifact exists for the latest turn and no authoritative active turn remains, that terminal artifact evidence SHALL take precedence over stale tmux or live-posture observations for that same turn.
+For managed headless agents, terminal last-turn status SHALL reconcile from authoritative active-turn state plus durable per-turn artifact evidence. If no authoritative active turn remains, durable terminal evidence for the latest turn SHALL take precedence over stale tmux or live-posture observations for that turn. A child exit-status artifact SHALL qualify only when the backend establishes turn settlement that way.
 
 The headless detail payload MAY expose tmux liveness fields for inspectability or degradation reporting, but those tmux fields SHALL NOT by themselves redefine active-turn status, last-turn result, or the durability of a terminal turn outcome.
 
-For managed headless agents, detail payloads SHALL surface the reconciled controller-owned terminal status even when execution evidence was missing or legacy metadata was insufficient; callers SHALL receive failed-with-diagnostic semantics rather than a tmux-driven `unknown` fallback.
+For managed headless agents, detail payloads SHALL surface any established controller-owned terminal status. If missing execution evidence or insufficient legacy metadata has already been reconciled to failure, the payload SHALL report the failed result and diagnostic. An unresolved native outcome SHALL remain explicit.
 
-For managed headless agents, `can_accept_prompt_now` SHALL become true whenever no authoritative active turn remains and the latest turn has reconciled terminal evidence, even when the tmux surface has not yet redrawn a visibly idle shell.
+For managed headless agents, `can_accept_prompt_now` SHALL become true when no authoritative active turn or unresolved native outcome remains, the latest turn has reconciled terminal evidence, and the selected runtime is otherwise ready, even when the tmux surface has not yet redrawn a visibly idle shell.
 
 For managed headless agents, `completion_source` MAY remain present as diagnostic metadata when available, but its absence SHALL NOT prevent a turn from reconciling to `completed` or `failed` once durable terminal evidence exists.
 
@@ -137,7 +143,7 @@ For managed headless agents, `completion_source` MAY remain present as diagnosti
 - **AND THEN** the caller does not need tmux watch semantics to determine that the agent is still busy
 
 #### Scenario: Detail reports terminal headless turn from durable exit artifact despite stale live posture
-- **WHEN** the latest managed headless turn has a durable exit-status artifact
+- **WHEN** the latest managed headless turn has a durable exit-status artifact from a backend whose turn settles on child exit
 - **AND WHEN** no authoritative active turn remains for that agent
 - **AND WHEN** stale tmux or live-posture data still suggests the prior turn is active
 - **THEN** `GET /houmao/agents/{agent_ref}/state/detail` returns the reconciled terminal status for that turn
@@ -149,6 +155,12 @@ For managed headless agents, `completion_source` MAY remain present as diagnosti
 - **AND WHEN** tmux liveness is absent or no longer inspectable
 - **THEN** `GET /houmao/agents/{agent_ref}/state/detail` returns the failed terminal status together with available diagnostic context
 - **AND THEN** the caller does not need to interpret a separate tmux-derived `unknown` state
+
+#### Scenario: Hermes CLI Exit Leaves the Native Turn Unresolved
+
+- **WHEN** a Hermes headless worker exits without proving a native terminal outcome
+- **THEN** detailed state reports current native activity or uncertain settlement for that request
+- **AND THEN** recorded CLI exit and idle tmux posture do not open another turn slot
 
 ### Requirement: Headless detailed state anchors tmux inspectability to the stable primary surface
 For managed headless agents, the detailed state payload SHALL keep any tmux inspectability metadata anchored to the stable primary agent surface.
@@ -256,7 +268,7 @@ Manager `state` and detailed inspection SHALL return authorized recorded identit
 
 #### Scenario: TUI peer is known but its terminal cannot be inspected
 
-- **WHEN** the manager can resolve the selected TUI peer's saved records but cannot inspect its live terminal
+- **WHEN** the manager can resolve the selected parser-backed TUI peer's saved records but cannot inspect its live terminal
 - **THEN** the state response includes the peer's known identity and recorded contact data
 - **AND THEN** the live terminal posture is unavailable and prompt readiness is unconfirmed
 
@@ -266,9 +278,14 @@ Manager `state` and detailed inspection SHALL return authorized recorded identit
 - **THEN** the response distinguishes recorded lifecycle from observed control availability
 - **AND THEN** the response does not infer idle, ready, or stopped state from the missing observation
 
+#### Scenario: Hermes Terminal Attachment Changes Independently
+
+- **WHEN** the manager inspects a Hermes TUI agent whose terminal attachment is unavailable or displays another conversation
+- **THEN** it reports that attachment state separately from the verified native state of the pinned logical session
+
 ### Requirement: Manager state uses evidence appropriate to the native mode
 
-Manager state and detailed inspection SHALL use current verified native or gateway observations for Web and service state, and runtime execution records and saved turns for headless state. For current TUI state, the manager SHALL use eligible tracker observations or perform targeted terminal observation when required. Observation SHALL preserve source and freshness.
+Manager state and detailed inspection SHALL use current verified native or gateway observations for Web and service state, and runtime execution records and saved turns for headless state. For current parser-backed TUI state, the manager SHALL use eligible tracker observations or perform targeted terminal observation when required. Structured TUI control state SHALL use verified native evidence, with terminal attachment reported separately. Observation SHALL preserve source and freshness.
 
 #### Scenario: Native observation remains available across sockets
 
@@ -284,6 +301,6 @@ Manager state and detailed inspection SHALL use current verified native or gatew
 
 #### Scenario: Current TUI state requires terminal evidence
 
-- **WHEN** the caller requests current TUI detail and no eligible current tracker observation is available through the gateway
+- **WHEN** the caller requests current parser-backed TUI detail and no eligible current tracker observation is available through the gateway
 - **THEN** the manager can obtain a fresh observation from the authorized owner's recorded terminal
 - **AND THEN** it reports unavailability if that observation cannot be obtained

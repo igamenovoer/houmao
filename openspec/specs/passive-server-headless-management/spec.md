@@ -159,6 +159,12 @@ The finalized turn record SHALL include the correct `status`, `completed_at_utc`
 - **THEN** the passive server reads the finalized record and durable artifacts
 - **AND THEN** the response does not fail solely because artifact paths were never persisted
 
+#### Scenario: Hermes Client Exit Does Not Settle the Native Turn
+
+- **WHEN** an owned Hermes CLI exits without valid settlement evidence
+- **THEN** the passive server retains the active or uncertain request and its durable CLI artifacts
+- **AND THEN** it sets terminal status and completion time only after attributable settlement or explicit authorized disposition
+
 ### Requirement: Passive server headless turn events prefer canonical semantic artifacts with legacy fallback
 For managed headless turns, the passive server SHALL read canonical normalized event artifacts when they are present and expose those canonical semantic event records through `GET /houmao/agents/{agent_ref}/turns/{turn_id}/events`.
 
@@ -272,7 +278,7 @@ Server-managed DSH headless turns SHALL expose canonical semantic events and pre
 - **AND THEN** the response body explains the validation failure
 
 #### Scenario: Unsupported backend returns 422
-- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, `kimi_headless`, or `dsh_headless`
+- **WHEN** a caller sends `POST /houmao/agents/headless/launches` with a tool whose resolved backend is not one of `claude_headless`, `codex_headless`, `kimi_headless`, `dsh_headless`, or `hermes_headless`
 - **THEN** the response status code is 422
 
 #### Scenario: Successful Kimi headless launch
@@ -290,3 +296,9 @@ Server-managed DSH headless turns SHALL expose canonical semantic events and pre
 
 - **WHEN** a caller asks the passive headless endpoint to launch the persistent DSH ACP backend
 - **THEN** the endpoint rejects the combination without starting a service
+
+#### Scenario: Successful Hermes Headless Launch
+
+- **WHEN** a caller supplies valid Hermes headless inputs, `hermes` is on the selected execution context's PATH, and the native launch succeeds
+- **THEN** the endpoint returns the normal managed headless launch metadata
+- **AND THEN** later submissions and inspections use the saved Hermes owner and the finite CLI turn contract

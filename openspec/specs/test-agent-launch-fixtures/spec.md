@@ -20,7 +20,7 @@ The repository SHALL provide secret-free `self-hosted` and `cloud-api` launch de
 
 ### Requirement: Client protocols are selected explicitly
 
-Fixture preparation SHALL use Anthropic Messages for Claude, OpenAI Responses for Codex, and OpenAI Chat Completions for the initial Kimi API configuration. DSH SHALL explicitly select its model adapter and protocol: the native DeepSeek route uses Messages, while a generic self-hosted route uses a configured compatible adapter. Endpoint base paths SHALL follow that client's declared convention; support for one protocol SHALL NOT imply another.
+Fixture preparation SHALL use Anthropic Messages for Claude, OpenAI Responses for Codex, and OpenAI Chat Completions for the initial Kimi and Hermes API configuration. DSH SHALL explicitly select its model adapter and protocol: the native DeepSeek route uses Messages, while a generic self-hosted route uses a configured compatible adapter. Endpoint base paths SHALL follow that client's declared convention; support for one protocol SHALL NOT imply another.
 
 #### Scenario: Chat-only server cannot satisfy Codex preparation
 - **WHEN** a self-hosted endpoint offers Chat Completions but the selected Codex launch requires Responses
@@ -35,6 +35,12 @@ Fixture preparation SHALL use Anthropic Messages for Claude, OpenAI Responses fo
 - **WHEN** a DSH fixture selects the native DeepSeek adapter or a generic compatible self-hosted adapter
 - **THEN** preparation selects the corresponding Messages or configured compatible protocol and endpoint reference
 - **AND THEN** it does not route a Chat-only endpoint into the native Messages transport
+
+#### Scenario: Hermes Uses the Selected Chat Completions Route
+
+- **WHEN** a Hermes fixture selects a model and compatible endpoint under a generic case
+- **THEN** preparation configures that Chat Completions route in the private Hermes home
+- **AND THEN** it does not infer an endpoint, model, or credential from personal Hermes state
 
 ### Requirement: Models and capabilities are explicit launch inputs
 
@@ -363,3 +369,35 @@ Fixture follow-up and cleanup SHALL use the captured agent or verify the run’s
 
 - **WHEN** the caller’s enclosing tmux socket differs from the run’s saved socket
 - **THEN** fixture checks and terminal operations use the saved binding for that run
+
+### Requirement: Hermes Fixtures Qualify Each Supported Run Mode
+
+The fixture workflow SHALL support separate raw and managed Hermes verification for tui, service, and headless. A run SHALL record the selected model and route, resolved command, and observed per-mode evidence without secrets.
+
+#### Scenario: Hermes Qualification Exercises an Isolated Local Runtime
+
+- **WHEN** a developer selects a supported Hermes mode and a controlled self-hosted test configuration
+- **THEN** raw and managed lanes use independently isolated homes and exact workspace and model inputs
+- **AND THEN** each lane resolves `hermes` from PATH in its execution context
+- **AND THEN** the TUI lane uses an isolated tmux server
+- **AND THEN** an unavailable fixture or provider route is recorded separately from a passing qualification
+
+### Requirement: Manager fixture preparation applies birth-time reasoning levels across supported clients
+
+When preparing a `--surface manager` fixture run with an explicit `--reasoning-level` (from CLI flags or a selected model-pool entry), the helper SHALL validate the non-negative preset index against the selected client's declared reasoning slots (including DSH `dsh_reasoning` slot mappings and Kimi `support_efforts`) and SHALL record that `reasoning_level` on the generated `fixture-agent` launch profile before launch.
+
+#### Scenario: DSH manager preparation pins xhigh reasoning without post-prepare CLI calls
+- **WHEN** a developer prepares a manager-surface DSH fixture with `dsh_reasoning` declaring `off`, `low`, `medium`, and `xhigh` and `--reasoning-level 3`
+- **THEN** preparation creates the `fixture-agent` project profile with `reasoning_level = 3` before launch without requiring a separate `houmao-mgr project profile set` command
+
+#### Scenario: Out-of-range reasoning level fails before creating run state
+- **WHEN** a manager-surface fixture specifies a `--reasoning-level` exceeding the selected model's declared reasoning slots or on a model with `dsh_reasoning = false`
+- **THEN** validation fails with an actionable range error before allocating a run directory
+
+### Requirement: Fixture preparation accepts model-pool entries interchangeably with explicit case flags
+
+`fixture.py check` and `fixture.py prepare` SHALL translate a selected `model-pool.toml` entry into the same `ResolvedConfig`, isolated client home, and credential projection used by direct `--case` or `--auth-method native-login` invocations, preserving identical raw, manager, and passive-server runtime behavior.
+
+#### Scenario: Pool-backed self-hosted preparation matches explicit flag preparation
+- **WHEN** a developer prepares two manager runs with identical self-hosted DSH settings, one via explicit flags and one via `--pool-key`
+- **THEN** both runs generate equivalent `tool-params.yaml`, specialist, and launch-profile projections while keeping distinct run directories

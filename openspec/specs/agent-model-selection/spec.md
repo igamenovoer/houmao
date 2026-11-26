@@ -274,7 +274,7 @@ Houmao SHALL resolve the selected Kimi model alias from effective native config 
 - **THEN** the launched runtime uses the native default without requiring a Houmao model override
 
 ### Requirement: Headless prompt submission reuses the unified model configuration as a request-scoped execution override
-For supported headless prompt submission surfaces, the system SHALL accept an optional request-scoped `execution.model` object that reuses the same model-configuration shape as launch-owned model selection.
+For a headless backend that supports request-scoped overrides, the system SHALL accept an optional request-scoped `execution.model` object that reuses the same model-configuration shape as launch-owned model selection.
 
 `execution.model.name` SHALL use the same model-name field as launch-owned model selection.
 
@@ -320,6 +320,12 @@ The request-scoped override SHALL NOT rewrite copied baseline state, recipe stat
 - **AND WHEN** the caller submits a headless prompt request with `execution.model.reasoning.level = 0`
 - **THEN** the system rejects that request clearly
 - **AND THEN** it does not silently reinterpret `0` as the first positive preset
+
+#### Scenario: Hermes Headless Rejects a Per-Turn Override
+
+- **WHEN** a caller supplies `execution.model` to a Hermes headless agent
+- **THEN** Houmao rejects the unsupported override before launching a CLI turn
+- **AND THEN** the bound session's selected model and provider remain available for ordinary prompts
 
 ### Requirement: Codex request-scoped execution overrides use CLI config overrides
 For supported Codex headless prompt submission surfaces, request-scoped `execution.model` overrides SHALL be applied through final Codex CLI config override arguments in addition to any temporary runtime-home projection used for fallback or provenance.
@@ -496,3 +502,13 @@ A DSH reasoning declaration SHALL be `false` or a map with at least one positive
 - **WHEN** a reasoning-capable DeepSeek Messages model is launched at level `0` and a later ACP prompt requests a positive level
 - **THEN** the launch keeps `thinking: enabled` with `reasoningEffort: off` as its default and the prompt selects the requested positive slot for that turn
 - **AND THEN** an ordinary subsequent prompt can still use the materialized `off` default
+
+### Requirement: Managed Hermes Selects Its Model Route at Launch
+
+Houmao SHALL validate the explicit Hermes model and provider configuration against the selected launch profile and project it into the private Hermes home. Changes to a session-bound route SHALL use a qualified lifecycle operation or a new session.
+
+#### Scenario: A Managed Hermes Model Is Selected
+
+- **WHEN** a launch profile selects a Hermes endpoint, model, and explicit credential source
+- **THEN** the launched Hermes session uses that selection
+- **AND THEN** launch diagnostics expose the selected model and provider without exposing the credential

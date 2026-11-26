@@ -19,7 +19,7 @@
 
 ## 4. Cross-Suite Verification
 
-- [ ] 4.1 Run `pixi run format --check`, `pixi run lint`, `pixi run typecheck`, and `pixi run test` across the repository and confirm all checks exit zero with no changes under `src/houmao/`.
+- [x] 4.1 Run `pixi run format --check`, `pixi run lint`, `pixi run typecheck`, and `pixi run test` across the repository and confirm all checks exit zero with no changes under `src/houmao/`.
 
 ## Workflow follow-up
 

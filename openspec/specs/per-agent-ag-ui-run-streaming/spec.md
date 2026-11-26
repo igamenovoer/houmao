@@ -38,7 +38,7 @@ An admitted run stream SHALL terminate with exactly one terminal AG-UI run event
 
 AG-UI run submission SHALL use the existing per-agent gateway admission controls instead of bypassing or duplicating Houmao request scheduling.
 
-The run service SHALL reject invalid input, unavailable transports, and busy agents before emitting `RUN_STARTED`.
+The run service SHALL reject invalid input, unavailable transports, and busy agents at its final check before emitting `RUN_STARTED`.
 
 The run service SHALL pass the AG-UI `runId` as the gateway prompt `turn_id` so headless artifacts have a stable run-specific location.
 
@@ -75,6 +75,12 @@ The run service SHALL reject overlapping AG-UI runs for the same target unless a
 - **WHEN** a caller posts valid AG-UI run input with `runId` equal to `run-alpha`
 - **AND WHEN** the gateway admits the run
 - **THEN** the submitted gateway prompt payload uses `turn_id` equal to `run-alpha`
+
+#### Scenario: Hermes Accepts After a Human Starts First
+
+- **WHEN** an otherwise eligible AG-UI run passes Hermes TUI's final idle check and Hermes accepts it in the native queue
+- **THEN** the stream emits `RUN_STARTED` for the admitted Houmao run and reports queued native activity
+- **AND THEN** the AG-UI admission does not claim that native execution has started or admit a second overlapping AG-UI run
 
 ### Requirement: Prompt conversion is deterministic and bounded
 
@@ -170,7 +176,7 @@ Progress and diagnostics SHALL map to `ACTIVITY_SNAPSHOT` or `CUSTOM`.
 
 ### Requirement: TUI targets stream lower-fidelity AG-UI output
 
-For TUI gateway targets, the AG-UI run stream SHALL remain protocol-compatible while reflecting the lower-fidelity observation source.
+Parser-backed TUI run streams SHALL use their lower-fidelity observation source and remain protocol-compatible.
 
 The TUI stream SHALL emit `RUN_STARTED` after admission.
 
@@ -182,7 +188,7 @@ The TUI stream SHALL NOT claim headless-level tool-call semantics from raw termi
 
 #### Scenario: TUI output maps to status and final text
 
-- **WHEN** an AG-UI run is admitted for a TUI gateway target
+- **WHEN** an AG-UI run is admitted for a parser-backed TUI gateway target
 - **THEN** the stream emits `RUN_STARTED`
 - **AND THEN** the stream emits state or activity events describing gateway and TUI status
 - **AND THEN** the stream emits final assistant text when parsed final text is available
@@ -190,7 +196,7 @@ The TUI stream SHALL NOT claim headless-level tool-call semantics from raw termi
 
 #### Scenario: TUI stream does not invent tool calls
 
-- **WHEN** a TUI terminal surface contains text that resembles a tool call
+- **WHEN** a parser-backed terminal surface contains text that resembles a tool call
 - **THEN** the AG-UI mapper does not emit `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END`, or `TOOL_CALL_RESULT` unless a structured Houmao event exists
 
 ### Requirement: Post-admission errors and disconnects preserve lifecycle boundaries
@@ -218,7 +224,7 @@ Closing the AG-UI run stream SHALL NOT stop, abort, interrupt, restart, shut dow
 
 ### Requirement: Run streams preserve mode-specific correlation
 
-An AG-UI run SHALL submit through the selected agent's shared control boundary and map events only at the correlation strength supported by that mode. Native service notifications and Web activity SHALL be bound to the selected native session and attributable turn before publication as that run's output.
+An AG-UI run SHALL submit through the selected agent's shared control boundary and map events only at the correlation strength supported by that mode. Native service notifications, structured TUI events, and Web activity SHALL be bound to the selected native session and attributable turn before publication as that run's output.
 
 #### Scenario: A browser starts another turn
 
@@ -229,3 +235,9 @@ An AG-UI run SHALL submit through the selected agent's shared control boundary a
 
 - **WHEN** a service reconnects without evidence binding a terminal notification to the original run
 - **THEN** the stream reports a bounded error or uncertainty through its documented terminal path without fabricating a successful result or resubmitting input
+
+#### Scenario: A Human Turn Settles While the Hermes Run Is Queued
+
+- **WHEN** a Hermes TUI human turn emits output and completes while the tracked AG-UI native admission is queued
+- **THEN** the stream does not attribute the human turn's assistant or tool output to the tracked run
+- **AND THEN** it settles only from the matching native admission's terminal outcome or the documented error path for lost attribution

@@ -218,7 +218,7 @@ CLI-default external-home installation SHALL resolve the five-member `admin` pac
 - **AND THEN** it installs agent entrypoint, shared routines, pro loop, and lite loop without either admin root
 
 ### Requirement: Shared installer projects complete public skills into supported tool homes
-The shared installer SHALL project complete standalone public skill directories at the tool-native top-level skill root for Claude, Codex, Copilot, Kimi, and the universal Agent Skills target.
+The shared installer SHALL project complete standalone public skill directories at the tool-native top-level skill root for Claude, Codex, Copilot, Kimi, and the universal Agent Skills target. Managed Hermes homes SHALL use the same pack projection under the private Hermes skill root.
 
 #### Scenario: Acceptance criteria
 
@@ -236,6 +236,12 @@ Shared routines and both loop skills SHALL remain top-level siblings of the sele
 - **WHEN** Houmao installs the managed default into a Kimi Code CLI home
 - **THEN** all four agent-pack members appear as top-level siblings under `skills/`
 - **AND THEN** the full shared child inventory remains below the shared-routines sibling
+
+#### Scenario: Hermes Managed Home Receives the Selected Packs
+
+- **WHEN** managed launch resolves a system-skill pack for a Hermes agent
+- **THEN** the private native skill root contains the complete selected top-level skill directories
+- **AND THEN** shared child skills remain parent-scoped and the agent can discover the selected skills through its native loader
 
 ### Requirement: Managed system-skill policy selects packs
 Stored source and launch-profile system-skill policy SHALL retain the supported policy modes `default`, `inherit`, `extend`, `replace`, and `none` where each lane permits them, but SHALL store and resolve `packs` rather than `sets` and `skills`.

@@ -9,7 +9,7 @@ Define how the passive server observes discovered tmux-backed agents, tracks the
 ### Requirement: Passive server creates and removes per-agent TUI observers based on the discovery index
 The passive server SHALL maintain a `TuiObservationService` that reconciles active observers against the current discovery index on each observation poll cycle.
 
-When a newly discovered agent appears in the index and declares `tui` mode and a terminal native surface with a tmux-based terminal (`terminal.session_name` is present), the service SHALL create an `AgentTuiObserver` for that agent. When an agent disappears from the index, the service SHALL remove and clean up its observer.
+The service SHALL create an `AgentTuiObserver` when discovery finds a parser-backed `tui` agent with a terminal native surface and `terminal.session_name`. When an agent disappears from the index, the service SHALL remove and clean up its observer.
 
 #### Scenario: Acceptance criteria
 
@@ -21,7 +21,7 @@ The observation service SHALL start during server startup (after discovery) and 
 An interactive Web agent SHALL use structured native observation instead of an `AgentTuiObserver`, even when registry metadata includes its supervisory tmux session. Disappearance SHALL clean up that agent's Web observation independently of terminal observers.
 
 #### Scenario: Observer created when agent is discovered
-- **WHEN** the discovery index contains an `tui` agent with agent_id `abc123`, a terminal surface, and a live tmux session
+- **WHEN** the discovery index contains a parser-backed `tui` agent with agent_id `abc123`, a terminal surface, and a live tmux session
 - **AND WHEN** no observer exists for `abc123`
 - **THEN** the observation service creates an `AgentTuiObserver` for `abc123`
 
@@ -43,6 +43,12 @@ An interactive Web agent SHALL use structured native observation instead of an `
 
 - **WHEN** the passive server discovers a `service` agent with an owner pane
 - **THEN** it reads verified native service observation and never installs a TUI parser for the owner pane
+
+#### Scenario: Hermes TUI Has a Live Terminal
+
+- **WHEN** discovery finds Hermes in tui mode with a live terminal and structured native control
+- **THEN** the passive server uses the structured control source and publishes its non-secret terminal handoff
+- **AND THEN** discovery and removal do not create or retain a terminal-text observer for Hermes
 
 ### Requirement: Each agent observer polls the tmux pane and produces tracked state
 Each `AgentTuiObserver` SHALL poll its tmux pane on every observation cycle and use the captured text to update tracked state. It SHALL record diagnostics and continue polling after a failure.
@@ -96,7 +102,7 @@ Each iteration SHALL:
 - **THEN** the loop logs the error and continues to the next observer without crashing
 
 ### Requirement: Compact agent state endpoint returns observation summary
-`GET /houmao/agents/{agent_ref}/state` SHALL resolve the agent, look up its observer, and return a compact observation state response containing:
+`GET /houmao/agents/{agent_ref}/state` SHALL resolve the agent and report compact state from its qualified source. Parser-backed state contains:
 - `agent_id`, `agent_name`
 - `diagnostics` summary (availability, transport state, process state, parse status)
 - `surface` signals (accepting_input, editing_input, ready_posture)
@@ -136,16 +142,28 @@ For headless and service modes, the endpoint SHALL project native turn or connec
 - **WHEN** a service owner reports a verified idle session
 - **THEN** the compact response uses the service observation source and includes its actual admission state
 
+#### Scenario: Hermes TUI State Uses Native Observation
+
+- **WHEN** the passive server resolves a Hermes TUI agent
+- **THEN** the compact state identifies the TUI mode, verified native activity, and terminal attachment separately
+- **AND THEN** unavailable native observation leaves the pane reference inspectable without reporting the agent ready from terminal rendering
+
 ### Requirement: Detailed agent state endpoint returns full observation
 
-`GET /houmao/agents/{agent_ref}/state/detail` SHALL add probe_snapshot(observed_at_utc,pane_id,pane_pid,captured_text_hash,captured_text_length,captured_text_excerpt,matched_process_names) and parsed_surface(parser_family,availability,business_state,input_mode,ui_context,etc.) to compact terminal state, using its 404/409/503 rules. Headless, service, and Web agents SHALL use their respective managed-agent structured variants; supervisor output SHALL NOT synthesize terminal probe/parser fields.
+`GET /houmao/agents/{agent_ref}/state/detail` SHALL extend compact state and use its 404/409/503 rules. Structured TUI, headless, service, and Web agents SHALL use their native detail models and omit terminal parser fields.
+
+#### Scenario: Parser-Backed Detail Exposes Its Existing Fields
+
+- **WHEN** the route returns parser-backed terminal detail
+- **THEN** it adds `probe_snapshot` with `observed_at_utc`, `pane_id`, `pane_pid`, `captured_text_hash`, `captured_text_length`, `captured_text_excerpt`, and `matched_process_names`
+- **AND THEN** `parsed_surface` includes `parser_family`, `availability`, `business_state`, `input_mode`, and `ui_context` when it is available
 
 #### Scenario: Detail state includes probe and parsed surface
 - **WHEN** the agent has a fully parsed observation
 - **THEN** `GET /houmao/agents/{agent_ref}/state/detail` returns 200 with `probe_snapshot` and `parsed_surface` included
 
 #### Scenario: Detail state with diagnostics-only observation
-- **WHEN** the agent's TUI process is down
+- **WHEN** the parser-backed agent's TUI process is down
 - **THEN** the detail response includes diagnostics but `parsed_surface` is null
 
 #### Scenario: Web Detail Does Not Contain Parsed Console State
@@ -157,6 +175,11 @@ For headless and service modes, the endpoint SHALL project native turn or connec
 
 - **WHEN** the owner remains discoverable after a service exits
 - **THEN** detail reports the unavailable connection and retains only attributable last-known evidence
+
+#### Scenario: Hermes TUI Detail Uses Native Evidence
+
+- **WHEN** a caller requests details for a Hermes TUI agent
+- **THEN** detail includes native control status and terminal attachment and omits parser fields
 
 ### Requirement: Agent history endpoint returns recent transitions
 

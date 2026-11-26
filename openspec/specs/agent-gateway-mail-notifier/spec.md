@@ -344,7 +344,7 @@ In either mode, the prompt SHALL keep archive as the completion action for succe
 - **AND THEN** `unread_only` still requires unread Inbox mail to trigger a reminder
 
 ### Requirement: Gateway notifier readiness honors style-classified Claude suggestions
-For TUI-backed gateway targets, the mail notifier SHALL continue using the tracked prompt-readiness contract to decide whether notifier prompt enqueueing is safe.
+For parser-backed TUI gateway targets, the mail notifier SHALL continue using the tracked prompt-readiness contract to decide whether notifier prompt enqueueing is safe.
 
 When eligible inbox work exists, queue admission gates pass, and the tracked state reports ready posture because the only visible Claude prompt payload is a style-classified ghost suggestion, the notifier SHALL NOT defer solely because stripped prompt text is non-empty.
 
@@ -374,6 +374,12 @@ When the tracked state reports real draft editing, the notifier SHALL continue t
 - **WHEN** Claude Code changes the text of an auto-suggestion while the tracked profile still classifies it as ghost suggestion content from styling
 - **THEN** notifier readiness behavior remains based on the tracked readiness fields
 - **AND THEN** the notifier does not require a literal suggestion-text allowlist
+
+#### Scenario: Hermes Notifier Uses Native Readiness
+
+- **WHEN** Inbox work is eligible for a Hermes TUI agent
+- **THEN** the notifier uses the owner's fresh native idle check before submission
+- **AND THEN** known busy or unavailable state defers the reminder without a native submission
 
 ### Requirement: Mail notifier continues current context for recoverable degraded sessions
 For prompt-ready sessions, recoverable degraded chat context SHALL NOT by itself cause an ordinary notifier busy skip and SHALL NOT by itself require clean-context notifier work.
@@ -811,7 +817,7 @@ Online notifier cycles SHALL use bounded metadata/change queries and derived eli
 - **AND THEN** later intervals can remind for the same unchanged work
 
 ### Requirement: Reminder deduplication remains cycle-scoped
-The notifier SHALL permit periodic reminders for unchanged eligible work under change 01's channel contract. It SHALL prevent overlapping attempts and duplicate admission of the same owner/channel/binding cycle. Sync checkpoints SHALL describe observed mailbox changes, not notification delivery or processing acknowledgements.
+The notifier SHALL permit periodic reminders for unchanged eligible work under change 01's channel contract. It SHALL prevent overlapping attempts and duplicate admission of the same owner/channel/binding cycle. For a Hermes TUI, the notifier SHALL retain the exact native admission while its accepted reminder is queued, active, or unresolved. Sync checkpoints SHALL describe observed mailbox changes, not notification delivery or processing acknowledgements.
 
 #### Scenario: Unchanged online mail repeats at later intervals
 - **WHEN** online mail remains eligible across reminder intervals and the body is ready
@@ -822,13 +828,27 @@ The notifier SHALL permit periodic reminders for unchanged eligible work under c
 - **WHEN** two attempts represent one already-admitted reminder cycle
 - **THEN** no second pending wakeup is admitted for that cycle
 
+#### Scenario: A Human Turn Races a Hermes Reminder
+
+- **WHEN** a Hermes TUI passes the final readiness check and commits the reminder to its native queue
+- **THEN** the notifier records native acceptance for that reminder cycle and observes its settlement
+- **AND THEN** later polls do not submit a duplicate or overlapping reminder while that admission is unresolved
+- **AND THEN** native acceptance does not mark mail read, processed, or archived
+- **AND THEN** unchanged eligible mail can trigger a later due reminder after settlement
+
 ### Requirement: Online notifier work is fenced to its binding
-Notifier work SHALL carry channel, binding ID, and revision authority through observation, admission, and pending dispatch. Detach/replacement SHALL invalidate superseded observations and unstarted requests. Prompts SHALL supply the expected binding ID so an already-running round cannot silently operate on a replacement account.
+Notifier work SHALL carry channel, binding ID, and revision authority through observation, admission, and pending dispatch. Detach/replacement SHALL invalidate superseded observations and requests that have not reached native handoff. A verified Hermes queue receipt establishes native handoff even before the reminder starts. Prompts SHALL supply the expected binding ID so an already-running round cannot silently operate on a replacement account.
 
 #### Scenario: Replacement occurs before queued reminder dispatch
 - **WHEN** a pending reminder belongs to an account that is detached or replaced
 - **THEN** it is cancelled or rejected before body dispatch
 - **AND THEN** the new account is not contacted because of the old reminder
+
+#### Scenario: Hermes Has Accepted a Reminder Before Replacement
+
+- **WHEN** the binding changes after Hermes accepts the old binding's queued reminder
+- **THEN** the notifier retains its original receipt and does not issue a second copy
+- **AND THEN** the admitted text remains bound to the old binding so it cannot operate on the replacement account
 
 ### Requirement: Sync recovery preserves compaction eligibility truth
 Metadata cache eviction, checkpoint rebase, and credential refresh SHALL not by themselves reset one-shot compaction state for continuously eligible mail. Clearing that state SHALL require confirmed loss of eligibility or a different binding. Recovery SHALL revalidate known compaction entries in bounded batches when eligibility is uncertain.
@@ -839,7 +859,7 @@ Metadata cache eviction, checkpoint rebase, and credential refresh SHALL not by 
 - **AND THEN** periodic reminders can continue without another compaction for that eligibility stretch
 ### Requirement: Notifier Observes Backend Inbox Placement
 
-The notifier SHALL use bounded observations of the backend's authoritative Inbox for eligible counts, compaction, and prompt content. At queued handoff it SHALL recheck current Inbox eligibility under the existing binding and readiness rules. Mail in backend Archive falls outside notifier work.
+The notifier SHALL use bounded observations of the backend's authoritative Inbox for eligible counts, compaction, and prompt content. Before native handoff it SHALL recheck current Inbox eligibility under the existing binding and readiness rules. Mail in backend Archive falls outside notifier work.
 
 #### Scenario: Mail Archived at Delivery Is Outside the Notifier Inbox
 
@@ -859,3 +879,9 @@ The notifier SHALL use bounded observations of the backend's authoritative Inbox
 - **WHEN** a backend policy revision leaves a message in Inbox with unchanged eligibility
 - **THEN** the gateway observes the message under the selected notification mode and existing admission rules
 - **AND THEN** the policy revision alone leaves any queued reminder and recorded compaction state intact
+
+#### Scenario: Hermes Reminder Work Is Revalidated Before Native Submit
+
+- **WHEN** a gateway-local pending reminder reaches dispatch for a Hermes TUI
+- **THEN** the notifier revalidates Inbox eligibility and binding before the native submit
+- **AND THEN** a later native queued status does not authorize a second handoff or change mailbox placement
