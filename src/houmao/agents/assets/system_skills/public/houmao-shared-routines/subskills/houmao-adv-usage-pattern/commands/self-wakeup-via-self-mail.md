@@ -54,7 +54,7 @@ For multi-step work, prefer keeping the detailed step list in one local todo fil
 7. When the next gateway notification arrives, use `houmao-shared-routines->houmao-process-emails-via-gateway` for that round.
 8. In each later round, inspect the open inbox set, choose the self-mail item or items relevant to that round, reopen the referenced local todo list or working notes when applicable, and complete that work.
 9. Treat those self-reminders as part of ordinary open-mail triage: if newly arrived external mail is more important now, it is acceptable to handle that first and leave the self-reminder unarchived for a later round.
-10. After one self-mail item is fully complete, archive that completed reminder so it leaves the open mailbox backlog.
+10. After completing a self-mail item, archive it where the binding supports ordinary archive. On a protected binding, report completion for owner filing. Use self-mail wakeups only when self-mail reaches Inbox.
 11. Leave unfinished or deferred self-mail unarchived so later rounds can pick it up.
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
@@ -105,7 +105,7 @@ Use a stable marker such as `[self-wakeup]`, `[self-reminder]`, or another clear
 - For multi-step work, prefer one self-reminder that points to a local todo list over many mailbox reminders for individual substeps.
 - Use informative self-reminder titles so later rounds can distinguish internal backlog items from new external mail without opening every unread message first.
 - Prefer deleting completed self-reminders when the available supported mailbox surface allows it.
-- If deletion is not available on the current supported mailbox surface, archive a completed self-reminder.
+- Archive a completed self-reminder only when current placement capabilities allow it. A protected binding reserves filing for separately authorized owner access.
 
 ## Guardrails
 

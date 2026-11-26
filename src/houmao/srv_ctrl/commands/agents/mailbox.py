@@ -131,10 +131,16 @@ def online_status_command(agent_id: str | None, agent_name: str | None) -> None:
 @click.option("--jmap-url", default=None, help="Exact JMAP session-discovery URL.")
 @click.option("--base-url", default=None, help="Derive /.well-known/jmap from this server base.")
 @click.option(
+    "--trust-jmap-origin",
+    multiple=True,
+    metavar="ORIGIN",
+    help="Approve an exact JMAP scheme, host, and port. HTTP permits plaintext credentials.",
+)
+@click.option(
     "--account-id", default=None, help="Explicit JMAP account when discovery is ambiguous."
 )
 @click.option(
-    "--replace", is_flag=True, help="Authorize a different account with a fresh binding ID."
+    "--replace", is_flag=True, help="Authorize another account or endpoint with a fresh binding ID."
 )
 @click.option("--expected-revision", default=None, help="Pin an observed online slot revision.")
 @click.option("--timeout-seconds", type=click.FloatRange(min=0.01, max=120), default=10.0)
@@ -146,6 +152,7 @@ def online_attach_command(
     credential_source: Path,
     jmap_url: str | None,
     base_url: str | None,
+    trust_jmap_origin: tuple[str, ...],
     account_id: str | None,
     replace: bool,
     expected_revision: str | None,
@@ -174,6 +181,7 @@ def online_attach_command(
             credential_source_ref=str(credential_source),
             jmap_url=jmap_url,
             base_url=base_url,
+            trusted_jmap_origins=list(trust_jmap_origin),
             account_id=account_id,
             replace=replace,
             timeout_seconds=timeout_seconds,

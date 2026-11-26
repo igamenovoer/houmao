@@ -1,6 +1,6 @@
 ---
 name: houmao-memory-mgr
-description: "Use when the user's intent is to read or write a Houmao-managed agent's `houmao-memo.md` file or a reusable profile's Houmao memo seed. Necessary trigger: `memo` is mentioned. Sufficient trigger: the prompt or context says `houmao memo`, says `agent memo` where the agent clearly refers to a Houmao-managed agent, or asks for an easy/launch dossier memo seed. An explicit reference to `houmao-memo.md` is a very strong hint to call this skill."
+description: "Use when reading, writing, appending, or clearing a Houmao-managed agent's live houmao-memo.md or pages/ entries, or configuring a project profile or launch dossier memo seed when memo is explicitly referenced."
 license: MIT
 metadata:
   skill_invocation_notation: >
@@ -17,126 +17,43 @@ metadata:
 
 # Houmao Memory Manager
 
+## Overview
+
+Manage live Houmao-managed agent memory (`houmao-memo.md` and `pages/`) under `MANAGED_PROMPT_HEADER_VERSION = 2` `<memo_cue>` discipline, or configure birth-time memo seeds on reusable project profiles and launch dossiers.
+
 ## Workflow
 
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+1. **Answer explicit `help` first** from **Help** without running commands or mutating live or profile state.
+2. **Enforce the Actor Frame Gate and Trigger Rule**: verify the inherited `admin` or `agent` frame and confirm the necessary trigger (`memo` mentioned) plus a sufficient trigger (`houmao memo`, `houmao-memo.md`, managed `agent memo`, or a profile/launch-dossier memo seed).
+3. **Separate target kinds up front**:
+   - Birth-time reusable profile (`project profile` or `launch-dossiers` / future launches): never touch any live agent's `houmao-memo.md`.
+   - Live managed-agent memory: default to verified self (`HOUMAO_AGENT_MEMO_FILE` / `HOUMAO_AGENT_PAGES_DIR` or `agents self memory`) in `agent` posture; require explicit `--agent-id` or `--agent-name` in `admin` or peer posture.
+4. **Select one subcommand** from **Subcommands** (`read`, `write`, or `remove`), resolve one `houmao-mgr` launcher (`command -v houmao-mgr`, then `uv tool run --from houmao houmao-mgr`, or repo `pixi run houmao-mgr`), and execute its page workflow.
+5. **Confirm compact write receipts** (`success`, `action`, `memo_file`) on live mutations and run `memory memo show` when the resulting memo text is needed.
 
-1. Determine the target kind before choosing an edit surface:
-   - If the prompt or recent context clearly says the user is working with a reusable launch profile, project profile, profile defaults, birth-time config, future launches, or `--launch-profile`/`--profile`, update that launch profile's Houmao memo seed. Do not mutate any live agent memo for that request.
-   - Otherwise, treat the request as a live managed-agent memory request. If the request is about the current managed agent, prefer `HOUMAO_AGENT_MEMO_FILE` and `HOUMAO_AGENT_PAGES_DIR`; when those are unavailable inside a managed session, use `houmao-mgr agents self memory path`. If it names another managed agent, use `houmao-mgr agents single --agent-name <name> memory path` or `houmao-mgr agents single --agent-id <id> memory path` to find the memo and pages paths.
-2. Choose one `houmao-mgr` launcher for this turn:
-   - first use `command -v houmao-mgr` when available
-   - otherwise use `uv tool run --from houmao houmao-mgr`
-   - only then use a development launcher such as `pixi run houmao-mgr`, `.venv/bin/houmao-mgr`, or `uv run houmao-mgr`
-3. For a launch dossier memo seed, identify the lane:
-   - project profile: inspect directly when needed, then create or update through `project.profile.create` or `project.profile.set`
-   - launch dossier: inspect directly when needed, then create or update through `internals.native-agent.launch-dossiers.add` or `internals.native-agent.launch-dossiers.set`
-   - if the lane is ambiguous after checking prompt and context, ask whether the user means a project profile or a launch dossier before editing.
-4. For a launch dossier memo seed edit, read the profile first, then use the maintained profile `set` command with exactly one memo seed source when setting content:
-   - `--memo-seed-text <text>` for short inline memo content
-   - `--memo-seed-file <path>` for one Markdown file whose content becomes `houmao-memo.md`
-   - `--memo-seed-dir <path>` for a memo-shaped directory containing `houmao-memo.md` and/or `pages/`
-5. Do not pass memo seed fields to `internals config-drafts generate`; config drafts are minimal profile authoring aids that accept only name/source/credential holes. Live memory commands remain direct skill guidance and are not profile config-draft commands.
-6. Memo seeds always replace only the managed-memory components represented by the seed source: text and file seeds touch only `houmao-memo.md`, while directory seeds touch `houmao-memo.md` only when that file is present and pages only when `pages/` is present. Use `--clear-memo-seed` when the user asks to remove stored seed configuration. Never combine `--clear-memo-seed` with a seed source.
-7. Do not use prompt overlays as a substitute for memo seeds. Prompt overlays shape launch prompts; memo seeds materialize durable `houmao-memo.md` and contained `pages/` content before a profile-backed launch starts.
-8. For a live managed-agent edit, read before editing. Use `agents self memory memo show` or `agents single ... memory memo show` for the fixed memo, and `agents self memory read --path <page>` or `agents single ... memory read --path <page>` for a page.
-9. For live memo edits, keep the smallest meaningful change. Prefer `memo append` for simple additions. For removals or rewrites, replace the full memo with `memo set` after preserving unrelated text. Confirm the write using the first receipt's `success`, `action`, and `memo_file` fields. When you need the resulting contents, run `memory memo show` in the same scope.
-10. For live supporting pages, use `tree`, `resolve`, `read`, `write`, `append`, and `delete` with a `--path` relative to `pages/`.
-11. When a live memo should reference a page, author a normal Markdown link such as `[run notes](pages/notes/run.md)`; use `resolve --path <page>` when you need the exact memo-relative link or absolute page path.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from **Subcommands**, **Prompt Header v2 `<memo_cue>` Contract**, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
-This parent-scoped routine loads only through `houmao-shared-routines`. Require the immutable admin or verified-agent frame validated by that parent; otherwise stop before memory routing.
-
-- Admin branch: require an explicit managed-agent or profile memo target and do not use the operator session as self.
-- Agent branch: require freshly verified self identity and default to verified self memory. A peer or reusable profile remains an explicit target.
-
-Preserve the frame before reading or writing `houmao-memo.md` and contained memory pages.
-
-Use this Houmao skill only when the necessary trigger condition is met:
-
-- the prompt or recent context mentions `memo`
-
-The sufficient trigger conditions are:
-
-- the prompt or recent context says `houmao memo`
-- the prompt or recent context says `agent memo`, and that agent clearly refers to a Houmao-managed agent
-- the prompt or recent context asks for a launch dossier, project profile, or reusable profile memo seed
-
-When triggered, handle requests to edit, add something to, remove something from, inspect, or otherwise manage the Houmao/agent memo, a reusable profile's Houmao memo seed, or memo-linked managed-agent memory pages.
-
-## Help
-
-When the user asks `$houmao-shared-routines memory-mgr help`, `help for houmao-memory-mgr`, `usage for houmao-memory-mgr`, `available functionality for houmao-memory-mgr`, or what this skill can do, answer from this section before choosing a live-memory or launch dossier memo-seed workflow, command, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me append this to the agent memo", route to the matching workflow instead of stopping at generic help.
-
-Purpose: read and update Houmao-managed memo surfaces for live agents and reusable profile memo seeds.
-
-Available functionality:
-
-- Inspect, set, or append the fixed live `houmao-memo.md`.
-- Read, write, append, delete, resolve, and list memo-linked pages under `pages/`.
-- Locate live managed-agent memory paths.
-- Create, update, or clear project profile and launch-dossier memo seeds for future launches.
-
-Common starting prompts:
-
-- `$houmao-shared-routines memory-mgr help`
-- `$houmao-shared-routines memory-mgr show memo for <agent>`
-- `$houmao-shared-routines memory-mgr append to <agent> memo`
-- `$houmao-shared-routines memory-mgr set memo seed for profile <name>`
-
-Related skills and boundaries:
-
-- Use `houmao-shared-routines->houmao-agent-definition` for non-memory profile authoring.
-- Use `houmao-shared-routines->houmao-agent-inspect` for runtime manifests, logs, screen, or mailbox posture.
-- Use `houmao-shared-routines->houmao-agent-gateway` for reminders, not managed memory.
-- DO NOT use this skill for provider-native memory, mailbox state, task queues, or arbitrary work artifacts.
+This parent-scoped routine loads only through `houmao-shared-routines` and requires an immutable `admin` or verified `agent` frame; missing or mismatched frames fail closed. Admin callers require an explicit agent or profile target and never treat the operator shell as self; agent callers default live memory to verified self and require an explicit target for peers or profiles. Route non-memory profile authoring to `houmao-shared-routines->houmao-agent-definition`, runtime/log/mailbox inspection to `houmao-shared-routines->houmao-agent-inspect`, and gateway reminders to `houmao-shared-routines->houmao-agent-gateway`.
 
 ## Subcommands
 
-This skill covers only Houmao-managed memo surfaces:
+| Subcommand | Use For | Detail |
+| --- | --- | --- |
+| `read` | Resolve live memory paths, show `houmao-memo.md`, list/read `pages/`, or inspect a profile/launch-dossier memo seed. | [commands/read.md](commands/read.md) |
+| `write` | Append or set live `houmao-memo.md` (with compact receipts), write/append `pages/`, or set a birth-time memo seed. | [commands/write.md](commands/write.md) |
+| `remove` | Delete a contained `pages/` entry, prune live memo text via smallest-edit `memo set`, or `--clear-memo-seed` on a profile. | [commands/remove.md](commands/remove.md) |
+| `help` | Read-only summary of `<memo_cue>` discipline, live vs birth-time seed boundaries, and supported operations. | **Help** |
 
-- `help` (read-only meta operation)
-- current-session live memory: `houmao-mgr agents self memory path|status`
-- current-session memo operations: `houmao-mgr agents self memory memo show|set|append`
-- current-session page operations: `houmao-mgr agents self memory tree|resolve|read|write|append|delete`
-- selected-agent live memory: `houmao-mgr agents single --agent-name <name> memory ...` or `houmao-mgr agents single --agent-id <id> memory ...`
-- launch dossier memo seeds on reusable birth-time profiles:
-  - project profile lane: `houmao-mgr project profile create|get|set`
-  - launch-dossier lane: `houmao-mgr internals native-agent launch-dossiers add|get|set`
-  - memo seed source options: `--memo-seed-text`, `--memo-seed-file`, and `--memo-seed-dir`
-  - clearing option: `--clear-memo-seed`
-- live-session environment variables `HOUMAO_AGENT_MEMORY_DIR`, `HOUMAO_AGENT_MEMO_FILE`, and `HOUMAO_AGENT_PAGES_DIR`
+## Prompt Header v2 `<memo_cue>` Contract and Help
 
-It does not cover provider-native memory, mailbox state, gateway reminders, runtime manifests, task queues, or arbitrary work artifacts.
-
-## Missing Input Questions
-
-- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-- If the target kind, managed-agent selector, profile lane, profile name, memo path, page path, or mutation text is still missing, ask before editing.
-- When asking for Houmao memo-system inputs, use readable Markdown:
-  - separate `Required` values from `Optional` modifiers
-  - `Required`: values that block the selected memory command or profile memo-seed edit
-  - `Optional`: launcher preference, profile lane defaults, seed source choice, page-path detail, output format, or skip choices; if none apply, say `Optional: none for this step.`
-  - use a short bullet list when only one or two required fields are missing
-  - use a compact table when the target kind, lane, or several required fields need clarification
-- DO NOT use this format for the user's memo content itself unless the question is about Houmao runtime behavior.
-
-## Memory Contract
-
-Treat `houmao-memo.md` as free-form Markdown owned by the operator and agent. A launch dossier memo seed is birth-time configuration for future launches and differs from a live session's current memo. `--memo-seed-text ''` means an intentional empty future memo seed; `--clear-memo-seed` removes stored seed configuration.
+Under `MANAGED_PROMPT_HEADER_VERSION = 2`, `<memo_cue>` instructs managed agents to read `houmao-memo.md` every turn before planning or acting, open linked `pages/` notes when relevant, apply rules directly without merely announcing that the memo was read, keep `houmao-memo.md` brief (current facts, standing rules, `[label](pages/...)` links), and update it sparingly (only when asked or clearly outdated). Birth-time seeds (`--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`, `--clear-memo-seed`) configure future launches only (`--memo-seed-text ''` sets an intentional empty seed) and are never passed to `internals config-drafts generate`. Explicit `help` explains these boundaries read-only; concrete memo requests execute `read`, `write`, or `remove`.
 
 ## Guardrails
 
-- DO NOT run live `houmao-mgr agents self memory ...` or `houmao-mgr agents single ... memory ...` commands when the target is a launch or project profile.
-- DO NOT generate, refresh, sort, validate, or remove page indexes inside the memo unless the user asks for that exact content edit.
-- DO NOT use absolute page paths or `..`; page operations must stay inside the managed `pages/` directory.
-- DO NOT use arbitrary directory trees as `--memo-seed-dir`; accept only memo-shaped directories with supported top-level entries `houmao-memo.md` and `pages/`.
-- DO NOT write arbitrary files beside `houmao-memo.md` at the memory root.
-- DO NOT store live runtime bookkeeping, retry counters, mailbox receipts, gateway state, or supervision state in managed memory pages.
-- DO NOT hand-edit `.houmao/agents/launch-profiles/<name>.yaml` when the maintained profile `create|add|set` command exposes memo seed operations.
-- DO NOT hand-author profile memo-seed YAML skeletons; use maintained profile `set` memo-seed fields and leave omitted profile defaults omitted.
-- DO NOT use deprecated `houmao-cli` or removed standalone CAO launcher workflows.
+- DO NOT run live `agents self|single ... memory` commands when the target is a reusable project profile or launch dossier, or pass memo seeds to `internals config-drafts generate`.
+- DO NOT use absolute paths or `..` in `--path`; all page operations stay strictly inside `pages/`, and no arbitrary files may be written beside `houmao-memo.md` at the memory root.
+- DO NOT auto-generate, sort, or rewrite page indexes inside `houmao-memo.md` unless the user explicitly asks for that edit.
+- DO NOT pass arbitrary directories to `--memo-seed-dir` (only `houmao-memo.md` and `pages/` entries are allowed) or hand-edit `.houmao/agents/launch-profiles/<name>.yaml`.
+- DO NOT store runtime bookkeeping, retry counters, mailbox receipts, gateway state, or provider-native memory inside Houmao memory.

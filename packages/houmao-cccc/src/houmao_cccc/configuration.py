@@ -4,14 +4,34 @@ from __future__ import annotations
 
 import ipaddress
 import json
+from typing import TypeGuard
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+
+from houmao_cccc.delivery import DeliverySettings
 
 MAIL_DEFAULT_LIMIT = 50
 MAIL_MAX_LIMIT = 200
 MAIL_DEFAULT_BYTES = 262144
 MAIL_MAX_BYTES = 1048576
+_MAX_DESCRIPTOR_LENGTH = 256
+
+
+def valid_group_assertion(value: object) -> TypeGuard[str]:
+    """Check that an expected Group has the same form as a bound Group."""
+
+    return isinstance(value, str) and _valid_descriptor(value)
+
+
+def _valid_descriptor(value: str) -> bool:
+    """Check length, surrounding whitespace, and controls without changing an ID."""
+
+    return (
+        1 <= len(value) <= _MAX_DESCRIPTOR_LENGTH
+        and value == value.strip()
+        and not any(ord(char) < 32 or ord(char) == 127 for char in value)
+    )
 
 
 def normalize_endpoint(value: str, *, loopback_only: bool = False) -> str:
@@ -55,9 +75,9 @@ class CcccConfiguration(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True, allow_inf_nan=False)
 
     endpoint: str = Field(min_length=1, max_length=2048)
-    group_id: str = Field(min_length=1, max_length=256)
-    actor_id: str = Field(min_length=1, max_length=256)
-    actor_generation: str = Field(min_length=1, max_length=256)
+    group_id: str = Field(min_length=1, max_length=_MAX_DESCRIPTOR_LENGTH)
+    actor_id: str = Field(min_length=1, max_length=_MAX_DESCRIPTOR_LENGTH)
+    actor_generation: str = Field(min_length=1, max_length=_MAX_DESCRIPTOR_LENGTH)
     request_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     poll_timeout_seconds: float = Field(default=20.0, gt=0, le=20)
     reconnect_delay_seconds: float = Field(default=1.0, gt=0, le=30)
@@ -67,6 +87,7 @@ class CcccConfiguration(BaseModel):
     history_limit: int = Field(default=50, ge=1, le=100)
     mail_limit: int = Field(default=MAIL_DEFAULT_LIMIT, ge=1, le=MAIL_MAX_LIMIT)
     mail_max_bytes: int = Field(default=MAIL_DEFAULT_BYTES, ge=1024, le=MAIL_MAX_BYTES)
+    delivery: DeliverySettings = Field(default_factory=DeliverySettings)
 
     @field_validator("endpoint")
     @classmethod
@@ -80,7 +101,7 @@ class CcccConfiguration(BaseModel):
     def _identity(cls, value: str) -> str:
         """Keep selected routing descriptors nonempty and free of controls."""
 
-        if value != value.strip() or any(ord(char) < 32 or ord(char) == 127 for char in value):
+        if not _valid_descriptor(value):
             raise ValueError("Actor descriptors must not contain whitespace or controls")
         return value
 
@@ -90,7 +111,7 @@ def binding_identity(configuration: CcccConfiguration) -> str:
 
     return json.dumps(
         [
-            "cccc-v1",
+            "cccc-v2",
             configuration.endpoint,
             configuration.group_id,
             configuration.actor_id,

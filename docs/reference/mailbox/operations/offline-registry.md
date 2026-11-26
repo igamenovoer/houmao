@@ -107,13 +107,15 @@ Every remote lifecycle operation includes `expected_binding_id`, equal to the se
 
 Remote callers upload attachment bytes first. `client.upload(content)` returns a `registry-attachment:<opaque-id>` locator and SHA-256/size metadata. A send supplies that managed locator through its attachment input. Remote adapters upload explicitly selected local files automatically. The registry never opens a path chosen by a remote caller. Downloads require upload ownership or a message projection owned by the current registration, and verify size and digest. The default transfer limit is 10 MiB, configurable in `service.json`.
 
-## Managed Recipient Policy
+## Protected Recipient Filtering
 
-The offline publisher checks `agent.mail.deliver` on every managed recipient before publishing mail, including recipients in `Cc` and replies. It uses Bob's retained policy even when Bob is stopped or his gateway is detached. The registry uses Alice's authenticated membership and current sender binding. Message headers do not establish caller identity. An unenrolled Alice can deliver under Bob's initial `agent-requester` default. Bob's explicit `builtin:agent-observer` assignment denies delivery for that verified sender.
+The offline registry verifies the sender's active membership and selected binding. It files matching new deliveries directly into the recipient's Archive, including Cc recipients and replies. Rules match verified sender data and apply while the recipient gateway is down. Each recipient has its own placement. A sender receives the same deposit receipt for Inbox and Archive.
 
-Run a policy-governed offline store where its delivery worker can verify the current recipient registration and read the recipient's owner-private policy. Managed remote joins record that the recipient requires this check. The service refuses delivery when it cannot resolve the retained policy, including a separate-account or separate-host recipient whose policy is unavailable to the worker. Use a qualified store for those recipients. Standalone registrations that have no managed agent policy retain the store's own membership rules.
+For protected filtering, run the registry under a separate trusted service account or on a dedicated host. Keep its mailbox root private to that authority. Set `protected_filtering: true` and declare local runtime UIDs in `protected_runtime_uids` in the registry configuration. Use an empty UID list for a dedicated registry host without gateway processes. Ordinary shared writable roots cannot provide protected filtering.
 
-Read and answered flags do not complete inbox work. Archive is the completion operation. Independent channel notifiers can repeat reminders for unchanged eligible work; an offline registry outage never redirects work through online mail.
+Use the independent registry admin credential to enroll an Ed25519 mailbox-owner public key with `OfflineRegistryClient.set_policy_owner(...)`, pinned to the current registration. Keep the private signer on the owner side. The owner can submit the signed update directly to `POST /houmao/registry/mail/policy/apply` or relay it through the gateway. Verify the committed outcome independently with `OfflineRegistryClient.policy_receipt(...)`. Rule changes affect later deliveries, and existing mail retains its folder.
+
+Ordinary runtime credentials have Inbox and Sent access subject to their mailbox permissions. On a protected binding, the separately authorized owner handles Archive review and placement. Read and answered flags do not close `any_inbox` work. An offline registry outage never redirects work through online mail.
 
 ## Release and Recovery
 

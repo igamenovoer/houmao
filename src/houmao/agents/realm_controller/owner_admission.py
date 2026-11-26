@@ -992,3 +992,23 @@ def exact_web_prompt_admission(
         return ("queued" if status == "queued" else "handed_off"), native_id
     except (OSError, ValueError):
         return None
+
+
+def exact_web_prompt_handoff(
+    turn_dir: Path,
+    request_id: str,
+    identity: GatewayWebExecutionIdentityV1,
+    prompt_id: str,
+) -> bool:
+    """Read native turn-start evidence for one exact formerly queued prompt."""
+
+    try:
+        handoff = json.loads((turn_dir / "web-handoff.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return (
+        isinstance(handoff, dict)
+        and handoff.get("operation_id") == request_id
+        and handoff.get("identity") == identity.model_dump(mode="json")
+        and handoff.get("message_id") == prompt_id
+    )

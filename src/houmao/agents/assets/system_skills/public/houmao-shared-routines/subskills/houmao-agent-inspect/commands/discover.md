@@ -1,44 +1,29 @@
-# Discover Managed-Agent Inspection Targets
-
-Use this action when you first need to identify the correct managed agent or confirm the current liveness and capability posture before deeper inspection.
+# Discover Managed and External Agent State
 
 ## Workflow
 
-1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
-3. If the target is still missing or ambiguous, use `agents global list` first or ask the user for the missing selector.
-4. Use scoped CLI `state` or `GET /houmao/agents/{agent_ref}/managed-state` first. Read identity, liveness, and any manifest or session-root pointers returned for the selected agent.
-5. If the request needs transport-specific detail, use `/managed-state/detail` or the corresponding raw `/state/detail` observation for the selected agent.
-6. If the request may need current live gateway posture, run `agents single --agent-name <name> gateway status` or `GET /houmao/agents/{agent_ref}/gateway`.
-7. Report only the facts needed for the next step: tracked identity, transport, runtime posture, gateway presence, and the stable artifact pointers already exposed by the response.
+1. **Resolve the target selector** from explicit prompt or recent context; if omitted or ambiguous, run `houmao-mgr agents global list` (and `houmao-mgr agents external list` when remote communication-only imports may apply) or ask before proceeding.
+2. **Read summary posture first** via `houmao-mgr agents single --agent-id|--agent-name ... state` (or `agents self state`, `agents external get --name <alias>`, or `GET /houmao/agents/{agent_ref}/managed-state`), noting liveness, run mode (`headless`, `service`, `tui`, `web`), `execution_binding` (`--executor` context), gateway `admin_mode`/policy/`default_group` summary, `manifest_path`, and `session_root`.
+3. **Query transport-specific detail** when needed:
+   - Pair-managed detail: `GET /houmao/agents/{agent_ref}/managed-state/detail` or `/state/detail`, plus `agents single ... gateway status` (`GET /houmao/agents/{agent_ref}/gateway`).
+   - `service` mode: `GET {gateway.base_url}/v1/control/service/state` and `GET {gateway.base_url}/v1/control/service/requests/{request_id}` (or pair-managed `/houmao/agents/{agent_ref}/gateway/control/service/*`).
+   - `web` mode: `GET {gateway.base_url}/v1/control/web/state` and `GET {gateway.base_url}/v1/control/web/history` (or pair-managed `/houmao/agents/{agent_ref}/gateway/control/web/*`).
+4. **Report concise facts** (identity, run mode, `execution_binding`, gateway/policy posture, and artifact pointers) for the next step.
 
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a bounded read-only discovery plan from [../SKILL-MAIN.md](../SKILL-MAIN.md) and the user request, then execute the plan.
 
 ## Command Shapes
 
-Use:
-
-```text
+```bash
 <chosen houmao-mgr launcher> agents global list
-<chosen houmao-mgr launcher> agents single --agent-name <name> state
-<chosen houmao-mgr launcher> agents single --agent-id <id> state
-<chosen houmao-mgr launcher> agents single --agent-name <name> gateway status
+<chosen houmao-mgr launcher> agents external list
+<chosen houmao-mgr launcher> agents external get --name <alias>
+<chosen houmao-mgr launcher> agents single --agent-id <id> state [--port <pair-port>]
+<chosen houmao-mgr launcher> agents single --agent-id <id> gateway status [--pair-port <pair-port>]
+<chosen houmao-mgr launcher> agents self state
 ```
-
-Select the agent with `--agent-id` or `--agent-name` on `agents single`. When an explicit passive server port is needed, pass `--port` to `state` or `--pair-port` to `gateway status` after the selected agent. For genuine managed self, use the equivalent `agents self` command.
-
-Managed-agent HTTP discovery surfaces:
-
-- `GET /houmao/agents`
-- `GET /houmao/agents/{agent_ref}/managed-state`
-- `GET /houmao/agents/{agent_ref}/managed-state/detail`
-- `GET /houmao/agents/{agent_ref}/state`
-- `GET /houmao/agents/{agent_ref}/state/detail`
-- `GET /houmao/agents/{agent_ref}/gateway`
 
 ## Guardrails
 
-- DO NOT guess the target managed agent when the selector is missing or ambiguous.
-- DO NOT skip summary state and jump straight to tmux or runtime files before the exact target and session identity are known.
-- DO NOT treat `/history` as a substitute for the transport-specific rich detail surface.
-- DO NOT keep using stale gateway or mailbox assumptions across turns when current live state matters.
+- DO NOT guess an ambiguous target or skip `state` / `managed-state` before inspecting local tmux or filesystem paths.
+- DO NOT treat `/history` as a substitute for transport-specific `managed-state/detail`, `service/state`, or `web/state`, or reuse stale gateway coordinates across turns.

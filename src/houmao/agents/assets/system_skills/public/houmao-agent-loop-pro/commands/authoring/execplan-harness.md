@@ -16,23 +16,22 @@ metadata:
 
 ## Workflow
 
-1. **Validate invocation context**. Preserve the actor posture, selected target, operation intent, and predecessor evidence supplied by the owning skill.
-2. **Resolve required inputs**. Recover explicit values from current context and stop or ask when a required value remains missing.
-3. **Execute the detailed procedure below**. Follow its ordering, gates, side-effect boundary, owned references, and output contract.
-4. **Validate and report**. Return changed or inspected artifacts, evidence, blockers, and the command-specific stop condition.
+1. Confirm the inherited actor posture, `<loop-dir>` preconditions, and required inputs, loading only the `## Read First` references.
+2. Execute `## Actions` within this command's side-effect boundary.
+3. Return the structured report (`## Report`) and stop on any unresolved blocker.
 
-If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this procedure, its owning skill constraints, and the user request, then execute the plan.
 
 ## Read First
 
-- `../reference/generated-contract-defaults.md`
-- `../reference/topology-modes.md`
-- `../reference/cycle-normalization.md`
-- `../reference/predecessor-context.md`
-- `../reference/mail-schema-events.md`
-- `../reference/result-routing.md`
-- MUST READ: `../reference/runtime-mail-model.md`
-- `../reference/platform-boundaries.md`
+- [../../references/generated-contract-defaults.md](../../references/generated-contract-defaults.md)
+- [../../references/topology-modes.md](../../references/topology-modes.md)
+- [../../references/cycle-normalization.md](../../references/cycle-normalization.md)
+- [../../references/predecessor-context.md](../../references/predecessor-context.md)
+- [../../references/mail-schema-events.md](../../references/mail-schema-events.md)
+- [../../references/result-routing.md](../../references/result-routing.md)
+- MUST READ: [../../references/runtime-mail-model.md](../../references/runtime-mail-model.md)
+- [../../references/platform-boundaries.md](../../references/platform-boundaries.md)
 
 ## Preconditions
 

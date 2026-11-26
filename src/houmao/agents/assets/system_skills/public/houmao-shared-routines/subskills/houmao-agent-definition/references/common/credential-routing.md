@@ -43,7 +43,7 @@ Use this only for specialist creation when the user omitted tool or credential i
    - prefer the active Houmao project overlay;
    - otherwise use `HOUMAO_NATIVE_AGENT_ROOT` when it points at a plain agent-definition directory;
    - stop if neither target is available.
-2. Inventory registered credentials across supported tool lanes by running the selected `houmao-mgr` launcher for each supported tool:
+2. Inventory registered credentials across supported tool lanes (`claude`, `codex`, `dsh`, `kimi`) by running the selected `houmao-mgr` launcher for each supported tool:
    - project target: `<chosen houmao-mgr launcher> project [--project-dir <dir>] credentials <tool> list`;
    - native-agent target: `<chosen houmao-mgr launcher> internals native-agent credentials <tool> list --native-agent-root <path>`.
 3. Stop if no credentials are registered.
@@ -63,12 +63,13 @@ Load only the selected tool's credential-kind page:
 
 - Claude: [../../../houmao-credential-mgr/references/claude-credential-kinds.md](../../../houmao-credential-mgr/references/claude-credential-kinds.md)
 - Codex: [../../../houmao-credential-mgr/references/codex-credential-kinds.md](../../../houmao-credential-mgr/references/codex-credential-kinds.md)
+- DSH: [../../../houmao-credential-mgr/references/dsh-credential-kinds.md](../../../houmao-credential-mgr/references/dsh-credential-kinds.md)
 - Kimi: [../../../houmao-credential-mgr/references/kimi-credential-kinds.md](../../../houmao-credential-mgr/references/kimi-credential-kinds.md)
 
 ## Guardrails
 
-- Do not scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless a supported discovery mode is active.
-- Do not infer specialist tool from installed CLIs, project language, file names, or vendor tool homes.
-- Do not execute browser login flows, `codex login`, `claude auth login`, `apiKeyHelper`, or other auth-generation flows.
-- Do not infer auth identity from `.houmao/content/auth/...` or `.houmao/agents/tools/<tool>/auth/...` directory basenames.
-- Do not treat profile `--auth` changes as credential-bundle content mutation.
+- DO NOT scan env vars, directories, repo-local tool homes, home-dir tool configs, or redirected tool homes unless a supported discovery mode is active.
+- DO NOT infer specialist tool from installed CLIs, project language, file names, or vendor tool homes.
+- DO NOT execute browser login flows, `codex login`, `claude auth login`, `apiKeyHelper`, or other auth-generation flows.
+- DO NOT infer auth identity from `.houmao/content/auth/...` or `.houmao/agents/tools/<tool>/auth/...` directory basenames.
+- DO NOT treat profile `--auth` changes as credential-bundle content mutation.

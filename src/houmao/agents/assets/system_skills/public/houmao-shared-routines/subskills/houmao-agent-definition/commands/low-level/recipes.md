@@ -36,7 +36,7 @@ Use this subskill when the user wants to create, inspect, update, list, or remov
 
 - List: no recipe name required.
 - Get: require `--name`.
-- Add: require recipe name, role name, and tool.
+- Add: require recipe name, role name, and tool (`claude`, `codex`, `dsh`, or `kimi`).
 - Set: require recipe name and at least one supported mutation.
 - Remove: require recipe name.
 

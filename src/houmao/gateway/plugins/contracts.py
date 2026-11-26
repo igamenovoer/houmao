@@ -17,6 +17,7 @@ from houmao.gateway.plugins.models import (
     PluginEvent,
     PluginListener,
     PluginOwner,
+    PluginPromptReadiness,
 )
 
 
@@ -37,7 +38,15 @@ class PluginState(Protocol):
 class PluginEventDispatcher(Protocol):
     """Dispatch one notification immediately or report a typed failure."""
 
-    async def dispatch(self, event: PluginEvent) -> PluginDispatchResult:
+    async def wait_until_ready(self, *, timeout_seconds: float) -> PluginPromptReadiness | None:
+        """Observe current prompt readiness or report timeout or context loss."""
+
+    def validate(self, event: PluginEvent) -> None:
+        """Validate the envelope and visible projection without reserving admission."""
+
+    async def dispatch(
+        self, event: PluginEvent, *, readiness: PluginPromptReadiness | None = None
+    ) -> PluginDispatchResult:
         """Return only after confirmed handoff; leave every retry to the sender."""
 
 

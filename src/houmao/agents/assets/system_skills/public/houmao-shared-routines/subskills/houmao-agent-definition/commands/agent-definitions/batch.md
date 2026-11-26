@@ -27,7 +27,7 @@ Delegation is narrow. It does not authorize guessing deploy-input values, privat
      --workdir <project-path> \
      --name-prefix <prefix> \
      --delegate-names \
-     --tool <tool> \
+     --tool <claude|codex|kimi|dsh> \
      --credential <credential>
    ```
 

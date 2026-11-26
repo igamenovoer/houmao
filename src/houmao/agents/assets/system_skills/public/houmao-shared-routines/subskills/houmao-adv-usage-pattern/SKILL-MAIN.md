@@ -1,6 +1,6 @@
 ---
 name: houmao-adv-usage-pattern
-description: Use when a supported Houmao multi-step composition is needed for self-notification, notifier-prompt-driven mail rounds, local-close pairwise edge loops, or forward relay loops.
+description: Use when composing lightweight multi-step Houmao coordination patterns for self-notification, notifier-prompt-driven mail rounds, local-close pairwise edge loops, forward relay loops, or `houmao-cccc` push/pull queues below full loop packages.
 license: MIT
 metadata:
   skill_invocation_notation: >
@@ -17,71 +17,45 @@ metadata:
 
 # Houmao Advanced Usage Patterns
 
+## Overview
+
+Compose lightweight, non-polling multi-step Houmao patterns (self-notification, notifier mail loops, pairwise edge loops, relay loops, and `houmao-cccc` push/pull queues) layered above single-action skills and below generated `lite`/`pro` loop packages.
+
 ## Workflow
 
-1. **Handle explicit help first** without selecting a pattern or executing a control surface.
-2. **Validate the inherited actor frame** from `houmao-shared-routines` and preserve its actor and targets.
-3. **Select one subcommand** from **Subcommands**; route direct one-step work to its owning shared child instead.
-4. **Load only the selected command page** and the direct-operation child guidance it names.
-5. **Execute one bounded composition** and preserve its mailbox, gateway, notifier, and stop contracts.
-6. **Return the result** with the selected pattern, targets, evidence, blockers, and explicit stop point.
+1. **Answer explicit `help` first** from **Help** without executing mailbox, gateway, or messaging commands.
+2. **Enforce the Actor Frame Gate** and route single-step operations directly to their owning routines (`houmao-agent-email-comms`, `houmao-agent-gateway`, `houmao-agent-messaging`, `houmao-process-emails-via-gateway`) or full generated loops to `houmao-agent-loop-lite` / `houmao-agent-loop-pro`.
+3. **Select one pattern** from **Subcommands** using **Multi-Agent Coordination Chooser**, then load only its command page (plus [references/shared-loop-ledger-and-resend.md](references/shared-loop-ledger-and-resend.md) for pairwise, relay, or `houmao-cccc` coordination).
+4. **Execute one bounded turn** honoring channel pinning, idempotent ledger/dedupe state, and immediate turn termination without in-chat sleeping or polling.
 
-If the user's task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the supported patterns, actor frame, direct-operation boundaries, and user request, then execute the plan.
+If the user's task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from **Subcommands**, **Multi-Agent Coordination Chooser**, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
-This parent-scoped routine loads only through `houmao-shared-routines`. Require the immutable admin or verified-agent frame validated by that parent. Admin routes keep explicit targets; agent routes use freshly verified self only where the selected pattern is self-scoped and require explicit peers otherwise. Missing or mismatched frames fail closed.
-
-Use this Houmao skill when the task is a supported multi-step Houmao workflow composition rather than one direct mailbox, gateway, or lifecycle action.
-
-This skill is intentionally above the direct-operation skills and below the maintained generated-loop skills. Keep exact mailbox actions in `houmao-shared-routines->houmao-agent-email-comms`, gateway and notifier control in `houmao-shared-routines->houmao-agent-gateway`, one notifier-driven open-mail round in `houmao-shared-routines->houmao-process-emails-via-gateway`, topology-rich generated execplans in `houmao-agent-loop-pro`, and lightweight Markdown/direct-SQL generated loops in `houmao-agent-loop-lite`.
-
-## Help
-
-When the user asks `$houmao-shared-routines adv-usage-pattern help`, `help for houmao-adv-usage-pattern`, `usage for houmao-adv-usage-pattern`, `available functionality for houmao-adv-usage-pattern`, or what this skill can do, answer from this section before choosing a pattern or reference page. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me design a notifier-driven mail loop", route to the matching workflow instead of stopping at generic help.
-
-Purpose: explain supported multi-step Houmao workflow compositions that combine direct mailbox, gateway, notifier, and loop skills.
-
-Available functionality:
-
-- Self-notification choices between gateway reminders and self-mail backlog.
-- Notifier-prompt-driven mail loops with on-event and optional on-tick behavior.
-- One-round local-close driver-worker edge loops.
-- Ordered relay loops that return final results to the origin.
-- Guidance for choosing between elemental patterns, `houmao-agent-loop-lite`, and `houmao-agent-loop-pro`.
-
-Common starting prompts:
-
-- `$houmao-shared-routines adv-usage-pattern help`
-- `$houmao-shared-routines adv-usage-pattern self-notification`
-- `$houmao-shared-routines adv-usage-pattern notifier-prompt-driven mail loop`
-- `$houmao-shared-routines adv-usage-pattern local-close edge loop`
-
-Related skills and boundaries:
-
-- Use `houmao-shared-routines->houmao-agent-email-comms` for one exact mailbox action.
-- Use `houmao-shared-routines->houmao-agent-gateway` for gateway lifecycle, reminders, and mail-notifier control.
-- Use `houmao-shared-routines->houmao-process-emails-via-gateway` for one notifier-reported open-mail round.
-- Use `houmao-agent-loop-lite` or `houmao-agent-loop-pro` for generated loop packages.
+This parent-scoped routine loads only through `houmao-shared-routines` and requires an immutable `admin` or verified `agent` frame; missing or mismatched frames fail closed. Admin callers require explicit targets; verified `agent` callers default self-scoped wakeups to verified self and require explicit peer targets otherwise.
 
 ## Subcommands
 
-- Read [commands/self-notification.md](commands/self-notification.md) when a managed agent wants to notify itself about later work and needs to choose between live gateway reminders and self-mail backlog.
-- Read [commands/notifier-prompt-driven-mail-loop.md](commands/notifier-prompt-driven-mail-loop.md) when mailbox notifications are the runtime driver: gateway mail-notifier prompts the target agent, generated or loop-specific on-event behavior handles mail, optional on-tick behavior runs once, and the agent must end the chat turn.
-- Read [commands/pairwise-edge-loop-via-gateway-and-mailbox.md](commands/pairwise-edge-loop-via-gateway-and-mailbox.md) when one driver sends one request to one worker for one local-close edge-loop round and that same worker must return the final result to that same driver.
-- Read [commands/relay-loop-via-gateway-and-mailbox.md](commands/relay-loop-via-gateway-and-mailbox.md) when one master or loop origin starts one ordered N-node relay lane, work moves forward along that lane, and the designated loop egress returns the final result to the origin through mailbox email.
+| Subcommand | Use For | Detail |
+| --- | --- | --- |
+| `self-notification` | Choose between focus-first gateway reminders and durable self-mail backlog (aliases `self-notification-via-reminders`, `self-wakeup-via-self-mail`). | [commands/self-notification.md](commands/self-notification.md) ([reminders mode](commands/self-notification-via-reminders.md), [self-mail mode](commands/self-wakeup-via-self-mail.md)) |
+| `notifier-prompt-driven-mail-loop` | Drive bounded `on-event` mail processing (`schema_version: 3`) plus optional single-pass `on-tick` via `mail-notifier`. | [commands/notifier-prompt-driven-mail-loop.md](commands/notifier-prompt-driven-mail-loop.md) |
+| `pairwise-edge-loop` | Run one local-close `driver -> worker -> driver` round via attributed `request` or queued `prompt` plus mail return (aliases `local-close-edge-loop`, `pairwise edge-loop`, `pairwise-edge-loop-via-gateway-and-mailbox`). | [commands/pairwise-edge-loop-via-gateway-and-mailbox.md](commands/pairwise-edge-loop-via-gateway-and-mailbox.md) |
+| `relay-loop` | Run one ordered `origin -> ingress -> relay -> egress -> origin` forward lane (alias `relay-loop-via-gateway-and-mailbox`). | [commands/relay-loop-via-gateway-and-mailbox.md](commands/relay-loop-via-gateway-and-mailbox.md) |
+| `help` | Read-only chooser across self-notification, notifier mail loops, pairwise/relay loops, `houmao-cccc`, and `lite`/`pro` loops. | **Help** |
 
-## Multi-Agent Loop Chooser
+## Multi-Agent Coordination Chooser and Help
 
-- Prefer the local-close edge-loop pattern when exactly one driver sends one worker request for one local-close round and the final result should return to the same driver that sent that request.
-- Prefer the forward relay-loop pattern when one master or loop origin starts one ordered relay lane, ownership should keep moving forward along that lane, and a later downstream loop egress should return the final result directly to that origin.
-- Use the notifier-prompt-driven mail loop pattern for runtime wake-up posture, notifier appendix guidance, sender notify blocks, mail-event handling, and one-pass tick behavior inside a mailbox-driven loop.
-- Use `houmao-agent-loop-lite` when the user explicitly wants a small generated-skill loop package with Markdown contracts, typed Markdown templates, and direct SQLite state.
-- Use `houmao-agent-loop-pro` for composed topology, schema-rich generated execplans, rendered graphs, graph policy, multi-edge tree loops, multi-lane relay routes, or generated loop run-control actions. Choose `tree-loop` or `generic-loop` inside pro instead of routing to retired loop packages.
+- **`pairwise-edge-loop`**: one driver delegates one `edge_loop_id` to one worker (via `agents single ... request --text` under `agent-requester` default or `prompt` under `agent-operator`) and receives the final result back directly.
+- **`relay-loop`**: one origin starts an ordered forward lane (`loop_id` + per-hop `handoff_id`) whose final egress emails the result back to the origin.
+- **`notifier-prompt-driven-mail-loop`**: `mail-notifier` wakes an idle agent for bounded `schema_version: 3` mail handling plus at most one `on-tick` pass.
+- **`houmao-cccc` push/pull/queue option**: when agents share a CCCC group via the gateway plugin (`/v1/plugins/{instance}/*`) or `--direct-profile`, use `houmao-cccc chat send|reply|pull|deliveries` (`--operation-id`, `--connection-token`, `--handle` / `--event-ref`) for group chat/queue coordination; see [references/shared-loop-ledger-and-resend.md](references/shared-loop-ledger-and-resend.md).
+- **`houmao-agent-loop-lite` vs `houmao-agent-loop-pro`**: escalate to `lite` for generated Markdown contracts + direct SQLite state, or `pro` (`tree-loop` / `generic-loop`) for multi-edge graphs, schemas, harness validation, and run control.
+
+Explicit `help` explains these choices read-only.
 
 ## Guardrails
 
-- DO NOT treat this skill as a new control surface; it composes existing Houmao-owned skills.
-- DO NOT replace the direct-operation skills when the task is only one send, list, notifier, or wakeup action.
-- DO NOT claim durability beyond the mailbox open-work state and live gateway contracts the pattern page states explicitly.
-- DO NOT ask managed agents to sleep, poll, tail logs, or wait in-chat for future mail or ticks.
+- DO NOT use this skill for a single direct mail, prompt, request, reminder, or notifier command when the owning child routine suffices, or as a substitute for `houmao-agent-loop-lite` / `houmao-agent-loop-pro` graph orchestration.
+- DO NOT claim durability beyond what the chosen transport (`reminders` vs `offline`/`online` mail vs `houmao-cccc`) guarantees.
+- DO NOT instruct agents to sleep, poll, tail logs, or hold a chat turn open waiting for downstream replies or ticks.

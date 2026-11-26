@@ -19,14 +19,15 @@ That skill SHALL instruct agents and operators to handle mailbox-administration 
 - `houmao-mgr project mailbox init|status|register|unregister|repair|cleanup|clear-messages|export`
 - `houmao-mgr project mailbox accounts list|get`
 - `houmao-mgr project mailbox messages list|get`
-- `houmao-mgr agents mailbox status|register|unregister`
+- `houmao-mgr agents single|self ... mailbox offline {status|join|leave}`
+- `houmao-mgr agents single|self ... mailbox online {attach|detach|reconnect|refresh|status}`
 
-The top-level `SKILL.md` for that packaged skill SHALL serve as an index/router that selects local action-specific documents rather than flattening the entire workflow into one page.
+The packaged `SKILL-MAIN.md` for that routine SHALL serve as an index/router that selects local action-specific documents rather than flattening the entire workflow into one page.
 
 That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 - `houmao-mgr agents mail ...`
-- shared gateway `/v1/mail/*` operations
+- ordinary per-message gateway `/v1/mail/*` operations
 - `houmao-mgr agents gateway mail-notifier ...`
 - direct gateway `/v1/mail-notifier` or `/v1/wakeups`
 - ad hoc filesystem editing inside mailbox roots
@@ -38,7 +39,7 @@ That packaged skill SHALL treat these surfaces as explicitly out of scope:
 
 #### Scenario: Installed skill routes through action-specific local guidance
 - **WHEN** an agent reads the installed `houmao-mailbox-mgr` skill
-- **THEN** the top-level `SKILL.md` acts as an index/router for mailbox-admin actions
+- **THEN** the packaged `SKILL-MAIN.md` acts as an index/router for mailbox-admin actions
 - **AND THEN** the detailed workflow lives in local action-specific documents rather than one flattened entry page
 
 ### Requirement: `houmao-mailbox-mgr` routes delivered-message reset work to clear-messages
@@ -160,11 +161,10 @@ The skill SHALL select mailbox-admin commands by mailbox scope:
 
 - use `houmao-mgr mailbox ...` for arbitrary filesystem mailbox roots,
 - use `houmao-mgr project mailbox ...` for overlay-local mailbox roots,
-- use `houmao-mgr agents mailbox ...` for late filesystem mailbox binding on an existing local managed agent.
+- use `houmao-mgr agents single|self ... mailbox offline ...` for late filesystem mailbox binding on an existing local managed agent,
+- use `houmao-mgr agents single|self ... mailbox online {attach|detach|reconnect|refresh|status}` for late Stalwart online mailbox binding on an existing managed agent.
 
-The skill SHALL describe the maintained mailbox-admin CLI in v1 as filesystem-oriented for mailbox root and registration lifecycle.
-
-When transport-specific Stalwart context matters, the skill SHALL describe Stalwart as a mailbox transport/bootstrap boundary and SHALL NOT invent a peer `houmao-mgr mailbox ...` administration lane for Stalwart roots or accounts that does not exist.
+The skill SHALL describe `houmao-mgr mailbox ...` and `houmao-mgr project mailbox ...` as filesystem-oriented for offline mailbox roots and registrations, while supporting `agents single|self mailbox online ...` for Stalwart online binding lifecycle without inventing nonexistent `houmao-mgr mailbox ...` Stalwart root administration commands.
 
 The skill SHALL direct ordinary mailbox participation work to `houmao-agent-email-comms` and notifier-round mailbox work to `houmao-process-emails-via-gateway`.
 
@@ -180,13 +180,18 @@ The skill SHALL direct ordinary mailbox participation work to `houmao-agent-emai
 
 #### Scenario: Existing local managed agent mailbox attachment uses the late binding family
 - **WHEN** the user asks to inspect, add, or remove filesystem mailbox support for one existing local managed agent
-- **THEN** the skill directs the caller to `houmao-mgr agents mailbox ...`
-- **AND THEN** it does not reinterpret that request as generic instance lifecycle or actor-scoped mailbox work
+- **THEN** the skill directs the caller to `houmao-mgr agents single|self ... mailbox offline ...`
+- **AND THEN** it does not reinterpret that request as generic instance lifecycle or actor-scoped mail participation
 
 #### Scenario: Stalwart remains a documented boundary rather than a fake admin lane
 - **WHEN** the current task asks about Stalwart mailbox setup or lifecycle in the context of mailbox administration
-- **THEN** the skill describes Stalwart using transport/bootstrap references and current maintained runtime boundaries
+- **THEN** the skill routes live Stalwart binding lifecycle (`attach`, `detach`, `reconnect`, `refresh`, `status`) to `houmao-mgr agents single|self ... mailbox online ...` while keeping `houmao-mgr mailbox ...` and `houmao-mgr project mailbox ...` offline-only
 - **AND THEN** it does not invent unsupported `houmao-mgr mailbox ...` root or account administration commands for the Stalwart transport
+
+#### Scenario: Existing managed agent Stalwart online attachment uses mailbox online commands
+- **WHEN** the current task asks to attach, detach, reconnect, refresh, or inspect Stalwart online mailbox binding for an existing managed agent
+- **THEN** the skill routes to `houmao-mgr agents single|self ... mailbox online {attach|detach|reconnect|refresh|status}` with `--address`, `--login-identity`, `--credential-source`, `--jmap-url` or `--base-url`, `--trust-jmap-origin`, `--replace`, and `--expected-revision`
+- **AND THEN** it still avoids inventing nonexistent `houmao-mgr mailbox ...` root or account administration commands for Stalwart
 
 ### Requirement: `houmao-mailbox-mgr` explains the ordinary mailbox-address pattern and the reserved Houmao mailbox namespace
 When the packaged `houmao-mailbox-mgr` skill guides ordinary mailbox account creation or late filesystem mailbox binding, it SHALL explain the split between canonical mailbox principal id and ordinary mailbox address.
@@ -229,7 +234,7 @@ The packaged `houmao-mailbox-mgr` skill SHALL describe `mailbox register` and `p
 
 When the user is preparing a new specialist-backed easy instance whose filesystem mailbox identity will be derived from the managed-agent instance name under the same shared mailbox root, the skill SHALL explain that launch-time mailbox bootstrap may own registration for that address and SHALL NOT present manual preregistration of the same address as the default lane.
 
-When the user wants to add or update filesystem mailbox support for an already-running local managed agent, the skill SHALL direct that work to `agents mailbox register` rather than to `project mailbox register`.
+When the user wants to add or update filesystem mailbox support for an already-running local managed agent, the skill SHALL direct that work to scoped `agents single|self ... mailbox offline join` rather than to `project mailbox register`.
 
 When the user wants a standalone shared, team, integration, or operator-facing mailbox account that is not being created by immediate easy launch and is not an existing-agent late binding case, the skill SHALL continue to treat `mailbox register` or `project mailbox register` as the correct maintained lane.
 
@@ -241,7 +246,7 @@ When the user wants a standalone shared, team, integration, or operator-facing m
 
 #### Scenario: Existing live managed agent uses the late-binding lane
 - **WHEN** the user asks to add filesystem mailbox support to one already-running local managed agent
-- **THEN** the skill directs the caller to `houmao-mgr agents mailbox register`
+- **THEN** the skill directs the caller to `houmao-mgr agents single|self ... mailbox offline join`
 - **AND THEN** it does not reinterpret that task as generic `project mailbox register` account administration
 
 #### Scenario: Shared mailbox account still uses manual registration
@@ -307,5 +312,82 @@ The skill SHALL NOT reference `houmao-mgr internals command-templates`, command-
 
 #### Scenario: Managed-agent mailbox register uses direct scoped command shape
 - **WHEN** a user asks the skill to register a filesystem mailbox binding for one selected managed agent
-- **THEN** the skill guidance shows a direct command under `houmao-mgr agents single --agent-name <agent-name> mailbox register ...` or `houmao-mgr agents single --agent-id <agent-id> mailbox register ...`
+- **THEN** the skill guidance shows a direct command under `houmao-mgr agents single --agent-name <agent-name> mailbox offline join ...` or `houmao-mgr agents single --agent-id <agent-id> mailbox offline join ...`
 - **AND THEN** it does not direct the agent to render a managed-agent mailbox command-template id
+
+### Requirement: Mailbox manager updates Stalwart boundary notes for online JMAP readiness
+`houmao-mailbox-mgr` (`references/stalwart-boundary.md` and online-binding command guidance) SHALL accurately document `agents single|self mailbox online` attachment, `--trust-jmap-origin`, owner-private `--credential-source` (never inline password args), and ordinary mailbox readiness under keyed or open gateways. It SHALL explain separate qualification for protected placement and keep Stalwart server administration out of `mailbox` / `project mailbox`.
+
+#### Scenario: Online mailbox attach enforces JMAP origin trust and owner-private credentials
+- **WHEN** an operator attaches a Stalwart online mailbox via `houmao-mailbox-mgr`
+- **THEN** the skill documents `--trust-jmap-origin` (required for non-default or HTTP JMAP origins), `--credential-source` file requirement, and Inbox/Sent/Archive role readiness checks
+- **AND THEN** it distinguishes ordinary read and submission rights from placement rights and independently authorized native filtering
+
+### Requirement: Mailbox manager removes boilerplate and converts subcommand list to a table
+`houmao-mailbox-mgr/SKILL-MAIN.md` SHALL remove its duplicated launcher block (already in `references/launcher-resolution.md`), strip Missing-Input, `houmao-cli`, and repeated Scope/Routing prose, convert the subcommand bullet list into a clean `## Subcommands` table covering all 17 executable command pages (the 16 existing offline/root pages plus `commands/agent-binding-online.md`), synchronize `manifest.toml`, and shrink `SKILL-MAIN.md` to ~95 lines.
+
+#### Scenario: Entrypoint links references without duplicating launcher resolution
+- **WHEN** a reviewer inspects `houmao-mailbox-mgr/SKILL-MAIN.md`
+- **THEN** launcher precedence lives in `references/launcher-resolution.md` instead of being repeated inline, and `## Subcommands` uses a concise table covering the 16 existing offline/root commands plus `agent-binding-online`
+- **AND THEN** `manifest.toml` moves `clear-messages`, `accounts-list`, `accounts-get`, `messages-list`, `messages-get`, and `messages-clear` into `commands` alongside `"agent-binding-online"`, with `aliases = ["mailbox-online=agent-binding-online"]`
+
+### Requirement: Mailbox manager preserves offline identity, namespace reserve, and reset semantics
+`houmao-mailbox-mgr` SHALL preserve `## Actor Frame Gate`, owner principal `HOUMAO-<agentname>`, `<agentname>@houmao.localhost` ordinary address, `HOUMAO-*` local-part reserve, launch-owned vs manual registration distinction, and `cleanup` vs `clear-messages` vs `messages clear --address` vs `export` symlink materialization.
+
+#### Scenario: Offline mailbox naming and destructive cleanup preserve exact semantics
+- **WHEN** an operator creates or resets an offline filesystem mailbox
+- **THEN** `houmao-mailbox-mgr` distinguishes `HOUMAO-<agentname>` principal IDs from `<agentname>@houmao.localhost` addresses and keeps `clear-messages` separate from `cleanup` and `messages clear --address`
+### Requirement: Mailbox manager guides ordinary Stalwart attachment on open and keyed gateways
+
+The Mailbox Manager skill SHALL guide authorized callers to attach a ready Stalwart account through an open or keyed gateway using owner-private mailbox credentials. It SHALL explain that first-key enrollment preserves the existing binding and that provider account provisioning and rule administration use the provider's separate management surfaces.
+
+#### Scenario: The gateway is already keyed when the owner attaches Stalwart
+
+- **WHEN** an operator wants to attach a ready Stalwart account to an already-keyed gateway
+- **THEN** the guidance uses the maintained `houmao-mgr agents single|self ... mailbox online attach` command with the selected account, JMAP origin, and owner-private mailbox credential
+- **AND THEN** the caller uses an explicit target in admin posture or verified self in agent posture
+- **AND THEN** it explains that ordinary attachment requires mailbox-level readiness and that protected filtering qualifies separately
+
+#### Scenario: The owner enrolls the first key after attaching Stalwart
+
+- **WHEN** an operator enrolls the first key on a gateway that already has a ready Stalwart binding
+- **THEN** the guidance explains that the existing binding remains usable through the keyed gateway under the applicable authorization checks
+- **AND THEN** it retains the existing offline mailbox slot and agent body
+
+### Requirement: Mailbox manager guides qualification for protected filtering
+
+The Mailbox Manager skill SHALL explain the backend requirements for protected filtering on the selected binding. It SHALL explain that the backend files matching new deliveries directly into Archive using placement and rule authority independent of the gateway runtime.
+
+#### Scenario: An operator qualifies a provider mailbox for protected filtering
+
+- **WHEN** an operator asks to enable protected filtering on a Stalwart binding
+- **THEN** the guidance directs the operator to the trusted provider management path to verify native direct-to-Archive delivery at the selected account and isolation from ordinary gateway credentials
+- **AND THEN** it keeps native provider administration separate from both the Houmao filesystem root commands and the ordinary online binding lifecycle
+
+#### Scenario: An operator qualifies a filesystem mailbox for protected filtering
+
+- **WHEN** an operator asks to enable protected filtering on a filesystem mailbox
+- **THEN** the guidance requires a trusted registry or equivalent isolated writer with exclusive write access to the authoritative mailbox state and control over peer access
+- **AND THEN** it explains that the trusted writer enforces placement for the registered mailbox while its gateway is absent
+
+#### Scenario: The backend cannot qualify for protected filtering
+
+- **WHEN** an operator uses a shared writable filesystem or an online provider that lacks native direct-to-Archive delivery or independent placement authority
+- **THEN** the guidance identifies protected filtering as unsupported and retains the existing ordinary mailbox routes under their applicable checks
+
+### Requirement: Mailbox manager guides independent policy application and verification
+
+The Mailbox Manager skill SHALL direct owners to the trusted backend or its management connector for signing authority and outcome verification. It SHALL describe the gateway's policy apply endpoint as an authorized relay for a signed rule update to the exact mailbox.
+
+#### Scenario: An owner applies rules and verifies the committed revision
+
+- **WHEN** an owner requests a blocklist update on a qualified mailbox binding
+- **THEN** the guidance describes the independent owner signature for the exact operation, backend, binding or registration, expected revision, operation ID, and mail rules
+- **AND THEN** it directs authorized callers to `POST /v1/mail/{channel}/policy/apply` for gateway relay or the trusted authority for direct submission
+- **AND THEN** it directs the owner to verify the applied revision and outcome through independently authorized backend access
+
+#### Scenario: The caller holds only gateway administration or mailbox credentials
+
+- **WHEN** a caller asks whether ordinary credentials can configure protected placement
+- **THEN** the guidance explains that the trusted backend requires independent owner proof for the rule update
+- **AND THEN** it reserves rule and placement administration for the trusted authority on that binding

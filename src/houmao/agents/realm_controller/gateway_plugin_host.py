@@ -34,6 +34,7 @@ from houmao.agents.realm_controller.gateway_plugin_routes import (
     plugin_route_declarations,
     route_conflicts,
 )
+from houmao.gateway.deployment import owner_gateway_base_url
 from houmao.gateway.plugins import (
     GatewayPlugin,
     GatewayPluginConfiguration,
@@ -44,16 +45,19 @@ from houmao.gateway.plugins import (
     PluginInstanceConfiguration,
     PluginListener,
     PluginOwner,
+    PluginPromptReadiness,
     PluginStatus,
 )
 from houmao.gateway.plugins.discovery import PluginLoadError, load_plugin_definition
 from houmao.gateway.plugins.models import PluginConnectionState
+from houmao.gateway.work_requests import render_cccc_request, render_plugin_notification
 
 
 _LOGGER = logging.getLogger("houmao.gateway.plugins")
 _SAFE_CODE = re.compile(r"[A-Za-z0-9_.-]{1,80}\Z")
 _CONNECTION_STATES = {"unattached", "connected", "reconnecting", "degraded", "disconnected"}
 _CREDENTIAL_DOCUMENT = TypeAdapter(dict[str, JsonValue])
+_READINESS_POLL_SECONDS = 0.1
 
 
 class PluginDispatchCallback(Protocol):
@@ -67,6 +71,7 @@ class PluginDispatchCallback(Protocol):
         binding_id: str,
         timeout_seconds: float,
         is_active: Callable[[], bool],
+        expected_body_identity: tuple[str, ...] | None = None,
     ) -> PluginDispatchResult:
         """Confirm handoff or raise a typed failure, honoring cancellation fencing."""
 
@@ -98,6 +103,7 @@ class GatewayPluginHost:
         self.m_deployment_validated: bool = False
         self.m_listener_port: int | None = None
         self.m_dispatch: PluginDispatchCallback | None = None
+        self.m_observe_readiness: Callable[[], tuple[tuple[str, ...], bool] | None] | None = None
         self.m_instances: dict[str, _Instance] = {}
         self.m_started: bool = False
         self.m_staged: bool = False
@@ -115,6 +121,7 @@ class GatewayPluginHost:
         listener_host: str,
         dispatch: PluginDispatchCallback,
         deployment_validated: bool = False,
+        observe_readiness: Callable[[], tuple[tuple[str, ...], bool] | None] | None = None,
     ) -> GatewayPluginHost:
         """Bind explicit configuration and the owner without loading plugin code.
 
@@ -132,6 +139,8 @@ class GatewayPluginHost:
             Runtime-owned immediate dispatch function.
         deployment_validated:
             Whether the owner runtime validated explicit access for a broader bind.
+        observe_readiness:
+            Runtime-owned advisory observation of the current body and its readiness.
         """
 
         result = cls()
@@ -142,6 +151,7 @@ class GatewayPluginHost:
         result.m_listener_host = listener_host
         result.m_deployment_validated = deployment_validated
         result.m_dispatch = dispatch
+        result.m_observe_readiness = observe_readiness
         result.m_instances = {
             name: _Instance(
                 selection=selection,
@@ -150,6 +160,57 @@ class GatewayPluginHost:
             for name, selection in sorted(configuration.plugins.items())
         }
         return result
+
+    @property
+    def listener(self) -> PluginListener | None:
+        """Return the resolved owner-local endpoint after production bind."""
+
+        port = self.m_listener_port
+        if port is None:
+            return None
+        return PluginListener(
+            host=self.m_listener_host, port=port, base_url=owner_gateway_base_url(port)
+        )
+
+    def render_event(self, event: PluginEvent, *, instance_id: str, binding_id: str) -> str:
+        """Bind the visible presentation to host-owned instance and listener facts."""
+
+        presentation = event.presentation
+        if presentation is None:
+            return render_plugin_notification(event, instance_id=instance_id, binding_id=binding_id)
+        entry = self.m_instances.get(instance_id)
+        listener = self.listener
+        if (
+            entry is None
+            or entry.selection.implementation != "cccc"
+            or entry.status.binding_id != binding_id
+            or entry.selection.config.get("group_id") != presentation.binding.group_id
+            or entry.selection.config.get("actor_id") != presentation.binding.actor_id
+        ):
+            raise PluginDispatchError(
+                error_code="invalid_event",
+                status_code=422,
+                retryable=False,
+                source_event_id=event.source_event_id,
+            )
+        if listener is None:
+            raise PluginDispatchError(
+                error_code="plugin_unavailable",
+                status_code=503,
+                retryable=True,
+                source_event_id=event.source_event_id,
+            )
+        prompt = render_cccc_request(
+            presentation, instance_id=instance_id, gateway_base_url=listener.base_url
+        )
+        if len(prompt.encode("utf-8")) > self.m_configuration.max_event_bytes:
+            raise PluginDispatchError(
+                error_code="event_too_large",
+                status_code=422,
+                retryable=False,
+                source_event_id=event.source_event_id,
+            )
+        return prompt
 
     @property
     def config_digest(self) -> str:
@@ -554,6 +615,8 @@ class _PluginContext:
         self.m_instance_id: str = ""
         self.m_active: threading.Event = threading.Event()
         self.m_revoked: asyncio.Event = asyncio.Event()
+        self.m_readiness_context: object = object()
+        self.m_readiness_sample: asyncio.Task[tuple[tuple[str, ...], bool] | None] | None = None
         self.m_workers: dict[str, asyncio.Task[None]] = {}
         self.m_state_root: Path = Path()
         self.m_credentials: _CredentialReader | None = None
@@ -607,14 +670,7 @@ class _PluginContext:
     def listener(self) -> PluginListener | None:
         """Return resolved listener metadata after production bind, when present."""
 
-        host = self._host()
-        if host.m_listener_port is None:
-            return None
-        return PluginListener(
-            host=host.m_listener_host,
-            port=host.m_listener_port,
-            base_url=f"http://127.0.0.1:{host.m_listener_port}",
-        )
+        return self._host().listener
 
     @property
     def events(self) -> _PluginContext:
@@ -653,6 +709,7 @@ class _PluginContext:
     def activate(self) -> None:
         """Enable resource reads during the host-owned lifespan."""
 
+        self.m_readiness_context = object()
         self.m_active.set()
         self.m_revoked.clear()
 
@@ -661,9 +718,73 @@ class _PluginContext:
 
         self.m_active.clear()
         self.m_revoked.set()
+        if self.m_readiness_sample is not None:
+            self.m_readiness_sample.cancel()
+            self.m_readiness_sample = None
 
-    async def dispatch(self, event: PluginEvent) -> PluginDispatchResult:
-        """Dispatch only while active and fence a timed-out or canceled attempt."""
+    def _require_readiness_context(self, generation: object) -> None:
+        """Keep asynchronous readiness observation within one active context."""
+
+        if (
+            generation is not self.m_readiness_context
+            or not self.m_active.is_set()
+            or self._entry().context is not self
+        ):
+            raise PluginDispatchError(
+                error_code="plugin_unavailable", status_code=503, retryable=True
+            )
+
+    async def wait_until_ready(self, *, timeout_seconds: float) -> PluginPromptReadiness | None:
+        """Observe readiness for one body until timeout or context revocation."""
+
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise PluginDispatchError(
+                error_code="invalid_timeout", status_code=422, retryable=False
+            )
+        probe = self._host().m_observe_readiness
+        if probe is None:
+            raise PluginDispatchError(
+                error_code="readiness_unavailable", status_code=503, retryable=True
+            )
+        generation = self.m_readiness_context
+        expected_body: tuple[str, ...] | None = None
+        revoked = asyncio.create_task(self.m_revoked.wait())
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                while True:
+                    self._require_readiness_context(generation)
+                    if self._entry().status.lifecycle == "running":
+                        if self.m_readiness_sample is None or self.m_readiness_sample.done():
+                            self.m_readiness_sample = asyncio.create_task(asyncio.to_thread(probe))
+                        sample = self.m_readiness_sample
+                        await asyncio.wait((sample, revoked), return_when=asyncio.FIRST_COMPLETED)
+                        self._require_readiness_context(generation)
+                        reading = sample.result()
+                        if reading is not None:
+                            body, ready = reading
+                            if expected_body is not None and body != expected_body:
+                                raise PluginDispatchError(
+                                    error_code="body_replaced", status_code=409, retryable=True
+                                )
+                            expected_body = body
+                            self._require_readiness_context(generation)
+                            if ready:
+                                return PluginPromptReadiness(generation, body)
+                    await asyncio.wait((revoked,), timeout=_READINESS_POLL_SECONDS)
+        except TimeoutError:
+            self._require_readiness_context(generation)
+            return None
+        finally:
+            revoked.cancel()
+            await asyncio.gather(revoked, return_exceptions=True)
+
+    def validate(self, event: PluginEvent) -> None:
+        """Check a candidate prompt without reserving or starting agent admission."""
+
+        self._validated_event(event)
+
+    def _validated_event(self, event: PluginEvent) -> PluginEvent:
+        """Validate the event and its complete projected prompt for this context."""
 
         host = self._host()
         entry = self._entry()
@@ -689,20 +810,54 @@ class _PluginContext:
                 retryable=False,
                 source_event_id=validated.source_event_id,
             )
+        if validated.presentation is not None:
+            host.render_event(validated, instance_id=self.instance_id, binding_id=self.binding_id)
+        elif validated.text is None or not validated.text.strip():
+            raise PluginDispatchError(
+                error_code="invalid_event",
+                status_code=422,
+                retryable=False,
+                source_event_id=source_event_id,
+            )
+        return validated
+
+    async def dispatch(
+        self, event: PluginEvent, *, readiness: PluginPromptReadiness | None = None
+    ) -> PluginDispatchResult:
+        """Dispatch only while active and fence a timed-out or canceled attempt."""
+
+        host = self._host()
+        entry = self._entry()
+        validated = self._validated_event(event)
+        if readiness is not None and readiness._context is not self.m_readiness_context:
+            raise PluginDispatchError(
+                error_code="body_replaced",
+                status_code=409,
+                retryable=True,
+                source_event_id=validated.source_event_id,
+            )
         callback = host.m_dispatch
         if callback is None:
             raise RuntimeError("Plugin dispatcher is unconfigured")
         attempt = threading.Event()
         attempt.set()
+        active_context = self.m_readiness_context
 
         def _is_active() -> bool:
             """Keep request cancellation separate from reusable context activation."""
 
             return (
-                attempt.is_set() and self.m_active.is_set() and entry.status.lifecycle == "running"
+                attempt.is_set()
+                and self.m_active.is_set()
+                and entry.context is self
+                and self.m_readiness_context is active_context
+                and entry.status.lifecycle == "running"
             )
 
         host._update(entry, active_requests=entry.status.active_requests + 1)
+        dispatch_kwargs = (
+            {} if readiness is None else {"expected_body_identity": readiness._body_identity}
+        )
         dispatch_task = asyncio.create_task(
             asyncio.to_thread(
                 callback,
@@ -711,6 +866,7 @@ class _PluginContext:
                 binding_id=self.binding_id,
                 timeout_seconds=host.m_configuration.dispatch_timeout_seconds,
                 is_active=_is_active,
+                **dispatch_kwargs,
             )
         )
         revocation_task = asyncio.create_task(self.m_revoked.wait())

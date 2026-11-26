@@ -16,19 +16,18 @@ metadata:
 
 ## Workflow
 
-1. **Validate invocation context**. Preserve the actor posture, selected target, operation intent, and predecessor evidence supplied by the owning skill.
-2. **Resolve required inputs**. Recover explicit values from current context and stop or ask when a required value remains missing.
-3. **Execute the detailed procedure below**. Follow its ordering, gates, side-effect boundary, owned references, and output contract.
-4. **Validate and report**. Return changed or inspected artifacts, evidence, blockers, and the command-specific stop condition.
+1. Confirm the inherited actor posture, `<loop-dir>` preconditions, and required inputs, loading only the `## Read First` references.
+2. Execute `## Actions` within this command's side-effect boundary.
+3. Return the structured report (`## Report`) and stop on any unresolved blocker.
 
-If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this procedure, its owning skill constraints, and the user request, then execute the plan.
 
 ## Read First
 
-- `../reference/markdown-contract-defaults.md`
-- `../reference/markdown-template-events.md`
-- `../reference/direct-sqlite-state.md`
-- `../reference/platform-boundaries.md`
+- [../../references/markdown-contract-defaults.md](../../references/markdown-contract-defaults.md)
+- [../../references/markdown-template-events.md](../../references/markdown-template-events.md)
+- [../../references/direct-sqlite-state.md](../../references/direct-sqlite-state.md)
+- [../../references/platform-boundaries.md](../../references/platform-boundaries.md)
 
 ## Inputs
 

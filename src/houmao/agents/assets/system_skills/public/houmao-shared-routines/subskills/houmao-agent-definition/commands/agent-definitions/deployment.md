@@ -21,7 +21,7 @@ Resolve one immutable agent-definition revision into project specialist, profile
      --deployment-name <name> \
      --specialist-name <name> \
      --profile-name <name> \
-     --tool <claude|codex|kimi> \
+     --tool <claude|codex|kimi|dsh> \
      --credential <existing-name> \
      --workdir <project-path> \
      --set <key>=<value>

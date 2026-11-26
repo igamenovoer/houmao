@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-inspect
-description: Use when read-only evidence is needed for a Houmao-managed agent's liveness, TUI state, mailbox posture, runtime artifacts, logs, or identified tmux session.
+description: Use when read-only evidence is needed for a Houmao-managed or external agent's liveness, `service`/`web`/TUI state, durable turn usage (`/v1/usage`), mailbox posture, runtime artifacts, logs, or recorded tmux pane.
 license: MIT
 metadata:
   skill_invocation_notation: >
@@ -17,139 +17,44 @@ metadata:
 
 # Houmao Agent Inspect
 
+## Overview
+
+Collect strictly read-only evidence for Houmao-managed and `agents external` instances across summary state (`execution_binding`, gateway access mode/`default-group`), `service`/`web`/TUI surfaces, durable turn usage (`/v1/usage` and `usage/records.sqlite3`), mailbox posture, artifacts, logs, and socket-qualified tmux panes.
+
 ## Workflow
 
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+1. **Answer explicit `help` first** from **Help** without running commands or touching runtime state.
+2. **Enforce the Actor Frame Gate**: require an explicit target in `admin` posture; default to verified self in `agent` posture and require an explicit peer identifier for peer inspection.
+3. **Resolve one `houmao-mgr` launcher** (`command -v houmao-mgr`, then `uv tool run --from houmao houmao-mgr`, or repo `pixi run houmao-mgr`, honoring an explicit user launcher) and ask for any missing target or turn/request ID before proceeding.
+4. **Follow the managed-first evidence hierarchy**:
+   - Start with `agents single|self state` (or `GET /houmao/agents/{agent_ref}/managed-state`, `agents external list|get` for remote imports) to read liveness, `execution_binding`, gateway `admin_mode`/`default-group`, `manifest_path`, and `session_root`.
+   - Use mode-appropriate managed surfaces (`gateway status`, `/v1/control/service/{state,requests/{request_id}}`, `/v1/control/web/{state,history}`, `gateway tui state|history|watch`, `turn status|events|stdout|stderr`, and `GET /v1/usage` or `/houmao/agents/{agent_ref}/usage`).
+   - Drop to socket-qualified local tmux capture (`env -u TMUX -u TMUX_PANE tmux -S "$TMUX_SOCKET" -N capture-pane`) in [commands/screen.md](commands/screen.md) only when managed surfaces cannot answer a local pane question.
+5. **Load the selected page in Subcommands** and report read-only findings clearly.
 
-1. Select the requested inspection from **Subcommands** and apply **Actor Frame Gate**.
-2. Recover the target selector from the current prompt first and recent chat context second when it was stated explicitly.
-3. If the selected action still lacks a required target, ask the user in Markdown before proceeding.
-4. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-5. Reuse that same chosen launcher for the selected inspection action.
-6. Select evidence for the inspection intent after identifying the agent:
-   - identify the target through `agents global list` or an explicit selector
-   - for recipient contact, use `agents single ... mail resolve-live` and read the requested channel. Published contact has unverified availability and suffices for ordinary mail addressing
-   - for runtime posture, read summary state through `agents single ... state`, `agents self state`, or `GET /houmao/agents/{agent_ref}/managed-state`
-   - use managed detail and available gateway tracker evidence for transport and TUI posture
-   - when the actual local pane is needed or managed evidence is insufficient, follow the verified owner socket and exact target procedure in [Screen](commands/screen.md)
-   - inspect mailbox posture, logs, or runtime artifacts through the owned read-only surfaces for that domain
-   - use direct local tmux attach only when the caller explicitly needs an attached live pane
-7. When the caller is already operating through pair-managed HTTP control, allow the matching `/houmao/agents/*` inspection routes instead of forcing a CLI-only path.
-8. Load the selected command page from **Subcommands**.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a bounded read-only inspection plan from **Subcommands** and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
-This parent-scoped routine loads only through `houmao-shared-routines`. Require the immutable admin or verified-agent frame validated by that parent; otherwise stop before inspection routing.
-
-- Admin branch: inspect only an explicit or unambiguously recovered managed-agent target. The current session is not self.
-- Agent branch: require freshly verified self identity and inspect verified self by default. Inspect a peer only when the request names that peer explicitly.
-
-Inspection remains read-only in both branches. Preserve `actor_kind`, target, and selected routine across all command pages.
-
-Use this Houmao skill when the task is to inspect the current state of one Houmao-managed agent without mutating that agent. This is the canonical Houmao-owned skill for generic managed-agent inspection across summary state, transport detail, live screen posture, mailbox posture, runtime artifacts, and logs.
-
-The trigger word `houmao` is intentional. Enter this parent-scoped routine only through `houmao-shared-routines->houmao-agent-inspect`; never invoke its logical id as a standalone skill.
-
-## Help
-
-When the user asks `$houmao-shared-routines agent-inspect help`, `help for houmao-agent-inspect`, `usage for houmao-agent-inspect`, `available functionality for houmao-agent-inspect`, or what this skill can do, answer from this section before choosing an inspection lane, action page, command, route, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me inspect this agent's screen", route to the matching workflow instead of stopping at generic help.
-
-Purpose: inspect Houmao-managed agents without mutating them.
-
-Available functionality:
-
-- Discover target managed agents and read summary liveness state.
-- Inspect visible screen posture and bounded tmux evidence after managed surfaces identify the target.
-- Inspect mailbox posture, unread state, logs, and runtime artifacts.
-- Use managed-agent HTTP inspection routes when operating through pair-managed control.
-
-Common starting prompts:
-
-- `$houmao-shared-routines agent-inspect help`
-- `$houmao-shared-routines agent-inspect discover agents`
-- `$houmao-shared-routines agent-inspect screen for <agent>`
-- `$houmao-shared-routines agent-inspect logs for <agent>`
-
-Related skills and boundaries:
-
-- Use `houmao-shared-routines->houmao-agent-messaging` for prompt, interrupt, queueing, raw input, mailbox send or reply, or reset-context work.
-- Use `houmao-shared-routines->houmao-agent-gateway` for gateway lifecycle, reminders, mail-notifier control, or gateway-owned mutation.
-- Use `houmao-shared-routines->houmao-mailbox-mgr` for mailbox-root administration or late mailbox binding changes.
-- Use `houmao-shared-routines->houmao-agent-instance` for stop, relaunch, cleanup, or other lifecycle mutation.
+This parent-scoped routine loads only through `houmao-shared-routines` and requires an immutable `admin` or verified `agent` frame; missing or mismatched frames fail closed. Inspection is strictly read-only in both branches. Route `request`/`prompt`/`interrupt`/`send-keys` to `houmao-shared-routines->houmao-agent-messaging`, gateway `attach`/`detach`/reminders/`mail-notifier` to `houmao-shared-routines->houmao-agent-gateway`, mailbox binding/root mutations to `houmao-shared-routines->houmao-mailbox-mgr`, and `stop`/`relaunch`/`cleanup` to `houmao-shared-routines->houmao-agent-instance`.
 
 ## Subcommands
 
-| Subcommand | Detail | Use For |
+| Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `help` | [Help](#help) | Read-only usage. |
-| `discover` | [Discover](commands/discover.md) | Select an agent or read managed summary and transport evidence. |
-| `screen` | [Screen](commands/screen.md) | Inspect tracked TUI state or an exact live pane. |
-| `mailbox` | [Mailbox](commands/mailbox.md) | Read mailbox binding, availability, or unread posture. |
-| `logs` | [Logs](commands/logs.md) | Inspect headless turn or gateway evidence. |
-| `artifacts` | [Artifacts](commands/artifacts.md) | Locate the selected runtime's durable artifacts. |
+| `discover` | Identify local (`agents global list`) or `agents external` targets and read `state` (`execution_binding`, policy/`default-group`, `service`/`web`/gateway status). | [Discover](commands/discover.md) |
+| `screen` | Inspect gateway-tracked TUI state or capture a verified `tmux -S "$TMUX_SOCKET" -N` pane. | [Screen](commands/screen.md) |
+| `mailbox` | Inspect `offline`/`online` mailbox bindings, availability, and unread summaries read-only. | [Mailbox](commands/mailbox.md) |
+| `logs` | Inspect durable turn usage (`/v1/usage`, `usage-*.json`), headless `turn` traces, `service` requests, `web` history, and gateway logs. | [Logs](commands/logs.md) |
+| `artifacts` | Locate `manifest.json`, `usage/records.sqlite3`, `gateway/state.json`, and turn artifacts under `session_root`. | [Artifacts](commands/artifacts.md) |
+| `help` | Read-only overview of managed-first inspection surfaces, usage accounting, and boundaries. | **Help** |
 
-Supported surfaces for this skill include:
+## Help
 
-- `houmao-mgr agents global list`
-- `houmao-mgr agents single --agent-id <id> state` or `--agent-name <name>`
-- `houmao-mgr agents single --agent-id <id> gateway status` or `--agent-name <name>`
-- `houmao-mgr agents single --agent-id <id> gateway tui state|history|watch` or `--agent-name <name>`
-- `houmao-mgr agents single --agent-id <id> mail resolve-live|status|list` or `--agent-name <name>`
-- `houmao-mgr agents single --agent-id <id> mailbox status` or `--agent-name <name>`
-- `houmao-mgr agents single --agent-id <id> turn status|events|stdout|stderr` or `--agent-name <name>`
-- `houmao-mgr agents self ...` for current-session inspection
-- managed-agent HTTP routes under `/houmao/agents/*`, including `/managed-state`, raw `/state` and `/state/detail`, `/history`, `/gateway`, `/gateway/tui/*`, `/mail/*`, and `/turns/*`
-- runtime-owned artifacts such as `manifest.json`, `gateway/state.json`, `gateway/events.jsonl`, `gateway/logs/gateway.log`, and headless turn artifacts under the session root
-- direct local tmux pane capture using the verified execution owner's recorded socket and exact live pane
-
-This packaged skill does not cover:
-
-- scoped `houmao-mgr agents ... prompt|interrupt`
-- scoped `houmao-mgr agents ... gateway attach|detach|prompt|interrupt|send-keys`
-- mailbox send, reply, post, or archive work
-- mailbox registration, unregister, cleanup, or mailbox-root administration
-- agent stop, relaunch, cleanup, or other lifecycle mutation
-- automatic terminal-recorder workflows when the user did not explicitly ask for replay-grade capture
-
-## Missing Input Questions
-
-- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
-- When asking for missing input, use readable Markdown:
-  - separate `Required` values from `Optional` modifiers
-  - `Required`: values that block the selected inspection path, such as managed-agent selector, inspection lane, turn id, log selector, mailbox selector, or artifact target
-  - `Optional`: launcher preference, output format, detail level, watch posture, filters, or skip choices; if none apply, say `Optional: none for this step.`
-  - use a short bullet list when only one or two required fields are missing
-  - use a compact table when the intended lane or several required fields need clarification
-- Name the command or route you intend to use and show only the missing fields needed for that path.
-- DO NOT use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
-
-## Routing Guidance
-
-- Use `commands/discover.md` when you first need to identify the target managed agent, confirm liveness, or decide which deeper inspection lane applies.
-- Use `commands/screen.md` when the user wants to inspect what is visible right now for a TUI-backed agent, inspect raw gateway-owned TUI tracker state, or explicitly peek the live tmux pane.
-- Use `commands/mailbox.md` when the user wants actor-scoped mailbox identity, unread posture, current live mailbox capability, or late local mailbox-binding posture.
-- Use `commands/logs.md` when the user wants headless turn logs, durable turn events, gateway logs, or append-only runtime evidence.
-- Use `commands/artifacts.md` when the user wants the durable runtime file inventory, manifest-backed session pointers, or stable artifact paths under the session root.
-- Use `houmao-shared-routines->houmao-agent-messaging` for prompt, interrupt, queueing, raw input, mailbox send or reply, or reset-context work.
-- Use `houmao-shared-routines->houmao-agent-gateway` for gateway lifecycle, gateway-only control, reminders, mail-notifier control, or other gateway-owned mutation.
-- Use `houmao-shared-routines->houmao-mailbox-mgr` for mailbox-root administration, mailbox registrations, projected mailbox structure, or late mailbox binding changes.
-- Use `houmao-shared-routines->houmao-agent-instance` for stop, relaunch, cleanup, or other lifecycle mutation.
+Summarize `discover`, `screen`, `mailbox`, `logs` (including `/v1/usage` and `/houmao/agents/{agent_ref}/usage`), and `artifacts` (`usage/records.sqlite3`) across `headless`, `service`, `tui`, `web`, and `agents external` targets without running commands. Concrete inspection requests execute the matching subcommand.
 
 ## Guardrails
 
-- DO NOT guess the target managed agent, transport kind, or intended inspection lane.
-- DO NOT start generic inspection from raw tmux or runtime files when managed observations can answer it.
-- DO NOT present prompt, interrupt, gateway mutation, mailbox mutation, or lifecycle mutation as part of this inspection skill.
-- DO NOT guess a gateway URL, runtime path, tmux socket, session, or pane.
-- DO NOT skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
-- DO NOT probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- DO NOT treat `gateway/logs/gateway.log` or `gateway/events.jsonl` as the source of truth for durable manifest or queue state.
-- DO NOT auto-invoke the terminal recorder when the user asked only for ordinary inspection.
+- DO NOT mutate agents, send prompts/requests/keys/mail, attach/detach gateways, or alter lifecycle state during inspection.
+- DO NOT jump to raw tmux or filesystem files before `state` / `managed-state` establishes the target, or guess gateway URLs, `session_root` paths, or tmux sockets (always clear `TMUX`/`TMUX_PANE` and pass `tmux -S "$TMUX_SOCKET" -N`).
+- DO NOT treat `gateway.log` or `events.jsonl` as authoritative manifest/queue state, or auto-start a terminal recorder unless the caller explicitly requests replay-grade capture.

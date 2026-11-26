@@ -12,117 +12,30 @@ metadata:
     Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
-# Dispatch
+# Dispatch Confirmed Operator Packets
 
 ## Workflow
 
-1. **Validate invocation context**. Preserve the actor posture, selected target, operation intent, and predecessor evidence supplied by the owning skill.
-2. **Resolve required inputs**. Recover explicit values from current context and stop or ask when a required value remains missing.
-3. **Execute the detailed procedure below**. Follow its ordering, gates, side-effect boundary, owned references, and output contract.
-4. **Validate and report**. Return changed or inspected artifacts, evidence, blockers, and the command-specific stop condition.
+1. **Verify dispatch readiness**: start from confirmed chat `clarify` state, an explicit `dispatch` request, or an operator-supplied Markdown intent file (read only that exact path). If broad intent is still unclear, stop and recommend `clarify`; if durable loop orchestration is needed, recommend `houmao-agent-loop-pro` or `houmao-agent-loop-lite`.
+2. **Build the one-agent or multi-agent packet plan** (`Target`, `Route`, `Content`, `Order`, `Reply expectation`, `Record update`) without asking the operator to pick separate single vs multi-agent modes.
+3. **Select each packet's delivery route** using **Route Selection Matrix** below, stopping for any blocking ambiguity rather than guessing or silently switching channels.
+4. **Delegate last-mile execution** in the required order (halting partial batches if a failure would leave misleading coordination state):
+   - `prompt` or `request`: delegate to `houmao-shared-routines->houmao-agent-messaging`.
+   - `mailbox`: delegate to `houmao-shared-routines->houmao-agent-email-comms` (using operator-origin `post` when outside a managed mailbox session, or own mailbox `send` when acting from a bound managed session).
+5. **Update any operator-specified Markdown record** concisely and report packets planned/sent, targets reached, routes used, blocked packets, and expected replies.
 
-If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step dispatch plan from **Route Selection Matrix** and the confirmed intent, then execute the plan.
 
-Use this page when the operator selects `dispatch` or asks this skill to send one or more messages to Houmao-managed agents.
+## Route Selection Matrix
 
-## Inputs
+| Route | When to Select | Authority & Run-Mode Behavior |
+| --- | --- | --- |
+| `prompt` (default) | Default for operator packets unless `request` attribution or `mailbox` delivery is requested. | Requires `agent-operator` on keyed gateways; uses `ready-only` gateway admission by default (`if-no-pending` or `always` only when requested) across `tui`, `headless`, `service` (persistent service request protocol), and `web`. |
+| `request` | Operator wants attributed task submission under the target agent's existing instructions or caller holds `agent-requester` default authority without `agent-operator`. | Uses `agents single ... request --text <task>` (`agent.request.submit`, allowed by default `agent-requester` group) across live/passive targets including `service` and `web`. |
+| `mailbox` | Prompt or context asks for mail, inbox, threaded, or asynchronous mailbox delivery. | Uses `houmao-shared-routines->houmao-agent-email-comms` (`post` for external operator origin); never chosen merely because a mailbox exists. |
+| `houmao-cccc` (out of band) | Explicit `houmao-cccc` group chat/queue work only. | Handled via `houmao-cccc` CLI / gateway plugin (`houmao-shared-routines->houmao-agent-gateway`), separate from operator `prompt`, `request`, and `mailbox` dispatch. |
 
-Dispatch can start from:
+## Guardrails
 
-- clarified intent in chat memory;
-- an explicit dispatch prompt in the current request;
-- a user-specified external Markdown intent record.
-
-If the operator references an external Markdown record, read that exact path. Do not search for or invent a record path.
-
-## Preflight
-
-Before sending:
-
-1. Confirm the task is a temporary operator messaging action, not durable loop orchestration.
-2. Identify target agents, message content, ordering, expected replies, and any explicit or context-implied request for mailbox delivery.
-3. Ask only blocking questions if a missing fact could send to the wrong target, use the wrong route, or violate a stated constraint.
-4. If the task needs broad clarification rather than a blocking value, stop and recommend `clarify`.
-5. If the task needs durable state, retries, scheduling, generated skills, topology validation, or recovery, recommend `houmao-agent-loop-pro` or `houmao-agent-loop-lite`.
-
-## Packet Plan
-
-Prepare a compact packet plan before sending. Include one row per packet:
-
-| Field | Meaning |
-| --- | --- |
-| Target | Managed agent, target mailbox, or target-selection result. |
-| Route | `prompt` by default, or `mailbox` when requested or implied by chat context. |
-| Content | Prompt/body summary or the concrete message when short. |
-| Order | Sequence, priority, or parallel-safe note. |
-| Reply expectation | Expected acknowledgement, result, evidence, or no reply. |
-| Record update | Chat summary only, or external Markdown path to update. |
-
-The user's task determines whether the plan has one packet or multiple packets. Do not ask the operator to choose a separate single-agent or multi-agent dispatch mode.
-
-## Route Selection
-
-Default to prompt delivery:
-
-- Use prompt delivery for every packet unless the current operator prompt or chat context indicates mailbox delivery.
-- Use `houmao-shared-routines->houmao-agent-messaging` to verify whether each prompt target has a live gateway.
-- If the target has a live gateway, use its gateway-control action with ready-only admission.
-- If the target has no live gateway, use its normal managed prompt action.
-- Select `if-no-pending` or `always` only when the operator explicitly requests the corresponding busy-TUI behavior.
-- Do not choose mailbox merely because the target has a mailbox.
-
-Use mailbox only when:
-
-- the operator requests mailbox delivery;
-- chat context says the dispatch should be delivered by mail, inbox, thread, asynchronous mailbox note, or reply reference;
-- the operator explicitly wants mailbox sender identity semantics.
-
-If a required route is unavailable, report the blocker or ask whether an alternate route is acceptable before sending. Do not silently switch routes.
-
-## Last-Mile Delegation
-
-For `prompt` packets:
-
-- Use `houmao-shared-routines->houmao-agent-messaging`.
-- Use that skill's discovery, gateway-control, or normal prompt action for the route chosen above.
-
-For `mailbox` packets:
-
-- Use `houmao-shared-routines->houmao-agent-email-comms`.
-- Let that skill own ordinary mailbox send, operator-origin post, live gateway facade, resolver, and no-gateway fallback details.
-
-## Mailbox Identity
-
-For mailbox dispatch, classify the current operator posture:
-
-- If the current operator agent is a Houmao-managed agent with a usable mailbox binding, use that agent's own mailbox address for ordinary mailbox sends.
-- If the current operator agent is outside the Houmao-managed runtime, or no usable own mailbox binding is available, use the supported operator-origin mailbox `post` path.
-- Treat the reserved operator-origin sender as the external-operator route. Do not invent per-operator mailbox identities.
-
-Use maintained Houmao facts when available: current context, managed-agent environment facts, gateway/mail resolver output, mailbox binding data, or the lower-level mailbox skill's caller-classification guidance. If required facts are missing, ask for the missing Houmao runtime input.
-
-## Sending
-
-- Send packets in the order required by the task.
-- If order is irrelevant and the operator permits parallel or independent delivery, the summary may describe the packets as independent.
-- Stop before sending any packet whose target, route, or content remains materially unsafe or unclear.
-- Do not send partial batches when doing so would create misleading coordination state; report the blocked plan instead.
-
-## External Records
-
-When dispatch consumes or updates an external Markdown record:
-
-- Use only the path supplied by the operator.
-- Append or update a compact dispatch section with target, route, sent/blocked status, timestamp if available, and follow-up expectations.
-- Do not store long analysis or duplicate full low-level command output unless the operator asks.
-
-## Summary
-
-After dispatch, report:
-
-- number of packets planned and sent;
-- targets reached;
-- route used for each target or group;
-- blocked packets and reason;
-- expected replies or evidence;
-- external record path updated, if any.
+- DO NOT silently downgrade a denied `prompt` to `request`/`mailbox` or switch channels without operator approval.
+- DO NOT invent per-operator mailbox addresses or search for unstated Markdown record files.

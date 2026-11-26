@@ -25,7 +25,7 @@ Use this reference when `--tool kimi` and the agent needs to present credential-
 - Choose this when you have a Kimi Platform API key or compatible provider key, and the native provider references `api_key_env = "KIMI_MODEL_API_KEY"`.
 - Security: opaque secret; treat as non-recoverable once stored
 
-Define the provider type and endpoint under `[providers.<provider>]` and the model under `[models.<alias>]` in native TOML. Set `default_model` to the alias or select it in the launch profile. For a model with multiple thinking levels, put the labels in its ordered `support_efforts` list. Import the config with `--config-toml` or use secret-free config in the selected setup.
+Define the provider type and endpoint under `[providers.<provider>]` and each model alias under `[models.<alias>]` in native Kimi `config.toml` (setting `default_model = "<alias>"` or selecting `--model <alias>` on the specialist or profile). For models with selectable thinking effort levels, list the exact effort labels in order inside `support_efforts = [...]` on `[models.<alias>]` (where positive `--reasoning-level` indexes `support_efforts` starting from `1`, and `0` disables thinking when supported). Import `config.toml` via `--config-toml` (clearable on `set` with `--clear-config-toml`) or keep secret-free config in the selected setup.
 
 ### 2. Kimi Code Config File
 

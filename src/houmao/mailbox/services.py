@@ -57,7 +57,6 @@ from houmao.mailbox.managed import (
     ManagedAttachment,
     ManagedMailboxOperationError,
     ManagedPrincipal,
-    ManagedRecipientPolicyError,
     StateUpdateRequest,
     deliver_message,
     ensure_operator_mailbox_registration,
@@ -402,25 +401,30 @@ class FilesystemGatewayMailboxAdapter:
             deliver_message(
                 self.m_mailbox.filesystem_root,
                 request,
-                registry_root=self.m_mailbox.registry_root,
                 verified_sender_binding=self.m_mailbox.binding_id,
             )
-        except ManagedRecipientPolicyError:
-            raise
         except ManagedMailboxOperationError as exc:
             raise GatewayMailboxError(str(exc)) from exc
-        state = self._load_local_message_state(message_id=message_id)
+        return self._sent_delivery_receipt(request)
+
+    def _sent_delivery_receipt(self, request: DeliveryRequest) -> GatewayMailboxMessageV1:
+        """Project sender-owned evidence without including recipient placement."""
+
+        self_addressed = any(
+            participant.address == request.sender.address
+            for participant in (*request.to, *request.cc)
+        )
         return self._message_to_model(
             message=self._load_message_document(
-                message_id=message_id,
+                message_id=request.message_id,
                 canonical_path=self._canonical_message_path(
-                    message_id=message_id, created_at_utc=created_at_utc
+                    message_id=request.message_id, created_at_utc=request.created_at_utc
                 ),
             ),
-            read=bool(state["read"]),
-            answered=bool(state["answered"]),
-            archived=bool(state["archived"]),
-            box=str(state["box"]),
+            read=not self_addressed,
+            answered=False,
+            archived=False,
+            box="sent",
             include_body=False,
         )
 
@@ -464,11 +468,8 @@ class FilesystemGatewayMailboxAdapter:
             deliver_message(
                 self.m_mailbox.filesystem_root,
                 request,
-                registry_root=self.m_mailbox.registry_root,
                 verified_sender_binding=operator_binding,
             )
-        except ManagedRecipientPolicyError:
-            raise
         except ManagedMailboxOperationError as exc:
             raise GatewayMailboxError(str(exc)) from exc
         state = self._load_local_message_state(message_id=message_id)
@@ -529,7 +530,6 @@ class FilesystemGatewayMailboxAdapter:
             deliver_message(
                 self.m_mailbox.filesystem_root,
                 request,
-                registry_root=self.m_mailbox.registry_root,
                 verified_sender_binding=self.m_mailbox.binding_id,
             )
             update_mailbox_state(
@@ -541,24 +541,9 @@ class FilesystemGatewayMailboxAdapter:
                     answered=True,
                 ),
             )
-        except ManagedRecipientPolicyError:
-            raise
         except ManagedMailboxOperationError as exc:
             raise GatewayMailboxError(str(exc)) from exc
-        state = self._load_local_message_state(message_id=message_id)
-        return self._message_to_model(
-            message=self._load_message_document(
-                message_id=message_id,
-                canonical_path=self._canonical_message_path(
-                    message_id=message_id, created_at_utc=created_at_utc
-                ),
-            ),
-            read=bool(state["read"]),
-            answered=bool(state["answered"]),
-            archived=bool(state["archived"]),
-            box=str(state["box"]),
-            include_body=False,
-        )
+        return self._sent_delivery_receipt(request)
 
     @_filesystem_operation
     def mark(
@@ -1163,12 +1148,13 @@ class StalwartGatewayMailboxAdapter:
     m_client: StalwartJmapClient | None = None
 
     def status(self) -> MailboxBackendStatusV1:
-        self._client().status()
+        validated = self._client().validate_binding(sender_address=self.m_mailbox.address)
         return MailboxBackendStatusV1(
             transport="stalwart",
             principal_id=self.m_mailbox.principal_id,
             address=self.m_mailbox.address,
             bindings_version=self.m_mailbox.bindings_version,
+            placement_writable=validated.can_move and validated.can_archive,
         )
 
     def list_page(
@@ -1234,11 +1220,13 @@ class StalwartGatewayMailboxAdapter:
         )
 
     def peek(self, *, message_ref: str, box: str | None) -> GatewayMailboxMessageV1:
-        del box
         try:
-            row = self._client().get_email(
-                email_id=_require_prefixed_ref(message_ref, prefix="stalwart")
-            )
+            client = self._client()
+            email_id = _require_prefixed_ref(message_ref, prefix="stalwart")
+            if box is None:
+                row = client.get_email(email_id=email_id)
+            else:
+                row = client.get_email_in_box(email_id=email_id, box=box)
         except StalwartError as exc:
             raise _stalwart_backend_error(exc, self.m_mailbox) from exc
         return stalwart_message_to_model(row, include_body=True)
@@ -1253,6 +1241,7 @@ class StalwartGatewayMailboxAdapter:
                 read=True,
                 answered=None,
                 archived=None,
+                expected_box=box,
             )
         except StalwartError as exc:
             raise _stalwart_backend_error(exc, self.m_mailbox) from exc
@@ -1327,6 +1316,8 @@ class StalwartGatewayMailboxAdapter:
         answered: bool | None,
         archived: bool | None,
     ) -> list[GatewayMailboxMessageV1]:
+        if archived is not None and not self.status().placement_writable:
+            raise GatewayMailboxUnsupportedError("Online mailbox placement is separately authorized.")
         messages: list[GatewayMailboxMessageV1] = []
         for message_ref in message_refs:
             try:
@@ -1347,6 +1338,8 @@ class StalwartGatewayMailboxAdapter:
         message_refs: Sequence[str],
         destination_box: str,
     ) -> list[GatewayMailboxMessageV1]:
+        if not self.status().placement_writable:
+            raise GatewayMailboxUnsupportedError("Online mailbox placement is separately authorized.")
         messages: list[GatewayMailboxMessageV1] = []
         for message_ref in message_refs:
             try:
@@ -1375,6 +1368,8 @@ class StalwartGatewayMailboxAdapter:
                 sender_address=self.m_mailbox.address,
                 account_id=self.m_mailbox.account_id,
                 identity_id=self.m_mailbox.identity_id,
+                allowed_api_origins=self.m_mailbox.trusted_jmap_origins,
+                api_origin=self.m_mailbox.pinned_api_origin,
             )
         return self.m_client
 
@@ -1739,6 +1734,11 @@ class ScopedMailboxAdapter:
         """Run the selected operation with validated scope."""
 
         return self.m_identity if self.m_identity is not None else self.m_backend.status()
+
+    def backend_status(self) -> MailboxBackendStatusV1:
+        """Observe current backend capabilities independently of pinned identity."""
+
+        return self.m_backend.status()
 
     def list_page(
         self,

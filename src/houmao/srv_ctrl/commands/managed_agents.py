@@ -13,6 +13,7 @@ from houmao.gateway.deployment import owner_gateway_base_url, validate_gateway_a
 
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
+    OnlineControlFailure,
     OnlineControlRequest,
     OnlineBindingStatus,
 )
@@ -33,7 +34,7 @@ from typing import Any, Literal, TypeVar, cast
 import uuid
 
 import click
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 
 from houmao.execution.context import validate_execution_owner
 from houmao.execution.tmux import TmuxObservationError
@@ -2465,6 +2466,14 @@ def managed_agent_state_policy_summary(target: ManagedAgentTarget) -> dict[str, 
         policy = access.store.snapshot(read_only=True)
     except (click.ClickException, GatewayAccessError, SessionManifestError):
         return None
+    if policy.default_permission_group is None:
+        return {
+            "admin_mode": policy.admin_mode,
+            "default_permission_effects": ", ".join(
+                permission.action for permission in policy.default_permission_effects
+            ),
+        }
+    assert policy.default_permission_group_version is not None
     return {
         "admin_mode": policy.admin_mode,
         "default_permission_group": policy.default_permission_group,
@@ -3540,13 +3549,14 @@ def attach_gateway(
     background: bool = False,
     tui_tracking_timing_overrides: GatewayTuiTrackingTimingOverridesV1 | None = None,
     plugin_config: GatewayPluginConfiguration | None = None,
+    plugin_config_overrides: dict[str, dict[str, JsonValue]] | None = None,
     access_config_path: Path | None = None,
 ) -> GatewayStatusV1:
     """Attach or reuse a live gateway for one managed agent."""
 
     _raise_external_unsupported(target, operation="agents single ... gateway attach")
     if target.mode == "executor":
-        if plugin_config is not None:
+        if plugin_config is not None or plugin_config_overrides:
             raise click.ClickException(
                 "Gateway plugin configuration is unsupported through the finite execution transport."
             )
@@ -3580,7 +3590,7 @@ def attach_gateway(
     if target.mode == "server":
         if access_config_path is not None:
             raise click.ClickException("Gateway access configuration requires owner-side attach.")
-        if plugin_config is not None:
+        if plugin_config is not None or plugin_config_overrides:
             raise click.ClickException(
                 "Gateway plugin configuration requires local runtime authority on the owning host."
             )
@@ -3608,6 +3618,7 @@ def attach_gateway(
         execution_mode_override=execution_mode_override,
         tui_tracking_timing_overrides=tui_tracking_timing_overrides,
         plugin_config=plugin_config,
+        plugin_config_overrides=plugin_config_overrides,
         access_config=deployment,
     )
     if result.status != "ok":
@@ -4259,8 +4270,6 @@ def unregister_mailbox_binding(target: ManagedAgentTarget, *, mode: str) -> dict
 def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMailStatusV1:
     """Report both configured channels and independent backend availability."""
 
-    from houmao.mailbox.delivery_policy import require_open_provider_binding
-
     payload = _read_running_agent_manifest(authority)
     mailboxes = mailboxes_resolved_config_from_payload(
         payload.launch_plan.mailboxes.model_dump(mode="json"), manifest_path=authority.manifest_path
@@ -4273,13 +4282,15 @@ def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMail
             summaries[channel] = None
             continue
         error = None
+        supported_operations: list[str] = []
+        limitations: list[str] = []
         try:
-            with (
-                require_open_provider_binding(authority.manifest_path)
-                if channel == "online"
-                else nullcontext()
-            ):
-                build_gateway_mailbox_adapter(binding).status()
+            backend_status = build_gateway_mailbox_adapter(binding).status()
+            supported_operations = [
+                action for action in backend_status.supported_operations() if action != "post"
+            ]
+            if not backend_status.placement_writable:
+                limitations.append("Message placement requires separate mailbox owner authority.")
         except (GatewayMailboxError, ValueError, OSError):
             error = "Mailbox backend is unavailable."
         summaries[channel] = MailboxChannelStatusV1(
@@ -4291,16 +4302,8 @@ def _local_manager_mail_status(authority: _RunningAgentAuthority) -> GatewayMail
             transport=binding.transport,
             available=error is None,
             error=error,
-            supported_operations=[
-                "list",
-                "peek",
-                "read",
-                "send",
-                "reply",
-                "mark",
-                "move",
-                "archive",
-            ],
+            supported_operations=supported_operations,
+            limitations=limitations,
         )
     return GatewayMailStatusV1(
         agent_id=payload.agent_id,
@@ -4664,7 +4667,15 @@ def control_online_mailbox(
     if _target_uses_pair_api(target):
         assert target.client is not None
         method = getattr(target.client, f"{operation}_managed_agent_online_binding")
-        result = pair_request(method, target.agent_ref, request)
+        try:
+            result = method(target.agent_ref, request)
+        except CaoApiError as exc:
+            detail = exc.payload.get("detail") if isinstance(exc.payload, dict) else None
+            try:
+                failure = OnlineControlFailure.model_validate(detail)
+            except ValidationError:
+                raise click.ClickException(exc.detail) from exc
+            raise click.ClickException(failure.detail) from exc
         return OnlineBindingStatus.model_validate(result.model_dump(mode="json"))
     controller = _require_live_local_controller(target, operation="control online mailbox binding")
     client = _require_live_gateway_client_for_controller(controller)

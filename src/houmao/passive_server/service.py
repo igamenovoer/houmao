@@ -6,6 +6,7 @@ from houmao.execution.tmux import tmux_server_scope
 
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
+    OnlineControlFailure,
     OnlineControlRequest,
     OnlineBindingStatus,
 )
@@ -102,6 +103,8 @@ from houmao.gateway.access import (
     GatewayTarget,
 )
 from houmao.gateway.authorization_models import (
+    DefaultFallbackReceipt,
+    DefaultFallbackRequest,
     DefaultPermissionGroupReceipt,
     DefaultPermissionGroupRequest,
 )
@@ -548,6 +551,22 @@ class PassiveServerService:
         return admission.target.policy.set_default_permission_group(
             admission.grant,
             payload.group,
+            require_current_target=lambda: self.require_access_target_current(admission.target),
+        )
+
+    def set_default_fallback(
+        self, principal_id: str, payload: DefaultFallbackRequest
+    ) -> DefaultFallbackReceipt:
+        """Commit the passive listener's admitted principal fallback mutation."""
+
+        admission = CURRENT_ADMISSION.get()
+        if admission is None or admission.grant is None:
+            raise GatewayAccessError(403, "insufficient_authority")
+        payload.require_expected(admission.grant)
+        return admission.target.policy.set_default_fallback(
+            admission.grant,
+            principal_id,
+            payload.enabled,
             require_current_target=lambda: self.require_access_target_current(admission.target),
         )
 
@@ -1259,7 +1278,7 @@ class PassiveServerService:
         try:
             return client.attach_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def online_binding_refresh(
         self, agent_ref: str, request: OnlineControlRequest
@@ -1275,7 +1294,7 @@ class PassiveServerService:
         try:
             return client.refresh_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def online_binding_reconnect(
         self, agent_ref: str, request: OnlineControlRequest
@@ -1291,7 +1310,7 @@ class PassiveServerService:
         try:
             return client.reconnect_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def online_binding_detach(
         self, agent_ref: str, request: OnlineControlRequest
@@ -1307,7 +1326,7 @@ class PassiveServerService:
         try:
             return client.detach_online_binding(request)
         except GatewayHttpError as exc:
-            return self._gateway_http_error_tuple(exc)
+            return self._online_control_error_tuple(exc)
 
     def gateway_mail_status(
         self, agent_ref: str
@@ -2268,6 +2287,18 @@ class PassiveServerService:
         threading.Thread(target=_deferred, daemon=True).start()
 
     # -- internal -------------------------------------------------------------
+
+    def _online_control_error_tuple(self, exc: GatewayHttpError) -> tuple[int, dict[str, Any]]:
+        """Relay recognized online control errors from the selected agent gateway."""
+        status = exc.status_code
+        if status is not None and status in {400, 409, 502}:
+            try:
+                detail = OnlineControlFailure.model_validate_json(exc.detail)
+            except ValueError:
+                pass
+            else:
+                return status, {"detail": detail.model_dump(mode="json")}
+        return self._gateway_http_error_tuple(exc)
 
     def _gateway_http_error_tuple(self, exc: GatewayHttpError) -> tuple[int, dict[str, Any]]:
         """Project one gateway HTTP error into a passive proxy response tuple."""

@@ -66,6 +66,8 @@ def test_independent_wheels_in_both_gateway_process_modes(tmp_path: Path) -> Non
     assert report["checkout_imports"] is False
     assert report["offline_install"] is True
     assert report["actual_cccc"] is True
+    assert report["receiver_protocol_version"] == 2
+    assert report["cli_version_matches_metadata"] is True
     assert report["cleanup"] == "completed"
     assert {mode["execution_mode"] for mode in report["modes"]} == {
         "detached_process",
@@ -83,10 +85,20 @@ def test_independent_wheels_in_both_gateway_process_modes(tmp_path: Path) -> Non
             "open_and_key_required_controls",
             "verified_private_callers",
             "signed_deferred_mail",
-            "busy_refusal",
-            "explicit_retry",
-            "gateway_absence_no_replay",
-            "body_replacement_fenced",
-            "body_death_fenced",
+            "busy_chat_waits",
+            "live_push_asap",
+            "live_push_batch",
+            "direct_cli_with_mail",
+            "gateway_absence_pending_recovery",
+            "installed_receipt_targets",
+            "limited_receipt_history",
+            "group_assertions",
         ):
             assert mode[evidence] is True
+        assert mode["gateway_queue_access"] in {"qualified", "unsupported"}
+    assert len({mode["gateway_queue_access"] for mode in report["modes"]}) == 1
+    if os.environ.get("HOUMAO_CCCC_REQUIRE_QUEUE_ACCESS") == "1":
+        assert all(mode["gateway_queue_access"] == "qualified" for mode in report["modes"])
+    outcomes = {mode["execution_mode"]: mode for mode in report["modes"]}
+    assert outcomes["detached_process"]["body_replacement_fenced"] is True
+    assert outcomes["tmux_auxiliary_window"]["body_death_fenced"] is True

@@ -5,10 +5,10 @@ Use this action only when the user wants to inspect one credential safely throug
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the tool family, credential name, and target from the current prompt first and recent chat context second when they were stated explicitly.
+2. Recover the tool family (`claude`, `codex`, `dsh`, or `kimi`), credential name, and target from the current prompt first and recent chat context second when they were stated explicitly.
 3. If the tool family, credential name, or target is still missing, ask the user in Markdown before proceeding.
 4. Run the direct credential get command.
-6. Report the structured credential details returned by the command. If diagnostic `bundle_ref`, projected path, or filesystem path data is returned, keep it secondary to the operator-facing credential name.
+5. Report the structured credential details returned by the command. If diagnostic `bundle_ref`, projected path, or filesystem path data is returned, keep it secondary to the operator-facing credential name.
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
 

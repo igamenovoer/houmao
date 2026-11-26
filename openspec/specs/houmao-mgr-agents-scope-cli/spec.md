@@ -357,20 +357,30 @@ Supported `agents self` inspection commands SHALL use the verified manifest for 
 - **AND THEN** absent evidence has the command's existing unavailable or unknown meaning
 
 ### Requirement: Self mail uses verified runtime routing for notifier rounds
-`agents self mail` SHALL derive routing from the verified manifest and current mailbox binding. The CLI SHALL preserve existing gateway authorization and binding checks. It SHALL use runtime-owned mailbox authority for eligible local fallback.
+
+`agents self mail` SHALL derive routing from the verified manifest and current mailbox binding. The CLI SHALL preserve gateway authorization and binding checks and use runtime-owned mailbox authority for eligible local fallback. Ordinary mailbox operations SHALL respect the backend's placement controls on a protected binding.
 
 #### Scenario: A Web agent completes a notifier round after launch
+
 - **WHEN** a managed Web agent with an attached authorized gateway verifies identity and processes its notified mail with the definition directory unavailable
-- **THEN** `agents self mail` can report status, list, read, reply, and archive using the current binding
-- **AND THEN** mailbox commands do not rewrite tmux or reload launch definitions to establish the target
+- **THEN** `agents self mail` can report status, list, read, and reply using the current binding
+- **AND THEN** ordinary archive succeeds only where the selected binding permits ordinary placement changes
+- **AND THEN** mailbox commands use the verified runtime and current binding to establish the target
 
 #### Scenario: The notified mailbox binding changes
+
 - **WHEN** a mailbox request carries a stale expected binding ID
 - **THEN** the command rejects the request before operating on the replacement mailbox
 
+#### Scenario: Ordinary CLI archive targets a protected binding
+
+- **WHEN** an agent tries an ordinary move, archive, or placement-changing mark on a protected binding
+- **THEN** the CLI reports that the selected binding reserves placement for its backend
+- **AND THEN** a detached gateway or available local route leaves the backend's placement controls in force
+
 ### Requirement: Selected-Agent Access Commands Use Verified Owner Authority
 
-`agents single access` SHALL expose policy initialization, principal and credential administration, grant and revoke, list, and explain operations for the selected agent. The CLI SHALL resolve the observed owner binding before administrative effects. General policy changes and privileged inspection SHALL use verified local owner authority.
+`agents single access` SHALL expose policy initialization, principal and credential administration, grant and revoke, list, and explain operations for the selected agent under verified local owner authority. The default-group setter SHALL use its admin-exclusive permission, including on the explicit owner-local path.
 
 #### Scenario: An owner manages policy while the gateway is detached
 
@@ -441,7 +451,7 @@ The access command family SHALL expose per-key admin enrollment and removal sepa
 
 ### Requirement: Peer File Commands Select Target and Source Independently
 
-`agents single` SHALL expose `files` operations for the selected agent ID or name. It SHALL verify the attached endpoint through the shared client and support trusted remote coordinates when needed. It SHALL select the caller signer independently of the target or send an unsigned request under verified open mode.
+`agents single` SHALL expose `files` operations for the selected agent ID or name. It SHALL verify the attached endpoint through the shared client and support trusted remote coordinates. It SHALL select the caller signer independently of the target or select unsigned input before submission. The gateway SHALL check current authority and the operation's existing resource prerequisites.
 
 #### Scenario: A source edits a target on another tmux server
 
@@ -452,13 +462,13 @@ The access command family SHALL expose per-key admin enrollment and removal sepa
 #### Scenario: Only a remote endpoint is available
 
 - **WHEN** the caller selects a target and supplies trusted remote coordinates for its URL, owner context, generation, and gateway presence
-- **THEN** the client verifies those coordinates and deployment trust before signing
+- **THEN** the client verifies those coordinates and deployment trust before sending signed or unsigned input
 - **AND THEN** a listener or generation mismatch prevents the command from sending protected input
 
 #### Scenario: Peer routing or authority is unavailable
 
-- **WHEN** the target has no verified attached gateway, a selected signer fails proof, or keyed mode requires a signer that the caller has not selected
-- **THEN** the CLI reports that failure before file operations
+- **WHEN** the target has no verified attached gateway, a selected signer fails proof, or policy refuses the selected caller's file operation
+- **THEN** the CLI reports the failure
 - **AND THEN** it performs no unsigned retry, local-file or terminal fallback, gateway attachment, or target lifecycle action
 
 #### Scenario: An unsigned caller addresses an open gateway
@@ -466,6 +476,12 @@ The access command family SHALL expose per-key admin enrollment and removal sepa
 - **WHEN** the caller selects a verified live target in open mode without selecting a signer
 - **THEN** the CLI uses the common unsigned request path and the gateway checks its current open authority and ordinary operation prerequisites
 - **AND THEN** a failed explicit proof is refused even if unsigned access would have been allowed
+
+#### Scenario: An unsigned caller addresses a keyed gateway
+
+- **WHEN** a caller selects unsigned input for a file operation on a verified keyed target
+- **THEN** the gateway checks the current default group's authority on the exact mount and applies the operation's existing prerequisites
+- **AND THEN** caller attribution and anonymous draft lease requirements follow the existing unsigned operation contract
 
 #### Scenario: A scoped peer calls from an isolated OS account
 
@@ -652,12 +668,12 @@ On a confirmed busy push receipt, the CLI SHALL explain on stderr that the candi
 
 ### Requirement: Selected Agent State Shows Verified Owner Policy in Human Output
 
-Human-readable `agents single state` SHALL show the retained roster mode and default permission group and version when the CLI can verify the selected local owner policy. The added view SHALL preserve the structured state response and keep roster membership, signer labels, fingerprints, and key paths out of state.
+Human-readable `agents single state` SHALL show the retained roster mode and default permission definition when the CLI can verify the selected local owner policy. It SHALL identify a named group and its version or the retained exact-effect default. The added view SHALL preserve the structured state response and keep roster membership, signer labels, fingerprints, and key paths out of state.
 
 #### Scenario: The owner inspects a local agent with a detached gateway
 
 - **WHEN** plain or fancy state output renders a selected local agent with an available current owner policy
-- **THEN** it reports the retained mode and group without requiring a live gateway
+- **THEN** it reports the retained mode and default definition without requiring a live gateway
 
 #### Scenario: A caller lacks current local owner evidence
 
@@ -669,3 +685,227 @@ Human-readable `agents single state` SHALL show the retained roster mode and def
 
 - **WHEN** the state command runs with `--print-json` or produces a collected structured result
 - **THEN** it produces the existing structured state shape without a new owner-policy lookup
+
+### Requirement: Owner Commands Expose Assignable Built-in Roles
+
+`agents single access` SHALL expose assignable built-in role identifiers, versions, and cumulative permissions. `role-assign` SHALL accept those identifiers for an enrolled target principal. `access list` and `access explain` SHALL distinguish the retained default definition, default fallback for the principal, explicit assignments, direct grants, and system authority. Inspection SHALL report assignment expiry. Built-in definitions SHALL remain reserved.
+
+#### Scenario: Bob Assigns a State Observer
+
+- **WHEN** Bob's authorized owner grants Alice `agent.status.read` on `agent` and disables her default fallback
+- **THEN** Alice's verified access includes status read
+- **AND THEN** `access list` and `access explain` show the direct permission and explain why no work-request authority comes from Bob's default
+
+#### Scenario: Inspection Explains an Unassigned Caller
+
+- **WHEN** Bob's owner inspects retained access for a verified caller eligible for the default
+- **THEN** inspection shows Bob's retained default definition and identifies any permissions it supplies
+
+#### Scenario: Inspection Explains an Expired Group Assignment
+
+- **WHEN** Bob's owner explains access for a verified caller with a retained expired `builtin:` group assignment
+- **THEN** inspection shows the assignment and its expiry and explains why it still suppresses the default
+
+#### Scenario: Alice Needs Common-Plugin Maintenance and Direct Controls
+
+- **WHEN** Bob's owner assigns `builtin:agent-maintainer` to Alice
+- **THEN** inspection shows status read, attributed requests, and the qualified common-plugin scope on Bob
+- **AND THEN** selecting `builtin:agent-operator` grants the full cumulative set including verbatim input, native slash commands, and interruption from one assignment
+
+#### Scenario: A Caller Attempts to Assign a System-Controlled Group
+
+- **WHEN** the owner tries to assign `managed-self` or `agent-admin` through `role-assign`
+- **THEN** the CLI refuses the assignment and identifies the applicable runtime registration or administrator enrollment path
+- **AND THEN** policy inspection identifies the roster qualification and any separate default-derived `agent-admin` authority
+
+#### Scenario: A caller attempts to assign the retired observer tier
+
+- **WHEN** the owner invokes `role-assign` with `builtin:agent-observer`
+- **THEN** the command rejects it before changing policy
+- **AND THEN** inspection can explain migrated exact grants and fallback settings without listing observer as assignable
+
+### Requirement: Admin Commands Set the Target Default Group
+
+`agents single ... access default-group set <group>` SHALL accept `agent-requester`, `agent-maintainer`, `agent-operator`, `managed-self`, or `agent-admin`. It SHALL support a verified gateway, an explicitly selected verified passive endpoint, or an explicit owner-local `--retained` call. Each path SHALL require effective `agent-admin` authority and report the committed policy outcome. The retained paths SHALL support stopped and detached targets.
+
+#### Scenario: An Admin Changes Bob's Default
+
+- **WHEN** a caller with effective `agent-admin` authority selects Bob and sets the default to `agent-operator`
+- **THEN** the command verifies Bob's endpoint, submits the requested setting, and reports the committed value and revision
+- **AND THEN** an owner inspecting the retained policy sees the new value without a new enrollment or roster change
+
+#### Scenario: An Admin Changes the Default While Bob Is Stopped
+
+- **WHEN** a caller with current admin authority selects an owner-local `--retained` call or the verified direct passive endpoint for stopped Bob
+- **THEN** the command changes the retained setting and reports its committed value and revision
+- **AND THEN** it leaves Bob stopped and uses the existing unsigned or SSH proof rules for the selected path
+
+#### Scenario: A Local Owner Lacks Admin Authority for the Setter
+
+- **WHEN** a verified local execution owner invokes `--retained` without effective `agent-admin` authority on the selected policy
+- **THEN** the command refuses the mutation before updating the retained policy
+
+#### Scenario: A Default Grants the Admin Setter
+
+- **WHEN** Bob's current default is `agent-admin` and a caller with no explicit group uses a supported admission path for the setter
+- **THEN** the selected path can authorize the operation through the current default
+- **AND THEN** the result preserves the actual caller provenance and identifies the default as the source of authority
+
+#### Scenario: A Non-Admin Attempts to Set the Default
+
+- **WHEN** a caller lacking effective `agent-admin` authority attempts to change the setting
+- **THEN** the selected path refuses the request without changing Bob's retained policy
+- **AND THEN** the command reports the refusal without retrying through another identity, an unsigned request, or another path
+
+#### Scenario: Bob has a migrated exact-effect default
+
+- **WHEN** Bob's retained default was migrated from the retired status-only tier
+- **THEN** inspection reports status read as its retained effect
+- **AND THEN** the setter accepts only supported group names for a subsequent default change
+
+### Requirement: Owner Commands Instantiate Exact Resource Role Templates
+
+`access role-put` SHALL accept `--template` with `--resource` to create an owner-named role from a catalog template. `plugin-actions` SHALL also take explicit `--action` values. The resulting role SHALL retain its template version and concrete resource/action pairs. The ordinary `--permission` form SHALL remain available.
+
+#### Scenario: Bob Delegates Draft Editing
+
+- **WHEN** Bob's owner uses `role-put bob-skills-editor --template skill-editor --resource files:<mount-id>` and assigns that role to Alice
+- **THEN** `access list` identifies the template and exact mount
+- **AND THEN** `access explain` shows that the role contributes `files.read` and `files.edit`
+- **AND THEN** inspection continues to report the configured default as the group source when Alice has no retained `builtin:` group assignment
+- **AND THEN** this narrow template does not add the broader `builtin:agent-maintainer` role
+
+#### Scenario: Bob Selects Plugin Actions
+
+- **WHEN** Bob's owner selects the `plugin-actions` template, one exact plugin instance resource, and one or more declared `--action` values
+- **THEN** the role records only those resource/action pairs
+
+#### Scenario: Bob Configures a Known Resource While Detached
+
+- **WHEN** Bob's owner binds a template to an exact known resource whose live applicability cannot be checked
+- **THEN** the CLI can retain the concrete permissions and report live applicability as unresolved
+- **AND THEN** it leaves gateway attachment to the owner
+
+#### Scenario: A Template Binding Has Conflicting Inputs
+
+- **WHEN** the owner combines `--permission` and `--template`, omits the resource, or uses a resource of the wrong kind
+- **THEN** the CLI refuses the command before changing retained policy
+
+### Requirement: Single Scope Sends Work Requests Without Recipient Enrollment
+
+`agents single request --text` SHALL submit typed `submit_work_request` to a verified gateway or an explicitly selected verified direct passive endpoint. It SHALL select its path and proof before submission. A signed request SHALL use the managed caller's stable peer signer or an explicit owned source. An unsigned request SHALL support eligible open or default admission without enrollment.
+
+#### Scenario: Alice Requests Work From Bob Across Accounts
+
+- **WHEN** Alice runs `houmao-mgr agents single --agent-id <bob-id> request --text "Review PR 42"` with Bob's trusted endpoint coordinates as needed
+- **THEN** the command verifies Bob's gateway and signs with Alice's configured peer credential
+- **AND THEN** it reports the request reference and known admission or handoff without including Bob's private output
+
+#### Scenario: An Operator Chooses a Source Explicitly
+
+- **WHEN** the verified source owner passes `--source-agent-id` for a configured peer signer
+- **THEN** the CLI can use that signer independently of the selected target and the source gateway's availability
+
+#### Scenario: A New Agent Submits an Unsigned Work Request
+
+- **WHEN** a new Alice invokes the request command on keyed Bob using an explicit unsigned selection or with no applicable signing source selected
+- **THEN** the command verifies Bob's endpoint and submits one typed request without requiring Bob to enroll Alice
+- **AND THEN** Bob evaluates his current policy, and the CLI reports admission or refusal under the existing request and handoff disclosure contract
+
+#### Scenario: Carol Requests Work From Detached Bob Through Passive Ingress
+
+- **WHEN** Carol selects a verified passive endpoint for Bob and Bob has a qualified detached native path
+- **THEN** the command submits the typed work request with the selected proof or unsigned admission
+- **AND THEN** it reports the passive request reference and known admission or handoff without revealing Bob's private output
+
+#### Scenario: The Request Lane Is Unavailable
+
+- **WHEN** the selected path is unavailable, the selected proof fails, or the target refuses the work-request effect
+- **THEN** the CLI reports the outcome on that path
+- **AND THEN** it performs no unsigned, other-path, native prompt, terminal input, or mail retry
+
+### Requirement: Self Gateway Commands Use Current Runtime Proof
+
+`agents self files` SHALL use the verified current runtime's attached gateway and accept an exact mount without a target or signer override. Self file and gateway-backed refresh commands SHALL resolve the registered private key from the verified owner's `authorization.sqlite3` for the current generation. Environment variables SHALL serve only as runtime locators, and command output SHALL omit private key material. Explicitly selected unsigned calls SHALL follow applicable admission rules.
+
+#### Scenario: Bob Updates His Own Qualified Mount
+
+- **WHEN** Bob runs `agents self files` in his verified runtime and his keyed gateway exposes an owner-selected qualified mount with non-admin file effects
+- **THEN** the CLI signs with Bob's current managed-self key and applies the existing lease, draft, and publication commands under that target's policy
+- **AND THEN** publication still checks the current base and native readiness
+- **AND THEN** explicit `agents single ... files --self-signer` still selects the managed source's stable peer key
+
+#### Scenario: Bob Checks Native Freshness Against a Keyed Gateway
+
+- **WHEN** Bob runs `agents self refresh --check` or `agents self refresh` with a current managed-self registration
+- **THEN** the command signs gateway observations and authorized refresh with that runtime's key and preserves existing native admission and result semantics
+
+#### Scenario: Bob Schedules Publication During His Turn
+
+- **WHEN** Bob uses `agents self files push --when-idle` with a saved candidate and its expected base
+- **THEN** the CLI uses current managed-self proof and reports accepted pending work or the known outcome with its operation ID
+- **AND THEN** `agents self files status <operation-id>` reports the retained publication, activation, and readiness evidence when available
+- **AND THEN** an immediate push keeps its existing `busy` result and a later attempt uses a fresh operation ID
+
+#### Scenario: A New Worker Runs a Self Command
+
+- **WHEN** a new headless turn worker or recovered process invokes a self command within Bob's verified current generation
+- **THEN** the command resolves the active key ID and registration revision for that generation and signs with the matching SQLite credential in the verified owner's agent scope
+- **AND THEN** an available peer or admin key supplies no proof for the self command
+
+#### Scenario: The Registered Self Key Is Unavailable
+
+- **WHEN** the owner-private database is unreadable or the committed key is missing, fails validation, or cannot prove the current managed-self registration
+- **THEN** the signed self command returns an explicit error without creating a key, substituting credentials, or retrying unsigned
+
+#### Scenario: The Caller Explicitly Selects Open Admission
+
+- **WHEN** the verified gateway has an empty admin roster and the caller selects unsigned input for an eligible operation
+- **THEN** the operation follows the open admission rules independently of managed-self registration
+
+#### Scenario: Bob Checks Freshness With a Detached Gateway
+
+- **WHEN** Bob invokes self refresh or check while the gateway is detached
+- **THEN** the CLI preserves the existing local native inspection, verified no-op, and qualified automatic behaviors
+- **AND THEN** an operation requiring a gateway reports that prerequisite without attaching one
+### Requirement: Admin Commands Set a Principal's Default Fallback
+
+`agents single ... access default-fallback set PRINCIPAL enabled|disabled` SHALL update the selected principal's retained fallback setting. It SHALL support a verified gateway, an explicitly selected verified passive endpoint, and explicit owner-local `--retained` access. Each path SHALL require the admin-exclusive `admin.default-fallback.set` effect on `policy` and report the committed setting and revision.
+
+#### Scenario: Bob keeps Alice's access to exact grants while detached
+
+- **WHEN** Bob's administrator selects an owner-local retained path or the verified direct passive endpoint and disables fallback for Alice
+- **THEN** the change commits without starting Bob or attaching his gateway
+- **AND THEN** inspection shows the boolean setting for Alice and the reason her verified access excludes the default
+
+#### Scenario: The caller lacks administrative authority
+
+- **WHEN** the selected path refuses a caller's request to change fallback
+- **THEN** the command reports the refusal without changing policy or retrying through another authority
+
+### Requirement: Outbound Mail Reports the Selected Transport Outcome
+
+An ordinary managed-agent mailbox send SHALL use the authorized sender binding and selected recipient address. The CLI SHALL preserve the original sender and channel and distinguish confirmed offline deposit from provider-confirmed online submission. Sender-facing results SHALL omit recipient rules, final placement, wake-up, and processing.
+
+#### Scenario: Alice sends offline mail to detached Bob
+
+- **WHEN** Alice uses her own verified sender binding and the offline registry accepts delivery to Bob's valid address while his gateway is detached
+- **THEN** the CLI reports confirmed deposit through the offline transport
+- **AND THEN** the same authorized send works whether or not Bob has enrolled Alice's key
+
+#### Scenario: The selected online provider confirms submission
+
+- **WHEN** the sender's provider confirms an ordinary online submission
+- **THEN** the CLI reports provider-confirmed submission and leaves recipient placement and agent wake-up unspecified
+
+#### Scenario: The recipient backend archives matching incoming mail
+
+- **WHEN** an offline deposit is confirmed and an applied recipient rule files that mail directly in Archive
+- **THEN** the CLI reports the confirmed deposit with the same sender-visible contract as mail deposited to Inbox
+- **AND THEN** the result includes no recipient policy or placement details
+
+#### Scenario: Transport refuses the request or cannot confirm the result
+
+- **WHEN** the selected sender binding or transport refuses the operation or reports an uncertain outcome
+- **THEN** the CLI preserves the reported outcome and original sender binding
+- **AND THEN** it does not retry through another channel, switch credentials, or submit a different message

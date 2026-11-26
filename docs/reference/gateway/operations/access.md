@@ -213,3 +213,11 @@ houmao-mgr agents self mail list --channel offline --expected-binding-id "$bindi
 ```
 
 The scoped self commands sign live private operations inside the CLI. Select the current channel and binding ID from scoped mailbox output. Admin callers can use their own bound signer. Owner-file paths on send, reply, and post require `mail.attachment.owner_file` on the same mailbox resource. See the mailbox facade for channel-specific behavior and the separately authorized manager path when the gateway is detached. [Gateway Mailbox Facade](mailbox-facade.md)
+
+## Apply Protected Mail Rules
+
+Enroll a separate Ed25519 owner public key at the trusted mailbox backend. On the owner side, use `houmao.mailbox.policy.MailPolicyUpdate` and `sign_mail_policy_update(update, signer)` to sign the exact backend ID, binding or registration ID, expected rule revision, operation ID, and sender list. The initial revision is zero. Keep the signing key outside the gateway account.
+
+Gateway administrators can submit `POST /v1/mail/{channel}/policy/apply` with `expected_binding_id` and the signed object under `signed_update`. An independently authorized owner can also submit directly to the trusted backend. First check backend support and verify any applied revision through the backend's independent inspection path. Reuse the exact signed update to reconcile an uncertain result.
+
+For an online binding, set `stalwart_policy_url` to the independent connector's HTTPS origin in the owner-private gateway access configuration. A configured connector can still report unsupported for an unqualified binding. [Offline Registry](../../mailbox/operations/offline-registry.md#protected-recipient-filtering) · [Stalwart Qualification](../../mailbox/operations/stalwart-qualification.md)

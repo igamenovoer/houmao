@@ -1,0 +1,41 @@
+# Tasks
+
+## 1. Retained Authorization and Status-Only Access
+
+- [x] 1.1 Remove the selectable observer tier from the authorization catalog. Add retained principal fallback settings and their handoff authority. Verify the lowest requester effects, exact status-only access, independent anonymous admission, remaining role precedence, and queued fallback invalidation in gateway authorization tests.
+- [x] 1.2 Migrate retained observer defaults and assignments before serving their policies. Verify status-only defaults, active and expired observer assignments, overlapping direct grants, unchanged credentials, and policy restart against databases in the previous format. Verify that migration never grants requester effects.
+- [x] 1.3 Expose the effective-admin fallback setter through the gateway, verified passive endpoint, and explicit owner-local CLI path. Add inspection and help output for the retained default and each principal’s fallback. Test unauthorized callers, wrong targets, stale authority, and permission updates while the target is stopped or detached.
+- [x] 1.4 Update the gateway policy and manager command references, Agent Access `SKILL-MAIN.md` and `commands/policy.md`, and Agent Messaging `commands/request.md`. Verify the status-only sequence grants `agent.status.read`, disables fallback for the verified principal, and uses `access explain`. Explain the separate unsigned path without retrying a refused signed request as unsigned. In Admin Welcome `references/concepts.md` and Loop Pro `references/platform-boundaries.md`, replace the old catalog summaries with guidance that points to Agent Access.
+
+## 2. Mail Transport and Keyed Online Access
+
+- [x] 2.1 Retire `agent.mail.deliver` from ordinary delivery. Retain active registrations, sender authentication and staged-envelope checks, binding scope, and publication integrity. Verify forged envelope and stale sender rejection, multiple recipients, and delivery to a stopped or detached managed agent.
+- [x] 2.2 Remove the online roster-mode gate from key enrollment, binding controls, direct and gateway mailbox paths, status, and notifier use. Verify both setup orders, restart, refresh/reconnect, and retained account, origin, and caller checks with normal mailbox credentials against Stalwart.
+- [x] 2.3 Preserve exact send, reply, and attachment permissions. Verify that offline and online receipts report the transport’s actual result without recipient rules or filing details. Cover confirmed receipt, refusal, and uncertainty without changing channel or sender identity. Update Agent Messaging `commands/mail.md`, Email Comms `SKILL-MAIN.md`, `references/endpoint-contract.md`, and the send and reply command pages. Verify the links to sender write permissions and the transport-specific receipt explanations.
+- [x] 2.4 Update Mailbox Manager `commands/agent-binding-online.md` and `references/stalwart-boundary.md`, the Access roster guidance, and the Stalwart setup and qualification guides. Verify the instructions cover both keyed setup orders and ordinary account readiness. Explain that protected filtering requires separate qualification.
+
+## 3. Independent Owner Authorization and Backend Placement
+
+- [x] 3.1 Add independent owner authority enrollment and revocation for protected mail rules. Bind signed requests and backend receipts to the exact backend, mailbox, operation, revision, and request identity. Verify unsigned, forged, stale, cross-binding, and cross-operation rejection. Test exact retries and independently authenticated owner inspection and submission.
+- [x] 3.2 Add the gateway policy-apply relay and report confirmed, refused, unsupported, and uncertain results using backend evidence. Verify that ordinary mailbox credentials and gateway administrator grants cannot manufacture backend authority. Test both open and keyed admission and stale binding rejection. Document the signed mail-only payload and independent owner verification in Agent Gateway `references/http-surface.md` and link that workflow from Mailbox Manager and Agent Access.
+- [x] 3.3 Add backend-owned rules and direct Archive delivery to the trusted filesystem publisher. Verify sender registration matching, per-recipient Inbox or Archive placement with one canonical message, repair, restart, and publish-versus-update races. Test that shared writers report unsupported. Verify that runtime identities cannot obtain another mailbox’s rules or placement, or change protected placement through API or filesystem access.
+- [x] 3.4 Add the trusted management path for Stalwart-native Archive delivery. Verify provider management and placement isolation from gateway runtime credentials, direct Archive delivery while the gateway is stopped, and explicit unsupported results when native controls cannot enforce it. Document qualification independently of ordinary attachment.
+- [x] 3.5 Verify on both qualified backends that rule changes affect new deliveries and preserve existing Inbox and Archive membership. Document rule application and separately authorized Archive review.
+
+## 4. Agent Work and Acceptance
+
+- [x] 4.1 Use current backend Inbox membership for work reads, both notifier modes, compaction, and queued reminders. Verify bounded observation, stale references, and notification for Inbox delivery alongside direct Archive delivery. Update notifier prompts, Agent Gateway `commands/mail-notifier.md`, and the notifier reference to advertise supported lifecycle operations and explain reminder eligibility on protected bindings.
+- [x] 4.2 Update Email Comms archive, move, mark, and fallback guidance, including its filesystem and Stalwart references. Update the email processing skill’s `SKILL-MAIN.md`, `commands/process-round.md`, and `references/reply-hardening.md`, and the advanced notifier-loop, self-mail, and shared loop ledger pages. Verify the examples use ordinary archive where supported and report completed items for owner filing on protected bindings. Check that all paths keep binding pins, required reply verification, schema v3, and bounded processing.
+- [x] 4.3 Verify a keyed recipient with both channels. A status-only peer can read status, cannot submit typed work, and can still send ordinary mail through its selected transport. Verify sender receipt privacy, independent owner rule authorization, and protected placement while the gateway is stopped or attempts unauthorized changes. Exercise native online filtering when qualified and verify unsupported results otherwise.
+- [x] 4.4 Run the touched gateway, offline registry, online mailbox, and notifier suites, plus the system-skill projection, doctor, CLI, and documentation tests. Run `pixi run check-system-skill-versions`, `pixi run test`, `pixi run lint`, `pixi run typecheck`, `pixi run docs-build`, and strict OpenSpec validation. Record results and any deployment lanes still unverified.
+
+## Workflow Follow-Up
+
+- Before syncing this change into the main specs, reconcile the refreshed skill requirements listed in [design.md](design.md#reconcile-the-refreshed-skill-specs-before-sync) against the synced skills refresh. Verify that the resulting requirements agree on the role catalog, mail delivery, and filing on protected bindings.
+
+## Verification
+
+- The full `pixi run test` suite passed with 5,692 tests passed and 15 skipped.
+- The 98 targeted system-skill tests, skill version check, lint, strict typecheck, documentation build, and strict OpenSpec validation passed.
+- The mailbox integration suite passed 17 authenticated delivery, registry process, online authority, and lifecycle cases. The added cross-channel status-only case and native Sieve case passed in focused runs with the checksum-verified Stalwart v0.15.5 Linux aarch64 binary. The detached mail-then-key case passed on retry after an intermittent provider startup timeout.
+- The native Stalwart test verified Archive delivery without a running gateway and preserved existing folders when rules changed. The protected connector rejected an ordinary provider owner credential that could modify placement. Alternate-protocol isolation for a separately restricted Stalwart deployment and a live cross-UID filesystem deployment remain unverified.

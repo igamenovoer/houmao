@@ -1,6 +1,6 @@
 ---
 name: houmao-credential-mgr
-description: Use when an admin needs to list, inspect, add, update, log in, rename, or remove Houmao credentials for a project or internal native-agent root.
+description: Use when an admin needs to list, inspect, add, update, log in, rename, or remove Houmao credentials (`claude`, `codex`, `dsh`, `kimi`) for a project overlay or internal native-agent root.
 license: MIT
 metadata:
   skill_invocation_notation: >
@@ -17,168 +17,53 @@ metadata:
 
 # Houmao Credential Manager
 
+## Overview
+
+Manage Houmao provider credentials across project overlays (`houmao-mgr project [--project-dir <dir>] credentials <tool> ...`) and native-agent roots (`houmao-mgr internals native-agent credentials <tool> ... --native-agent-root <path>`) without exposing secrets or hand-editing auth directories.
+
 ## Workflow
 
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+1. **Answer explicit `help` first** from **Help** without probing files, listing credentials, or mutating storage.
+2. **Enforce the Actor Frame Gate**: require `actor_kind=admin` and an explicit project or `--native-agent-root` target; reject `agent` frames.
+3. **Check scope boundaries**: if the caller wants to repoint a profile or launch dossier `--auth` reference, or manage specialists, instances, or mailboxes, stop and route to `houmao-shared-routines->houmao-agent-definition`, `houmao-shared-routines->houmao-agent-instance`, or `houmao-shared-routines->houmao-mailbox-mgr`.
+4. **Select one operation** from **Subcommands** (`list`, `get`, `add`, `set`, `login`, `rename`, or `remove`) and confirm the tool family:
+   - Credential CRUD (`list`, `get`, `add`, `set`, `rename`, `remove`): `claude`, `codex`, `dsh`, or `kimi`.
+   - Maintained login helper (`login`): `claude` or `codex` only. Route fresh default Kimi Code OAuth login requests to [references/kimi-code-login-handling.md](references/kimi-code-login-handling.md) ending in `kimi add|set --code-home`; `dsh` uses explicit API credentials (`--adapter deepseek|pi-ai`) via `add` or `set`.
+5. **Resolve one `houmao-mgr` launcher** (`command -v houmao-mgr`, then `uv tool run --from houmao houmao-mgr`, or repo `pixi run houmao-mgr`, honoring an explicit user launcher) and ask for any missing required target, tool, name, or mutation input before running commands.
+6. **Load the selected command page** (and matching tool reference in **References** when choosing credential flags), execute the command, and report redacted results without printing secret values.
 
-1. Identify which credential-management action the user wants: `list`, `get`, `add`, `set`, `login`, `rename`, or `remove`.
-2. If the request is really about changing which credential a reusable profile stores for later launches, stop and route it before continuing:
-   - project-profile auth override work belongs to `houmao-shared-routines->houmao-agent-definition`
-   - launch-dossier auth override work belongs to `houmao-shared-routines->houmao-agent-definition` subcommand `launch-dossiers`, not to credential CRUD
-3. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-4. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-5. Recover the target:
-   - use `project [--project-dir <dir>] credentials <tool> ...` when the request is project-local or names a project directory
-   - use `internals native-agent credentials <tool> ... --native-agent-root <path>` when the user explicitly targets a native-agent root
-   - ask before proceeding when the target is still ambiguous
-6. Reuse that same chosen launcher for the selected credential-management action.
-7. For supported credential command authoring, build the direct maintained command with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - project lane: `project credentials <tool> <verb>`
-   - direct native-agent lane: `internals native-agent credentials <tool> <verb>`
-   - supported CRUD tools: `claude`, `codex`, `kimi`
-   - supported login-helper tools: `claude`, `codex`
-   - supported CRUD verbs: `add`, `set`, `list`, `get`, `rename`, `remove`
-   - supported login-helper verb: `login`
-   - Kimi Code login/import requests use `references/kimi-code-login-handling.md` and must end in an existing Kimi `add` or `set --code-home` import, not a `credentials kimi login` helper command
-8. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
-10. Load exactly one action page:
-   - `commands/list.md`
-   - `commands/get.md`
-   - `commands/add.md`
-   - `commands/set.md`
-   - `commands/login.md`
-   - `commands/rename.md`
-   - `commands/remove.md`
-   - for explicit Kimi Code OAuth login/import, use `references/kimi-code-login-handling.md` instead of inventing a maintained Kimi login helper
-11. Follow the selected action page and report the result from the command that ran.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from **Subcommands**, **References**, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
-This parent-scoped routine is admin-only and loads through `houmao-shared-routines`. Require `actor_kind=admin`, an entrypoint name accepted by the parent, and an explicit project or native-agent credential target. Reject agent frames and never disclose credential values in route traces, questions, or provenance.
-
-Use this Houmao skill when you need to manage credentials through the supported CLI surfaces:
-
-- `houmao-mgr project [--project-dir <dir>] credentials <tool> ...` for project-backed credentials
-- `houmao-mgr internals native-agent credentials <tool> ... --native-agent-root <path>` for direct native-agent credentials
-
-Do not hand-edit `.houmao/content/auth/`, `.houmao/agents/tools/<tool>/auth/`, or `tools/<tool>/auth/<name>/` directly when these command families already own the workflow.
-
-For project-backed credentials, operator-facing names remain mutable display names resolved through the project catalog while projected directory basenames remain opaque implementation detail.
-
-For plain agent-definition directories, credential identity is the directory basename under `tools/<tool>/auth/<name>/`, and direct-dir rename also rewrites maintained auth references under `presets/*.yaml` and `launch-profiles/*.yaml`.
-
-The trigger word `houmao` is intentional. Enter this parent-scoped routine only through `houmao-shared-routines->houmao-credential-mgr`; never invoke its logical id as a standalone skill.
-
-## Help
-
-When the user asks `$houmao-shared-routines credential-mgr help`, `help for houmao-credential-mgr`, `usage for houmao-credential-mgr`, `available functionality for houmao-credential-mgr`, or what this skill can do, answer from this section before choosing a credential action, command, reference page, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me add a Codex credential", route to the matching workflow instead of stopping at generic help.
-
-Purpose: manage supported Houmao credential bundles for project overlays or internal native-agent roots.
-
-Available functionality:
-
-- `list` and `get` credentials with safe inspection posture.
-- `add` and `set` credential bundle contents for supported tool families.
-- `login` through maintained Claude and Codex provider login/import workflows.
-- Kimi Code OAuth login handling through `kimi login` in an isolated `KIMI_CODE_HOME`, followed by existing Kimi `add` or `set --code-home` import.
-- `rename` or `remove` one existing credential.
-- Choose project-backed versus direct native-agent targets.
-
-Common starting prompts:
-
-- `$houmao-shared-routines credential-mgr help`
-- `$houmao-shared-routines credential-mgr list codex credentials`
-- `$houmao-shared-routines credential-mgr add claude credential`
-- `$houmao-shared-routines credential-mgr login kimi`
-- `$houmao-shared-routines credential-mgr add kimi credential`
-
-Related skills and boundaries:
-
-- Use `houmao-shared-routines->houmao-agent-definition` to change stored `--auth` overrides on project profiles or native launch dossiers.
-- Use `houmao-shared-routines->houmao-project-mgr` for project overlay lifecycle and status.
-- Use `houmao-shared-routines->houmao-agent-instance` for launch, join, list, stop, or cleanup.
-- DO NOT use this skill for direct filesystem editing under credential storage directories.
+This parent-scoped routine is `admin`-only under `houmao-shared-routines`. Require `actor_kind=admin` and an explicit project or native-agent root; reject `agent` frames and never disclose secret values or raw auth files. Project-backed credential names are mutable catalog display names backed by opaque bundle directories, whereas direct native-agent `rename` (`tools/<tool>/auth/<name>/`) also rewrites maintained auth references in `presets/*.yaml` and `launch-profiles/*.yaml`.
 
 ## Subcommands
 
-This packaged skill covers exactly these credential actions:
+| Subcommand | Use For | Detail |
+| --- | --- | --- |
+| `list` | List credential names for `claude`, `codex`, `dsh`, or `kimi` in the selected lane. | [commands/list.md](commands/list.md) |
+| `get` | Inspect one credential safely as structured redacted metadata. | [commands/get.md](commands/get.md) |
+| `add` | Create one new `claude`, `codex`, `dsh`, or `kimi` credential from explicit inputs. | [commands/add.md](commands/add.md) |
+| `set` | Patch or clear fields on one existing `claude`, `codex`, `dsh`, or `kimi` credential. | [commands/set.md](commands/set.md) |
+| `login` | Run the maintained tmux-backed provider login helper for `claude` or `codex` (or route Kimi OAuth to `kimi-code-login-handling.md`). | [commands/login.md](commands/login.md) |
+| `rename` | Rename one credential (`--name <old> --to <new>`) with lane-appropriate reference handling. | [commands/rename.md](commands/rename.md) |
+| `remove` | Delete one existing credential through the maintained CLI. | [commands/remove.md](commands/remove.md) |
+| `help` | Read-only overview of supported tools, dual lanes, login boundaries, and out-of-scope surfaces. | **Help** |
 
-- `help` (read-only meta operation)
-- `list`
-- `get`
-- `add`
-- `set`
-- `login`
-- `rename`
-- `remove`
+## References and Out-of-Scope Surfaces
 
-This packaged skill does not cover:
+- **Tool credential references**: [references/claude-credential-kinds.md](references/claude-credential-kinds.md), [references/codex-credential-kinds.md](references/codex-credential-kinds.md), [references/dsh-credential-kinds.md](references/dsh-credential-kinds.md), [references/kimi-credential-kinds.md](references/kimi-credential-kinds.md), and [references/kimi-code-login-handling.md](references/kimi-code-login-handling.md).
+- **Explicitly out of scope**: `project specialist create|list|get|remove`, `project profile ...`, `project agents launch|list|get|stop`, `agents global|single|self|external ...`, `internals native-agent tools <tool> setups ...`, `internals native-agent roles|launch-dossiers ...`, `project mailbox ...` / `mailbox cleanup ...` / `agents single ... cleanup ...` / `admin cleanup runtime ...`, and direct hand-editing under `.houmao/content/auth/`, `.houmao/agents/tools/`, or `tools/<tool>/auth/`.
 
-- `houmao-mgr project specialist ...`
-- `houmao-mgr project profile ...`
-- `houmao-mgr project agents ...`
-- `houmao-mgr agents global|single|self|external ...`
-- `houmao-mgr internals native-agent launch-dossiers ...`
-- `houmao-mgr internals native-agent tools <tool> setups ...`
-- `houmao-mgr internals native-agent roles ...`
-- `houmao-mgr project mailbox ...`
-- managed-agent cleanup or mailbox participation surfaces
-- `houmao-mgr admin cleanup runtime ...`
-- direct filesystem editing under `.houmao/content/auth/`
-- direct filesystem editing under `.houmao/agents/tools/`
-- direct filesystem editing under `tools/<tool>/auth/`
+## Help
 
-## Missing Input Questions
-
-- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
-- When asking for missing input, use readable Markdown:
-  - separate `Required` values from `Optional` modifiers
-  - `Required`: values that block the selected credential command, such as action, tool family, target, credential name, supported credential input, supported change, or rename target
-  - `Optional`: launcher preference, output format, credential-kind modifiers, defaults, or skip choices; if none apply, say `Optional: none for this step.`
-  - use a short bullet list when only one or two required fields are missing
-  - use a compact table when the tool lane, target, or several required fields need clarification
-- Name the command you intend to run and show only the missing fields needed for that command.
-- DO NOT use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
-
-## Routing Guidance
-
-- Use `commands/list.md` only when the user wants to list credentials for one supported tool.
-- Use `commands/get.md` only when the user wants to inspect one credential safely through redacted CLI output.
-- Use `commands/add.md` only when the user wants to create one new credential.
-- Use `commands/set.md` only when the user wants to update one existing credential.
-- Use `commands/login.md` only when the user wants to run a maintained provider login helper for a fresh Claude or Codex account and import the resulting auth files into Houmao storage.
-- Use `references/kimi-code-login-handling.md` only when the user wants a fresh default Kimi Code OAuth login through `kimi login` and import through Kimi `add` or `set --code-home`.
-- Use `commands/rename.md` only when the user wants to rename one existing credential.
-- Use `commands/remove.md` only when the user wants to remove one existing credential.
-- When the user wants to change the stored `--auth` override on a project profile or native launch dossier, do not use this skill's action pages; that is profile or launch-dossier authoring rather than credential mutation.
+Summarize CRUD support for `claude`, `codex`, `dsh`, and `kimi` across `project credentials` and `internals native-agent credentials`, maintained `login` helpers for `claude` and `codex`, the Kimi `--code-home` OAuth workflow, DSH `--adapter [deepseek|pi-ai]` explicit API credentials, and safe redacted `get` inspection. Concrete credential requests execute the matching subcommand.
 
 ## Guardrails
 
-- DO NOT guess the intended action when the prompt could mean specialist authoring, live-agent lifecycle work, or credential management.
-- DO NOT guess required action inputs that remain missing after checking the prompt and recent chat context.
-- DO NOT scan env vars, tool homes, home directories, or unrelated filesystem locations to infer missing credential inputs unless the user explicitly asks for that narrower inspection.
-- DO NOT print raw secret values or raw auth-file contents when `get` already provides safe redacted inspection.
-- DO NOT hand-roll provider-login temp directories, manual provider command invocation, auth-file copying, or temp cleanup when maintained project or internal native-agent credential login commands own that workflow.
-- DO NOT present Kimi as having a maintained credential login helper; Kimi Code login handling must use the Kimi-specific reference workflow and finish with existing Kimi `add` or `set --code-home` import.
-- DO NOT treat changing a project profile or native launch dossier `--auth` override as credential CRUD.
-- DO NOT imply that project-backed rename changes underlying bundle identity; it is metadata-only rename.
-- DO NOT imply that direct-dir rename is a no-op for maintained references; it rewrites maintained `presets/*.yaml` and `launch-profiles/*.yaml` auth references for that selected tool.
-- DO NOT invent provider-neutral credential flags, unsupported clear flags, or file inputs that the selected tool surface does not actually support.
-- DO NOT skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
-- DO NOT probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- DO NOT use deprecated `houmao-cli` or removed standalone CAO launcher workflows for credential management.
-
-## References
-
-- `references/claude-credential-kinds.md` — explanatory credential-kind notes for Claude when a user needs help choosing input material
-- `references/codex-credential-kinds.md` — explanatory credential-kind notes for Codex when a user needs help choosing input material
-- `references/kimi-credential-kinds.md` — explanatory credential-kind notes for Kimi when a user needs help choosing input material
-- `references/kimi-code-login-handling.md` — Kimi-specific default OAuth login/import workflow using `kimi login`, isolated `KIMI_CODE_HOME`, tmux, and `--code-home`
+- DO NOT print raw API keys, tokens, proxy credentials, `vars.env` values, or auth JSON/TOML secrets when inspecting or updating credentials.
+- DO NOT scan ambient env vars, home directories, or vendor tool homes to synthesize missing credential inputs unasked.
+- DO NOT invent `credentials kimi login` or `credentials dsh login` commands, or hand-roll temp homes for `claude`/`codex` when `credentials <login-tool> login` owns that flow.
+- DO NOT hand-edit `.houmao/content/auth/`, `.houmao/agents/tools/`, or `tools/<tool>/auth/`, or treat profile/dossier `--auth` overrides as credential CRUD.
+- DO NOT conflate project-backed metadata-only `rename` with direct-dir `rename` (which rewrites `presets/*.yaml` and `launch-profiles/*.yaml`).

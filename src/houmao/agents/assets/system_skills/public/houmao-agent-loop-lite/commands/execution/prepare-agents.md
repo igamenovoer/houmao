@@ -14,51 +14,35 @@ metadata:
 
 # Prepare Agents
 
-## Workflow
-
-1. **Validate invocation context**. Preserve the actor posture, selected target, operation intent, and predecessor evidence supplied by the owning skill.
-2. **Resolve required inputs**. Recover explicit values from current context and stop or ask when a required value remains missing.
-3. **Execute the detailed procedure below**. Follow its ordering, gates, side-effect boundary, owned references, and output contract.
-4. **Validate and report**. Return changed or inspected artifacts, evidence, blockers, and the command-specific stop condition.
-
-If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
+Prepare Houmao project profiles, skill bindings, and participant launch facts from `<loop-dir>/execplan/` without launching live sessions.
 
 ## Read First
 
-- `../reference/markdown-contract-defaults.md`
-- `../reference/platform-boundaries.md`
-- `../reference/system-input-questions.md`
+- [../../references/markdown-contract-defaults.md](../../references/markdown-contract-defaults.md)
+- [../../references/platform-boundaries.md](../../references/platform-boundaries.md)
+- [../../references/system-input-questions.md](../../references/system-input-questions.md)
 
-## Inputs
+## Workflow
 
-Require:
-- `<loop-dir>`
-- `execplan/manifest.md`
-- `execplan/agents/bindings.md`
-- generated skills under `execplan/skills/`
+1. Require `<loop-dir>`, `execplan/manifest.md`, `execplan/agents/bindings.md`, and generated skills under `execplan/skills/`.
+2. Resolve each participant's concrete agent or profile name, tool (`claude`, `codex`, `kimi`, `dsh`), qualified launch mode (`Claude: headless|tui`, `Codex: headless|service|tui`, `Kimi: headless|service|tui|web`, `DSH: headless|service|web`), credential, generated/project skill groups, memo posture, and launch cwd or pending workspace policy.
+3. Route specialist, project-profile, and `project skills` preparation through `houmao-shared-routines->houmao-agent-definition`.
+4. Flag unknown, missing, or tool-incompatible launch modes (`headless`, `service`, `tui`, `web`) as preparation blockers unless the operator explicitly provides a documented manual raw launch profile.
+5. Record prepared participant facts for `prepare-workspace`, `validate-loop`, and `launch-agents`, then emit the report below without starting live agents.
 
-## Actions
-
-1. Read manifest, agent bindings, generated skill index, and profile material when present.
-2. Resolve each participant's concrete agent or profile name, selected tool, credential, generated skill groups, memo posture, launch interface mode (`tui` or `headless`), and workdir or pending workspace policy.
-3. Route participant definition and profile preparation through `houmao-shared-routines->houmao-agent-definition`.
-4. Record prepared agent/profile facts for `prepare-workspace`, `validate-loop`, and `launch-agents`.
-5. Treat unknown, missing, or contradictory TUI/headless launch mode facts as preparation blockers unless the operator accepts a documented manual raw launch profile.
-6. Do not launch live agents.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this procedure, its owning skill constraints, available references, and the user request, then execute the plan.
 
 ## Report
 
-Report readiness, prepared profile facts, installed generated skills, system-skill preinstall posture, memo posture, pending workspace-dependent mutations, blockers, and warnings.
-
-End with one Markdown table:
+Report readiness, prepared profile facts, installed generated skills, `system_skills` preinstall posture, memo posture, pending workspace-dependent mutations, blockers, and warnings, ending with one summary table:
 
 | Agent | Participant | Launch mode | Credential | Skill groups | Workdir |
 | --- | --- | --- | --- | --- | --- |
-| `<agent-id or profile>` | `<participant or role>` | `tui` or `headless` | `<credential display name or unknown>` | `<generated/private skill group names>` | `<launch cwd or pending workspace policy>` |
+| `<agent-id or profile>` | `<participant or role>` | `headless`, `service`, `tui`, or `web` | `<credential or unknown>` | `<generated/project skill groups>` | `<launch cwd or pending workspace policy>` |
 
-Use `blocked` in a cell when a required fact is missing or inconsistent, then list the blocker above the table.
+Mark missing or inconsistent cells `blocked` and explain each blocker above the table.
 
-## Constraints
+## Guardrails
 
-- Do not reimplement specialist creation, project-profile mutation, launch-dossier mutation, credential defaulting, or launcher selection.
-- Do not prepare workspaces, mailboxes, gateways, memories, run artifacts, or live sessions here.
+- DO NOT reimplement specialist creation, project-profile mutation, launch-dossier editing, credential defaulting, or launcher selection owned by `houmao-shared-routines->houmao-agent-definition`.
+- DO NOT prepare workspaces, mailboxes, gateways, live memories, `runs/` SQLite state, or live agent sessions during `prepare-agents`.

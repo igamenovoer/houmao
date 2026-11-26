@@ -274,9 +274,15 @@ def test_dashboard_policy_observation_does_not_migrate_legacy_store(
 
     _, app, native, _, _, _ = dashboard_entry
     database = gateway_fixture_access.private_root / "authorization.sqlite3"
+    old_policy = gateway_fixture_access.store.snapshot().model_dump(
+        mode="json", exclude={"default_permission_effects", "principal_default_fallback"}
+    )
+    old_policy["schema_version"] = 1
+    old_payload = json.dumps(old_policy).encode()
     with closing(sqlite3.connect(database)) as connection, connection:
         connection.execute("DROP TABLE managed_self_keys")
         connection.execute("DROP TABLE managed_self_registrations")
+        connection.execute("UPDATE policy SET payload = ?", (old_payload,))
         connection.execute("PRAGMA user_version = 1")
 
     client = _client(app)
@@ -287,6 +293,7 @@ def test_dashboard_policy_observation_does_not_migrate_legacy_store(
     native.assert_not_called()
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert connection.execute("SELECT payload FROM policy").fetchone() == (old_payload,)
 
     discovery = client.get("/v1/endpoint")
     assert discovery.status_code == 200

@@ -16,7 +16,7 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.gateway._access_storage import GatewayAccessError
 from houmao.gateway.access_models import MANAGED_SELF_PATH, parse_access_document
-from houmao.gateway.authorization_catalog import DEFAULT_GROUP_SET, MAIL_DELIVER
+from houmao.gateway.authorization_catalog import DEFAULT_FALLBACK_SET, DEFAULT_GROUP_SET
 from houmao.gateway.authorization_models import Permission
 from houmao.gateway.file_edits.contracts import FILE_EDIT_PATH, FILE_REQUESTS
 
@@ -272,6 +272,7 @@ _operations = (
     ("PUT", "/v1/memory/memo", "memory:memo", "memory.memo.write"),
     ("POST", "/v1/memory/memo/append", "memory:memo", "memory.memo.append"),
     ("GET", "/v1/mail/status", "mailbox", "mail.status.read"),
+    ("POST", "/v1/mail/{channel}/policy/apply", "policy", "admin.mail-policy.apply"),
     ("GET", "/v1/plugins", "plugins", "plugin.list"),
     ("GET", "/v1/native-home", "native", "native.observe"),
     ("GET", "/v1/control/refresh", "native", "native.refresh.observe"),
@@ -371,11 +372,13 @@ CORE_OPERATIONS = {
     ("PUT", "/v1/admin/default-permission-group"): GatewayOperation(
         "/v1/admin/default-permission-group", DEFAULT_GROUP_SET
     ),
+    ("PUT", "/v1/admin/principals/{principal_id}/default-fallback"): GatewayOperation(
+        "/v1/admin/principals/{principal_id}/default-fallback", DEFAULT_FALLBACK_SET
+    ),
 }
 
 CORE_PERMISSIONS = frozenset(
     {
-        MAIL_DELIVER,
         WORK_REQUEST,
         PROMPT,
         COMMAND_INVOKE,

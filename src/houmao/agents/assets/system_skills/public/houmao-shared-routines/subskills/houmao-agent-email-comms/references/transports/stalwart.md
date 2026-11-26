@@ -14,10 +14,13 @@ metadata:
 
 # Stalwart Online Mail
 
-Use this page for a configured `online` binding whose provider transport is `stalwart`. The same agent can retain an independent offline registration. Online-first canonical identity describes its preferred email identity; it does not choose a delivery channel.
+Use this reference when operating on an attached `online` mailbox slot backed by `stalwart`.
 
-Use the exact gateway URL and `/v1/mail/online/...` action pages. With no gateway, use `houmao-mgr agents self mail <action> --channel online --expected-binding-id <binding_id>`. The manager owns protected provider access; ordinary communication needs no password, management credential, or direct JMAP request.
+## Online Channel Operation and JMAP Readiness
 
-Keep message and thread references opaque and bound to the selected owner and account. Stop on account replacement or a binding conflict. Online errors do not authorize offline delivery. Read/reply/archive semantics stay the same across supported providers; an unsupported operation reports an explicit error. Operator-origin `post` remains unsupported for Stalwart.
+- **Scoped CLI and gateway facade**: use `houmao-mgr agents self mail <verb> --channel online --expected-binding-id <binding_id>` (or `/v1/mail/online/...` against a live gateway). Houmao owns JMAP session access internally, so ordinary mail needs no raw password, management token, or hand-crafted JMAP HTTP call.
+- **Intranet JMAP discovery and origin trust**: Stalwart online bindings resolve `/.well-known/jmap` (from `--base-url` or exact `--jmap-url`), enforce approved scheme/host/port origins (`--trust-jmap-origin` when intranet HTTP or custom ports are used), and require ready `Inbox`, `Sent`, and `Archive` JMAP mailbox roles. If an `online` slot is detached, unready, or needs `--trust-jmap-origin` / `reconnect` / `refresh`, route binding administration to `houmao-shared-routines->houmao-mailbox-mgr->agent-binding-online()`.
+- **Channel isolation and `post` boundary**: an agent can hold independent `offline` and `online` bindings simultaneously; `canonical_mail_identity` never selects the channel, `online` errors never authorize falling back to `offline`, and operator-origin `post` remains unsupported on Stalwart.
+- **Pagination, completeness, and compact receipts**: inspect bounded metadata pages (`limit: 50`, max `200`, no `include_body`), check `content_complete` on `peek`/`read`, verify `send`/`reply` via top-level `message_ref` + optional `peek` on the same `expected_binding_id`, and check the binding's effective capabilities before filing processed messages.
 
-Inspect bounded metadata pages before fetching selected bodies: default 50, maximum 200, optional scoped cursor, no body-in-list option. Preserve query filters through continuation and stop on stale cursor or binding errors. A page count or cached sync sample is not an exact full-inbox total. Peek/read disclose partial-content limits; report them before claiming complete inspection. Archive only after work and required replies succeed. Read or answered state alone does not complete open inbox work, so configured periodic reminders can repeat unchanged eligible work.
+Confirmed online writes establish provider submission. Qualified native sender rules file matching mail directly into Archive. Keep rule changes and protected placement with the independently authorized mail backend.

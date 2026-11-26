@@ -14,18 +14,23 @@ metadata:
 
 # Platform Boundaries
 
+Generated lite Markdown contracts and skills own loop-local workflow semantics; maintained Houmao routines own all platform mechanics.
+
 ## Maintained Surfaces
 
-- Agent definitions and profiles: `houmao-shared-routines->houmao-agent-definition`.
-- Workspace planning, creation, validation, and summaries: `houmao-shared-routines->houmao-utils-workspace-mgr`.
-- Launch, join, stop, and relaunch: `houmao-shared-routines->houmao-agent-instance`.
-- Ordinary mail send, reply, read, and archive work: `houmao-shared-routines->houmao-agent-email-comms` or supported mailbox CLI surfaces.
-- Gateway and notifier lifecycle: `houmao-shared-routines->houmao-agent-gateway`.
-- Prompt, interrupt, and live managed-agent messages: `houmao-shared-routines->houmao-agent-messaging`.
-- Liveness, logs, mailbox posture, gateway posture, and runtime inspection: `houmao-shared-routines->houmao-agent-inspect`.
+- Agent definitions, specialists, project profiles, and `project skills`: `houmao-shared-routines->houmao-agent-definition`.
+- Workspace `plan`, `create`, `validate`, and `summarize`: `houmao-shared-routines->houmao-utils-workspace-mgr`.
+- Live instance `launch`, `join`, `relaunch`, `stop`, `cleanup`, and `agents external`: `houmao-shared-routines->houmao-agent-instance`.
+- Gateway admission policy, `default-group`, roles/templates, grants, and peer/`self-key` management: `houmao-shared-routines->houmao-agent-access`.
+- Authorized `workspace`, `memory`, `skills`, and `mcp` mount reads, patches, and `publish`: `houmao-shared-routines->houmao-agent-files`.
+- Offline mailbox setup/repair/cleanup/export and `mailbox online` Stalwart JMAP bindings: `houmao-shared-routines->houmao-mailbox-mgr`.
+- Ordinary mail `status`/`list`/`read`/`peek`/`send`/`post`/`reply`/`mark`/`move`/`archive` and bounded notifier rounds: `houmao-shared-routines->houmao-agent-email-comms` and `houmao-shared-routines->houmao-process-emails-via-gateway`.
+- Gateway lifecycle, notifier/reminder services, web-entry, and optional plugins (`houmao-cccc`): `houmao-shared-routines->houmao-agent-gateway`.
+- Live peer/self `request`, `prompt`, `interrupt`, and mailbox handoff: `houmao-shared-routines->houmao-agent-messaging`.
+- Birth-time memo seeds and live `pages/` memory updates: `houmao-shared-routines->houmao-memory-mgr`.
+- Read-only liveness, `state`, logs, usage records, artifacts, and socket-qualified `tmux -S` inspection: `houmao-shared-routines->houmao-agent-inspect`.
 
 ## Constraints
 
-- Do not duplicate maintained Houmao contracts inside lite specs or generated skills.
-- Do not invent `houmao-mgr` surfaces.
-- Use `plan`, `create`, `validate`, or `summarize` for workspace-manager operations; do not use legacy `execute` wording.
+- Do not duplicate maintained Houmao CLI or gateway contracts inside lite Markdown specs or generated skills.
+- Do not invent `houmao-mgr` subcommands or use retired `execute` wording for workspace-manager actions (`plan`, `create`, `validate`, `summarize`).

@@ -1,0 +1,1910 @@
+diff --git a/crates/cccc-daemon/src/ops/external_receiver.rs b/crates/cccc-daemon/src/ops/external_receiver.rs
+index 0b537368..f99b4d73 100644
+--- a/crates/cccc-daemon/src/ops/external_receiver.rs
++++ b/crates/cccc-daemon/src/ops/external_receiver.rs
+@@ -1,5 +1,6 @@
+ //! Fixed-Actor external receiver protocol. CCCC retains all message authority.
+ mod mail;
++mod v2;
+ use super::operation::{Operation, Policy};
+ use crate::dispatch::{OpError, OpResult, object, required_arg};
+ use cccc_contracts::{Actor, ActorRuntime, DaemonRequest, Event, GroupState};
+@@ -33,6 +34,14 @@ struct Lease {
+     generation: u64,
+     grant_id: String,
+     expires_ms: u64,
++    #[serde(default)]
++    transport: String,
++    #[serde(default)]
++    receiver: String,
++    #[serde(default)]
++    boot: String,
++    #[serde(default = "v2::default_offer_limit")]
++    max_offer_bytes: usize,
+ }
+ #[derive(Clone, Serialize, Deserialize)]
+ struct Attempt {
+@@ -48,10 +57,20 @@ struct Attempt {
+     boot: String,
+     retryable: bool,
+     error_code: Option<String>,
++    #[serde(default)]
++    kind: String,
++    #[serde(default)]
++    sequence: u64,
++    #[serde(default)]
++    expiry_ms: u64,
++    #[serde(default)]
++    dispatch_id: String,
++    #[serde(default)]
++    credit_bytes: usize,
+ }
+ impl Attempt {
+     fn public(&self) -> Value {
+-        json!({"id":self.id,"attempt_id":self.id,"event_id":self.event_id,"actor_id":self.actor_id,"actor_generation":self.actor_generation,"lease_generation":self.lease_generation,"state":self.state,"retryable":self.retryable,"error_code":self.error_code})
++        json!({"id":self.id,"attempt_id":self.id,"event_id":self.event_id,"actor_id":self.actor_id,"actor_generation":self.actor_generation,"lease_generation":self.lease_generation,"sequence":self.sequence,"state":self.state,"retryable":self.retryable,"error_code":self.error_code})
+     }
+ }
+ #[derive(Default, Serialize, Deserialize)]
+@@ -59,6 +78,14 @@ struct State {
+     generation: u64,
+     leases: BTreeMap<String, Lease>,
+     attempts: Vec<Attempt>,
++    #[serde(default)]
++    sequence: u64,
++    #[serde(default)]
++    ledger_cursor: String,
++    #[serde(default)]
++    dispatches: Vec<v2::Dispatch>,
++    #[serde(default)]
++    direct_reads: Vec<v2::DirectRead>,
+ }
+ 
+ pub(super) fn resolve_operation(request: &DaemonRequest) -> Option<Operation> {
+@@ -91,10 +118,15 @@ fn state_path(home: &HomeLayout, group: &str) -> Result<PathBuf, OpError> {
+ }
+ fn read_state(home: &HomeLayout, group: &str) -> Result<State, OpError> {
+     let path = state_path(home, group)?;
+-    if !path.exists() {
+-        return Ok(State::default());
++    let mut state = if path.exists() {
++        fs::read_json(&path).map_err(OpError::io)?
++    } else {
++        State::default()
++    };
++    if v2::recover_pending(home, group, &mut state)? {
++        save_state(home, group, &state)?;
+     }
+-    fs::read_json(&path).map_err(OpError::io)
++    Ok(state)
+ }
+ fn save_state(home: &HomeLayout, group: &str, state: &State) -> Result<(), OpError> {
+     fs::write_secret_json(&state_path(home, group)?, state).map_err(OpError::io)
+@@ -198,7 +230,7 @@ fn grant(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+     values.push(item.clone());
+     save_grants(home, &values)?;
+     object(
+-        json!({"grant_id":item.id,"token":token,"group_id":gid,"actor_id":aid,"actor_generation":generation,"protocol_version":1}),
++        json!({"grant_id":item.id,"token":token,"group_id":gid,"actor_id":aid,"actor_generation":generation,"protocol_version":2}),
+     )
+ }
+ fn revoke(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+@@ -234,10 +266,9 @@ fn takeover(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+ }
+ fn retire_state(state: &mut State, aid: &str) {
+     state.leases.remove(aid);
+-    for a in &mut state.attempts {
+-        if a.actor_id == aid && matches!(a.state.as_str(), "pending" | "offered") {
+-            a.state = if a.offered { "uncertain" } else { "failed" }.into();
+-            a.error_code = Some("receiver_retired".into());
++    for attempt in &mut state.attempts {
++        if attempt.actor_id == aid {
++            v2::retire_attempt(attempt, "receiver_retired");
+         }
+     }
+ }
+@@ -247,25 +278,11 @@ pub(crate) fn retire(home: &HomeLayout, gid: &str, aid: &str) -> Result<(), OpEr
+     save_state(home, gid, &s)
+ }
+ fn sweep(home: &HomeLayout, gid: &str, state: &mut State) -> Result<(), OpError> {
+-    let now = now_ms();
+-    let mut changed = Vec::new();
+-    state.leases.retain(|_, l| l.expires_ms > now);
+-    for a in &mut state.attempts {
+-        if matches!(a.state.as_str(), "pending" | "offered")
+-            && (a.deadline_ms <= now
+-                || a.boot != boot()
+-                || !state
+-                    .leases
+-                    .get(&a.actor_id)
+-                    .is_some_and(|l| l.id == a.lease_id && l.generation == a.lease_generation))
+-        {
+-            a.state = if a.offered { "uncertain" } else { "failed" }.into();
+-            a.error_code = Some("receiver_unavailable".into());
+-            changed.push(a.clone());
+-        }
++    let (dirty, changed) = v2::sweep_state(state);
++    if dirty {
++        save_state(home, gid, state)?;
+     }
+     if !changed.is_empty() {
+-        save_state(home, gid, state)?;
+         let g = group(home, gid)?;
+         for a in changed {
+             append_receipt(home, &g, &a)?;
+@@ -276,7 +293,7 @@ fn sweep(home: &HomeLayout, gid: &str, state: &mut State) -> Result<(), OpError>
+ fn append_receipt(home: &HomeLayout, g: &GroupDoc, a: &Attempt) -> Result<(), OpError> {
+     let mut e = Event::new("runtime.delivery", &g.group_id);
+     e.by = "system".into();
+-    e.data=json!({"actor_id":a.actor_id,"source_event_id":a.event_id,"delivery_id":a.id,"state":match a.state.as_str(){"pending"|"offered"=>"claimed","refused"=>"failed","uncertain"=>"ambiguous",v=>v},"external_state":a.state,"transport":"external_receiver","retryable":a.retryable,"error_code":a.error_code,"actor_generation":a.actor_generation,"lease_generation":a.lease_generation}).as_object().unwrap().clone();
++    e.data=json!({"actor_id":a.actor_id,"source_event_id":a.event_id,"delivery_id":a.id,"state":match a.state.as_str(){"pending"|"offered"|"started"|"direct_retrieved"=>"claimed","refused"=>"failed","direct_read"=>"accepted","uncertain"=>"ambiguous",v=>v},"external_state":a.state,"transport":"external_receiver","retryable":a.retryable,"error_code":a.error_code,"actor_generation":a.actor_generation,"lease_generation":a.lease_generation}).as_object().unwrap().clone();
+     ledger::append(
+         &GroupStore::new(home.clone())
+             .map_err(OpError::io)?
+@@ -295,6 +312,11 @@ pub(crate) fn offer(
+ ) -> Result<bool, OpError> {
+     let mut state = read_state(home, &g.group_id)?;
+     sweep(home, &g.group_id, &mut state)?;
++    if e.kind != "system.notify"
++        || e.data.get("kind").and_then(Value::as_str) != Some("mail_notice")
++    {
++        return v2::chat_offer(home, g, a, e, retry, &mut state);
++    }
+     if !retry
+         && state.attempts.iter().any(|v| {
+             v.actor_id == a.id
+@@ -305,12 +327,17 @@ pub(crate) fn offer(
+         save_state(home, &g.group_id, &state)?;
+         return Ok(false);
+     }
+-    let lease = state.leases.get(&a.id).cloned();
++    let lease = state
++        .leases
++        .get(&a.id)
++        .filter(|l| l.receiver == "gateway")
++        .cloned();
+     let enabled = a.enabled && !matches!(g.state, GroupState::Paused | GroupState::Stopped);
+-    let busy = state
+-        .attempts
+-        .iter()
+-        .any(|v| v.actor_id == a.id && matches!(v.state.as_str(), "pending" | "offered"));
++    let busy = state.attempts.iter().any(|v| {
++        v.kind == "mail_notice"
++            && v.actor_id == a.id
++            && matches!(v.state.as_str(), "pending" | "offered")
++    });
+     let ready = lease.is_some() && enabled && !busy;
+     let value = Attempt {
+         id: uuid::Uuid::new_v4().to_string(),
+@@ -329,6 +356,11 @@ pub(crate) fn offer(
+         .into(),
+         deadline_ms: now_ms() + ATTEMPT_MS,
+         offered: false,
++        kind: "mail_notice".into(),
++        sequence: v2::next_sequence(&mut state)?,
++        expiry_ms: 0,
++        dispatch_id: String::new(),
++        credit_bytes: 0,
+         boot: boot().into(),
+         retryable: true,
+         error_code: if ready {
+@@ -392,14 +424,12 @@ fn rpc(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+         "binding" => {
+             args_only(args, &[])?;
+             object(
+-                json!({"protocol_version":1,"group_id":grant.group_id,"actor_id":grant.actor_id,"actor_generation":grant.actor_generation}),
++                json!({"protocol_version":2,"group_id":grant.group_id,"actor_id":grant.actor_id,"actor_generation":grant.actor_generation}),
+             )
+         }
+         "capabilities" => {
+             args_only(args, &[])?;
+-            object(
+-                json!({"protocol_version":1,"operations":["binding","capabilities","lease.acquire","lease.renew","lease.release","lease.next","lease.outcome","chat.send","chat.reply","chat.retry","chat.history","chat.deliveries","members","mail.send","mail.reply","mail.peek","mail.cursor","mail.read","mail.read-receipts"],"limits":{"max_event_bytes":MAX_EVENT_BYTES,"max_history_limit":100,"max_response_bytes":MAX_RESPONSE_BYTES,"lease_seconds":45,"max_mail_messages":200,"max_mail_response_bytes":1048576,"default_mail_messages":50,"default_mail_response_bytes":262144},"recipient_scope":"bound_group","mail":true,"features":{"mail_expected_cursor":true,"mail_read_receipts":true,"mail_read_crash_recovery":true,"mail_precommit_response_budget":true}}),
+-            )
++            object(v2::capabilities())
+         }
+         "members" => {
+             args_only(args, &[])?;
+@@ -408,9 +438,11 @@ fn rpc(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+                 json!({"members":group.actors.iter().map(|a|json!({"id":a.id,"title":a.title,"role":actors::effective_role(&group,&a.id),"enabled":a.enabled,"receive_status":if a.external_receiver{if s.leases.get(&a.id).is_some_and(|l|l.expires_ms>now_ms()){"connected"}else{"unavailable"}}else{"unknown"}})).collect::<Vec<_>>()}),
+             )
+         }
+-        "lease.acquire" | "lease.renew" | "lease.release" | "lease.next" | "lease.outcome" => {
++        "lease.acquire" | "lease.renew" | "lease.release" | "lease.next" | "lease.outcome"
++        | "lease.notice.next" | "lease.stream" | "lease.start" | "lease.settle" => {
+             lease_rpc(home, &grant, &group, &op, args)
+         }
++        "chat.ack" => v2::direct_ack(home, &grant, &group, args),
+         "mail.send" | "mail.reply" => send_rpc(home, &grant, &group, &op, args),
+         "mail.peek" | "mail.cursor" | "mail.read" | "mail.read-receipts" => {
+             mail::rpc(home, &grant, &group, &op, args)
+@@ -488,7 +520,27 @@ fn lease_rpc(
+     }
+     match op {
+         "lease.acquire" => {
+-            args_only(args, &[])?;
++            args_only(args, &["transport", "receiver", "max_offer_bytes"])?;
++            let max_offer_bytes = v2::offer_limit(args)?;
++            let transport = if args.contains_key("transport") {
++                string(args, "transport")?
++            } else {
++                "pull".into()
++            };
++            let receiver = if args.contains_key("receiver") {
++                string(args, "receiver")?
++            } else {
++                "gateway".into()
++            };
++            if !matches!(transport.as_str(), "pull" | "push")
++                || !matches!(receiver.as_str(), "gateway" | "direct")
++                || (receiver == "direct" && transport != "pull")
++            {
++                return Err(OpError::new(
++                    "invalid_args",
++                    "Invalid receiver or transport",
++                ));
++            }
+             if s.leases.contains_key(&g.actor_id) {
+                 save_state(home, &g.group_id, &s)?;
+                 return Err(OpError::new(
+@@ -510,6 +562,10 @@ fn lease_rpc(
+                 generation: s.generation,
+                 grant_id: g.id.clone(),
+                 expires_ms: now_ms() + LEASE_MS,
++                transport,
++                receiver,
++                boot: boot().into(),
++                max_offer_bytes,
+             };
+             s.leases.insert(g.actor_id.clone(), l.clone());
+             save_state(home, &g.group_id, &s)?;
+@@ -530,64 +586,9 @@ fn lease_rpc(
+             save_state(home, &g.group_id, &s)?;
+             object(json!({"released":true}))
+         }
+-        "lease.next" => {
+-            args_only(args, &["lease_id", "lease_generation", "timeout_seconds"])?;
+-            if args.get("timeout_seconds").is_some_and(|v| {
+-                v.as_f64()
+-                    .is_none_or(|v| !v.is_finite() || !(0.0..=20.0).contains(&v))
+-            }) {
+-                return Err(OpError::new(
+-                    "invalid_args",
+-                    "timeout_seconds must be numeric 0..20",
+-                ));
+-            }
+-            let l = lease(&s, g, args)?.clone();
+-            if !actor(group, &g.actor_id)?.enabled
+-                || matches!(group.state, GroupState::Paused | GroupState::Stopped)
+-            {
+-                retire_state(&mut s, &g.actor_id);
+-                save_state(home, &g.group_id, &s)?;
+-                return Err(OpError::new(
+-                    "receiver_unavailable",
+-                    "Actor or Group is inactive",
+-                ));
+-            }
+-            let selected = s.attempts.iter_mut().find(|a| {
+-                a.actor_id == g.actor_id
+-                    && a.actor_generation == g.actor_generation
+-                    && a.state == "pending"
+-                    && a.lease_id == l.id
+-                    && a.lease_generation == l.generation
+-            });
+-            let Some(a) = selected else {
+-                save_state(home, &g.group_id, &s)?;
+-                return object(json!({"offer":null}));
+-            };
+-            let e = mail::offered_event(home, group, &g.actor_id, &a.event_id)?;
+-            let text = e
+-                .data
+-                .get("text")
+-                .and_then(Value::as_str)
+-                .or_else(|| e.data.get("message").and_then(Value::as_str))
+-                .unwrap_or_default();
+-            let packet = json!({"kind":if e.kind == "system.notify" { "mail_notice" } else { "chat" },"pending_count":e.data.get("context").and_then(|v|v.get("source_event_ids")).and_then(Value::as_array).map(Vec::len),"attempt_id":a.id,"event_id":e.id,"group_id":g.group_id,"actor_id":g.actor_id,"actor_generation":g.actor_generation,"lease_generation":l.generation,"message_mode":e.data.get("message_mode").and_then(Value::as_str).unwrap_or("send"),"text":text,"sender":e.by,"reply_to":e.data.get("reply_to"),"remaining_seconds":(a.deadline_ms.saturating_sub(now_ms()))as f64/1000.0});
+-            if serde_json::to_vec(&packet).map_err(OpError::invalid)?.len() > MAX_EVENT_BYTES {
+-                a.state = "failed".into();
+-                a.error_code = Some("event_too_large".into());
+-                a.retryable = false;
+-                let a = a.clone();
+-                save_state(home, &g.group_id, &s)?;
+-                append_receipt(home, group, &a)?;
+-                return Err(OpError::new(
+-                    "event_too_large",
+-                    "Event exceeds negotiated payload limit",
+-                ));
+-            }
+-            a.offered = true;
+-            a.state = "offered".into();
+-            save_state(home, &g.group_id, &s)?;
+-            object(json!({"offer":packet}))
+-        }
++        "lease.next" => v2::pull(home, g, group, &mut s, args),
++        "lease.notice.next" | "lease.stream" => v2::stream_next(home, g, group, &mut s, op, args),
++        "lease.start" | "lease.settle" => v2::dispatch(home, g, group, &mut s, op, args),
+         "lease.outcome" => {
+             args_only(
+                 args,
+@@ -614,6 +615,8 @@ fn lease_rpc(
+                 .iter_mut()
+                 .find(|a| {
+                     a.id == id
++                        && a.kind == "mail_notice"
++                        && l.receiver == "gateway"
+                         && a.actor_id == g.actor_id
+                         && a.actor_generation == g.actor_generation
+                         && a.lease_id == l.id
+@@ -692,7 +695,7 @@ fn send_rpc(
+         } else if op == "chat.send" {
+             &["operation_id", "to", "text", "mode"]
+         } else {
+-            &["operation_id", "event_id", "text", "mode"]
++            &["operation_id", "event_id", "event_ref", "text", "mode"]
+         },
+     )?;
+     let id = string(args, "operation_id")?;
+@@ -742,7 +745,7 @@ fn send_rpc(
+         }
+         a.insert("to".into(), json!(to));
+     } else {
+-        let eid = string(args, "event_id")?;
++        let eid = v2::event_target(home, g, args)?;
+         visible_event(home, group, &g.actor_id, &eid)?;
+         a.insert("reply_to".into(), json!(eid));
+         if mode == "request_reply" {
+@@ -794,10 +797,11 @@ fn string_text(args: &Map<String, Value>) -> Result<String, OpError> {
+         .ok_or_else(|| OpError::new("invalid_args", "Bounded non-empty text required"))?;
+     Ok(v.into())
+ }
+-fn mutation_result(home: &HomeLayout, g: &GroupDoc, event: Event, duplicate: bool) -> OpResult {
++fn mutation_result(home: &HomeLayout, g: &GroupDoc, mut event: Event, duplicate: bool) -> OpResult {
+     let mut s = read_state(home, &g.group_id)?;
+     sweep(home, &g.group_id, &mut s)?;
+     save_state(home, &g.group_id, &s)?;
++    v2::strip_intake_metadata(&mut event.data);
+     object(
+         json!({"consumed":false,"deliveries":s.attempts.iter().filter(|a|a.event_id==event.id).map(Attempt::public).collect::<Vec<_>>(),"event":event,"stored":true,"duplicate":duplicate}),
+     )
+@@ -808,8 +812,20 @@ fn history_rpc(
+     group: &GroupDoc,
+     args: &Map<String, Value>,
+ ) -> OpResult {
+-    args_only(args, &["limit", "before_event_id", "event_id", "max_bytes"])?;
++    args_only(
++        args,
++        &[
++            "limit",
++            "before_event_id",
++            "event_id",
++            "event_ref",
++            "max_bytes",
++        ],
++    )?;
+     let mut a = args.clone();
++    if a.remove("event_ref").is_some() {
++        a.insert("event_id".into(), json!(v2::event_target(home, g, args)?));
++    }
+     let bytes = a
+         .remove("max_bytes")
+         .and_then(|v| v.as_u64())
+@@ -818,7 +834,14 @@ fn history_rpc(
+     a.insert("group_id".into(), json!(g.group_id));
+     a.insert("actor_id".into(), json!(g.actor_id));
+     a.insert("by".into(), json!(g.actor_id));
+-    let result = native(home, "message_history", a)?;
++    let mut result = native(home, "message_history", a)?;
++    if let Some(messages) = result["messages"].as_array_mut() {
++        for message in messages {
++            if let Some(data) = message["data"].as_object_mut() {
++                v2::strip_intake_metadata(data);
++            }
++        }
++    }
+     if serde_json::to_vec(&result).map_err(OpError::invalid)?.len() > bytes {
+         return Err(OpError::new(
+             "content_limit",
+@@ -861,29 +884,40 @@ fn retry_rpc(
+                 "Recipient outside original external audience",
+             ));
+         }
+-        if let Some(old) = s
++        let generation = actors::generation_identity(a);
++        let old = s
+             .attempts
+             .iter()
+             .rev()
+-            .find(|v| v.event_id == eid && v.actor_id == aid)
++            .find(|attempt| {
++                attempt.event_id == eid
++                    && attempt.actor_id == aid
++                    && attempt.actor_generation == generation
++                    && matches!(attempt.kind.as_str(), "" | "chat")
++            })
++            .ok_or_else(|| {
++                OpError::new("attempt_not_found", "Original Actor delivery unavailable")
++            })?;
++        if matches!(
++            old.state.as_str(),
++            "pending" | "offered" | "started" | "direct_retrieved" | "direct_read" | "accepted"
++        ) || !old.retryable
+         {
+-            if matches!(old.state.as_str(), "pending" | "offered" | "accepted") {
+-                return Err(OpError::new(
+-                    "attempt_conflict",
+-                    "Delivery cannot be retried in current state",
+-                ));
+-            }
+-            if old.state == "uncertain"
+-                && !args
+-                    .get("allow_uncertain_retry")
+-                    .and_then(Value::as_bool)
+-                    .unwrap_or(false)
+-            {
+-                return Err(OpError::new(
+-                    "uncertain_conflict",
+-                    "Explicit duplicate-risk acknowledgement required",
+-                ));
+-            }
++            return Err(OpError::new(
++                "attempt_conflict",
++                "Delivery cannot be retried in current state",
++            ));
++        }
++        if old.state == "uncertain"
++            && !args
++                .get("allow_uncertain_retry")
++                .and_then(Value::as_bool)
++                .unwrap_or(false)
++        {
++            return Err(OpError::new(
++                "uncertain_conflict",
++                "Explicit duplicate-risk acknowledgement required",
++            ));
+         }
+     }
+     save_state(home, &g.group_id, &s)?;
+@@ -898,7 +932,15 @@ mod tests;
+ 
+ /// External intake is eligible without asserting ownership of a runtime process.
+ pub(crate) fn available(home: &HomeLayout, group: &GroupDoc, actor: &str) -> bool {
+-    read_state(home, &group.group_id)
++    state_path(home, &group.group_id)
++        .and_then(|path| fs::read_json::<State>(&path).map_err(OpError::io))
+         .ok()
+-        .is_some_and(|s| s.leases.get(actor).is_some_and(|l| l.expires_ms > now_ms()))
++        .is_some_and(|s| {
++            s.leases
++                .get(actor)
++                .is_some_and(|l| l.receiver == "gateway" && l.expires_ms > now_ms())
++        })
+ }
++
++pub(super) use v2::attach_chat_intents;
++pub(super) use v2::strip_intake_metadata;
+diff --git a/crates/cccc-daemon/src/ops/external_receiver/tests.rs b/crates/cccc-daemon/src/ops/external_receiver/tests.rs
+index aa2260d1..1d64c8c1 100644
+--- a/crates/cccc-daemon/src/ops/external_receiver/tests.rs
++++ b/crates/cccc-daemon/src/ops/external_receiver/tests.rs
+@@ -67,6 +67,22 @@ impl Fixture {
+         let l = self.rpc(token, "lease.acquire", json!({})).unwrap();
+         json!({"lease_id":l["lease_id"],"lease_generation":l["lease_generation"]})
+     }
++    fn start(&self, lease: &Value, offers: &[Value]) -> Value {
++        let mut args = lease.clone();
++        args["dispatch_id"] = json!(uuid::Uuid::new_v4().to_string());
++        args["attempt_ids"] = json!(
++            offers
++                .iter()
++                .map(|offer| &offer["attempt_id"])
++                .collect::<Vec<_>>()
++        );
++        let result = self.rpc(&self.bob, "lease.start", args.clone()).unwrap();
++        assert_eq!(result["outcome"], "started");
++        let mut settlement = lease.clone();
++        settlement["dispatch_id"] = args["dispatch_id"].clone();
++        settlement
++    }
++
+     fn send(&self, id: &str, text: &str) -> Value {
+         self.rpc(
+             &self.alice,
+@@ -163,7 +179,7 @@ fn expired_lease_allows_new_generation_without_message_replay() {
+     save_state(&f.home, &f.group.group_id, &s).unwrap();
+     let new = f.lease(&f.bob);
+     assert_ne!(old["lease_generation"], new["lease_generation"]);
+-    assert!(f.rpc(&f.bob, "lease.next", new).unwrap()["offer"].is_null());
++    assert!(f.rpc(&f.bob, "lease.next", new).unwrap()["offers"] == json!([]));
+ }
+ 
+ #[test]
+@@ -181,15 +197,14 @@ fn sends_have_authoritative_receipts_and_explicit_retries() {
+     let lease = f.lease(&f.bob);
+     let sent = f.send("send1", "test payload");
+     assert_eq!(sent["stored"], true);
+-    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].clone();
++    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offers"][0].clone();
+     assert_eq!(offer["event_id"], sent["event"]["id"]);
+-    let mut outcome = lease.clone();
+-    outcome["attempt_id"] = offer["attempt_id"].clone();
++    let mut outcome = f.start(&lease, std::slice::from_ref(&offer));
+     outcome["outcome"] = json!("refused");
+     outcome["error_code"] = json!("body_busy");
+-    f.rpc(&f.bob, "lease.outcome", outcome.clone()).unwrap();
+-    f.rpc(&f.bob, "lease.outcome", outcome).unwrap();
+-    assert!(f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].is_null());
++    f.rpc(&f.bob, "lease.settle", outcome.clone()).unwrap();
++    f.rpc(&f.bob, "lease.settle", outcome).unwrap();
++    assert!(f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offers"] == json!([]));
+     assert_eq!(
+         f.rpc(
+             &f.bob,
+@@ -206,7 +221,7 @@ fn sends_have_authoritative_receipts_and_explicit_retries() {
+         json!({"event_id":sent["event"]["id"],"actor_ids":["bob"]}),
+     )
+     .unwrap();
+-    let next = f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].clone();
++    let next = f.rpc(&f.bob, "lease.next", lease).unwrap()["offers"][0].clone();
+     assert_eq!(next["event_id"], offer["event_id"]);
+     assert_ne!(next["attempt_id"], offer["attempt_id"]);
+     let path = GroupStore::new(f.home.clone())
+@@ -222,15 +237,16 @@ fn sends_have_authoritative_receipts_and_explicit_retries() {
+ }
+ 
+ #[test]
+-fn offered_work_is_uncertain_after_crash_and_never_reoffered() {
++fn started_work_is_uncertain_after_crash_and_never_reoffered() {
+     let f = Fixture::new();
+     let lease = f.lease(&f.bob);
+     let sent = f.send("send1", "unique body text");
+-    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].clone();
++    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offers"][0].clone();
++    f.start(&lease, std::slice::from_ref(&offer));
+     let mut s = read_state(&f.home, &f.group.group_id).unwrap();
+     s.attempts.last_mut().unwrap().boot = "old-provider".into();
+     save_state(&f.home, &f.group.group_id, &s).unwrap();
+-    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].is_null());
++    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offers"] == json!([]));
+     let receipts = f
+         .rpc(
+             &f.alice,
+@@ -272,7 +288,7 @@ fn send_operation_ids_reconcile_without_duplicate_handoff() {
+         "operation_conflict"
+     );
+     let _ = f.rpc(&f.bob, "lease.next", l.clone()).unwrap();
+-    assert!(f.rpc(&f.bob, "lease.next", l).unwrap()["offer"].is_null());
++    assert!(f.rpc(&f.bob, "lease.next", l).unwrap()["offers"] == json!([]));
+ }
+ 
+ #[test]
+@@ -303,12 +319,13 @@ fn reply_preserves_native_ancestry_and_history_does_not_consume_mail() {
+ }
+ 
+ #[test]
+-fn unavailable_actor_fails_immediately_without_reconnect_replay() {
++fn unavailable_receiver_leaves_pending_chat_for_the_first_lease() {
+     let f = Fixture::new();
+     let sent = f.send("no-receiver", "body unavailable");
+-    assert_eq!(sent["deliveries"][0]["state"], "failed");
++    assert_eq!(sent["deliveries"][0]["state"], "pending");
+     let l = f.lease(&f.bob);
+-    assert!(f.rpc(&f.bob, "lease.next", l).unwrap()["offer"].is_null());
++    let batch = f.rpc(&f.bob, "lease.next", l).unwrap();
++    assert_eq!(batch["offers"][0]["event_id"], sent["event"]["id"]);
+ }
+ 
+ #[test]
+@@ -342,11 +359,10 @@ fn receipt_results_obey_count_bounds_and_exclude_private_lease_material() {
+     let f = Fixture::new();
+     let l = f.lease(&f.bob);
+     let sent = f.send("receipt1", "hello");
+-    let o = f.rpc(&f.bob, "lease.next", l.clone()).unwrap()["offer"].clone();
+-    let mut out = l;
+-    out["attempt_id"] = o["attempt_id"].clone();
++    let o = f.rpc(&f.bob, "lease.next", l.clone()).unwrap()["offers"][0].clone();
++    let mut out = f.start(&l, std::slice::from_ref(&o));
+     out["outcome"] = json!("refused");
+-    f.rpc(&f.bob, "lease.outcome", out).unwrap();
++    f.rpc(&f.bob, "lease.settle", out).unwrap();
+     f.rpc(
+         &f.alice,
+         "chat.retry",
+@@ -412,7 +428,7 @@ fn deferred_mail_is_explicit_non_consuming_until_read() {
+         .unwrap();
+     assert_eq!(sent["event"]["data"]["message_mode"], "mail");
+     assert_eq!(sent["consumed"], false);
+-    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].is_null());
++    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offers"] == json!([]));
+     let cursor = f.rpc(&f.bob, "mail.cursor", json!({})).unwrap();
+     assert_eq!(cursor["cursor"]["event_id"], "");
+     for _ in 0..2 {
+@@ -572,6 +588,10 @@ fn lease_poll_timeout_is_strict_even_though_daemon_does_not_wait() {
+ fn external_notice_offer_is_content_free_and_does_not_consume_mail() {
+     let f = Fixture::new();
+     let lease = f.lease(&f.bob);
++    // Keep a claimed chat in the gateway workset when Mail becomes eligible.
++    f.send("fill-chat-credit", "chat awaiting delivery");
++    let claims = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap();
++    assert_eq!(claims["offers"].as_array().unwrap().len(), 1);
+     // Native source and policy are exercised without a stand-in notice offer.
+     let mut event = Event::new("chat.message", &f.group.group_id);
+     event.by = "alice".into();
+@@ -591,7 +611,7 @@ fn external_notice_offer_is_content_free_and_does_not_consume_mail() {
+         true,
+         &std::sync::atomic::AtomicBool::new(false),
+     );
+-    let offer = f.rpc(&f.bob, "lease.next", lease.clone()).unwrap()["offer"].clone();
++    let offer = f.rpc(&f.bob, "lease.notice.next", lease.clone()).unwrap()["offer"].clone();
+     assert_eq!(offer["kind"], "mail_notice");
+     assert!(!offer["text"].as_str().unwrap().contains("secret Mail body"));
+     assert!(offer["pending_count"].as_u64().unwrap() > 0);
+@@ -609,5 +629,5 @@ fn external_notice_offer_is_content_free_and_does_not_consume_mail() {
+         true,
+         &std::sync::atomic::AtomicBool::new(false),
+     );
+-    assert!(f.rpc(&f.bob, "lease.next", lease).unwrap()["offer"].is_null());
++    assert!(f.rpc(&f.bob, "lease.notice.next", lease).unwrap()["offer"].is_null());
+ }
+diff --git a/crates/cccc-daemon/src/ops/external_receiver/v2.rs b/crates/cccc-daemon/src/ops/external_receiver/v2.rs
+new file mode 100644
+index 00000000..510a53ce
+--- /dev/null
++++ b/crates/cccc-daemon/src/ops/external_receiver/v2.rs
+@@ -0,0 +1,968 @@
++//! Receiver v2 queue projection and scoped batch transitions.
++use super::*;
++
++const INTENTS_FIELD: &str = "_external_receiver_intents";
++const PENDING_MS: u64 = 86_400_000;
++const DIRECT_ACK_MS: u64 = 300_000;
++const MAX_PENDING: usize = 1024;
++const MAX_BATCH: usize = 64;
++
++#[derive(Clone, Deserialize, Serialize)]
++struct Intent {
++    id: String,
++    actor: String,
++    generation: String,
++    expiry_ms: u64,
++}
++
++#[derive(Deserialize, Serialize)]
++struct IntentRecord {
++    group_generation: String,
++    recipients: Vec<Intent>,
++}
++
++#[derive(Clone, Deserialize, Serialize)]
++pub(super) struct Dispatch {
++    id: String,
++    lease_generation: u64,
++    actor: String,
++    attempt_ids: Vec<String>,
++    outcome: String,
++    settlement: Option<String>,
++}
++
++impl Dispatch {
++    fn public(&self) -> Value {
++        json!({"dispatch_id":self.id,"attempt_ids":self.attempt_ids,"outcome":self.outcome})
++    }
++}
++
++#[derive(Clone, Deserialize, Serialize)]
++pub(super) struct DirectRead {
++    receipt: String,
++    actor: String,
++    actor_generation: String,
++    attempt_ids: Vec<String>,
++    expires_ms: u64,
++    acknowledged: bool,
++}
++
++impl DirectRead {
++    fn public(&self) -> Value {
++        json!({"receipt":self.receipt,"attempt_ids":self.attempt_ids,"acknowledged":self.acknowledged})
++    }
++}
++
++pub(in crate::ops) fn strip_intake_metadata(data: &mut Map<String, Value>) {
++    data.remove(INTENTS_FIELD);
++}
++
++pub(in crate::ops) fn attach_chat_intents(group: &GroupDoc, event: &mut Event) {
++    let recipients = group
++        .actors
++        .iter()
++        .filter(|actor| {
++            actor.external_receiver
++                && actor.enabled
++                && super::super::actor_delivery::event_targets_actor(group, event, &actor.id)
++        })
++        .map(intent_for)
++        .collect::<Vec<_>>();
++    if !recipients.is_empty() {
++        event.data.insert(
++            INTENTS_FIELD.into(),
++            json!(IntentRecord {
++                group_generation: group.generation.clone(),
++                recipients,
++            }),
++        );
++    }
++}
++
++fn intent_for(actor: &Actor) -> Intent {
++    Intent {
++        id: uuid::Uuid::new_v4().to_string(),
++        actor: actor.id.clone(),
++        generation: actors::generation_identity(actor),
++        expiry_ms: now_ms().saturating_add(PENDING_MS),
++    }
++}
++
++pub(super) fn next_sequence(state: &mut State) -> Result<u64, OpError> {
++    state.sequence = state
++        .sequence
++        .checked_add(1)
++        .ok_or_else(|| OpError::new("provider_error", "Delivery order exhausted"))?;
++    Ok(state.sequence)
++}
++
++pub(super) fn recover_pending(
++    home: &HomeLayout,
++    group_id: &str,
++    state: &mut State,
++) -> Result<bool, OpError> {
++    let path = GroupStore::new(home.clone())
++        .map_err(OpError::io)?
++        .ledger_path(group_id)
++        .map_err(OpError::io)?;
++    let (cursor, records) = ledger::inspect(&path, |events, positions| {
++        let start = positions
++            .get(&state.ledger_cursor)
++            .map_or(0, |index| index + 1);
++        let records = events[start..]
++            .iter()
++            .filter_map(|event| {
++                let value = event.data.get(INTENTS_FIELD)?;
++                if event.kind != "chat.message"
++                    || event.data.get("message_mode").and_then(Value::as_str) == Some("mail")
++                {
++                    return None;
++                }
++                let record = serde_json::from_value::<IntentRecord>(value.clone()).ok()?;
++                Some((event.id.clone(), record))
++            })
++            .collect::<Vec<_>>();
++        (
++            events
++                .last()
++                .map(|event| event.id.clone())
++                .unwrap_or_default(),
++            records,
++        )
++    })
++    .map_err(OpError::io)?;
++    let changed = cursor != state.ledger_cursor;
++    if !records.is_empty() {
++        let current = group(home, group_id)?;
++        for (event_id, record) in records {
++            if record.group_generation != current.generation {
++                continue;
++            }
++            for intent in record.recipients {
++                if state.attempts.iter().any(|attempt| {
++                    attempt.id == intent.id
++                        || (attempt.event_id == event_id
++                            && attempt.actor_id == intent.actor
++                            && attempt.actor_generation == intent.generation)
++                }) {
++                    continue;
++                }
++                queue(state, &event_id, intent)?;
++            }
++        }
++    }
++    state.ledger_cursor = cursor;
++    Ok(changed)
++}
++
++fn queue(state: &mut State, event_id: &str, intent: Intent) -> Result<Attempt, OpError> {
++    let occupied = state
++        .attempts
++        .iter()
++        .filter(|attempt| {
++            attempt.kind == "chat"
++                && attempt.actor_id == intent.actor
++                && attempt.actor_generation == intent.generation
++                && matches!(attempt.state.as_str(), "pending" | "offered" | "started")
++                && (attempt.state == "started" || attempt.expiry_ms > now_ms())
++        })
++        .count();
++    let (phase, error) = if intent.expiry_ms <= now_ms() {
++        ("failed", Some("pending_expired"))
++    } else if occupied >= MAX_PENDING {
++        ("refused", Some("pending_capacity"))
++    } else {
++        ("pending", None)
++    };
++    let attempt = Attempt {
++        id: intent.id,
++        event_id: event_id.into(),
++        actor_id: intent.actor,
++        actor_generation: intent.generation,
++        lease_id: String::new(),
++        lease_generation: 0,
++        state: phase.into(),
++        deadline_ms: 0,
++        offered: false,
++        boot: boot().into(),
++        retryable: true,
++        error_code: error.map(str::to_owned),
++        kind: "chat".into(),
++        sequence: next_sequence(state)?,
++        expiry_ms: intent.expiry_ms,
++        dispatch_id: String::new(),
++        credit_bytes: 0,
++    };
++    state.attempts.push(attempt.clone());
++    Ok(attempt)
++}
++
++pub(super) fn chat_offer(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    actor: &Actor,
++    event: &Event,
++    retry: bool,
++    state: &mut State,
++) -> Result<bool, OpError> {
++    if event.kind != "chat.message"
++        || event.data.get("message_mode").and_then(Value::as_str) == Some("mail")
++    {
++        return Ok(false);
++    }
++    let generation = actors::generation_identity(actor);
++    if !retry {
++        // First offers are committed with the chat and recovered by read_state.
++        return Ok(state.attempts.iter().any(|attempt| {
++            attempt.event_id == event.id
++                && attempt.actor_id == actor.id
++                && attempt.actor_generation == generation
++                && attempt.state == "pending"
++        }));
++    }
++    let attempt = queue(state, &event.id, intent_for(actor))?;
++    save_state(home, &group.group_id, state)?;
++    append_receipt(home, group, &attempt)?;
++    Ok(attempt.state == "pending")
++}
++
++fn reset_to_pending(attempt: &mut Attempt) {
++    attempt.state = "pending".into();
++    attempt.lease_id.clear();
++    attempt.lease_generation = 0;
++    attempt.deadline_ms = 0;
++    attempt.dispatch_id.clear();
++    attempt.error_code = None;
++    attempt.offered = false;
++    attempt.credit_bytes = 0;
++}
++
++fn terminal(attempt: &mut Attempt, state: &str, error: &str, retryable: bool) {
++    attempt.state = state.into();
++    attempt.error_code = Some(error.into());
++    attempt.retryable = retryable;
++}
++
++pub(super) fn retire_attempt(attempt: &mut Attempt, reason: &str) -> bool {
++    match (attempt.kind.as_str(), attempt.state.as_str()) {
++        ("chat", "offered") => reset_to_pending(attempt),
++        ("chat", "started") | (_, "offered") => terminal(attempt, "uncertain", reason, true),
++        ("chat", _) => return false,
++        (_, "pending") => terminal(attempt, "failed", reason, true),
++        _ => return false,
++    }
++    true
++}
++
++pub(super) fn sweep_state(state: &mut State) -> (bool, Vec<Attempt>) {
++    let now = now_ms();
++    let count = state.leases.len();
++    state
++        .leases
++        .retain(|_, lease| lease.expires_ms > now && !lease.receiver.is_empty());
++    let mut dirty = state.leases.len() != count;
++    let mut terminalized = Vec::new();
++    for attempt in &mut state.attempts {
++        let current_lease = state.leases.get(&attempt.actor_id).is_some_and(|lease| {
++            lease.id == attempt.lease_id && lease.generation == attempt.lease_generation
++        });
++        let changed = if attempt.kind == "chat" {
++            match attempt.state.as_str() {
++                "pending" | "offered" if attempt.expiry_ms <= now => {
++                    terminal(attempt, "failed", "pending_expired", true);
++                    true
++                }
++                "offered" | "started" if !current_lease => {
++                    retire_attempt(attempt, "receiver_unavailable")
++                }
++                "started" if attempt.deadline_ms <= now || attempt.boot != boot() => {
++                    terminal(attempt, "uncertain", "handoff_timeout", true);
++                    true
++                }
++                "direct_retrieved" if attempt.deadline_ms <= now => {
++                    terminal(attempt, "uncertain", "direct_ack_expired", true);
++                    true
++                }
++                _ => false,
++            }
++        } else if !current_lease || attempt.deadline_ms <= now || attempt.boot != boot() {
++            retire_attempt(attempt, "receiver_unavailable")
++        } else {
++            false
++        };
++        if changed && matches!(attempt.state.as_str(), "failed" | "uncertain") {
++            terminalized.push(attempt.clone());
++        }
++        dirty |= changed;
++    }
++    // Expiry settles a started batch as a single decision in the same write.
++    for dispatch in state
++        .dispatches
++        .iter_mut()
++        .filter(|item| item.outcome == "started")
++    {
++        if state.attempts.iter().any(|attempt| {
++            attempt.dispatch_id == dispatch.id
++                && attempt.lease_generation == dispatch.lease_generation
++                && attempt.actor_id == dispatch.actor
++                && attempt.state == "uncertain"
++        }) {
++            dispatch.outcome = "uncertain".into();
++            dirty = true;
++        }
++    }
++    (dirty, terminalized)
++}
++
++pub(super) fn capabilities() -> Value {
++    json!({
++        "protocol_version": 2,
++        "operations": ["binding","capabilities","members","lease.acquire","lease.renew","lease.release",
++            "lease.next","lease.stream","lease.notice.next","lease.outcome","lease.start","lease.settle",
++            "chat.send","chat.reply","chat.retry","chat.history","chat.deliveries","chat.ack",
++            "mail.send","mail.reply","mail.peek","mail.cursor","mail.read","mail.read-receipts"],
++        "limits": {"max_event_bytes": MAX_EVENT_BYTES, "max_history_limit": 100,
++            "max_response_bytes": MAX_RESPONSE_BYTES, "lease_seconds": 45,
++            "max_batch_messages": MAX_BATCH, "max_batch_bytes": MAX_RESPONSE_BYTES,
++            "max_stream_seconds": 20, "max_pending_messages": MAX_PENDING,
++            "max_handoff_seconds": ATTEMPT_MS / 1000,
++            "pending_seconds": PENDING_MS / 1000, "max_mail_messages": 200, "max_mail_response_bytes": 1048576,
++            "default_mail_messages": 50, "default_mail_response_bytes": 262144},
++        "recipient_scope": "bound_group", "mail": true,
++        "features": {"chat_pending":true,"chat_batch_pull":true,"chat_push_stream":true,
++            "chat_batch_settlement":true,"chat_direct_pull":true,"chat_independent_notices":true,
++            "mail_expected_cursor":true,"mail_read_receipts":true,"mail_read_crash_recovery":true,
++            "mail_precommit_response_budget":true}
++    })
++}
++
++fn bound(args: &Map<String, Value>, key: &str, max: usize) -> Result<usize, OpError> {
++    match args.get(key) {
++        None => Ok(max),
++        Some(value) => value
++            .as_u64()
++            .and_then(|v| usize::try_from(v).ok())
++            .filter(|v| (1..=max).contains(v))
++            .ok_or_else(|| OpError::new("invalid_args", format!("Invalid {key}"))),
++    }
++}
++
++pub(super) fn default_offer_limit() -> usize {
++    MAX_EVENT_BYTES
++}
++
++pub(super) fn offer_limit(args: &Map<String, Value>) -> Result<usize, OpError> {
++    bound(args, "max_offer_bytes", default_offer_limit())
++}
++
++fn scoped(attempt: &Attempt, grant: &Grant) -> bool {
++    attempt.actor_id == grant.actor_id && attempt.actor_generation == grant.actor_generation
++}
++
++fn claimed(attempt: &Attempt, lease: &Lease) -> bool {
++    attempt.lease_id == lease.id && attempt.lease_generation == lease.generation
++}
++
++fn outstanding_credit(state: &State, grant: &Grant, lease: &Lease, kind: &str) -> (usize, usize) {
++    state
++        .attempts
++        .iter()
++        .filter(|attempt| {
++            scoped(attempt, grant)
++                && claimed(attempt, lease)
++                && attempt.kind == kind
++                && matches!(attempt.state.as_str(), "offered" | "started")
++        })
++        .fold((0, 0), |(count, bytes), attempt| {
++            (count + 1, bytes + attempt.credit_bytes)
++        })
++}
++
++fn stage(attempt: &mut Attempt, lease: &Lease, credit_bytes: usize) {
++    attempt.lease_id = lease.id.clone();
++    attempt.lease_generation = lease.generation;
++    attempt.offered = true;
++    attempt.state = "offered".into();
++    attempt.credit_bytes = credit_bytes;
++    attempt.boot = boot().into();
++}
++
++fn offer_packet(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    grant: &Grant,
++    lease: &Lease,
++    attempt: &Attempt,
++) -> Result<Value, OpError> {
++    let notice = attempt.kind == "mail_notice";
++    let event = if notice {
++        mail::offered_event(home, group, &grant.actor_id, &attempt.event_id)?
++    } else {
++        visible_event(home, group, &grant.actor_id, &attempt.event_id)?
++    };
++    let expiry = if notice {
++        attempt.deadline_ms
++    } else {
++        attempt.expiry_ms
++    };
++    let mut packet = json!({
++        "attempt_id":attempt.id, "event_id":event.id, "group_id":grant.group_id,
++        "actor_id":grant.actor_id, "actor_generation":grant.actor_generation,
++        "lease_generation":lease.generation, "sequence":attempt.sequence, "timestamp":event.ts,
++        "message_mode":event.data.get("message_mode").and_then(Value::as_str).unwrap_or("send"),
++        "text":event.data.get("text").and_then(Value::as_str).or_else(|| event.data.get("message").and_then(Value::as_str)).unwrap_or_default(),
++        "sender":event.by, "reply_to":event.data.get("reply_to"),
++        "remaining_seconds":(expiry.saturating_sub(now_ms())) as f64 / 1000.0,
++    });
++    if notice {
++        packet["kind"] = json!("mail_notice");
++        packet["pending_count"] = json!(
++            event
++                .data
++                .get("context")
++                .and_then(|v| v.get("source_event_ids"))
++                .and_then(Value::as_array)
++                .map(Vec::len)
++                .unwrap_or(0)
++        );
++        packet["text"] = json!("");
++    } else if lease.receiver == "direct" {
++        packet["event_ref"] = json!(attempt.id);
++    }
++    Ok(packet)
++}
++
++fn size(value: &Value) -> Result<usize, OpError> {
++    serde_json::to_vec(value)
++        .map(|bytes| bytes.len())
++        .map_err(OpError::invalid)
++}
++
++fn record_size_failure(
++    home: &HomeLayout,
++    group: &GroupDoc,
++    state: &mut State,
++    index: usize,
++) -> Result<(), OpError> {
++    terminal(
++        &mut state.attempts[index],
++        "failed",
++        "event_too_large",
++        false,
++    );
++    save_state(home, &group.group_id, state)?;
++    append_receipt(home, group, &state.attempts[index])
++}
++
++pub(super) fn pull(
++    home: &HomeLayout,
++    grant: &Grant,
++    group: &GroupDoc,
++    state: &mut State,
++    args: &Map<String, Value>,
++) -> OpResult {
++    args_only(
++        args,
++        &[
++            "lease_id",
++            "lease_generation",
++            "limit",
++            "max_bytes",
++            "timeout_seconds",
++        ],
++    )?;
++    if args.get("timeout_seconds").is_some_and(|v| {
++        v.as_f64()
++            .is_none_or(|v| !v.is_finite() || !(0.0..=20.0).contains(&v))
++    }) {
++        return Err(OpError::new(
++            "invalid_args",
++            "timeout_seconds must be numeric 0..20",
++        ));
++    }
++    let current = lease(state, grant, args)?.clone();
++    if current.transport != "pull" {
++        return Err(OpError::new(
++            "receiver_transport_conflict",
++            "Pull lease required",
++        ));
++    }
++    let limit = bound(args, "limit", MAX_BATCH)?;
++    let bytes = bound(args, "max_bytes", MAX_RESPONSE_BYTES)?;
++    let direct = current.receiver == "direct";
++    let (outstanding_count, outstanding_bytes) = outstanding_credit(state, grant, &current, "chat");
++    let limit = limit.min(MAX_BATCH.saturating_sub(outstanding_count));
++    let mut remaining_credit = MAX_RESPONSE_BYTES.saturating_sub(outstanding_bytes);
++    let receipt = direct.then(|| uuid::Uuid::new_v4().to_string());
++    let result_for = |offers: &[Value]| {
++        if direct {
++            json!({"offers":offers,"receipt":if offers.is_empty() { None } else { receipt.as_ref() }})
++        } else {
++            json!({"offers":offers})
++        }
++    };
++    let response_overhead = size(&json!({"ok":true,"result":result_for(&[])}))?;
++    if bytes < response_overhead {
++        return Err(OpError::new(
++            "content_limit",
++            "Pull budget cannot fit an empty response",
++        ));
++    }
++
++    let mut selected = Vec::new();
++    let mut offers = Vec::new();
++    for index in 0..state.attempts.len() {
++        if selected.len() >= limit {
++            break;
++        }
++        let attempt = &state.attempts[index];
++        if !scoped(attempt, grant) || attempt.kind != "chat" || attempt.state != "pending" {
++            continue;
++        }
++        let packet = offer_packet(home, group, grant, &current, attempt)?;
++        let packet_bytes = size(&packet)?;
++        if packet_bytes > current.max_offer_bytes {
++            if !selected.is_empty() {
++                break;
++            }
++            record_size_failure(home, group, state, index)?;
++            return Err(OpError::new(
++                "event_too_large",
++                "Event exceeds negotiated payload limit",
++            ));
++        }
++        offers.push(packet);
++        if size(&json!({"ok":true,"result":result_for(&offers)}))? > bytes {
++            offers.pop();
++            break;
++        }
++        let credit = packet_bytes.saturating_add(32);
++        if credit > remaining_credit {
++            offers.pop();
++            break;
++        }
++        selected.push((index, credit));
++        remaining_credit -= credit;
++    }
++    if !selected.is_empty() {
++        let expires_ms = now_ms().saturating_add(DIRECT_ACK_MS);
++        for (index, credit) in selected.iter().copied() {
++            let attempt = &mut state.attempts[index];
++            stage(attempt, &current, credit);
++            if direct {
++                attempt.state = "direct_retrieved".into();
++                attempt.deadline_ms = expires_ms;
++            }
++        }
++        if let Some(receipt) = &receipt {
++            state.direct_reads.push(DirectRead {
++                receipt: receipt.clone(),
++                actor: grant.actor_id.clone(),
++                actor_generation: grant.actor_generation.clone(),
++                attempt_ids: selected
++                    .iter()
++                    .map(|(index, _)| state.attempts[*index].id.clone())
++                    .collect(),
++                expires_ms,
++                acknowledged: false,
++            });
++        }
++        save_state(home, &grant.group_id, state)?;
++    }
++    object(result_for(&offers))
++}
++
++pub(super) fn stream_next(
++    home: &HomeLayout,
++    grant: &Grant,
++    group: &GroupDoc,
++    state: &mut State,
++    op: &str,
++    args: &Map<String, Value>,
++) -> OpResult {
++    let streaming = op == "lease.stream";
++    args_only(
++        args,
++        if streaming {
++            &[
++                "lease_id",
++                "lease_generation",
++                "kind",
++                "after_sequence",
++                "max_bytes",
++            ]
++        } else {
++            &["lease_id", "lease_generation"]
++        },
++    )?;
++    let current = lease(state, grant, args)?.clone();
++    if current.receiver != "gateway" || current.transport != if streaming { "push" } else { "pull" }
++    {
++        return Err(OpError::new(
++            "receiver_transport_conflict",
++            "Matching gateway lease required",
++        ));
++    }
++    let kind = if streaming {
++        string(args, "kind")?
++    } else {
++        "mail_notice".into()
++    };
++    if !matches!(kind.as_str(), "chat" | "mail_notice") {
++        return Err(OpError::new("invalid_args", "Unknown offer kind"));
++    }
++    let cursor = match args.get("after_sequence") {
++        None => 0,
++        Some(value) => value
++            .as_u64()
++            .ok_or_else(|| OpError::new("invalid_args", "Invalid offer cursor"))?,
++    };
++    let budget = bound(args, "max_bytes", MAX_RESPONSE_BYTES)?;
++    let index = state.attempts.iter().position(|attempt| {
++        scoped(attempt, grant)
++            && attempt.kind == kind
++            && attempt.sequence > cursor
++            && ((attempt.state == "pending" && (kind == "chat" || claimed(attempt, &current)))
++                || (streaming && attempt.state == "offered" && claimed(attempt, &current)))
++    });
++    let Some(index) = index else {
++        return object(json!({"offer":null, "credit_exhausted":false}));
++    };
++    let packet = offer_packet(home, group, grant, &current, &state.attempts[index])?;
++    let packet_bytes = size(&packet)?;
++    let offer_limit = if kind == "chat" {
++        current.max_offer_bytes
++    } else {
++        MAX_EVENT_BYTES
++    };
++    if packet_bytes > offer_limit {
++        record_size_failure(home, group, state, index)?;
++        return Err(OpError::new(
++            "event_too_large",
++            "Event exceeds negotiated payload limit",
++        ));
++    }
++    // Account for the complete NDJSON frame, including its newline delimiter.
++    if streaming && size(&json!({"kind":"offer","offer":packet}))? + 1 > budget {
++        return object(json!({"offer":null, "credit_exhausted":true}));
++    }
++    if state.attempts[index].state == "pending" {
++        let credit = packet_bytes.saturating_add(32);
++        let (count, bytes) = outstanding_credit(state, grant, &current, &kind);
++        if count >= MAX_BATCH || credit > MAX_RESPONSE_BYTES.saturating_sub(bytes) {
++            return object(json!({"offer":null, "credit_exhausted":true}));
++        }
++        stage(&mut state.attempts[index], &current, credit);
++        save_state(home, &grant.group_id, state)?;
++    }
++    object(json!({"offer":packet, "credit_exhausted":false}))
++}
++
++fn dispatch_members(args: &Map<String, Value>) -> Result<Vec<String>, OpError> {
++    let ids = args
++        .get("attempt_ids")
++        .and_then(Value::as_array)
++        .filter(|v| (1..=MAX_BATCH).contains(&v.len()))
++        .ok_or_else(|| OpError::new("invalid_args", "Bounded ordered attempt_ids required"))?;
++    let mut result = Vec::with_capacity(ids.len());
++    for item in ids {
++        let id = item
++            .as_str()
++            .filter(|id| !id.is_empty() && id.len() <= 128)
++            .ok_or_else(|| OpError::new("invalid_args", "Invalid attempt identifier"))?;
++        if result.iter().any(|known| known == id) {
++            return Err(OpError::new("invalid_args", "Duplicate attempt identifier"));
++        }
++        result.push(id.to_owned());
++    }
++    Ok(result)
++}
++
++pub(super) fn dispatch(
++    home: &HomeLayout,
++    grant: &Grant,
++    group: &GroupDoc,
++    state: &mut State,
++    op: &str,
++    args: &Map<String, Value>,
++) -> OpResult {
++    let starting = op == "lease.start";
++    args_only(
++        args,
++        if starting {
++            &["lease_id", "lease_generation", "dispatch_id", "attempt_ids"]
++        } else {
++            &[
++                "lease_id",
++                "lease_generation",
++                "dispatch_id",
++                "outcome",
++                "retryable",
++                "error_code",
++            ]
++        },
++    )?;
++    let current = lease(state, grant, args)?.clone();
++    if current.receiver != "gateway" {
++        return Err(OpError::new(
++            "receiver_transport_conflict",
++            "Gateway lease required",
++        ));
++    }
++    let id = string(args, "dispatch_id")?;
++    if id.len() > 128 {
++        return Err(OpError::new("invalid_args", "Invalid dispatch identifier"));
++    }
++    let position = state.dispatches.iter().position(|record| {
++        record.id == id
++            && record.lease_generation == current.generation
++            && record.actor == grant.actor_id
++    });
++    if starting {
++        let attempt_ids = dispatch_members(args)?;
++        if let Some(position) = position {
++            let existing = &state.dispatches[position];
++            if existing.attempt_ids != attempt_ids {
++                return Err(OpError::new(
++                    "dispatch_conflict",
++                    "Dispatch membership changed",
++                ));
++            }
++            return object(existing.public());
++        }
++        let indexes = state
++            .attempts
++            .iter()
++            .enumerate()
++            .filter(|(_, attempt)| {
++                scoped(attempt, grant)
++                    && claimed(attempt, &current)
++                    && attempt.kind == "chat"
++                    && attempt.state == "offered"
++            })
++            .take(attempt_ids.len())
++            .map(|(index, _)| index)
++            .collect::<Vec<_>>();
++        if indexes.len() != attempt_ids.len()
++            || indexes
++                .iter()
++                .zip(&attempt_ids)
++                .any(|(index, id)| &state.attempts[*index].id != id)
++        {
++            return Err(OpError::new(
++                "dispatch_conflict",
++                "Dispatch must start at the ordered offers head",
++            ));
++        }
++        for index in &indexes {
++            let previous = &state.attempts[*index].dispatch_id;
++            if !previous.is_empty()
++                && state.dispatches.iter().any(|record| {
++                    &record.id == previous
++                        && record.lease_generation == current.generation
++                        && record.actor == grant.actor_id
++                        && record.outcome == "deferred"
++                        && record.attempt_ids != attempt_ids
++                })
++            {
++                return Err(OpError::new(
++                    "dispatch_conflict",
++                    "Deferred dispatch membership changed",
++                ));
++            }
++        }
++        if state.attempts.iter().any(|attempt| {
++            scoped(attempt, grant) && claimed(attempt, &current) && attempt.state == "started"
++        }) {
++            return Err(OpError::new(
++                "dispatch_conflict",
++                "Another dispatch has started",
++            ));
++        }
++        let deadline = now_ms().saturating_add(ATTEMPT_MS);
++        for index in indexes {
++            let attempt = &mut state.attempts[index];
++            attempt.state = "started".into();
++            attempt.boot = boot().into();
++            attempt.deadline_ms = deadline;
++            attempt.dispatch_id = id.clone();
++        }
++        let record = Dispatch {
++            id,
++            lease_generation: current.generation,
++            actor: grant.actor_id.clone(),
++            attempt_ids,
++            outcome: "started".into(),
++            settlement: None,
++        };
++        let result = record.public();
++        state.dispatches.push(record);
++        save_state(home, &grant.group_id, state)?;
++        return object(result);
++    }
++    let outcome = string(args, "outcome")?;
++    if !matches!(
++        outcome.as_str(),
++        "accepted" | "deferred" | "refused" | "failed" | "uncertain"
++    ) {
++        return Err(OpError::new("invalid_args", "Invalid batch outcome"));
++    }
++    let retryable = match args.get("retryable") {
++        Some(value) => value
++            .as_bool()
++            .ok_or_else(|| OpError::new("invalid_args", "Invalid retryable flag"))?,
++        None => outcome != "accepted",
++    };
++    let error_code = match args.get("error_code") {
++        None | Some(Value::Null) => None,
++        Some(value) => Some(
++            value
++                .as_str()
++                .filter(|s| {
++                    s.len() <= 128 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
++                })
++                .ok_or_else(|| OpError::new("invalid_args", "Invalid outcome error code"))?
++                .to_owned(),
++        ),
++    };
++    let fingerprint =
++        digest(&serde_json::to_vec(&(&outcome, retryable, &error_code)).map_err(OpError::invalid)?);
++    let position =
++        position.ok_or_else(|| OpError::new("dispatch_not_found", "Dispatch unavailable"))?;
++    let record = &state.dispatches[position];
++    if record.outcome != "started" {
++        if record.settlement.as_deref() == Some(fingerprint.as_str()) {
++            return object(record.public());
++        }
++        return Err(OpError::new(
++            "dispatch_conflict",
++            "Dispatch already settled",
++        ));
++    }
++    let mut indexes = Vec::with_capacity(record.attempt_ids.len());
++    for attempt_id in &record.attempt_ids {
++        indexes.push(
++            state
++                .attempts
++                .iter()
++                .position(|attempt| {
++                    &attempt.id == attempt_id
++                        && scoped(attempt, grant)
++                        && claimed(attempt, &current)
++                        && attempt.dispatch_id == id
++                        && attempt.state == "started"
++                })
++                .ok_or_else(|| {
++                    OpError::new("attempt_conflict", "Dispatch attempt is unavailable")
++                })?,
++        );
++    }
++    for index in indexes.iter().copied() {
++        let attempt = &mut state.attempts[index];
++        if outcome == "deferred" {
++            attempt.state = "offered".into();
++            attempt.deadline_ms = 0;
++        } else {
++            attempt.state = outcome.clone();
++            attempt.error_code = error_code.clone();
++            attempt.retryable = retryable;
++        }
++    }
++    let record = &mut state.dispatches[position];
++    record.outcome = outcome.clone();
++    record.settlement = Some(fingerprint);
++    let result = record.public();
++    save_state(home, &grant.group_id, state)?;
++    if outcome != "deferred" {
++        for index in indexes {
++            append_receipt(home, group, &state.attempts[index])?;
++        }
++    }
++    object(result)
++}
++
++pub(super) fn event_target(
++    home: &HomeLayout,
++    grant: &Grant,
++    args: &Map<String, Value>,
++) -> Result<String, OpError> {
++    if !args.contains_key("event_ref") {
++        return string(args, "event_id");
++    }
++    if args.contains_key("event_id") || args.contains_key("before_event_id") {
++        return Err(OpError::new("invalid_args", "Select one exact event"));
++    }
++    let reference = string(args, "event_ref")?;
++    let state = read_state(home, &grant.group_id)?;
++    state
++        .attempts
++        .iter()
++        .find(|attempt| {
++            attempt.id == reference
++                && scoped(attempt, grant)
++                && attempt.kind == "chat"
++                && state.direct_reads.iter().any(|read| {
++                    read.actor == grant.actor_id
++                        && read.actor_generation == grant.actor_generation
++                        && read.attempt_ids.contains(&attempt.id)
++                })
++        })
++        .map(|attempt| attempt.event_id.clone())
++        .ok_or_else(|| OpError::new("event_not_found", "Scoped reference unavailable"))
++}
++
++pub(super) fn direct_ack(
++    home: &HomeLayout,
++    grant: &Grant,
++    group: &GroupDoc,
++    args: &Map<String, Value>,
++) -> OpResult {
++    args_only(args, &["receipt"])?;
++    let receipt = string(args, "receipt")?;
++    let mut state = read_state(home, &grant.group_id)?;
++    sweep(home, &grant.group_id, &mut state)?;
++    let index = state
++        .direct_reads
++        .iter()
++        .position(|read| {
++            read.receipt == receipt
++                && read.actor == grant.actor_id
++                && read.actor_generation == grant.actor_generation
++        })
++        .ok_or_else(|| OpError::new("receipt_not_found", "Direct receipt unavailable"))?;
++    let read = &state.direct_reads[index];
++    if read.acknowledged {
++        return object(read.public());
++    }
++    if read.expires_ms <= now_ms() {
++        return Err(OpError::new("receipt_expired", "Direct receipt expired"));
++    }
++    let mut indexes = Vec::with_capacity(read.attempt_ids.len());
++    for id in &read.attempt_ids {
++        indexes.push(
++            state
++                .attempts
++                .iter()
++                .position(|attempt| {
++                    &attempt.id == id
++                        && scoped(attempt, grant)
++                        && attempt.state == "direct_retrieved"
++                })
++                .ok_or_else(|| {
++                    OpError::new("attempt_conflict", "Direct attempt cannot be acknowledged")
++                })?,
++        );
++    }
++    for position in indexes.iter().copied() {
++        let attempt = &mut state.attempts[position];
++        attempt.state = "direct_read".into();
++        attempt.retryable = false;
++    }
++    state.direct_reads[index].acknowledged = true;
++    let result = state.direct_reads[index].public();
++    save_state(home, &grant.group_id, &state)?;
++    for position in indexes {
++        append_receipt(home, group, &state.attempts[position])?;
++    }
++    object(result)
++}
+diff --git a/crates/cccc-daemon/src/ops/messaging.rs b/crates/cccc-daemon/src/ops/messaging.rs
+index 9e4cfe0c..5b350ab6 100644
+--- a/crates/cccc-daemon/src/ops/messaging.rs
++++ b/crates/cccc-daemon/src/ops/messaging.rs
+@@ -1331,8 +1331,9 @@ fn append_raw(home: &HomeLayout, request: &DaemonRequest) -> OpResult {
+         .args
+         .get("event")
+         .ok_or_else(|| OpError::new("invalid_args", "event is required"))?;
+-    let event: Event = serde_json::from_value(raw.clone()).map_err(OpError::invalid)?;
++    let mut event: Event = serde_json::from_value(raw.clone()).map_err(OpError::invalid)?;
+     reject_chet_provenance(&event.data)?;
++    super::external_receiver::strip_intake_metadata(&mut event.data);
+     if event.by == cccc_core::actors::CHET_SERVICE_PRINCIPAL {
+         return Err(OpError::new(
+             "invalid_args",
+@@ -1440,11 +1441,20 @@ fn append_in_scope(
+             }
+         }
+     }
++    super::external_receiver::strip_intake_metadata(&mut event.data);
++    if kind == "chat.message"
++        && event.data.get("message_mode").and_then(Value::as_str) != Some("mail")
++        && !event.data.contains_key("dst_group_id")
++    {
++        let group = store(home)?.load(group_id).map_err(OpError::io)?;
++        super::external_receiver::attach_chat_intents(&group, &mut event);
++    }
+     cccc_core::ledger::append(
+         &store(home)?.ledger_path(group_id).map_err(OpError::io)?,
+         &event,
+     )
+     .map_err(OpError::io)?;
++    super::external_receiver::strip_intake_metadata(&mut event.data);
+     Ok(event)
+ }
+ 
+diff --git a/crates/cccc-web/src/auth.rs b/crates/cccc-web/src/auth.rs
+index c973e51f..cf9b7a77 100644
+--- a/crates/cccc-web/src/auth.rs
++++ b/crates/cccc-web/src/auth.rs
+@@ -65,11 +65,13 @@ pub async fn authorize(
+     mut request: Request,
+     next: Next,
+ ) -> Response {
+-    // This exact Actor-scoped RPC route performs its own grant authentication.
+-    // It must never inherit the browser/local-administrator principal.
+-    if request.method() == Method::POST
+-        && request.uri().path() == "/api/v1/external-receiver/v1/rpc"
+-    {
++    // These exact Actor-scoped routes perform their own grant authentication.
++    // They never inherit the browser/local-administrator principal.
++    if matches!(
++        (request.method(), request.uri().path()),
++        (&Method::POST, "/api/v1/external-receiver/v2/rpc")
++            | (&Method::GET, "/api/v1/external-receiver/v2/stream")
++    ) {
+         return next.run(request).await;
+     }
+     // Explicit bearer clients may connect through host-rewriting proxies.
+@@ -269,8 +271,8 @@ fn accepts_local_principal(method: &Method, path: &str) -> bool {
+ }
+ 
+ fn requires_admin(method: &Method, path: &str) -> bool {
+-    path.starts_with("/api/v1/external-receiver/v1/grants")
+-        || path == "/api/v1/external-receiver/v1/takeover"
++    path.starts_with("/api/v1/external-receiver/v2/grants")
++        || path == "/api/v1/external-receiver/v2/takeover"
+         || path.starts_with("/api/v1/local_sessions")
+         || path.starts_with("/api/v1/chet/")
+         || path.starts_with("/api/v1/process-recovery/")
+diff --git a/crates/cccc-web/src/routes/external_receiver.rs b/crates/cccc-web/src/routes/external_receiver.rs
+index 0036a0b6..1d6ae409 100644
+--- a/crates/cccc-web/src/routes/external_receiver.rs
++++ b/crates/cccc-web/src/routes/external_receiver.rs
+@@ -2,14 +2,16 @@
+ use crate::{AppState, auth::Principal};
+ use axum::{
+     Extension, Json, Router,
+-    extract::{Path, State},
++    body::Body,
++    extract::{Path, Query, State},
+     http::{HeaderMap, StatusCode, header},
+     response::{IntoResponse, Response},
+-    routing::{delete, post},
++    routing::{delete, get, post},
+ };
+-use cccc_contracts::DaemonRequest;
++use cccc_contracts::{DaemonRequest, DaemonResponse};
+ use serde::Deserialize;
+ use serde_json::{Map, Value, json};
++use std::{convert::Infallible, time::Duration};
+ 
+ #[derive(Deserialize)]
+ #[serde(deny_unknown_fields)]
+@@ -26,13 +28,14 @@ struct ActorInput {
+ 
+ pub fn routes() -> Router<AppState> {
+     Router::new()
+-        .route("/api/v1/external-receiver/v1/rpc", post(rpc))
+-        .route("/api/v1/external-receiver/v1/grants", post(grant))
++        .route("/api/v1/external-receiver/v2/rpc", post(rpc))
++        .route("/api/v1/external-receiver/v2/stream", get(stream))
++        .route("/api/v1/external-receiver/v2/grants", post(grant))
+         .route(
+-            "/api/v1/external-receiver/v1/grants/{grant_id}",
++            "/api/v1/external-receiver/v2/grants/{grant_id}",
+             delete(revoke),
+         )
+-        .route("/api/v1/external-receiver/v1/takeover", post(takeover))
++        .route("/api/v1/external-receiver/v2/takeover", post(takeover))
+ }
+ fn error(status: StatusCode, code: &str) -> Response {
+     (status,Json(json!({"ok":false,"error":{"code":code,"message":"CCCC external receiver request failed","retryable":matches!(status.as_u16(),409|503)}}))).into_response()
+@@ -85,6 +88,9 @@ async fn rpc(State(state): State<AppState>, headers: HeaderMap, Json(body): Json
+     else {
+         return error(StatusCode::UNAUTHORIZED, "invalid_grant");
+     };
++    if body.operation == "lease.stream" {
++        return error(StatusCode::UNPROCESSABLE_ENTITY, "unsupported_operation");
++    }
+     let wait = if body.operation == "lease.next" {
+         body.arguments
+             .get("timeout_seconds")
+@@ -113,7 +119,11 @@ async fn rpc(State(state): State<AppState>, headers: HeaderMap, Json(body): Json
+             Err(_) => return error(StatusCode::SERVICE_UNAVAILABLE, "daemon_unavailable"),
+         };
+         if response.ok {
+-            let empty = response.result.get("offer") == Some(&Value::Null);
++            let empty = response
++                .result
++                .get("offers")
++                .and_then(Value::as_array)
++                .is_some_and(Vec::is_empty);
+             if body.operation == "lease.next" && empty && tokio::time::Instant::now() < deadline {
+                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                 continue;
+@@ -139,6 +149,152 @@ async fn rpc(State(state): State<AppState>, headers: HeaderMap, Json(body): Json
+         return error(status, &code);
+     }
+ }
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct StreamInput {
++    lease_id: String,
++    lease_generation: u64,
++    kind: String,
++    limit: usize,
++    max_bytes: usize,
++    #[serde(default)]
++    after_sequence: u64,
++}
++
++async fn stream_call(
++    state: &AppState,
++    token: &str,
++    query: &StreamInput,
++    remaining: usize,
++    cursor: u64,
++) -> Result<DaemonResponse, String> {
++    let request = DaemonRequest {
++        v: 1,
++        op: "external_receiver_rpc".into(),
++        args: json!({"token":token,"operation":"lease.stream","arguments":{
++            "lease_id":query.lease_id,"lease_generation":query.lease_generation,
++            "kind":query.kind,"after_sequence":cursor,"max_bytes":remaining,
++        }})
++        .as_object()
++        .unwrap()
++        .clone(),
++    };
++    match state.client.call(&request).await {
++        Ok(response) if response.ok => Ok(response),
++        Ok(response) => Err(response
++            .error
++            .map_or_else(|| "provider_error".into(), |e| e.code)),
++        Err(_) => Err("daemon_unavailable".into()),
++    }
++}
++
++fn stream_status(code: &str) -> StatusCode {
++    if code == "invalid_grant" {
++        StatusCode::UNAUTHORIZED
++    } else if code.contains("permission") {
++        StatusCode::FORBIDDEN
++    } else if code.contains("conflict") || code.ends_with("lease_lost") {
++        StatusCode::CONFLICT
++    } else if code.contains("unavailable") {
++        StatusCode::SERVICE_UNAVAILABLE
++    } else {
++        StatusCode::UNPROCESSABLE_ENTITY
++    }
++}
++
++fn frame(value: Value) -> Vec<u8> {
++    let mut bytes = value.to_string().into_bytes();
++    bytes.push(b'\n');
++    bytes
++}
++
++async fn stream(
++    State(state): State<AppState>,
++    headers: HeaderMap,
++    Query(query): Query<StreamInput>,
++) -> Response {
++    let Some(token) = headers
++        .get(header::AUTHORIZATION)
++        .and_then(|v| v.to_str().ok())
++        .and_then(|v| v.strip_prefix("Bearer "))
++        .filter(|v| !v.is_empty())
++        .map(str::to_owned)
++    else {
++        return error(StatusCode::UNAUTHORIZED, "invalid_grant");
++    };
++    if !(1..=64).contains(&query.limit) || !(1..=262144).contains(&query.max_bytes) {
++        return error(StatusCode::UNPROCESSABLE_ENTITY, "invalid_args");
++    }
++    // Check the grant and lease before making a successful streaming response.
++    let first = match stream_call(
++        &state,
++        &token,
++        &query,
++        query.max_bytes,
++        query.after_sequence,
++    )
++    .await
++    {
++        Ok(response) => response,
++        Err(code) => return error(stream_status(&code), &code),
++    };
++    let chunks = async_stream::stream! {
++        let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
++        let mut heartbeat = tokio::time::Instant::now() + Duration::from_secs(5);
++        let mut remaining = query.max_bytes;
++        let mut limit = query.limit;
++        let mut cursor = query.after_sequence;
++        let mut response = first;
++        loop {
++            if response.result.get("credit_exhausted") == Some(&Value::Bool(true)) {
++                break;
++            }
++            if let Some(offer) = response.result.remove("offer").filter(|v| !v.is_null()) {
++                let Some(sequence) = offer["sequence"].as_u64().filter(|seq| *seq > cursor) else {
++                    yield Ok::<_, Infallible>(frame(json!({"kind":"error","error":{
++                        "code":"provider_error","retryable":false
++                    }})));
++                    break;
++                };
++                let bytes = frame(json!({"kind":"offer","offer":offer}));
++                if bytes.len() > remaining {
++                    break;
++                }
++                cursor = sequence;
++                remaining -= bytes.len();
++                limit -= 1;
++                yield Ok::<_, Infallible>(bytes);
++            } else {
++                if tokio::time::Instant::now() >= heartbeat {
++                    yield Ok::<_, Infallible>(frame(json!({"kind":"heartbeat"})));
++                    heartbeat = tokio::time::Instant::now() + Duration::from_secs(5);
++                }
++                tokio::time::sleep(Duration::from_millis(100)).await;
++            }
++            if limit == 0 || remaining == 0 || tokio::time::Instant::now() >= deadline {
++                break;
++            }
++            response = match stream_call(&state, &token, &query, remaining, cursor).await {
++                Ok(next) => next,
++                Err(code) => {
++                    let status = stream_status(&code);
++                    yield Ok::<_, Infallible>(frame(json!({"kind":"error","error":{
++                        "code":code,"retryable":matches!(status.as_u16(),409|503)
++                    }})));
++                    break;
++                }
++            };
++        }
++    };
++    (
++        [
++            (header::CONTENT_TYPE, "application/x-ndjson"),
++            (header::CACHE_CONTROL, "no-store"),
++        ],
++        Body::from_stream(chunks),
++    )
++        .into_response()
++}
+ async fn grant(
+     State(state): State<AppState>,
+     Extension(principal): Extension<Principal>,

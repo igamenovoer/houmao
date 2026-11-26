@@ -77,7 +77,7 @@ def test_set_default_through_retained_policy(owner_access: SimpleNamespace, tmp_
     seed.write_text(json.dumps({"schema_version": 2, "admin_keys": [operator.model_dump()]}))
     assert _command("init", "--seed", str(seed))["default_permission_group"] == "agent-requester"
     denied = CliRunner().invoke(
-        cli, [*_SELECT, "default-group", "set", "agent-observer", "--retained"]
+        cli, [*_SELECT, "default-group", "set", "agent-operator", "--retained"]
     )
     assert denied.exit_code == 1
     assert owner_access.store.snapshot().default_permission_revision == 0
@@ -86,15 +86,49 @@ def test_set_default_through_retained_policy(owner_access: SimpleNamespace, tmp_
     )
     assert result["default_permission_revision"] == 1
     assert (
-        _command("default-group", "set", "agent-observer", "--retained")[
+        _command("default-group", "set", "agent-operator", "--retained")[
             "default_permission_revision"
         ]
         == 2
     )
     listed = _command("list")
     assert listed["admin_mode"] == "keyed"
-    assert listed["default_permission_group"] == "agent-observer"
+    assert listed["default_permission_group"] == "agent-operator"
     assert listed["default_permission_group_version"] == 1
+
+
+def test_set_verified_fallback_through_retained_policy(
+    owner_access: SimpleNamespace, tmp_path: Path
+) -> None:
+    """A detached owner grants only verified status and inspects fallback refusal."""
+
+    admin, signer, _ = _key(tmp_path, "fallback-admin")
+    seed = tmp_path / "fallback-seed.json"
+    seed.touch(mode=0o600)
+    seed.write_text(json.dumps({"schema_version": 2, "admin_keys": [admin.model_dump()]}))
+    _command("init", "--seed", str(seed))
+    _command("principal-add", "alice", "--kind", "operator", "--label", "Alice")
+    _, peer_signer, public = _key(tmp_path, "alice")
+    _command("credential-enroll", "alice", "--public-key", str(public))
+    _command("grant", "alice", "agent", "agent.status.read")
+    command = ["default-fallback", "set", "alice", "disabled", "--retained"]
+    denied = CliRunner().invoke(cli, [*_SELECT, *command, "--signer", str(peer_signer)])
+    assert denied.exit_code == 1
+    assert owner_access.store.snapshot().find_default_fallback("alice") is None
+    receipt = _command(*command, "--signer", str(signer))
+    assert receipt["principal_id"] == "alice"
+    assert receipt["enabled"] is False
+    assert receipt["default_fallback_revision"] == receipt["policy_revision"]
+    status = _command("explain", "alice", "agent", "agent.status.read")
+    assert status["keys"][0]["basis"] == "scoped"
+    request = _command("explain", "alice", "agent", "agent.request.submit")
+    assert request["keys"][0]["allowed"] is False
+    assert request["default_fallback"]["reason"] == "disabled"
+    alice = next(row for row in _command("list")["principals"] if row["principal_id"] == "alice")
+    assert alice["default_fallback"] == request["default_fallback"]
+    retired = CliRunner().invoke(cli, [*_SELECT, "role-assign", "alice", "builtin:agent-observer"])
+    assert retired.exit_code == 2
+    assert "agent.status.read" in retired.output
 
 
 def test_instantiate_exact_file_role(owner_access: SimpleNamespace) -> None:
@@ -142,7 +176,6 @@ def owner_access(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNames
         execution_binding=binding,
         store=AuthorizationStore(private_root, _OWNER),
         require_current=lambda: None,
-        require_keyed_mail_qualification=lambda: None,
         current_self=lambda: None,
     )
     record = SimpleNamespace(

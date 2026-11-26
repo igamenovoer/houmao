@@ -23,3 +23,5 @@ Ordinary workflows do not read SQLite, scrape tmux variables, reconstruct paths 
 Reading marks a message read; replying marks its parent read and answered. Archive is the explicit completion step after successful work and any required reply. Periodic reminders continue while eligible inbox work remains.
 
 The selected offline sender address remains the offline address even when the agent has an online canonical mail identity. Recipients must belong to the same registry. Reject mixed-channel batches instead of bridging or translating addresses. A submission-only manager result needs authoritative verification before assuming delivery succeeded.
+
+On an isolated registry binding with protected filtering, the writer files matching arrivals directly in Archive. Report completed Inbox work for separately authorized owner filing when ordinary archive is unavailable.

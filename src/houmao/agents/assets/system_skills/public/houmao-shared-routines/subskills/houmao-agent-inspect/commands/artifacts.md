@@ -19,10 +19,11 @@ If the request does not map cleanly to this workflow, use the native planning to
 ## Stable Artifact Targets
 
 - `<session-root>/manifest.json`
+- `<session-root>/usage/records.sqlite3` (durable per-session usage ledger)
 - `<session-root>/gateway/state.json`
 - `<session-root>/gateway/logs/gateway.log`
 - `<session-root>/gateway/events.jsonl`
-- headless turn artifacts under `<session-root>/<manifest-stem>.turn-artifacts/<turn-id>/`
+- headless and turn-scoped artifacts under `<session-root>/<manifest-stem>.turn-artifacts/<turn-id>/` (including `stdout.jsonl`, `stderr.log`, `usage-start.json`, and `usage-final.json`)
 
 Current implementation-detail artifacts that may still be useful for debugging:
 

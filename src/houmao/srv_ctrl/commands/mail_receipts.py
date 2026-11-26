@@ -29,6 +29,7 @@ def verified_mail_receipt(
         "channel": channel,
         "binding_id": binding_id,
         "transport": payload.transport,
+        "transport_evidence": payload.transport_evidence,
         "principal_id": payload.principal_id,
         "address": payload.address,
         "sender_address": message.sender.address,

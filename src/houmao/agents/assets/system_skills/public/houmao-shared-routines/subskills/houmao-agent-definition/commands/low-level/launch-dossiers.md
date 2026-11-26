@@ -50,7 +50,9 @@ The `internals.native-agent.launch-dossier` config draft is intentionally minima
 - `--prompt-mode unattended|as_is`
 - repeatable `--env-set NAME=value`
 - run mode: `--mode headless|service|tui|web` at `defaults.posture.mode`
+- layered per-tool parameters: `--tool-params JSON-OR-@PATH` (`tool_params.permissions`)
 - gateway posture: `--no-gateway`, `--gateway-port`
+- relaunch and managed-header defaults (`MANAGED_PROMPT_HEADER_VERSION = 2`) where supported on `set`
 
 ## Set Clear Fields
 
@@ -59,6 +61,8 @@ The `internals.native-agent.launch-dossier` config draft is intentionally minima
 - `--clear-model`
 - `--clear-reasoning-level`
 - `--clear-prompt-mode`
+- `--clear-mode`
+- `--clear-tool-params`
 
 ## Notes
 
@@ -68,7 +72,7 @@ The `internals.native-agent.launch-dossier` config draft is intentionally minima
 - For covered launch-dossier config documents, treat `internals config-drafts generate` output as authoritative for source kind, required credential/auth reference, and YAML shape.
 - `--auth` and `--clear-auth` change the launch-dossier auth override by display name; they do not mutate credential bundle contents.
 
-- Store `--mode` only when the operator requests a supported mode. Use `--clear-mode` to return to the [tool default](../../references/common/profile-lanes.md#run-modes). Choose prompt policy independently.
+- Store `--mode` only when the operator requests a supported mode. Use `--clear-mode` to return to the [tool default](../../references/common/profile-lanes.md#qualified-run-modes). Choose prompt policy independently.
 
 ## Guardrails
 

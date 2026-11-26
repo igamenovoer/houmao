@@ -105,6 +105,8 @@ from houmao.gateway.access import (
     sshsig_header,
 )
 from houmao.gateway.authorization_models import (
+    DefaultFallbackReceipt,
+    DefaultFallbackRequest,
     DefaultPermissionGroupReceipt,
     DefaultPermissionGroupRequest,
 )
@@ -372,6 +374,19 @@ class GatewayClient:
             "PUT",
             "/v1/admin/default-permission-group",
             DefaultPermissionGroupReceipt,
+            body=payload.model_dump(mode="json"),
+        )
+
+    def set_default_fallback(
+        self, principal_id: str, payload: DefaultFallbackRequest
+    ) -> DefaultFallbackReceipt:
+        """Set the selected principal's fallback through this verified gateway path."""
+
+        escaped = parse.quote(principal_id, safe="")
+        return self._request_model(
+            "PUT",
+            f"/v1/admin/principals/{escaped}/default-fallback",
+            DefaultFallbackReceipt,
             body=payload.model_dump(mode="json"),
         )
 

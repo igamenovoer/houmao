@@ -24,4 +24,4 @@ metadata:
 
 If the help request does not map cleanly to these steps, use the native planning tool to build a bounded read-only response from the collection route table, actor matrix, child help contracts, and caller question, then answer without execution.
 
-Collection-wide help lists sixteen parent-scoped children, `specialist-mgr` as an admin alias, and pro and lite as top-level siblings. Child-scoped help describes only that child's preserved operations and boundaries. Use `houmao-shared-routines->houmao-agent-inspect->discover()` style for child commands and `$houmao-shared-routines [as-agent] <route> <operation>` for visible direct invocation.
+Collection-wide help lists eighteen parent-scoped children, `specialist-mgr` as an admin alias, and pro and lite as top-level siblings. Child-scoped help describes only that child's preserved operations and boundaries. Use `houmao-shared-routines->houmao-agent-inspect->discover()` style for child commands and `$houmao-shared-routines [as-agent] <route> <operation>` for visible direct invocation.

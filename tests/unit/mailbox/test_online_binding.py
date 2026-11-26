@@ -41,7 +41,9 @@ def _service(root: Path, monkeypatch: pytest.MonkeyPatch) -> OnlineBindingServic
         OnlineBindingService,
         "_validate",
         lambda self, config, timeout: SimpleNamespace(
-            account_id=config.account_id or "account-a", identity_id="identity-a"
+            account_id=config.account_id or "account-a",
+            identity_id="identity-a",
+            api_url=config.jmap_url,
         ),
     )
     return OnlineBindingService.from_context(OnlineAuthorityContext(path, "agent-a", "session-a"))
@@ -140,7 +142,9 @@ def test_explicit_replacement_and_refresh_reject_account_drift(
     monkeypatch.setattr(
         service,
         "_validate",
-        lambda config, timeout: SimpleNamespace(account_id="account-b", identity_id="identity-b"),
+        lambda config, timeout: SimpleNamespace(
+            account_id="account-b", identity_id="identity-b", api_url=config.jmap_url
+        ),
     )
     with pytest.raises(OnlineBindingError) as exc:
         service.refresh(OnlineControlRequest(expected_revision=first.revision))
@@ -148,6 +152,88 @@ def test_explicit_replacement_and_refresh_reject_account_drift(
     replacement = _attach(service, source, account_id="account-b", replace=True)
     assert replacement.binding_id != first.binding_id
     assert replacement.account_id == "account-b"
+
+
+def test_origin_policy_round_trip_and_scope_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from houmao.agents.mailbox_runtime_support import safe_registry_mailboxes_projection
+    from houmao.mailbox.stalwart import StalwartConnectionPolicyError
+    from tests.unit.mailbox.fake_notifier_client import (
+        FakeNotifierJmapClient,
+        install_notifier_client,
+    )
+
+    manifest = _manifest(tmp_path)
+    service = OnlineBindingService.from_context(
+        OnlineAuthorityContext(manifest, "agent-a", "session-a")
+    )
+    source = _source(tmp_path)
+    advertised_origin = "http://api.example.com:10080"
+    other_origin = "https://other.example.com"
+    seen: list[dict[str, Any]] = []
+
+    class Client(FakeNotifierJmapClient):
+        """Report the selected API origin and observe connection reconstruction."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            seen.append(kwargs)
+            if kwargs["api_origin"] is not None and kwargs["api_origin"] != advertised_origin:
+                raise StalwartConnectionPolicyError("jmap_api_origin_changed", "API origin changed")
+
+        def validate_binding(self, *, sender_address: str | None = None) -> Any:
+            return replace(
+                super().validate_binding(sender_address=sender_address),
+                api_url=f"{advertised_origin}/api",
+            )
+
+    install_notifier_client(monkeypatch, Client)
+    attached = _attach(
+        service, source, trusted_jmap_origins=[advertised_origin + "/", other_origin]
+    )
+    assert attached.api_origin == advertised_origin
+    assert attached.trusted_jmap_origins == [advertised_origin, other_origin]
+    assert attached.warnings
+    _, binding = service.m_authority.snapshot()
+    assert binding is not None and binding.pinned_api_origin == advertised_origin
+    mailboxes = load_session_manifest(manifest).payload["launch_plan"]["mailboxes"]
+    from houmao.agents.mailbox_runtime_support import mailboxes_resolved_config_from_payload
+
+    configs = mailboxes_resolved_config_from_payload(mailboxes, manifest_path=manifest)
+    projection = safe_registry_mailboxes_projection(configs)
+    assert "origins" not in json.dumps(projection)
+    assert advertised_origin not in json.dumps(projection)
+
+    older = mailboxes["online"]["binding"]
+    del older["trusted_jmap_origins"], older["api_origin"]
+    legacy = mailboxes_resolved_config_from_payload(mailboxes).online.binding
+    assert legacy is not None and legacy.trusted_jmap_origins == ()
+    assert legacy.pinned_api_origin == "http://127.0.0.1"
+
+    changed = _attach(
+        service,
+        source,
+        trusted_jmap_origins=[advertised_origin, other_origin, "https://upload.example.com"],
+    )
+    assert changed.binding_id == attached.binding_id and changed.revision != attached.revision
+    refreshed = service.refresh(OnlineControlRequest(expected_revision=changed.revision))
+    reconnected = service.reconnect(OnlineControlRequest(expected_revision=refreshed.revision))
+    assert reconnected.binding_id == attached.binding_id
+    assert reconnected.trusted_jmap_origins == changed.trusted_jmap_origins
+    assert attached.binding_id is not None
+    service.m_authority.capture_connection(expected_binding_id=attached.binding_id)
+    assert seen[-1]["allowed_api_origins"] == tuple(changed.trusted_jmap_origins)
+    assert seen[-1]["api_origin"] == advertised_origin
+
+    advertised_origin = other_origin
+    with pytest.raises(OnlineBindingError, match="API origin changed"):
+        service.reconnect(OnlineControlRequest(expected_revision=reconnected.revision))
+    assert service.status().binding_id == attached.binding_id
+    with pytest.raises(OnlineBindingError, match="--replace"):
+        _attach(service, source, trusted_jmap_origins=[other_origin])
+    replacement = _attach(service, source, replace=True, trusted_jmap_origins=[other_origin])
+    assert replacement.binding_id != attached.binding_id and replacement.api_origin == other_origin
 
 
 def test_late_observation_is_discarded_after_refresh_or_reconnect(
@@ -322,7 +408,9 @@ def test_competing_candidate_controls_have_one_cas_winner(
     def validate(config: Any, timeout: float) -> Any:
         """Make both candidates validate the same empty slot before either CAS."""
         barrier.wait(timeout=5)
-        return SimpleNamespace(account_id="account-a", identity_id="identity-a")
+        return SimpleNamespace(
+            account_id="account-a", identity_id="identity-a", api_url=config.jmap_url
+        )
 
     monkeypatch.setattr(service, "_validate", validate)
 
@@ -382,53 +470,3 @@ def test_closing_admission_rejects_new_requests_before_detach(
             release.set()
         in_flight.result(timeout=5)
         assert detach.result(timeout=5).state == "absent"
-
-
-def test_explicit_administrative_provisioning_creates_once_without_reentry_rotation(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The separate authorized launch path creates an account and reuses its password."""
-    from collections.abc import Mapping
-    from urllib.parse import parse_qs, urlsplit
-
-    from houmao.mailbox.stalwart import StalwartManagementClient, ensure_stalwart_mailbox
-
-    principals: list[dict[str, Any]] = []
-    calls: list[tuple[str, str]] = []
-    allocations: list[int] = []
-
-    def password(size: int) -> str:
-        """Allocate one deliberately fake account secret for the first launch."""
-        allocations.append(size)
-        return "hermetic-created-password"
-
-    def management(
-        self: Any, method: str, path: str, *, body: Mapping[str, object] | None = None
-    ) -> dict[str, Any]:
-        """Model management principal persistence while recording any password patch."""
-        calls.append((method, path))
-        if method == "GET":
-            selected = parse_qs(urlsplit(path).query)["types"][0]
-            return {"data": {"items": [item for item in principals if item["type"] == selected]}}
-        assert method == "POST" and body is not None, "Reentry must not patch or rotate a secret"
-        principals.append({**body, "id": str(len(principals) + 1)})
-        return {"data": principals[-1]["id"]}
-
-    monkeypatch.setattr("houmao.mailbox.stalwart.secrets.token_urlsafe", password)
-    monkeypatch.setattr(StalwartManagementClient, "_request_json", management)
-    options = {
-        "runtime_root": tmp_path / "runtime",
-        "principal_id": "globally-unique-agent",
-        "address": "alice@example.test",
-        "login_identity": "alice-login",
-        "jmap_url": "http://127.0.0.1/.well-known/jmap",
-        "management_url": "http://127.0.0.1/api",
-    }
-    first = ensure_stalwart_mailbox(session_root=tmp_path / "session-a", **options)
-    second = ensure_stalwart_mailbox(session_root=tmp_path / "session-b", **options)
-    assert first.credential_ref == second.credential_ref
-    assert first.credential_file.read_bytes() == second.credential_file.read_bytes()
-    assert allocations == [24]
-    assert len([method for method, _ in calls if method == "POST"]) == 2
-    assert {item["type"] for item in principals} == {"domain", "individual"}
-    assert all(method != "PATCH" for method, _ in calls)

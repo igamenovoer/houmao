@@ -77,3 +77,5 @@ Apply the target and caller checks in the [gateway HTTP summary](../references/h
 - DO NOT describe `mail-notifier` as the same thing as `/v1/reminders`; the notifier is mailbox-driven polling and uses its own dedicated control routes.
 - DO NOT invent unscoped mail-notifier commands outside the `agents single ... gateway` or `agents self gateway` families.
 - DO NOT add notifier policy fields unless the user explicitly requested them.
+
+Both modes use the authoritative Inbox. A backend's direct Archive delivery never enters the reminder set. For processed Inbox work on a protected binding, the agent reports completion for separately authorized owner filing. `any_inbox` can repeat while the item remains in Inbox, and `unread_only` keeps its normal read-state filter.

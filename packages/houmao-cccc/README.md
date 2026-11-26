@@ -1,17 +1,67 @@
 # Houmao CCCC Plugin
 
-`houmao-cccc` is an optional distribution for an owner-bound CCCC chat connection. Install it in the same Python environment as the Houmao gateway. The core Houmao distribution does not include it.
+`houmao-cccc` is an optional distribution for owner-bound CCCC chat and deferred Mail. Install it with Houmao in the gateway or direct CLI environment.
 
 ```bash
 pixi run python -m build --wheel packages/houmao-cccc
-# In the gateway's environment:
-python -m pip install packages/houmao-cccc/dist/houmao_cccc-0.2.0-py3-none-any.whl
+# In the selected Houmao environment:
+python -m pip install packages/houmao-cccc/dist/houmao_cccc-0.3.0-py3-none-any.whl
 ```
 
-The distribution requires a Houmao release with gateway SDK version `2`. Its `cccc` entry point uses Houmao's public plugin SDK. The `houmao-cccc` command talks to an explicitly selected loopback gateway and uses the selected caller's credentials. The plugin uses the configured CCCC Actor and provider credential.
+The distribution requires Houmao `>=3.0.0rc8,<4` and CCCC external receiver protocol `2`. Its `cccc` entry point uses Houmao's public gateway SDK. In a managed agent, `houmao-cccc` can discover and authenticate to the agent's gateway. An enrolled caller can instead pass the exact `--gateway-url`, `--instance`, and `--signer-binding`. Replies use `chat reply --handle HANDLE --operation-id ID --text TEXT`. The handle identifies its plugin instance for managed-self selection and also works with `chat deliveries --handle HANDLE`. New gateway sends take `--connection-token` from `members`.
 
-A compatible CCCC receiver extension is required. Stock CCCC 0.4.56 does not implement the protocol. The [integration reference](../../docs/reference/gateway/cccc.md) covers the pinned source, private Actor grants, gateway attachment, commands, and delivery outcomes. Start with the [native example](../../examples/cccc-gateway/README.md).
+The selected gateway instance or direct Actor profile determines the CCCC Group. Use `members --group GROUP_ID` to assert that selection. A mismatch returns `group_conflict`. Run `houmao-cccc --version` to see the installed version and `houmao-cccc --help` for examples in both modes.
 
-Each plugin instance selects one preprovisioned Group, Actor, and Actor generation for one Houmao owner. CCCC retains chat history and delivery attempts. The gateway admits each offer immediately or reports refusal/failure/uncertainty. Restarting a gateway or reconnecting a receiver never resends retained chat. The original sender explicitly requests a new attempt when appropriate.
+Build the pinned CCCC source with the tracked receiver patches. Each plugin instance selects one provisioned Group, Actor, and Actor generation for one Houmao owner. The gateway supports scheduled pull and two push policies. CCCC retains pending chat and delivery outcomes. A live receiver lease controls intake, and the original sender authorizes another attempt for terminal work. [Integration reference](../../docs/reference/gateway/cccc.md) · [Native example](../../examples/cccc-gateway/README.md)
 
-CCCC chat and deferred Mail do not consume a Houmao email slot or change the agent's canonical identity. Version 0.2 adds explicit Mail send/reply, peek, cursor, bounded read, and authoritative read-receipt lookup. Mail requires the second tracked provider patch and its complete capability gate; a chat-only provider remains usable for chat. See [the Mail contract](../../docs/reference/gateway/cccc-mail.md) before consuming a batch.
+## Wait for CCCC Chat
+
+If you have finished the current turn, end it. The gateway delivers eligible chat as an ordinary notification when your agent becomes ready under the configured delivery policy.
+
+If you need replies during the current turn, check that `capabilities` reports `chat_queue: true` for the selected instance. Peek with a bounded wait, then pop the exact snapshot once its messages are useful. The gateway selects the oldest whole sealed batches that fit. The minimum count controls how long peek waits. Each element of `batches` is an array of compact messages. Read the batches in order and handle their attributed text as ordinary CCCC requests.
+
+```bash
+houmao-cccc chat peek --min-messages 2 --wait-seconds 10 > cccc-peek.json
+jq '[.batches[][]]' cccc-peek.json
+# After inspecting the messages, pop when a usable selection exists.
+snapshot="$(jq -er '.snapshot' cccc-peek.json)"
+operation_id="$(openssl rand -hex 16)"
+houmao-cccc chat pop --snapshot "$snapshot" --operation-id "$operation_id" > cccc-pop.json
+receipt="$(jq -er '.receipt' cccc-pop.json)"
+houmao-cccc chat ack --receipt "$receipt"
+```
+
+A timed-out peek returns the eligible selection it found or an empty result. An open timed batch is reported separately until it seals. After a successful pop, continue the same turn using the returned messages and reply by their individual handles when needed. Acknowledge the receipt after obtaining the result. This records a tool read for those messages.
+
+If a pop result is lost, run `houmao-cccc chat pop-result --operation-id "$operation_id"` on the same binding, or repeat the original snapshot and operation ID. A recovered result carries the original receipt and the selected messages. If a fresh pop reports a stale selection, peek again and use a fresh operation ID for a new selection.
+
+## Direct Chat and Discovery
+
+Use `--direct-profile` to select the same private Actor profile format used by the gateway. The profile contains schema version `1`, the Houmao `agent_id`, CCCC `endpoint`, `group_id`, `actor_id`, `actor_generation`, and an Actor grant `token`. Keep the file owner-only and outside the checkout. The CLI checks the current managed agent's identity when available. An unmanaged caller supplies the expected owner using `--agent-id`.
+
+```bash
+houmao-cccc --direct-profile "$CCCC_PROFILE" discovery
+houmao-cccc --direct-profile "$CCCC_PROFILE" members --group "$GROUP_ID"
+houmao-cccc --direct-profile "$CCCC_PROFILE" chat deliveries --event-id "$EVENT_ID"
+houmao-cccc --direct-profile "$CCCC_PROFILE" chat pull --limit 16
+houmao-cccc --direct-profile "$CCCC_PROFILE" chat ack --receipt "$RECEIPT"
+houmao-cccc --direct-profile "$CCCC_PROFILE" chat reply \
+  --event-ref "$EVENT_REF" --operation-id reply-1 --text 'I can take this.'
+```
+
+`chat pull` returns an ordered `messages` list and a batch `receipt`. Each entry includes the sender, original timestamp, mode, text, and Actor-scoped `event_ref`. A later invocation can use the reference to reply or read exact history. Acknowledge the receipt once you receive the batch. CCCC distinguishes that acknowledged direct read from gateway handoff. When the gateway already holds the receiver lease, direct pull reports a lease conflict.
+
+`discovery` gives the CCCC endpoint, Actor registration, and advertised operations in either mode. Use those descriptors with an explicitly provisioned Actor credential in the native CCCC client for advanced operations. [Actor RPC](../../extern/tracked/cccc-receiver/PROTOCOL.md#actor-rpc)
+
+## Direct Mail
+
+Use the same explicit profile for CCCC Mail. Read the current native `cursor.event_id` with `mail cursor` and supply it as `--expected-cursor`. The initial cursor is an empty string. `mail peek` inspects without consuming. `mail reply --event-id` selects a native Mail parent from an Actor-visible result.
+
+```bash
+houmao-cccc --direct-profile "$CCCC_PROFILE" mail cursor
+houmao-cccc --direct-profile "$CCCC_PROFILE" mail read \
+  --operation-id read-1 --expected-cursor "$CURSOR_EVENT_ID"
+houmao-cccc --direct-profile "$CCCC_PROFILE" mail reads --operation-id read-1
+```
+
+If a read outcome is uncertain, use the same operation ID to look up its authoritative receipt. CCCC Mail has its own cursor and receipts, independent of Houmao's offline and online email slots. [Mail contract](../../docs/reference/gateway/cccc-mail.md)

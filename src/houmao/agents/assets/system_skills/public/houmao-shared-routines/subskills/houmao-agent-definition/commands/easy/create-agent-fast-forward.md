@@ -37,7 +37,7 @@ This workflow creates or selects a specialist, creates or updates a project prof
    - do not manually preregister the per-agent account during fast-forward; store the mailbox defaults so the later `project agents launch --profile <profile>` command creates the agent mailbox automatically.
 6. Generate `project.profile` with only `name`, `specialist`, and `credential`, then store launch defaults through the maintained profile `create|set` command fields. Store filesystem mailbox posture by default: `--mail-transport filesystem`, `--mail-root <selected-root>`, `--mail-principal-id <principal-id>`, and `--mail-address <address>`.
 7. Print the exact `project agents launch --profile <profile>` command. Include a launch-level `--mode` only for a requested one-shot override.
-8. Report the intended mode, mailbox root, principal ID, and address. For a profile without a stored mode, report the [tool default](../../references/common/profile-lanes.md#run-modes).
+8. Report the intended mode, mailbox root, principal ID, and address. For a profile without a stored mode, report the [tool default](../../references/common/profile-lanes.md#qualified-run-modes).
 9. Stop. Do not run the launch command.
 
 If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
@@ -50,17 +50,19 @@ If the request does not map cleanly to this workflow, use the native planning to
 - default filesystem mailbox posture: `--mail-transport filesystem`, `--mail-principal-id HOUMAO-<agent-name>`, `--mail-address <agent-name>@houmao.localhost`, `--mail-root <selected-root>`
 - workdir: `--workdir`
 - prompt mode: omit unless the user explicitly asks to persist one; prompt mode does not imply headless execution. For Kimi, prompt mode is the managed no-question control and should not be replaced with raw `--auto` or `--yolo` launch flags
-- run mode: store a requested supported `--mode headless|service|tui|web` on the profile. Claude, Codex, and Kimi default to `tui`. DSH defaults to `web`
+- run mode: store a requested qualified `--mode headless|service|tui|web` on the profile (`Claude`: `headless|tui`; `Codex`: `headless|service|tui`; `Kimi`: `headless|service|tui|web`; `DSH`: `headless|service|web`, default `web`); optional `--headless-display-style` and `--headless-display-detail`
 - model: `--model`
 - reasoning: `--reasoning-level`
 - env: repeatable `--env-set NAME=value`
 - auth override: `--auth`
+- system-skill and project-skill overrides: `--system-skill-pack`, `--system-skills-mode`, `--no-system-skills`, `--add-registered-skill`, `--add-private-skill`, `--add-private-skill-symlink`
 - explicit mailbox overrides when supplied: `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`
-- gateway posture: `--no-gateway`, `--gateway-port`
-- managed prompt header: `--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`
+- gateway and relaunch posture: `--no-gateway`, `--gateway-port`, `--relaunch-chat-session-mode`, `--relaunch-chat-session-id`
+- managed prompt header (`MANAGED_PROMPT_HEADER_VERSION = 2`): `--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`
 - prompt overlay: `--prompt-overlay-mode`, `--prompt-overlay-text`, `--prompt-overlay-file`
 - notifier appendix: `--gateway-mail-notifier-appendix-text`
 - memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
+- per-tool parameters: `--tool-params JSON-OR-@PATH` (`tool_params.permissions`)
 
 - When specialist-create tool or credential is omitted, apply Specialist Create Defaulting.
 

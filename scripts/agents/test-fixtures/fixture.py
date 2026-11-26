@@ -1,4 +1,10 @@
-"""Prepare reproducible API/native-login test agents with private external state."""
+"""Prepare reproducible API/native-login test agents with private external state.
+
+Native provider metadata and Houmao-owned launch configuration are separate inputs.
+The option help below identifies which mechanism each flag controls. Run
+`fixture.py prepare --help` for the managed source/profile configuration guide,
+including how to select a reasoning preset for DSH and other non-Kimi clients.
+"""
 
 from __future__ import annotations
 
@@ -23,22 +29,67 @@ from fixturelib.prepare import load_run, prepare_run
 from fixturelib.launch import check_run, interrupt_run, launch_run, prompt_run, public_run, stop_run
 
 
+_MANAGED_CONFIGURATION_GUIDE = """Houmao managed configuration:
+  Native metadata flags describe the provider and model. In particular,
+  --dsh-reasoning declares available DSH slots but does not select one, and
+  --reasoning-effort sets a native Claude/Codex/Kimi default, not a DSH default.
+
+  Houmao --reasoning-level is a tool/model-specific preset index, not a portable
+  scale. This fixture accepts it directly only for Kimi manager runs. For other
+  manager clients, prepare first and set the generated Houmao source or profile
+  before fixture.py launch.
+
+  Manager preparation creates a fixture-agent specialist and project profile.
+  Update the profile's birth-time defaults before fixture.py launch:
+    houmao-mgr --print-json project --project-dir RUN/workdir \\
+      profile set --name fixture-agent --reasoning-level N
+
+  Manager runs default to --tmux-server houmao-default and store that selection
+  on the profile. Do not edit generated YAML projections directly. For DSH slots
+  off, low, medium, xhigh, levels 1/2/3 select low/medium/xhigh and level 0
+  selects off. Use profile set for other launch defaults such as model, prompt
+  mode, environment, tool parameters, and tmux. Use specialist set on the same
+  project for reusable role, skill, setup, credential, and system-skill
+  configuration. See the corresponding Houmao command's --help for its options.
+
+  For an already-running headless managed agent, Houmao prompt and turn-submit
+  commands accept request-scoped --model and --reasoning-level overrides. Those
+  overrides do not rewrite the source or profile. Web/TUI agents must relaunch
+  to pick up changed birth-time defaults. Raw runs have no Houmao project
+  specialist/profile to update.
+"""
+
+
 def add_case_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add explicit API case and client configuration selection."""
+    """Add explicit API case, native metadata, and Houmao launch selection options."""
 
     parser.add_argument("--client", choices=("claude", "codex", "kimi", "dsh"))
     parser.add_argument("--case", choices=("self-hosted", "cloud-api"))
     parser.add_argument("--auth-method", choices=("api-key", "native-login"), default="api-key")
     parser.add_argument("--auth-bundle")
     parser.add_argument("--auth-root", type=Path)
-    parser.add_argument("--model")
+    parser.add_argument(
+        "--model", help="Select the model; manager preparation stores it as a launch default"
+    )
     parser.add_argument("--base-url")
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--descriptor", type=Path)
-    parser.add_argument("--context-window", type=int)
-    parser.add_argument("--max-output-tokens", type=int)
     parser.add_argument(
-        "--dsh-reasoning", help="DSH reasoning JSON: false or a native slot-to-wire mapping"
+        "--context-window",
+        type=int,
+        help="Native model context metadata; required for Kimi and DSH API cases",
+    )
+    parser.add_argument(
+        "--max-output-tokens",
+        type=int,
+        help="Native model output-limit metadata; required for DSH API cases",
+    )
+    parser.add_argument(
+        "--dsh-reasoning",
+        help=(
+            "Declare DSH reasoning slots as false or a native slot-to-wire JSON mapping; "
+            "select a default through Houmao specialist/profile --reasoning-level"
+        ),
     )
     parser.add_argument("--dsh-compat", help="DSH model compatibility as a JSON mapping")
     parser.add_argument(
@@ -52,19 +103,40 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
         ),
         help="Choose the DSH wire protocol for the selected case adapter",
     )
-    parser.add_argument("--capabilities", help="Explicit comma-separated model capabilities")
-    parser.add_argument("--reasoning-key")
-    parser.add_argument("--reasoning-effort")
     parser.add_argument(
-        "--support-effort", action="append", help="Ordered Kimi native effort label"
+        "--capabilities",
+        help="Declare comma-separated native model capabilities, not a reasoning selection",
+    )
+    parser.add_argument("--reasoning-key", help="Kimi native reasoning_key model metadata")
+    parser.add_argument(
+        "--reasoning-effort",
+        help="Native Claude/Codex/Kimi default effort label; does not select DSH reasoning",
     )
     parser.add_argument(
-        "--reasoning-level", type=int, help="Numeric level for a managed Kimi profile"
+        "--support-effort",
+        action="append",
+        help="Declare one Kimi native effort label; repeat in catalog order",
     )
-    parser.add_argument("--mode", choices=RUN_MODES, help="Native run mode for the selected client")
-    parser.add_argument("--prompt-mode", choices=("unattended", "as_is"), default="unattended")
     parser.add_argument(
-        "--surface", choices=("raw", "manager", "passive-server"), default="manager"
+        "--reasoning-level",
+        type=int,
+        help=(
+            "Kimi manager shortcut for Houmao's tool/model-specific preset index; "
+            "other manager clients use specialist/profile set after prepare"
+        ),
+    )
+    parser.add_argument("--mode", choices=RUN_MODES, help="Houmao run mode for the selected client")
+    parser.add_argument(
+        "--prompt-mode",
+        choices=("unattended", "as_is"),
+        default="unattended",
+        help="Managed operator prompt mode stored on the fixture-agent specialist",
+    )
+    parser.add_argument(
+        "--surface",
+        choices=("raw", "manager", "passive-server"),
+        default="manager",
+        help="Choose native raw, Houmao-managed project, or passive-server preparation",
     )
     parser.add_argument(
         "--no-system-skills",
@@ -76,7 +148,11 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
 def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse utility commands without accepting resolved secrets as arguments."""
 
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        epilog=_MANAGED_CONFIGURATION_GUIDE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     discover = commands.add_parser("discover-auth", help="Read-only bounded native auth discovery")
     importer = commands.add_parser(
@@ -98,18 +174,36 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         "--live", action="store_true", help="Explicitly contact a prepared authority"
     )
     prepare = commands.add_parser(
-        "prepare", help="Prepare private client/project inputs without launch"
+        "prepare",
+        help="Prepare private client/project inputs without launch",
+        description=(
+            "Prepare private client/project inputs without launch. For manager runs, "
+            "apply Houmao source/profile changes before launch."
+        ),
+        epilog=_MANAGED_CONFIGURATION_GUIDE,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_case_arguments(prepare)
     prepare.add_argument("--run-root", type=Path)
     prepare.add_argument("--seed-root", type=Path)
-    prepare.add_argument("--role", default="server-api-smoke")
-    prepare.add_argument("--system-prompt-file", type=Path)
+    prepare.add_argument(
+        "--role",
+        default="server-api-smoke",
+        help="Select the fixture role for the agent definition",
+    )
+    prepare.add_argument(
+        "--system-prompt-file",
+        type=Path,
+        help="Override the role prompt; manager preparation stores it on the specialist",
+    )
     prepare.add_argument("--executable")
     prepare.add_argument(
         "--tmux-server",
         choices=("houmao-default", "new"),
-        help="Use the shared Houmao server (default) or a private server for this local run",
+        help=(
+            "Use the shared Houmao or a private tmux server; manager preparation "
+            "stores this on the fixture-agent project profile"
+        ),
     )
     for name in ("launch", "prompt", "interrupt", "stop", "browser-connection"):
         command = commands.add_parser(name, help=f"{name.title()} one prepared external run")

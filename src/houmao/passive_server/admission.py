@@ -143,6 +143,9 @@ def _local(resource: str, action: str) -> PassiveOperation:
 
 _OPERATIONS = {
     ("PUT", "/admin/default-permission-group"): _local("policy", "admin.default-group.set"),
+    ("PUT", "/admin/principals/{principal_id}/default-fallback"): _local(
+        "policy", "admin.default-fallback.set"
+    ),
     ("GET", "/usage"): _proxy("GET", "/v1/usage"),
     ("GET", "/gateway"): _proxy("GET", "/v1/status"),
     **{

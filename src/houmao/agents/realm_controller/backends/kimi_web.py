@@ -940,7 +940,7 @@ class KimiWebSession:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             self._require_current()
-            terminal = self._settle(operation, attempt)
+            terminal = self._settle(operation, attempt, observe_queued_handoff=status == "queued")
             if terminal is not None:
                 self.state.turn_index += 1
                 if terminal["assistant_text"]:
@@ -1013,7 +1013,13 @@ class KimiWebSession:
         ):
             self._settle(request_id, attempt)
 
-    def _settle(self, operation: str, attempt: Mapping[str, Any]) -> dict[str, Any] | None:
+    def _settle(
+        self,
+        operation: str,
+        attempt: Mapping[str, Any],
+        *,
+        observe_queued_handoff: bool = False,
+    ) -> dict[str, Any] | None:
         """Publish exact native turn outcome and attributed text for one managed prompt."""
 
         path = self._turn_dir(operation)
@@ -1039,6 +1045,23 @@ class KimiWebSession:
                 "outcome_uncertain", "Kimi Web journal identity changed after dispatch"
             )
         closure = _exact_closure(window, prompt_id)
+        handoff_file = path / "web-handoff.json"
+        if (
+            observe_queued_handoff
+            and not handoff_file.is_file()
+            and any(
+                row.get("type") == "turn.prompt" and row.get("promptId") == prompt_id
+                for _, _, row in window.records
+            )
+        ):
+            write_service_record(
+                handoff_file,
+                {
+                    "operation_id": operation,
+                    "identity": self.state.web_identity,
+                    "message_id": prompt_id,
+                },
+            )
         if closure is None:
             return None
         try:

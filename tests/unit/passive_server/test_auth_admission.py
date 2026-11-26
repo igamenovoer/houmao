@@ -40,7 +40,12 @@ from houmao.gateway.access import (
     sign_sshsig,
     sshsig_header,
 )
-from houmao.gateway.authorization_models import AuthorizationDecision, Permission, RoleAssignment
+from houmao.gateway.authorization_models import (
+    AuthorizationDecision,
+    DefaultFallbackRequest,
+    Permission,
+    ScopedGrant,
+)
 from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.gateway.deployment import GatewayEndpointDescriptor
 from houmao.gateway.operations import ADMIN_ADD, CORE_OPERATIONS, INTERRUPT, PROMPT, STATUS
@@ -290,7 +295,7 @@ def test_direct_passive_default_update_while_detached(target: _Target) -> None:
     path = f"{target.base}/admin/default-permission-group"
     before = target.store.snapshot()
     assert before.admin_mode == "open"
-    body = b'{"group":"agent-observer"}'
+    body = b'{"group":"agent-operator"}'
     opened = target.client.put(path, content=body)
     assert opened.status_code == 200, opened.text
     assert opened.json()["default_permission_revision"] == 1
@@ -518,7 +523,8 @@ def test_detached_work_route_uses_retained_requester_and_refuses_transition(
 ) -> None:
     """Keep one route and proof choice while accepting verified or unsigned tasks."""
 
-    _enroll(target, Ed25519PrivateKey.generate())
+    admin = Ed25519PrivateKey.generate()
+    _enroll(target, admin)
     signer = Ed25519PrivateKey.generate()
     peer = _admin_entry(signer).model_copy(update={"principal": "work-peer"})
     enroll_fixture_caller(SimpleNamespace(m_access_runtime=target.runtime), peer, permissions=())
@@ -568,20 +574,32 @@ def test_detached_work_route_uses_retained_requester_and_refuses_transition(
     assert received[-1]["requester"] == {"provenance": "anonymous"}
     target.store.update(
         lambda state: state.model_copy(
-            update={
-                "role_assignments": (
-                    RoleAssignment(
-                        principal_id="work-peer",
-                        role_id="builtin:agent-observer",
-                        builtin_version=1,
-                    ),
-                )
-            }
+            update={"grants": (ScopedGrant(principal_id="work-peer", permission=STATUS),)}
         ),
         actor="owner",
         action="test.detached_observer",
     )
+    setting = f"{target.base}/admin/principals/work-peer/default-fallback"
+    change = b'{"enabled":false}'
+    assert target.client.put(setting, content=change).status_code == 401
+    stale = b'{"enabled":false,"expected_listener_id":"replaced"}'
+    assert (
+        target.client.put(
+            setting,
+            content=stale,
+            headers=target.sign(setting, method="PUT", body=stale, admin=admin),
+        ).status_code
+        == 409
+    )
+    changed = target.client.put(
+        setting,
+        content=change,
+        headers=target.sign(setting, method="PUT", body=change, admin=admin),
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["enabled"] is False
     assert send(signed=True).status_code == 403
+    assert send().json()["outcome"] == "handed_off"
     assert target.client.post(f"{target.base}/turns", json={"prompt": "Direct"}).status_code == 401
     assert (
         target.client.post(
@@ -597,7 +615,7 @@ def test_detached_work_route_uses_retained_requester_and_refuses_transition(
     instance.touch()
     refused = send()
     assert refused.status_code == 409 and refused.json()["code"] == "gateway_attached"
-    assert len(received) == 2
+    assert len(received) == 3
 
 
 @pytest.mark.parametrize(
@@ -862,6 +880,20 @@ def test_passive_typed_client_signs_only_selected_protected_requests(
         client.get_headless_turn_artifact_text(target.tracked_ref, "turn", artifact_name="stdout")
         == "fixture artifact"
     )
+    assert requests[-2][0].endswith(f"{target.base}/auth/challenge")
+    assert SIGNATURE_HEADER.lower() in requests[-1][1]
+    endpoint = client.describe_agent_proof(target.tracked_ref)
+    principal = target.store.snapshot().credentials[0].principal_id
+    receipt = client.set_default_fallback(
+        target.tracked_ref,
+        principal,
+        DefaultFallbackRequest(
+            enabled=False,
+            expected_target=endpoint.target,
+            expected_listener_id=endpoint.presence_id,
+        ),
+    )
+    assert receipt.principal_id == principal and not receipt.enabled
     assert requests[-2][0].endswith(f"{target.base}/auth/challenge")
     assert SIGNATURE_HEADER.lower() in requests[-1][1]
     foreign_owner = GatewayOwner(agent_id="another-agent", context_id=binding.owner.context_id)

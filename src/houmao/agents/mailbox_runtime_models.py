@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any, Literal, TypeAlias
 from uuid import uuid4
 
+from houmao.mailbox.stalwart import jmap_origin, normalize_jmap_origins
+
 MailboxTransport = Literal["filesystem", "registry", "stalwart"]
 MailboxChannel = Literal["offline", "online"]
 
@@ -31,6 +33,7 @@ class StalwartMailboxDeclarativeConfig:
     base_url: str | None = None
     jmap_url: str | None = None
     management_url: str | None = None
+    trusted_jmap_origins: tuple[str, ...] = ()
 
 
 MailboxDeclarativeConfig: TypeAlias = (
@@ -111,12 +114,23 @@ class StalwartMailboxResolvedConfig:
     account_id: str | None = None
     identity_id: str | None = None
     credential_source_ref: str | None = None
+    trusted_jmap_origins: tuple[str, ...] = ()
+    api_origin: str | None = None
 
     def __post_init__(self) -> None:
         """Keep the Houmao owner separate from the provider login and account."""
 
         if self.principal_id != self.agent_id:
             raise ValueError("mailbox principal_id must equal owning agent_id")
+
+    @property
+    def pinned_api_origin(self) -> str | None:
+        """Resolve the pin, including the implicit origin of validated older bindings."""
+        if self.api_origin is not None:
+            return normalize_jmap_origins((self.api_origin,))[0]
+        if self.account_id is not None and self.identity_id is not None:
+            return jmap_origin(self.jmap_url)
+        return None
 
     def redacted_payload(self) -> dict[str, Any]:
         """Return a secret-free payload suitable for persistence."""
@@ -137,6 +151,8 @@ class StalwartMailboxResolvedConfig:
             "account_id": self.account_id,
             "identity_id": self.identity_id,
             "credential_source_ref": self.credential_source_ref,
+            "trusted_jmap_origins": list(self.trusted_jmap_origins),
+            "api_origin": self.api_origin,
         }
 
 

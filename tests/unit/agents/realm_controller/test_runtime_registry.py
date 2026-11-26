@@ -1263,6 +1263,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
         execution_mode_override: str | None,
         tui_tracking_timing_overrides: object | None = None,
         plugin_config: object | None = None,
+        plugin_config_overrides: object | None = None,
         access_config: object | None = None,
     ) -> GatewayControlResult:
         del (
@@ -1272,6 +1273,7 @@ def test_attach_and_detach_gateway_refreshes_registry_payload(
             execution_mode_override,
             tui_tracking_timing_overrides,
             plugin_config,
+            plugin_config_overrides,
             access_config,
         )
         write_gateway_current_instance(

@@ -900,6 +900,16 @@ def test_deliver_message_routes_by_address_and_state_updates_use_active_registra
     )
     _write_canonical_staged_message(staged_message, request)
 
+    with pytest.raises(ManagedMailboxOperationError, match="sender binding changed"):
+        deliver_message(paths.root, request, verified_sender_binding="stale")
+    recipient_binding = load_active_mailbox_registration(
+        paths.root, address=recipient.address
+    ).registration_id
+    forged = request.model_copy(update={"sender": request.to[0]})
+    with pytest.raises(ManagedMailboxOperationError, match="staged mail envelope differs"):
+        deliver_message(paths.root, forged, verified_sender_binding=recipient_binding)
+    assert staged_message.exists() and not list(paths.messages_dir.rglob("*.md"))
+
     result = deliver_message(paths.root, request)
 
     canonical_path = paths.messages_dir / "2026-03-11" / f"{request.message_id}.md"

@@ -28,7 +28,7 @@ A gateway SHALL default to loopback. A broader listener SHALL require explicit v
 
 ### Requirement: The matched route determines caller access
 
-Each core route SHALL declare supported authorization operations. Ingress SHALL verify supplied proof before parsing the body or invoking operation handling. It SHALL derive the selected action from verified routing and validated input and apply current policy before effects. Enabled public operations SHALL admit anonymous callers.
+Each core route SHALL declare supported authorization operations. Ingress SHALL verify supplied proof before parsing the body or invoking operation handling. It SHALL derive the selected action from verified routing and validated input and apply current policy before effects. Omitted proof SHALL admit a caller anonymously only when public, open, or default-group authority supplies the operation and its proof requirements permit it.
 
 #### Scenario: Anonymous admin uses a valid empty list
 
@@ -87,7 +87,7 @@ An owner-authorized first launch SHALL accept zero or more named admin public ke
 
 ### Requirement: A listed admin proves possession of its registered SSH key
 
-Admin callers SHALL use `caller` proof checked against the current registered SSH key for the expected owner binding. Verification SHALL establish the principal and exact credential enrollment. On a keyed target, the full gateway-admin role SHALL require a current admin roster entry for that enrollment.
+Direct admin roster authority SHALL use `caller` proof checked against the current registered SSH key for the expected owner binding. Verification SHALL establish the principal, exact credential enrollment, and current admin qualification. Granting `agent-admin` effects through the configured default SHALL convey no roster identity.
 
 #### Scenario: A listed admin requests a controlled operation
 
@@ -102,7 +102,7 @@ Admin callers SHALL use `caller` proof checked against the current registered SS
 #### Scenario: An admin principal signs with a second ordinary key
 
 - **WHEN** the caller proves a current credential of the same principal as an admin key but the signing credential itself has no admin roster entry
-- **THEN** a keyed gateway applies the principal's scoped permissions without the gateway-admin role
+- **THEN** a keyed gateway applies the principal's effective assigned or default permissions without borrowing the other key's roster qualification
 
 #### Scenario: An enrolled service key proves identity
 
@@ -212,18 +212,36 @@ Proof with a current admin-enrolled key SHALL allow adding or removing admin ros
 
 ### Requirement: Self access follows the current managed generation
 
-The runtime SHALL provision an Ed25519 self key pair for each managed generation and bind it to the agent, execution context, and generation. Self proof SHALL be scoped to that agent as target. Self clients SHALL select their owner-private key through verified current runtime authority. Gateway restart or reattach within the same generation SHALL retain the key.
+The runtime SHALL bind each active `managed-self` key to the target, execution context, and current generation. Self clients SHALL load the matching registered key from the verified owner's SQLite store and sign the bound SSHSIG challenge. Gateway restart and reattach SHALL reuse the registration. Proof checks SHALL use the active public key and current registration revision. Replacement or revocation SHALL require effective admin authority or proof from the registered key.
 
 #### Scenario: A managed agent uses its own gateway
 
-- **WHEN** the owner runtime establishes a generation through launch or supported join
+- **WHEN** the owner runtime establishes a generation through launch or supported join and registers its key
 - **THEN** the current managed caller can sign `caller` proof for its granted self operations on the same target agent
+
+#### Scenario: A launch profile starts the runtime and gateway together
+
+- **WHEN** a profile-driven launch returns success for the running agent and its auto-attached gateway
+- **THEN** a self client in that verified generation can load its registered private key record and sign a fresh listener-bound challenge
+- **AND THEN** the gateway resolves that registration whether its administrator roster is empty or keyed
+
+#### Scenario: A fresh process signs after same-generation recovery
+
+- **WHEN** Bob starts another headless worker or resumes within the same verified live generation
+- **THEN** the self client loads the private key record selected by the current registration and signs a fresh challenge for the intended listener
+- **AND THEN** the receiving ingress checks the original generation and current registration revision
+
+#### Scenario: A managed-self key record is unavailable or invalid
+
+- **WHEN** the owner SQLite store is missing, corrupt, or unsafe, or the selected record is absent or disagrees with the active public registration
+- **THEN** the self client reports unavailable self authority before signing
+- **AND THEN** it retains the selected caller without retrying unsigned or substituting another key
 
 #### Scenario: An agent presents its key to a different gateway
 
 - **WHEN** a managed caller presents its generation's self credential as proof for another target agent
 - **THEN** ingress refuses the supplied self proof
-- **AND THEN** peer access uses the target owner's separate peer enrollment
+- **AND THEN** a separate peer request can use the target's default or a valid peer enrollment
 
 #### Scenario: Old body tries to use a retired credential
 
@@ -239,6 +257,12 @@ The runtime SHALL provision an Ed25519 self key pair for each managed generation
 
 - **WHEN** the first admin enrolls after a current managed caller receives a challenge for an explicitly granted self operation
 - **THEN** otherwise valid proof can still authorize that operation if the credential and exact permission remain current
+
+#### Scenario: The registered key changes after proof was admitted
+
+- **WHEN** a protected effect is pending and an authorized replacement changes the current managed-self registration
+- **THEN** proof tied to the earlier revision cannot authorize that effect
+- **AND THEN** the new key must obtain proof for the current target and listener
 
 ### Requirement: State and client proofs use explicit sources
 
@@ -329,7 +353,7 @@ Credential-bearing clients SHALL pin the origin, base path, target execution, an
 
 ### Requirement: Owner clients select proof for each protected target
 
-Same-agent self callers SHALL use their verified generation credentials. Peer and other enrolled callers SHALL use explicitly selected signers. Unsigned clients SHALL use only current applicable public or open permissions. Service backing authority SHALL be scoped independently. Readiness health SHALL use public access. Admission refusal SHALL terminate the attempt.
+Same-agent self callers SHALL use their verified generation credentials. Peer and other enrolled callers SHALL use explicitly selected signers. Unsigned clients SHALL use current public, open, or default-group permissions where the operation permits unsigned access. Service backing authority SHALL be scoped independently. Readiness health SHALL use public access. Admission refusal SHALL terminate the attempt.
 
 #### Scenario: Scoped self command uses its private mailbox
 
@@ -481,7 +505,7 @@ The ingress SHALL authorize the admitted caller for the selected target, resourc
 
 ### Requirement: Current admins and open callers use the same gateway-admin role
 
-The gateway-admin role SHALL cover every declared permission needed by supported client-facing operations on the selected target. A verified empty admin roster SHALL confer that role on all callers. A nonempty roster SHALL confer it only on a caller that proves a currently admin-enrolled key. Valid signed callers SHALL retain their verified identity.
+`agent-admin` SHALL supply all supported client-facing effects. An empty verified roster SHALL confer it through open admission. With a keyed roster, a current admin key or an applicable `agent-admin` default SHALL supply those effects. Operation-specific proof and provenance SHALL remain independent.
 
 #### Scenario: A signed caller uses open access
 
@@ -504,7 +528,7 @@ The gateway-admin role SHALL cover every declared permission needed by supported
 #### Scenario: A nonadmin uses a keyed gateway
 
 - **WHEN** a verified nonadmin invokes operations on a target with a nonempty admin roster
-- **THEN** the gateway applies the caller's scoped permissions and the applicable public rules
+- **THEN** the gateway resolves group permissions from the caller's retained `builtin:` assignments or the configured default and adds applicable local roles, template roles, direct grants, and public rules
 
 ### Requirement: Gateway access requires current authorization formats
 
@@ -523,7 +547,7 @@ Gateway and passive ingress SHALL use the current proof and policy contracts. Ol
 
 ### Requirement: Peer proof identifies an enrolled logical agent
 
-Peer callers SHALL use `caller` proof for a revocable public key enrolled by the target owner for a stable logical agent principal. Ingress SHALL verify possession, the current enrollment, and exact target and request binding. Peer admission SHALL use the target's current policy without requiring source runtime lookup.
+An enrolled peer SHALL prove its stable logical identity with `caller` proof for its revocable enrolled key. Ingress SHALL verify possession, current enrollment, and exact target and request binding without source runtime lookup. The default SHALL provide unaffiliated caller permissions without establishing a peer identity.
 
 #### Scenario: A managed peer uses an explicit operation grant
 
@@ -544,7 +568,7 @@ Peer callers SHALL use `caller` proof for a revocable public key enrolled by the
 
 ### Requirement: Versioned File Operations Use Shared Gateway Authorization
 
-The live target gateway SHALL authorize each file operation through the retained owner policy for its exact mount resource and declared action. A keyed nonadmin SHALL use current enrolled caller proof and hold the corresponding permission. Current named admins and callers admitted under a valid empty roster SHALL have access to every supported file action.
+The live target gateway SHALL authorize each file operation through the retained owner policy for the exact mount and action. Explicit identities SHALL use applicable current proof. Current agent-admin, scoped, or default-group authority SHALL supply the corresponding effects. Unsupported mounts or actions SHALL remain unavailable.
 
 #### Scenario: An enrolled peer uses a scoped file operation
 
@@ -554,7 +578,7 @@ The live target gateway SHALL authorize each file operation through the retained
 
 #### Scenario: A peer requests a different mount or operation
 
-- **WHEN** a verified nonadmin invokes a file operation on a keyed gateway outside that caller's grant
+- **WHEN** a verified nonadmin invokes a file operation on a keyed gateway outside that caller's current permissions
 - **THEN** the gateway refuses the operation before effects
 
 #### Scenario: A caller claims an enrolled identity
@@ -568,9 +592,15 @@ The live target gateway SHALL authorize each file operation through the retained
 - **THEN** gateway-admin policy supplies its required permissions for the selected target
 - **AND THEN** proof, input, target, and runtime requirements still apply
 
+#### Scenario: An unsigned caller edits under a maintainer default
+
+- **WHEN** a keyed target's default supplies the exact qualified mount edit effect and an unsigned caller opens a draft
+- **THEN** the caller can edit under the usual anonymous lease capability and mount checks
+- **AND THEN** the gateway creates no peer enrollment or claimed authorship
+
 ### Requirement: File Effects Require Current Direct Target Authority
 
-File requests SHALL use direct SSHSIG v2 caller proof or valid unsigned open access at the verified target gateway. Before each protected effect or disclosure, it SHALL recheck the target generation, listener, exact permission, credential enrollment, and original authority. That authority SHALL retain the qualifying admin entry or open epoch where applicable. Unsigned callers SHALL retain anonymous provenance.
+File requests SHALL use direct SSHSIG v2 proof or authorized unsigned admission at the verified target gateway. Before each effect or disclosure, it SHALL recheck the target generation, listener, exact permission, provenance, and original authority. Revalidation SHALL use the qualifying admin entry, open epoch, default setting revision, or scoped permission as applicable. Unsigned requests SHALL retain anonymous provenance.
 
 #### Scenario: A peer's credential or grant changes after admission
 
@@ -604,3 +634,9 @@ File requests SHALL use direct SSHSIG v2 caller proof or valid unsigned open acc
 - **WHEN** the client cannot reach a verified live target gateway, including cases where the passive service can resolve the target
 - **THEN** the file operation reports unavailable through the direct client path
 - **AND THEN** no passive fallback carries out the operation
+
+#### Scenario: A default changes before draft publication
+
+- **WHEN** a publication admitted through a default awaits handoff and the target replaces that default
+- **THEN** the earlier admission cannot publish, even if the group is selected again
+- **AND THEN** the candidate remains available for a fresh authorized attempt

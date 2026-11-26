@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, aclosing, asynccontextmanager
 from datetime import datetime, timedelta, timezone
+import hmac
 import json
 import math
 import re
+import secrets
 from typing import Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -18,11 +20,17 @@ from houmao.gateway.plugins import (
     PluginContext,
     PluginDispatchError,
     PluginEvent,
+    PluginPromptReadiness,
+    PluginRequestBinding,
+    PluginRequestMessage,
+    PluginRequestPresentation,
     plugin_route_action,
 )
 from houmao_cccc.client import ProviderClient, ProviderError
-from houmao_cccc.configuration import CcccConfiguration, validate_credentials
+from houmao_cccc.configuration import CcccConfiguration, valid_group_assertion, validate_credentials
+from houmao_cccc.delivery import ChatBatch, ChatOffer, DeliveryBuffer, DeliverySettings
 from houmao_cccc.mail import MAIL_OPERATIONS, MailService
+from houmao_cccc.queue_access import QUEUE_OPERATIONS, QueueAccess
 from houmao_cccc.references import ReferenceCodec, ReferenceError
 
 _CHAT_OPERATIONS = frozenset(
@@ -34,6 +42,10 @@ _CHAT_OPERATIONS = frozenset(
         "lease.renew",
         "lease.release",
         "lease.next",
+        "lease.start",
+        "lease.settle",
+        "lease.notice.next",
+        "lease.stream",
         "lease.outcome",
         "chat.send",
         "chat.reply",
@@ -51,9 +63,11 @@ class BindingRequest(BaseModel):
     expected_binding_id: str = Field(min_length=1, max_length=256)
 
 
-class SendRequest(BindingRequest):
+class SendRequest(BaseModel):
     """Send ordinary chat to explicitly selected CCCC recipients."""
 
+    model_config = ConfigDict(extra="forbid", strict=True)
+    connection_token: str = Field(min_length=1, max_length=64)
     operation_id: str = Field(min_length=1, max_length=128, pattern=r"^[\w.:-]+$")
     to: list[str] = Field(min_length=1, max_length=100)
     text: str = Field(min_length=1, max_length=65536)
@@ -82,11 +96,12 @@ class SendRequest(BindingRequest):
         return values
 
 
-class ReplyRequest(BindingRequest):
+class ReplyRequest(BaseModel):
     """Reply through one opaque, owner-scoped CCCC event reference."""
 
+    model_config = ConfigDict(extra="forbid", strict=True)
     operation_id: str = Field(min_length=1, max_length=128, pattern=r"^[\w.:-]+$")
-    event_ref: str = Field(min_length=1, max_length=8192)
+    handle: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=65536)
     mode: Literal["send"] = "send"
 
@@ -111,6 +126,21 @@ class RetryRequest(BindingRequest):
         """Validate concrete recipient selections before provider access."""
 
         return SendRequest._recipients(values)
+
+
+class DeliveryUpdate(BaseModel):
+    """Replace current-run settings only at the selected revision."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    revision: int = Field(ge=0)
+    settings: DeliverySettings
+
+
+_HANDLE_TTL_SECONDS = 3600.0
+_HANDLE_LIMIT = 4096
+_HISTORY_TARGET_GUIDANCE = "Select the exact message in authorized CCCC chat history."
+_STAGING_COUNT = 32
+_OFFER_FRAME_RESERVE_BYTES = 128
 
 
 def _object(value: JsonValue) -> dict[str, JsonValue]:
@@ -152,6 +182,15 @@ class CcccPlugin:
         self.m_session_task: asyncio.Task[None] | None = None
         self.m_operations: set[asyncio.Task[object]] = set()
         self.m_mail: MailService | None = None
+        self.m_queue: QueueAccess | None = None
+        self.m_desired: DeliverySettings = DeliverySettings()
+        self.m_effective: DeliverySettings | None = None
+        self.m_delivery_revision: int = 0
+        self.m_delivery_change: asyncio.Event = asyncio.Event()
+        self.m_rotate: asyncio.Event = asyncio.Event()
+        self.m_buffer: DeliveryBuffer | None = None
+        self.m_connection_token: str | None = None
+        self.m_handles: dict[str, tuple[str, float]] = {}
 
     @classmethod
     def from_config(cls, context: PluginContext, config: CcccConfiguration) -> CcccPlugin:
@@ -160,7 +199,9 @@ class CcccPlugin:
         plugin = cls()
         plugin.m_context = context
         plugin.m_config = config
+        plugin.m_desired = config.delivery
         plugin.m_mail = MailService.from_plugin(plugin)
+        plugin.m_queue = QueueAccess.from_plugin(plugin)
         plugin._register_routes()
         return plugin
 
@@ -257,25 +298,51 @@ class CcccPlugin:
                 continue
             lease: dict[str, JsonValue] | None = None
             retry_delay = self._config().reconnect_delay_seconds
+            rotate = False
             try:
                 self._report("connecting")
-                binding = await client.request("binding", {})
-                self._validate_binding(binding)
-                capabilities = await client.request("capabilities", {})
+                self.m_rotate.clear()
+                await client.verify_binding()
+                capabilities = await client.capabilities()
                 self._validate_capabilities(capabilities)
-                lease = await client.request("lease.acquire", {})
+                self.m_provider_capabilities = capabilities
+                transport = self.m_desired.transport
+                self._require_transport(capabilities, transport)
+                limits = self._limits()
+                lease = await client.request(
+                    "lease.acquire",
+                    {
+                        "transport": transport,
+                        "receiver": "gateway",
+                        "max_offer_bytes": min(
+                            cast(int, limits["max_event_bytes"]),
+                            cast(int, limits["max_batch_bytes"]) - _OFFER_FRAME_RESERVE_BYTES,
+                        ),
+                    },
+                )
                 _string(lease.get("lease_id"))
                 if type(lease.get("lease_generation")) not in (int, str):
                     raise ProviderError("invalid_provider_response", 503, False)
                 if not self._current(epoch):
                     continue
+                if transport != self.m_desired.transport:
+                    continue
                 self.m_lease = lease
-                self.m_provider_capabilities = capabilities
+                self.m_effective = self.m_desired
+                self.m_buffer = DeliveryBuffer.from_settings(
+                    self.m_effective,
+                    max_count=cast(int, limits["max_batch_messages"]),
+                    max_bytes=cast(int, limits["max_batch_bytes"]),
+                )
+                assert self.m_queue is not None
+                self.m_queue.start_lease()
+                self.m_connection_token = secrets.token_urlsafe(18)
                 self._report("connected")
                 self.m_session_task = asyncio.create_task(
-                    self._receive_session(client, lease, epoch)
+                    self._receive_session(client, lease, epoch, self.m_buffer)
                 )
                 await self.m_session_task
+                rotate = self.m_rotate.is_set()
             except asyncio.CancelledError:
                 if not self.m_active or epoch == self.m_epoch:
                     raise
@@ -289,31 +356,26 @@ class CcccPlugin:
                     self._report("degraded", ProviderError("connection_failed", 503, True))
             finally:
                 self.m_session_task = None
+                self.m_connection_token = None
+                self.m_effective = None
+                self.m_buffer = None
+                self.m_handles.clear()
+                self._signal_delivery_change()
                 if lease is not None:
                     await self._release(client, lease)
                 if epoch == self.m_epoch:
                     self.m_lease = None
-            if self._current(epoch):
+            if self._current(epoch) and not rotate:
                 await self._pause(retry_delay)
-
-    def _validate_binding(self, binding: dict[str, JsonValue]) -> None:
-        """Reject another registration and incompatible stock Web interfaces."""
-
-        config = self._config()
-        if type(binding.get("protocol_version")) is not int or binding.get("protocol_version") != 1:
-            raise ProviderError("receiver_incompatible", 503, False)
-        for field in ("group_id", "actor_id", "actor_generation"):
-            if binding.get(field) != getattr(config, field):
-                raise ProviderError("actor_binding_changed", 409, False)
 
     def _validate_capabilities(self, capabilities: dict[str, JsonValue]) -> None:
         """Require qualified chat and receiver operations before intake."""
 
         operations = capabilities.get("operations")
-        required = _CHAT_OPERATIONS - {"binding", "capabilities"}
+        required = _CHAT_OPERATIONS - {"binding", "capabilities", "lease.stream"}
         if (
             type(capabilities.get("protocol_version")) is not int
-            or capabilities.get("protocol_version") != 1
+            or capabilities.get("protocol_version") != 2
             or not isinstance(operations, list)
         ):
             raise ProviderError("receiver_incompatible", 503, False)
@@ -322,10 +384,36 @@ class CcccPlugin:
         limits = capabilities.get("limits")
         if not isinstance(limits, dict):
             raise ProviderError("receiver_incompatible", 503, False)
-        for name in ("max_event_bytes", "max_history_limit", "max_response_bytes", "lease_seconds"):
+        for name in (
+            "max_event_bytes",
+            "max_history_limit",
+            "max_response_bytes",
+            "lease_seconds",
+            "max_batch_messages",
+            "max_batch_bytes",
+            "max_handoff_seconds",
+        ):
             value = limits.get(name)
-            if type(value) is not int or value <= 0:
+            minimum = _OFFER_FRAME_RESERVE_BYTES if name == "max_batch_bytes" else 0
+            if type(value) is not int or value <= minimum:
                 raise ProviderError("receiver_incompatible", 503, False)
+
+    @staticmethod
+    def _require_transport(capabilities: dict[str, JsonValue], transport: str) -> None:
+        """Verify provider qualification for the requested intake transport."""
+
+        features = capabilities.get("features")
+        operations = capabilities.get("operations")
+        qualifier = "chat_push_stream" if transport == "push" else "chat_batch_pull"
+        if (
+            not isinstance(features, dict)
+            or features.get(qualifier) is not True
+            or features.get("chat_pending") is not True
+            or features.get("chat_batch_settlement") is not True
+            or not isinstance(operations, list)
+            or (transport == "push" and "lease.stream" not in operations)
+        ):
+            raise ProviderError("receiver_incompatible", 503, False)
 
     def _limits(self) -> dict[str, JsonValue]:
         """Expose only negotiated finite limits, constrained by local implementation."""
@@ -336,6 +424,9 @@ class CcccPlugin:
             "max_history_limit": 100,
             "max_response_bytes": config.max_response_bytes,
             "lease_seconds": 45,
+            "max_batch_messages": _STAGING_COUNT,
+            "max_batch_bytes": min(config.max_response_bytes, config.max_event_bytes),
+            "max_handoff_seconds": 15,
         }
         limits = self.m_provider_capabilities.get("limits")
         if not isinstance(limits, dict):
@@ -355,18 +446,42 @@ class CcccPlugin:
             pass
 
     async def _receive_session(
-        self, client: ProviderClient, lease: dict[str, JsonValue], epoch: int
+        self,
+        client: ProviderClient,
+        lease: dict[str, JsonValue],
+        epoch: int,
+        buffer: DeliveryBuffer,
     ) -> None:
-        """Renew intake independently while long polling or dispatch is active."""
+        """Supervise intake, notices, and one orderly dispatcher on this lease."""
 
+        settings = self.m_effective
+        assert settings is not None
+        intake = self._pull if settings.transport == "pull" else self._push
+        intake_task = asyncio.create_task(intake(client, lease, epoch, buffer))
+        notices = asyncio.create_task(self._notices(client, lease, epoch, settings.transport))
+        dispatch = asyncio.create_task(self._dispatch_batches(client, lease, epoch, buffer))
+        rotation = asyncio.create_task(self.m_rotate.wait())
         tasks = [
             asyncio.create_task(self._renew(client, lease, epoch)),
-            asyncio.create_task(self._poll(client, lease, epoch)),
+            asyncio.create_task(self._seal_due_batches(buffer, epoch)),
+            intake_task,
+            notices,
+            dispatch,
+            rotation,
         ]
         try:
             done, _pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()
+            if self.m_rotate.is_set():
+                intake_task.cancel()
+                notices.cancel()
+                self._signal_delivery_change()
+                try:
+                    async with asyncio.timeout(self._config().request_timeout_seconds + 2.0):
+                        await dispatch
+                except TimeoutError:
+                    pass
         finally:
             for task in tasks:
                 task.cancel()
@@ -386,20 +501,375 @@ class CcccPlugin:
             if self._current(epoch):
                 await client.request("lease.renew", self._lease_arguments(lease))
 
-    async def _poll(self, client: ProviderClient, lease: dict[str, JsonValue], epoch: int) -> None:
-        """Process only fresh provider offers, never recovered history."""
+    def _signal_delivery_change(self) -> None:
+        """Wake all current lease workers without clearing another waiter's signal."""
 
-        while self._current(epoch):
-            arguments = self._lease_arguments(lease)
-            arguments["timeout_seconds"] = self._config().poll_timeout_seconds
-            result = await client.request("lease.next", arguments)
-            if not self._current(epoch):
-                return
-            offer = result.get("offer")
-            if offer is not None:
-                await self._offer(client, lease, _object(offer), epoch)
+        self.m_delivery_change.set()
+        self.m_delivery_change = asyncio.Event()
+
+    async def _wait_for_delivery_change(self, timeout: float) -> None:
+        """Wait for changed capacity, settings, or a bounded timer."""
+
+        try:
+            async with asyncio.timeout(max(timeout, 0.001)):
+                await self.m_delivery_change.wait()
+        except TimeoutError:
+            pass
+
+    async def _seal_due_batches(self, buffer: DeliveryBuffer, epoch: int) -> None:
+        """Seal open batches on schedule even while older work awaits readiness."""
+
+        loop = asyncio.get_running_loop()
+        while self._intaking(epoch):
+            now = loop.time()
+            deadline = buffer.deadline
+            if deadline is not None and deadline <= now:
+                buffer.close_due(now)
+                self._signal_delivery_change()
+                continue
+            await self._wait_for_delivery_change(1.0 if deadline is None else deadline - now)
+
+    def _intaking(self, epoch: int) -> bool:
+        """Reject new work once an orderly transport rotation has been requested."""
+
+        return self._current(epoch) and not self.m_rotate.is_set()
+
+    def _parse_offer(self, offer: dict[str, JsonValue], lease: dict[str, JsonValue]) -> ChatOffer:
+        """Fence a chat offer to this selected registration and live lease."""
+
+        config = self._config()
+        sequence, remaining = offer.get("sequence"), offer.get("remaining_seconds")
+        mode = offer.get("message_mode")
+        if (
+            offer.get("kind", "chat") != "chat"
+            or offer.get("group_id") != config.group_id
+            or offer.get("actor_id") != config.actor_id
+            or offer.get("actor_generation") != config.actor_generation
+            or offer.get("lease_generation") != lease.get("lease_generation")
+            or type(sequence) is not int
+            or sequence <= 0
+            or type(remaining) not in (int, float)
+            or not math.isfinite(cast(float, remaining))
+            or cast(float, remaining) <= 0
+            or not isinstance(mode, str)
+            or mode not in {"send", "request_reply"}
+        ):
+            raise ProviderError("invalid_offer", 422, False)
+        return ChatOffer(
+            attempt_id=_string(offer.get("attempt_id")),
+            event_id=_string(offer.get("event_id")),
+            sequence=sequence,
+            sender=_string(offer.get("sender")),
+            timestamp=_string(offer.get("timestamp")),
+            mode=cast(Literal["send", "request_reply"], mode),
+            text=_string(offer.get("text")),
+            expires_at=asyncio.get_running_loop().time() + cast(float, remaining),
+            size=len(json.dumps(offer, ensure_ascii=False, separators=(",", ":")).encode()),
+        )
+
+    def _stage(
+        self, lease: dict[str, JsonValue], buffer: DeliveryBuffer, offers: list[JsonValue]
+    ) -> None:
+        """Stage parsed offers atomically and signal the lease's dispatcher."""
+
+        try:
+            buffer.stage(
+                [self._parse_offer(_object(offer), lease) for offer in offers],
+                asyncio.get_running_loop().time(),
+            )
+        except ValueError:
+            raise ProviderError("invalid_provider_response", 503, False) from None
+        self._signal_delivery_change()
+
+    async def _pull(
+        self,
+        client: ProviderClient,
+        lease: dict[str, JsonValue],
+        epoch: int,
+        buffer: DeliveryBuffer,
+    ) -> None:
+        """Seal exactly one notification per scheduled provider snapshot."""
+
+        lease_args = self._lease_arguments(lease)
+        loop = asyncio.get_running_loop()
+        last = -math.inf
+        while self._intaking(epoch):
+            settings = self.m_effective
+            assert settings is not None
+            delay = last + settings.pull_interval - loop.time()
+            count, byte_limit = buffer.credit
+            if delay > 0 or count == 0 or byte_limit <= _OFFER_FRAME_RESERVE_BYTES:
+                await self._wait_for_delivery_change(delay if delay > 0 else 1.0)
+                continue
+            last = loop.time()
+            try:
+                result = await client.request(
+                    "lease.next", {**lease_args, "limit": count, "max_bytes": byte_limit}
+                )
+            except ProviderError as exc:
+                if exc.code != "event_too_large":
+                    raise
+                continue
+            if self._intaking(epoch):
+                offers = result.get("offers")
+                if not isinstance(offers, list):
+                    raise ProviderError("invalid_provider_response", 503, False)
+                self._stage(lease, buffer, offers)
+
+    async def _push(
+        self,
+        client: ProviderClient,
+        lease: dict[str, JsonValue],
+        epoch: int,
+        buffer: DeliveryBuffer,
+    ) -> None:
+        """Grant bounded stream credit and stage each newly received offer on arrival."""
+
+        lease_id = _string(lease.get("lease_id"))
+        generation = cast(int | str, lease["lease_generation"])
+        while self._intaking(epoch):
+            limit, byte_limit = buffer.credit
+            if limit == 0 or byte_limit <= _OFFER_FRAME_RESERVE_BYTES:
+                await self._wait_for_delivery_change(1.0)
+                continue
+            before = buffer.highest_sequence
+            try:
+                async with aclosing(
+                    client.offer_stream(
+                        lease_id,
+                        generation,
+                        kind="chat",
+                        limit=limit,
+                        max_bytes=byte_limit,
+                        after_sequence=before,
+                    )
+                ) as stream:
+                    async for offer in stream:
+                        if not self._intaking(epoch):
+                            return
+                        self._stage(lease, buffer, [offer])
+            except ProviderError as exc:
+                if exc.code != "event_too_large":
+                    raise
+            if buffer.highest_sequence == before:
+                await self._wait_for_delivery_change(0.1)
+
+    async def _notices(
+        self, client: ProviderClient, lease: dict[str, JsonValue], epoch: int, transport: str
+    ) -> None:
+        """Keep immediate Mail notice intake independent of chat credit and batching."""
+
+        lease_args = self._lease_arguments(lease)
+        if transport == "pull":
+            while self._intaking(epoch):
+                result = await client.request("lease.notice.next", lease_args)
+                offer = result.get("offer")
+                if self._intaking(epoch) and offer is not None:
+                    await self._offer(client, lease, _object(offer), epoch)
+                await self._wait_for_delivery_change(0.5)
+            return
+        lease_id = _string(lease.get("lease_id"))
+        generation = cast(int | str, lease["lease_generation"])
+        sequence = 0
+        while self._intaking(epoch):
+            async with aclosing(
+                client.offer_stream(
+                    lease_id,
+                    generation,
+                    kind="mail_notice",
+                    limit=1,
+                    max_bytes=cast(int, self._limits()["max_batch_bytes"]),
+                    after_sequence=sequence,
+                )
+            ) as stream:
+                async for offer in stream:
+                    if not self._intaking(epoch):
+                        return
+                    current = offer.get("sequence")
+                    if type(current) is not int or current <= 0:
+                        raise ProviderError("invalid_offer", 422, False)
+                    if current > sequence:
+                        await self._offer(client, lease, offer, epoch)
+                        sequence = current
+
+    @staticmethod
+    async def _decision(
+        client: ProviderClient, operation: str, arguments: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
+        """Reconcile one ambiguous provider response using the original decision ID."""
+
+        try:
+            return await client.request(operation, arguments)
+        except ProviderError as error:
+            if not error.retryable and error.outcome != "unknown":
+                raise
+            return await client.request(operation, arguments)
+
+    def _batch_event(self, batch: tuple[ChatOffer, ...]) -> PluginEvent:
+        """Project sender attribution and exact handles while retaining correlation internally."""
+
+        config = self._config()
+        return PluginEvent(
+            source_event_id=f"cccc:{batch[0].attempt_id}",
+            presentation=PluginRequestPresentation(
+                binding=PluginRequestBinding(group_id=config.group_id, actor_id=config.actor_id),
+                messages=[
+                    PluginRequestMessage(
+                        sender=offer.sender,
+                        timestamp=offer.timestamp,
+                        mode=offer.mode,
+                        text=offer.text,
+                        handle=self._mint_handle(offer.event_id),
+                    )
+                    for offer in batch
+                ],
+            ),
+            metadata={"backend": "cccc-chat"},
+        )
+
+    async def _dispatch_batches(
+        self,
+        client: ProviderClient,
+        lease: dict[str, JsonValue],
+        epoch: int,
+        buffer: DeliveryBuffer,
+    ) -> None:
+        """Advance one sealed batch through ready-only handoff and exact settlement."""
+
+        loop = asyncio.get_running_loop()
+        events = self._context().events
+        while self._intaking(epoch):
+            buffer.close_due(loop.time())
+            batch = buffer.head
+            if batch is None or buffer.reserved:
+                await self._wait_for_delivery_change(1.0)
+                continue
+            event = self._batch_event(batch)
+            limit = min(offer.expires_at for offer in batch)
+            validation_error = None
+            try:
+                events.validate(event)
+            except PluginDispatchError as error:
+                validation_error = error
+            while self._intaking(epoch) and buffer.head is batch and not buffer.reserved:
+                remaining = limit - loop.time()
+                if remaining <= 0:
+                    self.m_rotate.set()
+                    self._signal_delivery_change()
+                    return
+                readiness = None
+                if validation_error is None:
+                    try:
+                        readiness = await events.wait_until_ready(
+                            timeout_seconds=min(0.2, remaining)
+                        )
+                    except PluginDispatchError as error:
+                        if error.error_code != "body_replaced":
+                            raise
+                    if readiness is None:
+                        continue
+                if not self._intaking(epoch):
+                    return
+                selection = (batch,)
+                if not buffer.reserve(selection):
+                    break
+                consume = False
+                try:
+                    if limit <= loop.time():
+                        self.m_rotate.set()
+                        return
+                    consume = await self._dispatch_claimed(
+                        client, lease, epoch, batch, event, readiness, validation_error
+                    )
+                except (Exception, asyncio.CancelledError):
+                    # A possibly started or unsettled dispatch is resolved by CCCC on retirement.
+                    self.m_rotate.set()
+                    raise
+                finally:
+                    buffer.release(selection, consume=consume)
+                    self._signal_delivery_change()
+                if consume:
+                    break
+
+    async def _dispatch_claimed(
+        self,
+        client: ProviderClient,
+        lease: dict[str, JsonValue],
+        epoch: int,
+        batch: ChatBatch,
+        event: PluginEvent,
+        readiness: PluginPromptReadiness | None,
+        validation_error: PluginDispatchError | None,
+    ) -> bool:
+        """Settle the reserved head and return whether it left automatic delivery."""
+
+        loop = asyncio.get_running_loop()
+        dispatch_id = secrets.token_urlsafe(18)
+        key = {**self._lease_arguments(lease), "dispatch_id": dispatch_id}
+        ids: list[JsonValue] = [offer.attempt_id for offer in batch]
+        handoff_deadline = loop.time() + cast(int, self._limits()["max_handoff_seconds"])
+        start = await self._decision(client, "lease.start", {**key, "attempt_ids": ids})
+        if (
+            start.get("dispatch_id") != dispatch_id
+            or start.get("attempt_ids") != ids
+            or start.get("outcome") != "started"
+        ):
+            raise ProviderError("invalid_provider_response", 503, False)
+        outcome = "deferred"
+        code: str | None = "connection_retired"
+        retryable = True
+        try:
+            if validation_error is not None:
+                raise validation_error
+            remaining = min(handoff_deadline, *(offer.expires_at for offer in batch)) - loop.time()
+            if self._intaking(epoch) and remaining > 0:
+                async with asyncio.timeout(min(self._config().request_timeout_seconds, remaining)):
+                    await self._context().events.dispatch(event, readiness=readiness)
+                outcome, code, retryable = "accepted", None, False
+        except PluginDispatchError as error:
+            if error.dispatch_outcome == "unknown":
+                outcome = "uncertain"
+            elif error.error_code in {"not_ready", "body_replaced", "plugin_unavailable"}:
+                outcome = "deferred"
             else:
-                await asyncio.sleep(0.01)
+                outcome = "failed"
+            code, retryable = error.error_code, error.retryable
+        except TimeoutError:
+            outcome, code, retryable = "uncertain", "dispatch_timeout", True
+        except asyncio.CancelledError:
+            try:
+                async with asyncio.timeout(1.0):
+                    await client.request(
+                        "lease.settle",
+                        {
+                            **key,
+                            "outcome": "uncertain",
+                            "retryable": True,
+                            "error_code": "dispatch_cancelled",
+                        },
+                    )
+            except (ProviderError, TimeoutError):
+                pass
+            raise
+        except Exception:
+            outcome, code, retryable = "uncertain", "dispatch_failed", True
+        settled = await self._decision(
+            client,
+            "lease.settle",
+            {
+                **key,
+                "outcome": outcome,
+                "retryable": retryable,
+                "error_code": code,
+            },
+        )
+        if (
+            settled.get("dispatch_id") != dispatch_id
+            or settled.get("attempt_ids") != ids
+            or settled.get("outcome") != outcome
+        ):
+            raise ProviderError("invalid_provider_response", 503, False)
+        return outcome != "deferred"
 
     async def _offer(
         self,
@@ -408,95 +878,59 @@ class CcccPlugin:
         offer: dict[str, JsonValue],
         epoch: int,
     ) -> None:
-        """Dispatch one request-scoped offer and settle its exact provider attempt."""
+        """Dispatch one content-free Mail notice and settle its immediate outcome."""
 
         arguments = self._lease_arguments(lease)
         arguments["attempt_id"] = _string(offer.get("attempt_id"))
         arguments.update(outcome="failed", retryable=False, error_code="invalid_offer")
         try:
             event_id = _string(offer.get("event_id"))
-            notice = offer.get("kind") == "mail_notice"
             pending_count = offer.get("pending_count")
-            if notice:
-                if (
-                    self.m_mail is None
-                    or not self.m_mail.qualified()
-                    or type(pending_count) is not int
-                    or pending_count < 0
-                    or pending_count > 2147483647
-                ):
-                    raise ProviderError("invalid_offer", 422, False)
-                text = (
-                    "CCCC deferred Mail is pending. Inspect this binding's /mail/peek and "
-                    "/mail/cursor explicitly. Consume only through POST /mail/read with an "
-                    "operation_id and expected_cursor. A notice does not consume Mail."
-                )
-            else:
-                if offer.get("kind") not in (None, "chat"):
-                    raise ProviderError("invalid_offer", 422, False)
-                text = _string(offer.get("text"))
-            sender = _string(offer.get("sender"))
-            reply_to = offer.get("reply_to")
             remaining = offer.get("remaining_seconds")
             config = self._config()
             if (
                 not self._current(epoch)
+                or offer.get("kind") != "mail_notice"
+                or self.m_mail is None
+                or not self.m_mail.qualified()
                 or offer.get("group_id") != config.group_id
                 or offer.get("actor_id") != config.actor_id
                 or offer.get("actor_generation") != config.actor_generation
                 or offer.get("lease_generation") != lease.get("lease_generation")
-                or offer.get("message_mode") not in {"send", "request_reply"}
-                or isinstance(remaining, bool)
-                or not isinstance(remaining, (float, int))
-                or not math.isfinite(remaining)
-                or remaining <= 0
-                or len(event_id) > 512
-                or len(sender) > 256
-                or any(ord(char) < 32 for char in sender)
-                or (reply_to is not None and (not isinstance(reply_to, str) or len(reply_to) > 512))
+                or type(pending_count) is not int
+                or not 0 <= pending_count <= 2147483647
+                or type(remaining) not in (int, float)
+                or not math.isfinite(cast(float, remaining))
+                or cast(float, remaining) <= 0
             ):
                 raise ProviderError("invalid_offer", 422, False)
-            event_ref = self._references().encode("event", {"event_id": event_id})
             context = self._context()
             listener = context.listener
-            operation_hint = (
-                f"local_plugin_url={listener.base_url}/v1/plugins/{context.instance_id}\n"
+            endpoint = (
+                f"{listener.base_url}/v1/plugins/{context.instance_id}"
                 if listener is not None
-                else ""
+                else f"/v1/plugins/{context.instance_id}"
             )
-            heading = "CCCC deferred Mail notice\n" if notice else "CCCC ordinary chat\n"
-            reply_hint = (
-                "Use the explicit Mail routes to inspect or consume the pending batch.\n\n"
-                if notice
-                else "To reply, use this local plugin's POST /chat/reply with expected_binding_id, "
-                "a new operation_id, this event_ref, and text.\n\n"
-            )
-            metadata: dict[str, JsonValue] = {
-                "backend": "cccc-mail" if notice else "cccc-chat",
-                "event_ref": event_ref,
-            }
-            if notice:
-                metadata.update(kind="mail_notice", pending_count=pending_count)
-                assert self.m_mail is not None
-                self.m_mail.observe_notice(cast(int, pending_count))
+            self.m_mail.observe_notice(pending_count)
             event = PluginEvent(
                 source_event_id=event_id,
                 text=(
-                    f"{heading}"
-                    f"plugin_instance={context.instance_id}\n"
-                    f"binding_id={context.binding_id}\n"
-                    f"event_id={event_id}\nevent_ref={event_ref}\n"
-                    f"sender={sender}\nmessage_mode={offer.get('message_mode')}\n"
-                    f"reply_to={reply_to}\n{operation_hint}"
-                    f"{reply_hint}"
-                    f"{text}"
+                    f"CCCC deferred Mail is pending for instance {context.instance_id}, "
+                    f"binding {context.binding_id}. Inspect {endpoint}/mail/peek and "
+                    f"{endpoint}/mail/cursor explicitly. Consume only through POST "
+                    f"{endpoint}/mail/read with an operation_id and expected_cursor. "
+                    "A notice does not consume Mail."
                 ),
-                metadata=metadata,
+                metadata={
+                    "backend": "cccc-mail",
+                    "kind": "mail_notice",
+                    "pending_count": pending_count,
+                },
             )
             max_event_bytes = cast(int, self._limits()["max_event_bytes"])
             if len(event.model_dump_json().encode("utf-8")) > max_event_bytes:
                 raise ProviderError("event_too_large", 422, False)
-            async with asyncio.timeout(min(float(remaining), config.request_timeout_seconds)):
+            async with asyncio.timeout(min(cast(float, remaining), config.request_timeout_seconds)):
                 await self._context().events.dispatch(event)
             if not self._current(epoch):
                 raise ProviderError("connection_retired", 503, True, outcome="unknown")
@@ -545,6 +979,7 @@ class CcccPlugin:
         self.m_want_connected = False
         self.m_epoch += 1
         self.m_change.set()
+        self._signal_delivery_change()
         session = self.m_session_task
         if session is not None:
             session.cancel()
@@ -569,13 +1004,19 @@ class CcccPlugin:
 
         client = self.m_client
         epoch = self.m_epoch
-        if client is None or self.m_phase != "connected" or not self._current(epoch):
+        token = self.m_connection_token
+        if (
+            client is None
+            or token is None
+            or self.m_phase != "connected"
+            or not self._intaking(epoch)
+        ):
             raise ProviderError("receiver_unavailable", 503, True)
         task = cast(asyncio.Task[object], asyncio.current_task())
         self.m_operations.add(task)
         try:
             result = await client.request(operation, arguments)
-            if not self._current(epoch):
+            if not self._intaking(epoch) or token != self.m_connection_token:
                 raise ProviderError(
                     "connection_retired", 503, True, outcome="unknown" if mutation else "not_sent"
                 )
@@ -595,6 +1036,39 @@ class CcccPlugin:
         if binding_id != self._context().binding_id:
             raise HTTPException(409, detail={"error_code": "binding_conflict", "retryable": False})
 
+    def _mint_handle(self, event_id: str) -> str:
+        """Issue a bounded gateway-run and receiver-generation scoped message handle."""
+
+        now = asyncio.get_running_loop().time()
+        while self.m_handles:
+            oldest = next(iter(self.m_handles))
+            if len(self.m_handles) < _HANDLE_LIMIT and self.m_handles[oldest][1] > now:
+                break
+            del self.m_handles[oldest]
+        handle = f"msg_{self._context().instance_id}.{secrets.token_urlsafe(12)}"
+        self.m_handles[handle] = event_id, now + _HANDLE_TTL_SECONDS
+        return handle
+
+    def _handle_event_id(self, handle: str) -> str:
+        """Resolve a live handle without interpreting provider-controlled input as an ID."""
+
+        entry = self.m_handles.get(handle)
+        if (
+            entry is None
+            or entry[1] <= asyncio.get_running_loop().time()
+            or self.m_connection_token is None
+            or self.m_rotate.is_set()
+        ):
+            raise HTTPException(
+                409,
+                detail={
+                    "error_code": "message_handle_stale",
+                    "retryable": False,
+                    "guidance": _HISTORY_TARGET_GUIDANCE,
+                },
+            )
+        return entry[0]
+
     @staticmethod
     def _queries(request: Request, allowed: set[str]) -> None:
         """Reject unsupported ordinary query inputs rather than accepting overrides."""
@@ -609,7 +1083,13 @@ class CcccPlugin:
             value = self._references().decode(event_ref, "event")
             return _string(_object(value).get("event_id"))
         except (ReferenceError, ProviderError):
-            raise HTTPException(422, detail={"error_code": "reference_scope_error"}) from None
+            raise HTTPException(
+                422,
+                detail={
+                    "error_code": "reference_scope_error",
+                    "guidance": _HISTORY_TARGET_GUIDANCE,
+                },
+            ) from None
 
     def _decorate_event(self, value: JsonValue) -> dict[str, JsonValue]:
         """Preserve native event provenance and attach an owner-scoped handle."""
@@ -618,6 +1098,8 @@ class CcccPlugin:
         event_id = _string(event.get("id"))
         event["event_id"] = event_id
         event["event_ref"] = self._references().encode("event", {"event_id": event_id})
+        if self.m_connection_token is not None:
+            event["handle"] = self._mint_handle(event_id)
         return event
 
     def _decorate_result(self, result: dict[str, JsonValue]) -> dict[str, JsonValue]:
@@ -663,6 +1145,30 @@ class CcccPlugin:
             self.members,
             methods=["GET"],
             openapi_extra=plugin_route_action("plugin.cccc.members.read"),
+        )
+        self.m_router.add_api_route(
+            "/discovery",
+            self.discovery,
+            methods=["GET"],
+            openapi_extra=plugin_route_action("plugin.cccc.discovery.read"),
+        )
+        self.m_router.add_api_route(
+            "/delivery",
+            self.delivery_settings,
+            methods=["GET"],
+            openapi_extra=plugin_route_action("plugin.cccc.delivery.read"),
+        )
+        self.m_router.add_api_route(
+            "/delivery",
+            self.update_delivery,
+            methods=["PUT"],
+            openapi_extra=plugin_route_action("plugin.cccc.delivery.update"),
+        )
+        self.m_router.add_api_route(
+            "/messages/{handle}",
+            self.message,
+            methods=["GET"],
+            openapi_extra=plugin_route_action("plugin.cccc.messages.read"),
         )
         self.m_router.add_api_route(
             "/connection/connect",
@@ -720,6 +1226,8 @@ class CcccPlugin:
         )
         assert self.m_mail is not None
         self.m_router.include_router(self.m_mail.router)
+        assert self.m_queue is not None
+        self.m_router.include_router(self.m_queue.router)
 
     async def binding(self, request: Request) -> dict[str, JsonValue]:
         """Read a safe maintained binding snapshot without provider requests."""
@@ -752,31 +1260,149 @@ class CcccPlugin:
         mail = self.m_mail.capabilities()
         if mail["qualified"] is True:
             effective.extend(sorted(MAIL_OPERATIONS))
+        assert self.m_queue is not None
+        queue_qualified = self.m_queue.qualified()
+        if queue_qualified:
+            effective.extend(sorted(QUEUE_OPERATIONS))
         return {
             "backend": "cccc-chat",
             "binding_id": self._context().binding_id,
             "available": self.m_phase == "connected",
-            "protocol_version": 1,
+            "protocol_version": 2,
             "operations": effective,
             "limits": self._limits(),
             "recipient_scope": "bound-group",
             "modes": ["send", "request_reply"],
             "mail": mail,
+            "chat_queue": queue_qualified,
             "success_means": "provider_storage_acceptance; per-recipient handoff is separate",
         }
 
-    async def members(self, request: Request) -> dict[str, JsonValue]:
+    async def members(
+        self, request: Request, expected_group_id: str | None = None
+    ) -> dict[str, JsonValue]:
         """Return public Actor-visible membership without private runtime settings."""
 
-        self._queries(request, set())
+        self._queries(request, {"expected_group_id"})
+        if expected_group_id is not None:
+            assertions = request.query_params.getlist("expected_group_id")
+            if len(assertions) != 1 or not valid_group_assertion(expected_group_id):
+                raise HTTPException(422, detail={"error_code": "invalid_group_assertion"})
+            if expected_group_id != self._config().group_id:
+                raise HTTPException(
+                    409,
+                    detail={
+                        "error_code": "group_conflict",
+                        "guidance": "Select the intended Group using the gateway URL and instance.",
+                    },
+                )
         try:
+            connection_token = self.m_connection_token
             result = await self._call("members", {})
+            if connection_token is None or connection_token != self.m_connection_token:
+                raise ProviderError("connection_retired", 503, True)
             members = result.get("members")
             if not isinstance(members, list):
                 raise ProviderError("invalid_provider_response", 503, False)
             allowed = {"id", "title", "role", "enabled", "receive_status"}
             return {
-                "members": [{k: v for k, v in _object(m).items() if k in allowed} for m in members]
+                "members": [{k: v for k, v in _object(m).items() if k in allowed} for m in members],
+                "connection_token": connection_token,
+            }
+        except ProviderError as exc:
+            raise HTTPException(exc.status_code, detail=exc.to_detail()) from None
+
+    async def discovery(self, request: Request) -> dict[str, JsonValue]:
+        """Return the validated Actor scope and operations for direct calls."""
+
+        self._queries(request, set())
+        if self.m_phase != "connected" or self.m_rotate.is_set():
+            raise HTTPException(
+                503, detail={"error_code": "receiver_unavailable", "retryable": True}
+            )
+        config = self._config()
+        operations = self.m_provider_capabilities.get("operations")
+        assert isinstance(operations, list)
+        return {
+            "endpoint": config.endpoint,
+            "group_id": config.group_id,
+            "actor_id": config.actor_id,
+            "actor_generation": config.actor_generation,
+            "protocol_version": 2,
+            "operations": [name for name in operations if isinstance(name, str)],
+        }
+
+    def _delivery_state(self) -> dict[str, JsonValue]:
+        """Report desired settings separately from settings held by the live session."""
+
+        effective = self.m_effective
+        transition = "applying"
+        if effective == self.m_desired and not self.m_rotate.is_set():
+            transition = "active"
+        elif self.m_phase in {"disconnected", "degraded"}:
+            transition = self.m_phase
+        return {
+            "revision": self.m_delivery_revision,
+            "desired": self.m_desired.model_dump(mode="json"),
+            "effective": effective.model_dump(mode="json") if effective else None,
+            "transition": transition,
+            "error_code": self.m_error_code,
+        }
+
+    async def delivery_settings(self, request: Request) -> dict[str, JsonValue]:
+        """Read the current instance's desired and effective settings."""
+
+        self._queries(request, set())
+        return self._delivery_state()
+
+    async def update_delivery(self, update: DeliveryUpdate) -> dict[str, JsonValue]:
+        """Apply a same-lease policy edit or request an orderly transport switch."""
+
+        async with self.m_transition:
+            if update.revision != self.m_delivery_revision:
+                raise HTTPException(409, detail={"error_code": "delivery_revision_conflict"})
+            if not self.m_active:
+                raise HTTPException(503, detail={"error_code": "plugin_unavailable"})
+            try:
+                self._require_transport(self.m_provider_capabilities, update.settings.transport)
+            except ProviderError as exc:
+                raise HTTPException(exc.status_code, detail=exc.to_detail()) from None
+            if update.settings != self.m_desired:
+                self.m_delivery_revision += 1
+                self.m_desired = update.settings
+                if self.m_effective is not None:
+                    if self.m_effective.transport != update.settings.transport:
+                        self.m_rotate.set()
+                        self._signal_delivery_change()
+                    elif not self.m_rotate.is_set():
+                        assert self.m_buffer is not None
+                        self.m_buffer.configure(update.settings)
+                        self.m_effective = update.settings
+                        self._signal_delivery_change()
+                self.m_change.set()
+            return self._delivery_state()
+
+    async def message(self, request: Request, handle: str) -> dict[str, JsonValue]:
+        """Project one exact Actor-visible event without returning internal references."""
+
+        self._queries(request, set())
+        event_id = self._handle_event_id(handle)
+        try:
+            result = await self._call("chat.history", {"event_id": event_id})
+            messages = result.get("messages")
+            if not isinstance(messages, list) or len(messages) != 1:
+                raise ProviderError("message_unavailable", 409, False)
+            event = _object(messages[0])
+            if event.get("id") != event_id:
+                raise ProviderError("invalid_provider_response", 503, False)
+            data = _object(event.get("data"))
+            return {
+                "handle": handle,
+                "sender": _string(event.get("by")),
+                "timestamp": _string(event.get("ts")),
+                "mode": _string(data.get("message_mode", "send")),
+                "text": _string(data.get("text")),
+                "reply_to": data.get("reply_to"),
             }
         except ProviderError as exc:
             raise HTTPException(exc.status_code, detail=exc.to_detail()) from None
@@ -827,7 +1453,15 @@ class CcccPlugin:
     async def send(self, body: SendRequest) -> dict[str, JsonValue]:
         """Create or reconcile one owner-bound provider chat event."""
 
-        self._expect_binding(body.expected_binding_id)
+        token = self.m_connection_token
+        if (
+            token is None
+            or self.m_rotate.is_set()
+            or not hmac.compare_digest(token.encode(), body.connection_token.encode())
+        ):
+            raise HTTPException(
+                409, detail={"error_code": "stale_connection_token", "retryable": False}
+            )
         try:
             result = await self._call(
                 "chat.send",
@@ -848,8 +1482,7 @@ class CcccPlugin:
     async def reply(self, body: ReplyRequest) -> dict[str, JsonValue]:
         """Reply using a scoped handle while preserving native event ancestry."""
 
-        self._expect_binding(body.expected_binding_id)
-        event_id = self._event_id(body.event_ref)
+        event_id = self._handle_event_id(body.handle)
         try:
             result = await self._call(
                 "chat.reply",
@@ -892,11 +1525,12 @@ class CcccPlugin:
         limit: int = Query(default=50, ge=1, le=100),
         cursor: str | None = Query(default=None, max_length=8192),
         event_ref: str | None = Query(default=None, max_length=8192),
+        event_id: str | None = Query(default=None, max_length=512),
     ) -> dict[str, JsonValue]:
         """Read bounded Actor-visible history without consumption or dispatch."""
 
-        self._queries(request, {"limit", "cursor", "event_ref"})
-        if cursor and event_ref:
+        self._queries(request, {"limit", "cursor", "event_ref", "event_id"})
+        if sum(value is not None for value in (cursor, event_ref, event_id)) > 1:
             raise HTTPException(422, detail={"error_code": "incompatible_history_parameters"})
         limits = self._limits()
         arguments: dict[str, JsonValue] = {
@@ -905,6 +1539,8 @@ class CcccPlugin:
         }
         if event_ref:
             arguments = {"event_id": self._event_id(event_ref)}
+        if event_id:
+            arguments = {"event_id": event_id}
         if cursor:
             try:
                 target = _object(self._references().decode(cursor, "history"))
@@ -943,13 +1579,32 @@ class CcccPlugin:
     async def deliveries(
         self,
         request: Request,
-        event_ref: str = Query(max_length=8192),
+        event_ref: str | None = None,
+        handle: str | None = None,
         limit: int = Query(default=50, ge=1, le=100),
     ) -> dict[str, JsonValue]:
         """Read authoritative handoff receipts without acknowledging another event."""
 
-        self._queries(request, {"event_ref", "limit"})
-        event_id = self._event_id(event_ref)
+        self._queries(request, {"event_ref", "handle", "limit"})
+        queries = request.query_params
+        target_count = len(queries.getlist("handle")) + len(queries.getlist("event_ref"))
+        if (
+            target_count != 1
+            or (handle is not None and not 1 <= len(handle) <= 128)
+            or (event_ref is not None and not 1 <= len(event_ref) <= 8192)
+        ):
+            raise HTTPException(
+                422,
+                detail={
+                    "error_code": "invalid_delivery_target",
+                    "guidance": "Supply exactly one message handle or scoped event reference.",
+                },
+            )
+        if handle is not None:
+            event_id = self._handle_event_id(handle)
+        else:
+            assert event_ref is not None
+            event_id = self._event_id(event_ref)
         try:
             return self._decorate_result(
                 await self._call("chat.deliveries", {"event_id": event_id, "limit": limit})

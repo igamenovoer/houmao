@@ -3,7 +3,7 @@ name: houmao-shared-routines
 description: Use when a Houmao user explicitly requests a shared routine or an actor entrypoint delegates project, credential, definition, mailbox, messaging, gateway, access policy, versioned files, memory, workspace, inspection, lifecycle, graphing, or AG-UI work.
 license: MIT
 metadata:
-  houmao_version: "3.0.0rc7"
+  houmao_version: "3.0.0rc8"
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
     SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
@@ -20,97 +20,72 @@ metadata:
 
 ## Overview
 
-This standalone skill owns the shared system routines listed below. Actor entrypoints delegate here with an immutable frame. Direct invocation defaults to human-operator posture. An explicit leading `as-agent` qualifier performs fresh managed-self verification. Pro and lite loops use their public sibling entrypoints.
+This standalone skill owns the eighteen parent-scoped system routines listed below. Actor entrypoints delegate here with an immutable frame, direct invocation defaults to human-operator posture, and a leading `as-agent` qualifier performs fresh managed-self verification. Pro and lite loops remain top-level siblings.
 
 ## Workflow
 
 When this skill is invoked, execute the following steps in order.
 
-1. **Handle explicit help first**. Return read-only collection, actor, child, and sibling guidance without identity verification, target discovery, or child loading.
-2. **Resolve actor posture** using **Actor Selection**. Preserve a valid inherited frame; otherwise default to admin or verify managed self for the leading `as-agent` qualifier.
-3. **Select one route** from **Subcommands**. Enforce its actor eligibility before target discovery or resource loading.
-4. **Resolve required targets** under the selected actor and child contract. Direct admin posture never defaults to managed self; agent posture defaults only eligible self-scoped work to verified self.
-5. **Delegate selectively**. For an owned child, load only its listed `SKILL-MAIN.md` and the resources needed by the selected operation. For a loop route, hand the frame to the top-level sibling. For `specialist-mgr`, use **Compatibility Alias**.
-6. **Execute the selected child's workflow** while preserving its operations, aliases, gates, blockers, outputs, side effects, evidence handoffs, and stop conditions.
+1. **Handle explicit help first**. Return read-only collection, actor, child, and sibling guidance via [commands/help.md](commands/help.md) without identity verification, target discovery, or child loading.
+2. **Resolve actor posture** using **Actor Selection** and [references/actor-frame.md](references/actor-frame.md). Preserve a valid six-field inherited frame; otherwise default to admin or verify managed self for a leading `as-agent` qualifier.
+3. **Select one route** from **Subcommands** and enforce its actor eligibility before target discovery or resource loading.
+4. **Resolve required targets** under the selected actor and child contract. Admin posture requires an explicit target; agent posture defaults only eligible self-scoped work to verified self.
+5. **Delegate selectively**. Load only `subskills/<logical-id>/SKILL-MAIN.md` and its needed resources for an owned child, hand loop routes to their top-level siblings, or apply **Compatibility Alias** for `specialist-mgr`.
+6. **Execute the selected child's workflow** while preserving its operations, aliases, gates, blockers, outputs, side effects, and stop conditions.
 7. **Return the outcome** with actor posture, target, selected route, operation, and material evidence.
 
 If the user's task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the actor matrix, child routes, sibling routes, child constraints, and user request, then execute the plan.
 
 ## Subcommands
 
-Owned routines are parent-scoped subskills. A bare designator such as `houmao-shared-routines->houmao-agent-inspect` selects the child; `houmao-shared-routines->houmao-agent-inspect->discover()` invokes its `discover` subcommand. Load only the selected path.
+Owned routines are parent-scoped subskills: `houmao-shared-routines->houmao-agent-inspect` selects the child and `houmao-shared-routines->houmao-agent-inspect->discover()` invokes its `discover` subcommand. Load only the selected path.
 
 | Route | Owned Child or Sibling | Eligible Actor | When to Route Here |
 | --- | --- | --- | --- |
-| `project-mgr` | [`houmao-project-mgr`](subskills/houmao-project-mgr/SKILL-MAIN.md) | admin | A project overlay needs initialization, inspection, or project-scoped instance management. |
-| `credential-mgr` | [`houmao-credential-mgr`](subskills/houmao-credential-mgr/SKILL-MAIN.md) | admin | A project or native-agent credential must be listed, inspected, added, updated, logged in, renamed, or removed. |
-| `agent-definition` | [`houmao-agent-definition`](subskills/houmao-agent-definition/SKILL-MAIN.md) | admin | Roles, recipes, launch dossiers, specialists, profiles, immutable definition authoring, or single and batch definition deployment are the target. |
-| `operator-messaging` | [`houmao-operator-messaging`](subskills/houmao-operator-messaging/SKILL-MAIN.md) | admin | A human operator explicitly wants to clarify and dispatch prompts or mailbox packets to one or more managed agents. |
-| `process-emails-via-gateway` | [`houmao-process-emails-via-gateway`](subskills/houmao-process-emails-via-gateway/SKILL-MAIN.md) | agent | A notifier prompt supplies the exact gateway context for one bounded unread-mail round. |
-| `agent-email-comms` | [`houmao-agent-email-comms`](subskills/houmao-agent-email-comms/SKILL-MAIN.md) | admin, agent | Ordinary mailbox inspection, send, post, reply, mark, move, archive, or transport fallback work is required. |
-| `adv-usage-pattern` | [`houmao-adv-usage-pattern`](subskills/houmao-adv-usage-pattern/SKILL-MAIN.md) | admin, agent | A maintained multi-step gateway, notifier, mailbox, wakeup, edge-loop, or relay pattern must be composed. |
-| `utils-workspace-mgr` | [`houmao-utils-workspace-mgr`](subskills/houmao-utils-workspace-mgr/SKILL-MAIN.md) | admin, agent | Multi-agent workspace topology must be planned, created, validated, or summarized; individual definition-owned private workspaces are excluded. |
-| `ext-graphing` | [`houmao-ext-graphing`](subskills/houmao-ext-graphing/SKILL-MAIN.md) | admin, agent | Plotly templated graphics or Vega-Lite freeform graphics must be authored, validated, repaired, or rendered. |
-| `mailbox-mgr` | [`houmao-mailbox-mgr`](subskills/houmao-mailbox-mgr/SKILL-MAIN.md) | admin, agent | Mailbox roots, accounts, registrations, projections, cleanup, export, or late bindings need administration. |
-| `memory-mgr` | [`houmao-memory-mgr`](subskills/houmao-memory-mgr/SKILL-MAIN.md) | admin, agent | A Houmao managed-agent memo or reusable profile memo seed must be read, written, or removed. |
-| `agent-instance` | [`houmao-agent-instance`](subskills/houmao-agent-instance/SKILL-MAIN.md) | admin, agent | A managed instance needs lifecycle work, native resource refresh, or actor-scoped access to definition-owned state. |
-| `agent-inspect` | [`houmao-agent-inspect`](subskills/houmao-agent-inspect/SKILL-MAIN.md) | admin, agent | A targeted managed agent needs read-only liveness, TUI, mailbox, artifact, or log evidence. |
-| `agent-messaging` | [`houmao-agent-messaging`](subskills/houmao-agent-messaging/SKILL-MAIN.md) | admin, agent | A running agent must receive a prompt, interrupt, gateway queue item, raw input, mail handoff, or context reset. |
-| `agent-gateway` | [`houmao-agent-gateway`](subskills/houmao-agent-gateway/SKILL-MAIN.md) | admin, agent | A managed-agent gateway, service, reminder, notifier, or HTTP surface needs operation or inspection. |
-| `agent-access` | [`houmao-agent-access`](subskills/houmao-agent-access/SKILL-MAIN.md) | admin, agent | A caller needs target policy administration, gateway administrator keys, public peer identity, or a signed gateway request. |
-| `agent-files` | [`houmao-agent-files`](subskills/houmao-agent-files/SKILL-MAIN.md) | admin, agent | A caller needs an authorized read, draft, publication, or status check on a target gateway's versioned logical mount. |
-| `interop-ag-ui` | [`houmao-interop-ag-ui`](subskills/houmao-interop-ag-ui/SKILL-MAIN.md) | admin, agent | AG-UI events must be validated, framed, rendered, published, routed, or interpreted. |
-| `specialist-mgr` | Alias to `houmao-shared-routines->houmao-agent-definition` | admin | Compatibility wording asks for specialist, profile, fast-forward, launch-agent, or stop-agent work. |
-| `agent-loop-pro` | Sibling `houmao-agent-loop-pro` | admin, agent | The caller explicitly selects the schema-rich generated-execplan loop and one of its operations. |
-| `agent-loop-lite` | Sibling `houmao-agent-loop-lite` | admin, agent | The caller explicitly selects the Markdown and direct-SQL lite loop and one of its operations. |
-| `help` | This entrypoint | The caller asks about direct invocation, actor posture, child operations, loop siblings, or route eligibility. |
+| `project-mgr` | [`houmao-project-mgr`](subskills/houmao-project-mgr/SKILL-MAIN.md) | admin | Initialize, inspect, or migrate a `.houmao/` project overlay, register `project skills`, or list and stop project-scoped instances. |
+| `credential-mgr` | [`houmao-credential-mgr`](subskills/houmao-credential-mgr/SKILL-MAIN.md) | admin | List, inspect, add, update, log in (`claude`, `codex`), rename, or remove `claude`, `codex`, `dsh`, or `kimi` credentials in project or native-agent lanes. |
+| `agent-definition` | [`houmao-agent-definition`](subskills/houmao-agent-definition/SKILL-MAIN.md) | admin | Manage roles, recipes, launch dossiers, specialists, profiles, `dsh`/`service`/`web` run modes, `tool_params`, immutable definition authoring, or single and batch deployments. |
+| `operator-messaging` | [`houmao-operator-messaging`](subskills/houmao-operator-messaging/SKILL-MAIN.md) | admin | Clarify in chat and dispatch attributed `request` tasks, direct `prompt` turns, or mailbox packets across one or more managed agents. |
+| `process-emails-via-gateway` | [`houmao-process-emails-via-gateway`](subskills/houmao-process-emails-via-gateway/SKILL-MAIN.md) | agent | Execute one bounded unread-mail round from a notifier prompt supplying `gateway_base_url`, `channel`, and `expected_binding_id`. |
+| `agent-email-comms` | [`houmao-agent-email-comms`](subskills/houmao-agent-email-comms/SKILL-MAIN.md) | admin, agent | Resolve live bindings and list, peek, read, send, post, reply, mark, move, or archive ordinary `offline` or Stalwart `online` mail. |
+| `adv-usage-pattern` | [`houmao-adv-usage-pattern`](subskills/houmao-adv-usage-pattern/SKILL-MAIN.md) | admin, agent | Compose lightweight self-notification, notifier mail-loop, pairwise edge-loop, relay-loop, or `houmao-cccc` push/pull coordination patterns below full loop packages. |
+| `utils-workspace-mgr` | [`houmao-utils-workspace-mgr`](subskills/houmao-utils-workspace-mgr/SKILL-MAIN.md) | admin, agent | Plan, create, validate, or summarize multi-agent Git worktree topologies and `--executor` or DSH Web workdir layouts outside private workspaces. |
+| `ext-graphing` | [`houmao-ext-graphing`](subskills/houmao-ext-graphing/SKILL-MAIN.md) | admin, agent | Author, validate, repair, and render declarative Plotly (`plotly2d` v3) or Vega-Lite (`v1`) graphics before AG-UI publication. |
+| `mailbox-mgr` | [`houmao-mailbox-mgr`](subskills/houmao-mailbox-mgr/SKILL-MAIN.md) | admin, agent | Administer offline filesystem or project mailbox roots, accounts, structural messages, exports, and late `mailbox offline` or Stalwart `mailbox online` agent bindings. |
+| `memory-mgr` | [`houmao-memory-mgr`](subskills/houmao-memory-mgr/SKILL-MAIN.md) | admin, agent | Read, write, or remove live `houmao-memo.md` and `pages/` entries under `<memo_cue>` discipline or inspect birth-time memo seeds. |
+| `agent-instance` | [`houmao-agent-instance`](subskills/houmao-agent-instance/SKILL-MAIN.md) | admin, agent | Launch, join, list, stop, relaunch, or clean up managed sessions, register `agents external` imports, reconcile `--executor` locators, or manage native resources, runtime variables, mindsets, and private workspaces. |
+| `agent-inspect` | [`houmao-agent-inspect`](subskills/houmao-agent-inspect/SKILL-MAIN.md) | admin, agent | Collect read-only liveness, `service`/`web`/TUI state, durable turn usage (`/v1/usage`), `agents external` status, mailbox summaries, artifacts, or logs. |
+| `agent-messaging` | [`houmao-agent-messaging`](subskills/houmao-agent-messaging/SKILL-MAIN.md) | admin, agent | Deliver an attributed `request`, verbatim `prompt`, interrupt, gateway queue check, raw `send-keys`, mail handoff, or context reset, keeping `houmao-cccc` chat distinct from prompt and mail. |
+| `agent-gateway` | [`houmao-agent-gateway`](subskills/houmao-agent-gateway/SKILL-MAIN.md) | admin, agent | Attach or inspect a gateway, configure `--plugin-config-override`, operate `houmao-cccc` plugin routes, open `web-entry` or `open-browser`, or manage reminders and `mail-notifier`. |
+| `agent-access` | [`houmao-agent-access`](subskills/houmao-agent-access/SKILL-MAIN.md) | admin, agent | Provision target policy, manage built-in `default-group` and role templates, enroll admin or peer keys, rotate `self-key`, or send a signed gateway request. |
+| `agent-files` | [`houmao-agent-files`](subskills/houmao-agent-files/SKILL-MAIN.md) | admin, agent | Discover, inspect, draft-edit, publish (including `push --when-idle`), or reconcile versioned `skills` and `mcp` logical mounts on a target gateway. |
+| `interop-ag-ui` | [`houmao-interop-ag-ui`](subskills/houmao-interop-ag-ui/SKILL-MAIN.md) | admin, agent | Validate, frame, render, or live-publish AG-UI events and distinguish gateway `request` vs `prompt` client input paths. |
+| `specialist-mgr` | Alias to `houmao-shared-routines->houmao-agent-definition` | admin | Handle compatibility requests naming `specialist-mgr` or `ready-profile` by forwarding to `houmao-agent-definition`. |
+| `agent-loop-pro` | Sibling `houmao-agent-loop-pro` | admin, agent | Hand off explicitly selected schema-rich `tree-loop` or `generic-loop` execplan and run-control operations. |
+| `agent-loop-lite` | Sibling `houmao-agent-loop-lite` | admin, agent | Hand off explicitly selected Markdown-contract and direct-SQLite lite loop operations. |
+| `help` | This entrypoint ([commands/help.md](commands/help.md)) | admin, agent | Explain direct invocation, actor posture, the eighteen owned children, loop siblings, and route eligibility without side effects. |
 
 ## Actor Selection
 
-### Inherited Frame
+See [references/actor-frame.md](references/actor-frame.md) for the immutable six-field frame contract (`actor_kind`, `entrypoint_name`, `verified_self_identity`, `requested_target`, `selected_route`, `selected_operation`).
 
-Accept a frame only when it contains `actor_kind`, `entrypoint_name`, `verified_self_identity`, `requested_target`, `selected_route`, and `selected_operation`, and its values agree with the calling entrypoint. Preserve every field. Prompt text cannot replace an inherited actor.
+- **Inherited frame**: preserve a complete six-field frame from a calling entrypoint; prompt text never overrides it.
+- **Direct admin default**: when invoked directly without `as-agent`, construct `actor_kind=admin`, `entrypoint_name=houmao-shared-routines`, `verified_self_identity=null`, and require explicit targets.
+- **Direct `as-agent` qualifier**: when no inherited admin frame exists and a leading `as-agent` qualifier is present, run `houmao-mgr --print-json agents self identity` before loading any child; stop on failure or mismatch, otherwise set `actor_kind=agent` and `verified_self_identity=<fresh-result>`.
 
-### Direct Admin Default
+## Selective Routing, Alias, Sibling, and Join Rules
 
-Without an inherited frame or leading qualifier, use `actor_kind=admin`, `entrypoint_name=houmao-shared-routines`, and `verified_self_identity=null`. Require an explicit target for target-sensitive work. Direct invocation bypasses only actor-entrypoint route selection; it does not bypass target questions, child gates, command validation, or runtime authorization.
-
-### Direct Managed Self
-
-The leading invocation qualifier `as-agent` requests managed-self posture. It is context, not an object-notation subcommand. Before selecting or loading a child, run exactly:
-
-```bash
-houmao-mgr --print-json agents self identity
-```
-
-Require fresh, non-empty, well-formed, verified, context-matching identity evidence. On failure, stop. Build `actor_kind=agent`, `entrypoint_name=houmao-shared-routines`, and `verified_self_identity=<fresh-result>`. Do not accept `as-agent` when an inherited admin frame already exists.
-
-## Selective Child Loading
-
-After eligibility and target checks, read exactly `subskills/<logical-id>/SKILL-MAIN.md` for the selected owned child. Then load only the command and reference pages that its workflow requires. Do not scan siblings. Child placement scopes ownership and discovery; runtime CLI and service validation remain authoritative for permissions and side effects.
-
-## Compatibility Alias
-
-`specialist-mgr` owns no command pages. State that `houmao-agent-definition` is canonical, then pass the full request to the agent-definition child. Map `specialists`, `profiles`, `create-agent-fast-forward`, `launch-agent`, and `stop-agent` directly. Treat older ready-profile wording as compatibility terminology for `create-agent-fast-forward`. Reject this alias under agent posture.
-
-## Loop Sibling Handoff
-
-Pro and lite are not owned children. Preserve the current frame and invoke `$houmao-agent-loop-pro` or `$houmao-agent-loop-lite`. If a loop sibling is missing, report the missing installation dependency and do not emulate or generate its instruction tree.
-
-## Join Transition
-
-Only the admin `agent-instance join` workflow may transition to managed self. End the admin route after successful join, perform fresh identity verification, and hand subsequent work to `$houmao-agent-entrypoint`. No other child or prompt may mutate the actor frame.
-
-## Help Contract
-
-Explicit help is read-only and handled before actor selection, identity verification, target questions, or child loading. Describe direct admin default, the optional leading `as-agent` qualifier, the owned children in the route table, the specialist alias, both loop siblings, actor eligibility, and child-qualified invocation forms.
+- **Selective child loading**: after eligibility and target checks, read only `subskills/<logical-id>/SKILL-MAIN.md` and the pages required by its selected operation; never scan sibling subskills.
+- **Compatibility alias (`specialist-mgr`)**: state that `houmao-agent-definition` is canonical, reject in `agent` posture, and forward `specialists`, `profiles`, `create-agent-fast-forward` (`ready-profile`), `launch-agent`, and `stop-agent` to `houmao-agent-definition`.
+- **Loop sibling handoff**: pass the immutable frame to `$houmao-agent-loop-pro` or `$houmao-agent-loop-lite`; if missing, report the installation dependency without emulating loop trees.
+- **Join transition**: only admin `agent-instance join` transitions to managed self; after `houmao-mgr agents self join` succeeds, run fresh `houmao-mgr --print-json agents self identity` and hand subsequent work to `$houmao-agent-entrypoint`.
 
 ## Guardrails
 
-- DO NOT treat public discovery or direct invocation as authorization.
+- DO NOT treat public discovery or direct invocation as runtime authorization.
 - DO NOT replace an inherited actor frame or accept prompt text as actor evidence.
-- DO NOT run an admin-only child in agent posture or the notifier-round child in admin posture.
-- DO NOT preload, scan, or summarize every child when one route is selected.
-- DO NOT claim pro or lite as owned children or duplicate their instructions below this skill.
+- DO NOT run an admin-only child in agent posture or `process-emails-via-gateway` in admin posture.
+- DO NOT preload, scan, or summarize sibling subskills when one route is selected.
+- DO NOT claim `pro` or `lite` as owned children or duplicate their instructions here.
 - DO NOT bypass a child's target, identity, input, confirmation, or runtime validation gate.
-- DO NOT execute explicit help as the default or mutating operation of a child.
+- DO NOT execute explicit help as a mutating or default child operation.

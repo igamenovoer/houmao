@@ -26,3 +26,5 @@ Use only the structured fields returned by `agents self mail resolve-live` or `a
 `post` is filesystem-only in v1 and refuses live TUI submission fallback.
 
 A fallback result with `authoritative: false` reports request status. Preserve its request ID and original scope. Use authorized read-only inspection to reconcile uncertain writes. Report an unresolved outcome if the read is unavailable or inconclusive.
+
+Use placement commands only when the selected binding supports them. The manager route uses the same protected placement restrictions as the gateway.

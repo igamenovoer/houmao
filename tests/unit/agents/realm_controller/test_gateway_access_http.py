@@ -70,7 +70,7 @@ def test_default_group_http_gate(tmp_path: Path) -> None:
     signed = self_fixture_auth(runtime)
     admin, signer = fixture_admin_key(tmp_path, "default-admin")
     enroll_fixture_admin(client, admin, signer)
-    payload = {"group": "agent-observer"}
+    payload = {"group": "agent-operator"}
     assert client.put(path, json=payload, auth=signed).status_code == 403
     assert client.put(path, json=payload).status_code == 401
     granted = client.put(path, json=payload, auth=FixtureProofAuth(signer))

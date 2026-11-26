@@ -14,37 +14,26 @@ metadata:
 
 # Launch Agents
 
-## Workflow
-
-1. **Validate invocation context**. Preserve the actor posture, selected target, operation intent, and predecessor evidence supplied by the owning skill.
-2. **Resolve required inputs**. Recover explicit values from current context and stop or ask when a required value remains missing.
-3. **Execute the detailed procedure below**. Follow its ordering, gates, side-effect boundary, owned references, and output contract.
-4. **Validate and report**. Return changed or inspected artifacts, evidence, blockers, and the command-specific stop condition.
-
-If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
+Launch prepared lite loop participants into live sessions after `validate-loop` passes and before `start` delivers the first trigger.
 
 ## Read First
 
-- `../reference/platform-boundaries.md`
-- `../reference/runtime-mail-model.md`
-- `../reference/system-input-questions.md`
+- [../../references/platform-boundaries.md](../../references/platform-boundaries.md)
+- [../../references/runtime-mail-model.md](../../references/runtime-mail-model.md)
+- [../../references/system-input-questions.md](../../references/system-input-questions.md)
 
-## Inputs
+## Workflow
 
-Require:
-- `<loop-dir>`
-- pre-launch readiness report from `validate-loop`
-- prepared launch facts from `prepare-agents`
+1. Require `<loop-dir>`, a current `validate-loop` readiness pass, and prepared participant facts from `prepare-agents` (plus workspace readiness evidence when workspaces are required).
+2. Confirm each participant has a concrete agent/profile, qualified `--mode` (`headless`, `service`, `tui`, `web`), credential, workdir, generated skills, and memo posture, and is not already live in an incompatible mode, `--tmux-server`, cwd, or mailbox posture.
+3. Launch missing live participants via `houmao-shared-routines->houmao-agent-instance` or `houmao-mgr project agents launch`, passing explicit `--mode` (`headless`, `service`, `tui`, `web`), `--tmux-server` (`user-default`, `houmao-default`, `new`, `socket` when TUI-backed), and `--executor` when applicable.
+4. Verify live status and session/binding facts via `houmao-shared-routines->houmao-agent-inspect` without sending loop-start prompts or mail.
+5. Report launched vs already-live agents, modes, `--tmux-server`/session ids, cwd, mailbox posture, launch surface used, warnings for `start`, and whether `start` may proceed.
 
-## Actions
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this procedure, its owning skill constraints, available references, and the user request, then execute the plan.
 
-1. Confirm `validate-loop` passed for the current execplan and prepared facts.
-2. Confirm each participant has concrete agent/profile, launch mode, credential, workdir, generated skills, and memo posture.
-3. Confirm no required participant is already live in an incompatible posture.
-4. Launch missing live agents through `houmao-shared-routines->houmao-agent-instance` or supported `houmao-mgr project` surfaces.
-5. Inspect live agents through maintained inspection surfaces when needed.
-6. Do not send loop-start prompts or mail.
+## Guardrails
 
-## Report
-
-Report launched agents, already-live agents, session ids, cwd, mailbox posture when known, launch surface used, warnings for `start`, and whether `start` may proceed.
+- DO NOT create or repair specialists, profiles, workspaces, mailboxes, gateways, memories, or `execplan/` Markdown during `launch-agents`.
+- DO NOT launch when `validate-loop` readiness evidence is missing or stale, and DO NOT send initial loop triggers or task prompts before `start`.
+- DO NOT instruct launched agents to wait, sleep, or poll in-chat for future mail or ticks.

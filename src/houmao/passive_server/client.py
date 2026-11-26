@@ -49,6 +49,8 @@ from houmao.gateway.access import (
     parse_access_document,
 )
 from houmao.gateway.authorization_models import (
+    DefaultFallbackReceipt,
+    DefaultFallbackRequest,
     DefaultPermissionGroupReceipt,
     DefaultPermissionGroupRequest,
 )
@@ -312,6 +314,20 @@ class PassiveServerClient(HoumaoServerClient):
             "PUT",
             f"/houmao/agents/{escaped}/admin/default-permission-group",
             DefaultPermissionGroupReceipt,
+            json_body=payload.model_dump(mode="json"),
+        )
+
+    def set_default_fallback(
+        self, agent_ref: str, principal_id: str, payload: DefaultFallbackRequest
+    ) -> DefaultFallbackReceipt:
+        """Set one principal's default fallback through direct passive ingress."""
+
+        escaped = parse.quote(agent_ref, safe="")
+        principal = parse.quote(principal_id, safe="")
+        return self._request_root_model(
+            "PUT",
+            f"/houmao/agents/{escaped}/admin/principals/{principal}/default-fallback",
+            DefaultFallbackReceipt,
             json_body=payload.model_dump(mode="json"),
         )
 

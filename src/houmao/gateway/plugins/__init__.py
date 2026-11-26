@@ -29,6 +29,10 @@ from houmao.gateway.plugins.models import (
     PluginLifecycleState,
     PluginListener,
     PluginOwner,
+    PluginPromptReadiness,
+    PluginRequestBinding,
+    PluginRequestMessage,
+    PluginRequestPresentation,
     PluginStatus,
 )
 from houmao.gateway.plugins.routes import plugin_route_action
@@ -55,6 +59,10 @@ __all__ = [
     "PluginListener",
     "PluginLoadError",
     "PluginOwner",
+    "PluginPromptReadiness",
+    "PluginRequestBinding",
+    "PluginRequestMessage",
+    "PluginRequestPresentation",
     "PluginState",
     "PluginStatus",
     "PluginWorkerSupervisor",

@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import importlib
 import json
+from pathlib import Path
 from threading import Barrier
 from typing import Any
 import uuid
 
 import httpx
+import pytest
 
 from tests.integration.cccc.test_receiver_provider import _result, _rpc, actors as actors
 
@@ -26,6 +29,104 @@ def _send(client: httpx.Client, sender: dict[str, Any], text: str = "deferred") 
     )
 
 
+def test_actual_direct_cli_keeps_chat_pull_and_mail_read_separate(
+    actors: tuple[Any, ...],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Use one Actor profile for ordered chat and explicit Mail with separate receipts."""
+
+    source = Path(__file__).resolve().parents[3] / "packages/houmao-cccc/src"
+    monkeypatch.syspath_prepend(str(source))
+    monkeypatch.delenv("HOUMAO_MANIFEST_PATH", raising=False)
+    cli = importlib.import_module("houmao_cccc.cli")
+    client, group, (sender, receiver) = actors
+    owner = str(uuid.uuid4())
+    profile = tmp_path / "receiver.json"
+    profile.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "agent_id": owner,
+                "endpoint": str(client.base_url).rstrip("/"),
+                "group_id": group,
+                "actor_id": "receiver",
+                "actor_generation": receiver["actor_generation"],
+                "token": receiver["token"],
+            }
+        )
+    )
+    profile.chmod(0o600)
+    selected = ["--direct-profile", str(profile), "--agent-id", owner]
+
+    def run(*arguments: str) -> dict[str, Any]:
+        """Drive one CLI command through the selected provider without using a gateway."""
+
+        assert cli.run([*selected, *arguments]) == 0
+        captured = capsys.readouterr()
+        assert not captured.err and receiver["token"] not in captured.out
+        return dict(json.loads(captured.out))
+
+    event_id = _send(client, sender, "actual direct CLI Mail")["event"]["id"]
+    sent = [
+        _result(
+            _rpc(
+                client,
+                sender,
+                "chat.send",
+                {
+                    "operation_id": uuid.uuid4().hex,
+                    "to": ["receiver"],
+                    "text": f"chat-{index}",
+                    "mode": "request_reply",
+                },
+            )
+        )["event"]
+        for index in range(2)
+    ]
+    pulled = run("chat", "pull")
+    assert [message["text"] for message in pulled["messages"]] == ["chat-0", "chat-1"]
+    assert [message["timestamp"] for message in pulled["messages"]] == [
+        event["ts"] for event in sent
+    ]
+    assert run("chat", "ack", "--receipt", pulled["receipt"])["acknowledged"] is True
+    chat_reply = run(
+        "chat",
+        "reply",
+        "--event-ref",
+        pulled["messages"][1]["event_ref"],
+        "--operation-id",
+        uuid.uuid4().hex,
+        "--text",
+        "chat reply",
+    )
+    assert chat_reply["event"]["data"]["reply_to"] == sent[1]["id"]
+
+    initial = run("mail", "cursor")["cursor"]["event_id"]
+    assert initial == ""
+    assert run("mail", "peek")["messages"][0]["id"] == event_id
+    assert run("mail", "cursor")["cursor"]["event_id"] == initial
+    operation = uuid.uuid4().hex
+    read_arguments = ("mail", "read", "--expected-cursor", initial, "--operation-id", operation)
+    first = run(*read_arguments)
+    assert first["outcome"] == "consumed" and first["receipt"]["event_ids"] == [event_id]
+    repeated = run(*read_arguments)
+    assert repeated["outcome"] == "already_completed" and repeated["messages"] == []
+    assert run("mail", "reads", "--operation-id", operation)["receipt"] == first["receipt"]
+    reply = run(
+        "mail",
+        "reply",
+        "--event-id",
+        event_id,
+        "--operation-id",
+        uuid.uuid4().hex,
+        "--text",
+        "direct reply",
+    )
+    assert reply["event"]["data"]["reply_to"] == event_id
+
+
 def test_mail_stays_deferred_and_reply_does_not_consume(actors: tuple[Any, ...]) -> None:
     """Repeated inspection and an ancestral deferred reply leave the read cursor intact."""
 
@@ -36,7 +137,7 @@ def test_mail_stays_deferred_and_reply_does_not_consume(actors: tuple[Any, ...])
     event = sent["event"]["id"]
     assert sent["stored"] and sent["consumed"] is False
     assert sent["event"]["data"]["message_mode"] == "mail"
-    assert _result(_rpc(client, receiver, "lease.next", lease_args))["offer"] is None
+    assert _result(_rpc(client, receiver, "lease.next", lease_args))["offers"] == []
     before = _result(_rpc(client, receiver, "mail.cursor"))
     for _ in range(2):
         assert _result(_rpc(client, receiver, "mail.peek"))["messages"][0]["id"] == event

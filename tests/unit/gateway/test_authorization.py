@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import closing
+import json
 from pathlib import Path
 import sqlite3
 import subprocess
@@ -15,8 +17,13 @@ from houmao.gateway._access_sshsig import public_key_text
 from houmao.gateway._access_storage import GatewayAccessError
 from houmao.gateway.access_models import GatewayAdminKey, GatewayLaunchSeed, GatewayOwner
 from houmao.gateway.access_models import GatewayTarget
+from houmao.gateway.access import GatewayAccessPolicy
 from houmao.gateway.authorization import GatewayAuthorizer
-from houmao.gateway.authorization_catalog import DEFAULT_GROUP_SET, MAIL_DELIVER
+from houmao.gateway.authorization_catalog import (
+    DEFAULT_FALLBACK_SET,
+    DEFAULT_GROUP_SET,
+    RETIRED_MAIL_DELIVER,
+)
 from houmao.gateway.authorization_models import (
     AuthorizationActor,
     Credential,
@@ -62,14 +69,19 @@ _OTHER_WRITE = Permission(resource="files:other", action="files.edit")
 @pytest.mark.parametrize(
     ("group", "allowed"),
     [
-        ("agent-observer", (_PEER_EFFECTS[0],)),
-        ("agent-requester", (*_PEER_EFFECTS[:2], MAIL_DELIVER)),
-        ("agent-maintainer", (*_PEER_EFFECTS[:2], MAIL_DELIVER, _COMMON_WRITE)),
-        ("agent-operator", (*_PEER_EFFECTS[:5], MAIL_DELIVER, _COMMON_WRITE)),
-        ("managed-self", (*_PEER_EFFECTS, MAIL_DELIVER, _COMMON_WRITE, _OTHER_WRITE)),
+        ("agent-requester", _PEER_EFFECTS[:2]),
+        ("agent-maintainer", (*_PEER_EFFECTS[:2], _COMMON_WRITE)),
+        ("agent-operator", (*_PEER_EFFECTS[:5], _COMMON_WRITE)),
+        ("managed-self", (*_PEER_EFFECTS, _COMMON_WRITE, _OTHER_WRITE)),
         (
             "agent-admin",
-            (*_PEER_EFFECTS, MAIL_DELIVER, _COMMON_WRITE, _OTHER_WRITE, DEFAULT_GROUP_SET),
+            (
+                *_PEER_EFFECTS,
+                _COMMON_WRITE,
+                _OTHER_WRITE,
+                DEFAULT_GROUP_SET,
+                DEFAULT_FALLBACK_SET,
+            ),
         ),
     ],
 )
@@ -78,10 +90,10 @@ def test_default_group_effects(tmp_path: Path, group: str, allowed: tuple[Permis
 
     catalog = (
         *_PEER_EFFECTS,
-        MAIL_DELIVER,
         _COMMON_WRITE,
         _OTHER_WRITE,
         DEFAULT_GROUP_SET,
+        DEFAULT_FALLBACK_SET,
         _HEALTH,
     )
     store = _store(
@@ -109,6 +121,7 @@ def test_default_group_effects(tmp_path: Path, group: str, allowed: tuple[Permis
             assert _allow(authorizer, _ANONYMOUS, effect) == "default"
         else:
             _reject(authorizer, _ANONYMOUS, effect, status=401)
+    _reject(authorizer, _ANONYMOUS, RETIRED_MAIL_DELIVER, status=403)
 
 
 def test_default_fencing_and_expired_builtin_assignment(tmp_path: Path) -> None:
@@ -116,7 +129,7 @@ def test_default_fencing_and_expired_builtin_assignment(tmp_path: Path) -> None:
 
     key = _key(_PEER)
     actor = AuthorizationActor.from_credential(key)
-    old_role = "builtin:agent-observer"
+    old_role = "builtin:agent-requester"
     status, request, direct = _PEER_EFFECTS[:3]
     retired = Permission(resource="agent", action="agent.prompt")
     initial = PolicySnapshot(
@@ -163,7 +176,7 @@ def test_default_fencing_and_expired_builtin_assignment(tmp_path: Path) -> None:
             transaction.snapshot.model_copy(
                 update={
                     "role_assignments": initial.role_assignments,
-                    "default_permission_group": "agent-observer",
+                    "default_permission_group": "agent-operator",
                 }
             ),
             actor="owner",
@@ -178,6 +191,134 @@ def test_default_fencing_and_expired_builtin_assignment(tmp_path: Path) -> None:
     assert not authorizer.revalidate(admitted, target=_TARGET, listener_id=_LISTENER)
     with pytest.raises(GatewayAccessError, match="lacks authority"):
         authorizer.handoff(admitted, operation_id="pending", target=_TARGET, listener_id=_LISTENER)
+
+
+def test_verified_fallback_revisions_fence_handoff_without_affecting_unsigned(
+    tmp_path: Path,
+) -> None:
+    """Each verified principal has an independent revision across setting changes."""
+
+    admin_key, peer_key = _key(_ADMIN, admin=True), _key(_PEER)
+    admin, peer = map(AuthorizationActor.from_credential, (admin_key, peer_key))
+    status, request = _PEER_EFFECTS[:2]
+    store = _store(
+        tmp_path,
+        PolicySnapshot(
+            owner=_OWNER,
+            principals=(_ADMIN, _PEER),
+            credentials=(admin_key, peer_key),
+            grants=(ScopedGrant(principal_id=_PEER.principal_id, permission=status),),
+        ),
+    )
+    gateway = GatewayAccessPolicy(
+        store=store, target=lambda: _TARGET, current_self=lambda: None, listener_id=_LISTENER
+    )
+    setter = gateway.authorize(admin, (DEFAULT_FALLBACK_SET,))
+    signed = gateway.authorize(peer, (request,))
+    unsigned = gateway.authorize(_ANONYMOUS, (request,))
+    disabled = gateway.set_default_fallback(setter, _PEER.principal_id, False)
+    assert disabled.default_fallback_revision == disabled.policy_revision
+    assert gateway.authorize(peer, (status,)).basis == "scoped"
+    with pytest.raises(GatewayAccessError, match="lacks authority"):
+        gateway.authorize(peer, (request,))
+    assert not gateway.revalidate(signed)
+    assert gateway.revalidate(unsigned)
+    enabled = gateway.set_default_fallback(setter, _PEER.principal_id, True)
+    assert enabled.default_fallback_revision > disabled.default_fallback_revision
+    assert not gateway.revalidate(signed)
+    assert gateway.revalidate(unsigned)
+    assert gateway.authorize(peer, (request,)).default_fallback_revision == enabled.policy_revision
+
+    store.update(
+        lambda state: state.model_copy(
+            update={"credentials": tuple(row for row in state.credentials if row != admin_key)}
+        ),
+        actor="owner",
+        action="credential.revoke",
+    )
+    with pytest.raises(GatewayAccessError, match="proof"):
+        gateway.set_default_fallback(setter, _PEER.principal_id, False)
+    assert store.snapshot().find_default_fallback(_PEER.principal_id).enabled
+
+
+def test_migrate_observer_policy_preserves_exact_effects_and_independent_expiries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrade a v2 database with an old default, overlapping grants, and both expiries."""
+
+    status, request = _PEER_EFFECTS[:2]
+    expired = Principal(principal_id="expired", kind="operator", label="Expired observer")
+    admin_key, peer_key, expired_key = _key(_ADMIN, admin=True), _key(_PEER), _key(expired)
+    seed = PolicySnapshot(
+        owner=_OWNER,
+        principals=(_ADMIN, _PEER, expired),
+        credentials=(admin_key, peer_key, expired_key),
+        grants=(
+            ScopedGrant(principal_id=_PEER.principal_id, permission=status, expires_at=30),
+            ScopedGrant(principal_id=expired.principal_id, permission=_READ),
+        ),
+    )
+    store = _store(tmp_path, seed)
+    legacy = seed.model_dump(mode="json")
+    legacy.update(schema_version=1, default_permission_group="agent-observer")
+    del legacy["default_permission_effects"]
+    del legacy["principal_default_fallback"]
+    for grant in legacy["grants"]:
+        del grant["source"]
+    legacy["role_assignments"] = [
+        RoleAssignment(
+            principal_id=row.principal_id,
+            role_id="builtin:agent-observer",
+            expires_at=expiry,
+            builtin_version=1,
+        ).model_dump(mode="json")
+        for row, expiry in ((_PEER, 10), (expired, 1))
+    ]
+    with closing(sqlite3.connect(tmp_path / "policy" / "authorization.sqlite3")) as db, db:
+        db.execute("UPDATE policy SET payload = ?", (json.dumps(legacy).encode(),))
+        db.execute("PRAGMA user_version = 2")
+    monkeypatch.setattr("houmao.gateway.authorization.time.time", lambda: 5)
+    migrated = store.snapshot()
+    assert migrated.owner == seed.owner
+    assert migrated.policy_id == seed.policy_id
+    assert migrated.credentials == seed.credentials
+    assert migrated.default_permission_group is None
+    assert migrated.default_permission_effects == (status,)
+    assert migrated.role_assignments == ()
+    assert [
+        (row.source, row.expires_at) for row in migrated.grants if row.permission == status
+    ] == [
+        ("direct", 30),
+        ("retired-observer", 10),
+        ("retired-observer", 1),
+    ]
+    assert all(not setting.enabled for setting in migrated.principal_default_fallback)
+    assert AuthorizationStore(tmp_path / "policy", _OWNER).snapshot() == migrated
+    assert store.audit_entries(limit=1)[0].action == "policy.migrate-observer"
+    authorizer = GatewayAuthorizer(store, catalog=(status, request, _READ))
+    active_actor = AuthorizationActor.from_credential(peer_key)
+    expired_actor = AuthorizationActor.from_credential(expired_key)
+    assert _allow(authorizer, active_actor, status) == "scoped"
+    assert _allow(authorizer, expired_actor, _READ) == "scoped"
+    assert _allow(authorizer, _ANONYMOUS, status) == "default"
+    _reject(authorizer, _ANONYMOUS, request, status=401)
+    _reject(authorizer, active_actor, request, status=403)
+    _reject(authorizer, expired_actor, status, status=403)
+    monkeypatch.setattr("houmao.gateway.authorization.time.time", lambda: 15)
+    assert _allow(authorizer, active_actor, status) == "scoped"
+    monkeypatch.setattr("houmao.gateway.authorization.time.time", lambda: 31)
+    _reject(authorizer, active_actor, status, status=403)
+    gateway = GatewayAccessPolicy(
+        store=store, target=lambda: _TARGET, current_self=lambda: None, listener_id=_LISTENER
+    )
+    admin_actor = AuthorizationActor.from_credential(admin_key)
+    receipt = gateway.set_default_permission_group(
+        gateway.authorize(admin_actor, (DEFAULT_GROUP_SET,)), "agent-requester"
+    )
+    assert receipt.default_permission_revision > migrated.default_permission_revision
+    assert store.snapshot().default_permission_effects == ()
+    assert _allow(authorizer, _ANONYMOUS, request) == "default"
+    _reject(authorizer, active_actor, request, status=403)
 
 
 def _key(principal: Principal, *, admin: bool = False) -> Credential:

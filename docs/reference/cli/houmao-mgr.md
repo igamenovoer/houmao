@@ -137,7 +137,7 @@ Project launch can select an already-provisioned execution owner with `--executo
 | Register an external reference | `houmao-mgr agents external register --name <local-name> --api-base-url <url> --agent-ref <remote-ref>` |
 | Project-backed launch | `houmao-mgr project agents launch --profile <name>` |
 
-Plain and fancy `agents single state` output includes the retained roster mode and default permission group and version when the CLI can verify the selected local owner's policy. The gateway can be detached. Use `agents single ... access list` in the owner context for retained enrollments and signer identities. `--print-json` returns the operational state payload.
+Plain and fancy `agents single state` output includes the retained roster mode and default permission setting when the CLI can verify the selected local owner's policy. The gateway can be detached. Use `agents single ... access list` for retained enrollments, signer identities, and per-principal fallback. To allow a verified principal to read only status, grant `agent agent.status.read` and use `access default-fallback set PRINCIPAL disabled` through the live, retained, or verified passive administration path. Use `access explain` to verify the principal's effective access. `--print-json` returns the operational state payload. [Gateway Authorization Policy](../gateway/operations/authorization-policy.md)
 
 A selected-agent `prompt` can reach a TUI peer with its gateway detached. Houmao checks the owner's readiness and hands off input at the recorded pane on the peer's socket. The caller needs access to that owner route. A successful TUI handoff reports delivery to the terminal.
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import fcntl
@@ -18,6 +18,7 @@ import time
 from typing import (
     Callable,
     ClassVar,
+    Iterable,
     Iterator,
     Literal,
     Sequence,
@@ -29,10 +30,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
-from houmao.gateway._access_storage import GatewayAccessError
 from houmao.mailbox.authority_lock import offline_authority_lock
-from houmao.mailbox.delivery_policy import require_delivery_authority
-from houmao.mailbox.errors import GatewayMailboxRecipientPolicyError
+from houmao.mailbox.errors import MailboxProtocolError
 from houmao.mailbox.filesystem import (
     FilesystemMailboxPaths,
     MailboxRegistration,
@@ -41,6 +40,7 @@ from houmao.mailbox.filesystem import (
     resolve_filesystem_mailbox_paths,
     unsupported_mailbox_root_reason,
 )
+from houmao.mailbox.policy import mail_policy_blocks, mail_policy_is_protected
 from houmao.mailbox.protocol import (
     HOUMAO_MAILBOX_DOMAIN,
     HOUMAO_OPERATOR_ADDRESS,
@@ -84,10 +84,6 @@ class _LocalMessageStateRow(TypedDict):
 
 class ManagedMailboxOperationError(RuntimeError):
     """Raised when a managed mailbox script cannot complete safely."""
-
-
-class ManagedRecipientPolicyError(ManagedMailboxOperationError, GatewayMailboxRecipientPolicyError):
-    """Preserve a safe policy result across script and mailbox backend boundaries."""
 
 
 class _ManagedMailboxModel(BaseModel):
@@ -530,6 +526,7 @@ class _IndexSnapshot:
     registrations: dict[str, MailboxRegistration]
     sender_registration_ids: dict[str, str | None]
     recipient_registration_ids: dict[tuple[str, str, int], str | None]
+    projection_folders: dict[str, dict[str, set[str]]]
     backup_path: Path | None
 
 
@@ -1206,7 +1203,7 @@ def _default_archived_for_projection_folders(folder_names: set[str]) -> bool:
 def _default_box_for_projection_folders(folder_names: set[str]) -> str:
     """Return the deterministic active box for one mailbox-local projection set."""
 
-    for box_name in ("inbox", "sent", "archive"):
+    for box_name in ("inbox", "archive", "sent"):
         if box_name in folder_names:
             return box_name
     return sorted(folder_names)[0] if folder_names else "inbox"
@@ -1724,7 +1721,6 @@ def deliver_message(
     request: DeliveryRequest,
     *,
     lock_timeout_seconds: float = 5.0,
-    registry_root: Path | None = None,
     verified_sender_binding: str | None = None,
 ) -> dict[str, object]:
     """Commit a staged mailbox message into the filesystem transport."""
@@ -1743,7 +1739,7 @@ def deliver_message(
         offline_authority_lock(paths.root),
         _acquired_lock_set(paths, affected_addresses, timeout_seconds=lock_timeout_seconds),
     ):
-        with sqlite3.connect(paths.sqlite_path) as connection, ExitStack() as authority:
+        with sqlite3.connect(paths.sqlite_path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
             registrations = _load_active_registrations(connection, affected_addresses)
 
@@ -1772,29 +1768,19 @@ def deliver_message(
                     )
                 recipient_registrations[principal.address] = registration
 
-            sender_verified = verified_sender_binding == sender_registration.registration_id
-            if verified_sender_binding is not None and not sender_verified:
+            if (
+                verified_sender_binding is not None
+                and verified_sender_binding != sender_registration.registration_id
+            ):
                 raise ManagedMailboxOperationError("verified offline sender binding changed")
-            try:
-                protected = authority.enter_context(
-                    require_delivery_authority(
-                        connection,
-                        mailbox_root=paths.root,
-                        registry_root=registry_root,
-                        sender=sender_registration,
-                        sender_verified=sender_verified,
-                        recipients=recipient_registrations,
-                        message_id=request.message_id,
-                    )
-                )
-                if protected:
-                    _require_matching_delivery_envelope(staged_message_path, request)
-            except GatewayAccessError as error:
-                raise ManagedRecipientPolicyError(
-                    unavailable=error.status_code not in {401, 403}
-                ) from None
-            except (OSError, ValueError):
-                raise ManagedRecipientPolicyError(unavailable=True) from None
+            if verified_sender_binding is not None:
+                _require_matching_delivery_envelope(staged_message_path, request)
+            recipient_boxes = _recipient_delivery_boxes(
+                connection,
+                sender=sender_registration,
+                recipients=recipient_registrations.values(),
+                sender_verified=verified_sender_binding is not None,
+            )
 
             canonical_dir = paths.messages_dir / request.created_at_utc[:10]
             canonical_path = canonical_dir / f"{request.message_id}.md"
@@ -1802,6 +1788,7 @@ def deliver_message(
                 sender_registration=sender_registration,
                 recipient_principals=recipient_principals,
                 recipient_registrations=recipient_registrations,
+                recipient_boxes=recipient_boxes,
                 message_id=request.message_id,
             )
 
@@ -1815,12 +1802,12 @@ def deliver_message(
                     )
 
                 canonical_dir.mkdir(parents=True, exist_ok=True)
-                staged_message_path.replace(canonical_path)
-                moved_to_canonical = True
-
+                # Record every folder choice before the canonical file becomes recoverable.
                 for projection_path in projection_paths:
                     _create_projection_symlink(projection_path, canonical_path)
                     created_projection_paths.append(projection_path)
+                staged_message_path.replace(canonical_path)
+                moved_to_canonical = True
 
                 connection.execute("BEGIN IMMEDIATE")
                 _insert_message_record(
@@ -1840,6 +1827,7 @@ def deliver_message(
                     sender_registration=sender_registration,
                     recipient_principals=recipient_principals,
                     recipient_registrations=recipient_registrations,
+                    recipient_boxes=recipient_boxes,
                     projection_paths=projection_paths,
                     message_id=request.message_id,
                 )
@@ -1858,12 +1846,11 @@ def deliver_message(
                     canonical_path.replace(staged_message_path)
                 raise
 
-            authority.close()
             try:
                 _insert_mailbox_state_records(
                     sender_registration=sender_registration,
-                    recipient_principals=recipient_principals,
                     recipient_registrations=recipient_registrations,
+                    recipient_boxes=recipient_boxes,
                     message_id=request.message_id,
                     thread_id=request.thread_id,
                     created_at_utc=request.created_at_utc,
@@ -1887,14 +1874,49 @@ def deliver_message(
 def _require_matching_delivery_envelope(path: Path, request: DeliveryRequest) -> None:
     """Refuse a staged envelope that disagrees with the admitted sender or recipients."""
 
-    envelope = parse_message_document(path.read_text(encoding="utf-8"))
+    try:
+        envelope = parse_message_document(path.read_text(encoding="utf-8"))
+    except (MailboxProtocolError, OSError, ValueError) as exc:
+        raise ManagedMailboxOperationError("staged mail envelope is unreadable") from exc
     if (
         envelope.message_id != request.message_id
+        or envelope.thread_id != request.thread_id
+        or envelope.in_reply_to != request.in_reply_to
+        or envelope.references != list(request.references)
+        or envelope.created_at_utc != request.created_at_utc
         or envelope.sender != request.sender.to_mailbox_principal()
         or envelope.to != [principal.to_mailbox_principal() for principal in request.to]
         or envelope.cc != [principal.to_mailbox_principal() for principal in request.cc]
+        or envelope.reply_to != [principal.to_mailbox_principal() for principal in request.reply_to]
+        or envelope.subject != request.subject
+        or envelope.attachments != [item.to_mailbox_attachment() for item in request.attachments]
+        or envelope.headers != request.headers
     ):
         raise ManagedMailboxOperationError("staged mail envelope differs from admitted delivery")
+
+
+def _recipient_delivery_boxes(
+    connection: sqlite3.Connection,
+    *,
+    sender: MailboxRegistration,
+    recipients: Iterable[MailboxRegistration],
+    sender_verified: bool,
+) -> dict[str, str]:
+    """Choose each recipient's folder under the authority lock for this publication."""
+
+    boxes: dict[str, str] = {}
+    for recipient in recipients:
+        registration_id = recipient.registration_id
+        if not sender_verified and mail_policy_is_protected(connection, registration_id):
+            raise ManagedMailboxOperationError("protected delivery requires a verified sender")
+        boxes[registration_id] = (
+            "archive"
+            if mail_policy_blocks(
+                connection, binding_id=registration_id, sender_address=sender.address
+            )
+            else "inbox"
+        )
+    return boxes
 
 
 def update_mailbox_state(
@@ -2081,7 +2103,7 @@ def _repair_mailbox_indexes(
             restored_state_count = 0
             defaulted_state_count = 0
             thread_ids: set[str] = set()
-            local_state_plans: list[tuple[MailboxMessage, str | None, tuple[str | None, ...]]] = []
+            local_state_plans: list[tuple[MailboxMessage, dict[str, set[str]]]] = []
             try:
                 for recovered_message in recovered_messages:
                     thread_ids.add(recovered_message.message.thread_id)
@@ -2105,20 +2127,20 @@ def _repair_mailbox_indexes(
                         snapshot=snapshot,
                         registrations=recovered_registrations,
                     )
-                    local_state_plans.append(
-                        (
-                            recovered_message.message,
-                            sender_registration_id,
-                            tuple(recipient_registration_ids),
-                        )
+                    folders = _recover_projection_folders(
+                        registrations=recovered_registrations,
+                        message_id=recovered_message.message.message_id,
+                        sender_registration_id=sender_registration_id,
+                        recipient_registration_ids=recipient_registration_ids,
+                        recorded=snapshot.projection_folders,
                     )
+                    local_state_plans.append((recovered_message.message, folders))
                     _insert_recovered_attachment_records(connection, recovered_message.message)
                     projection_count += _repair_projection_records(
                         connection=connection,
                         registrations=recovered_registrations,
                         recovered_message=recovered_message,
-                        sender_registration_id=sender_registration_id,
-                        recipient_registration_ids=recipient_registration_ids,
+                        folders=folders,
                     )
 
                 for thread_id in sorted(thread_ids):
@@ -2137,16 +2159,11 @@ def _repair_mailbox_indexes(
                         ) as local_connection:
                             _clear_local_mailbox_state(connection=local_connection)
 
-                for (
-                    message,
-                    sender_registration_id,
-                    recovered_recipient_registration_ids,
-                ) in local_state_plans:
+                for message, folders in local_state_plans:
                     restored_count, defaulted_count = _insert_recovered_mailbox_state_records(
                         registrations=recovered_registrations,
                         message=message,
-                        sender_registration_id=sender_registration_id,
-                        recipient_registration_ids=recovered_recipient_registration_ids,
+                        folders=folders,
                     )
                     restored_state_count += restored_count
                     defaulted_state_count += defaulted_count
@@ -4804,15 +4821,20 @@ def _build_projection_targets(
     sender_registration: MailboxRegistration,
     recipient_principals: Sequence[ManagedPrincipal],
     recipient_registrations: dict[str, MailboxRegistration],
+    recipient_boxes: dict[str, str],
     message_id: str,
 ) -> list[Path]:
-    """Compute inbox and sent projection targets for a delivery."""
+    """Compute sender and per-recipient projection targets for a delivery."""
 
     targets: list[Path] = []
     targets.append(sender_registration.mailbox_path / "sent" / f"{message_id}.md")
     for principal in recipient_principals:
         registration = recipient_registrations[principal.address]
-        targets.append(registration.mailbox_path / "inbox" / f"{message_id}.md")
+        targets.append(
+            registration.mailbox_path
+            / recipient_boxes[registration.registration_id]
+            / f"{message_id}.md"
+        )
     return targets
 
 
@@ -4960,6 +4982,7 @@ def _insert_projection_records(
     sender_registration: MailboxRegistration,
     recipient_principals: Sequence[ManagedPrincipal],
     recipient_registrations: dict[str, MailboxRegistration],
+    recipient_boxes: dict[str, str],
     projection_paths: Sequence[Path],
     message_id: str,
 ) -> None:
@@ -4989,15 +5012,20 @@ def _insert_projection_records(
             )
             VALUES (?, ?, ?, ?)
             """,
-            (registration.registration_id, message_id, "inbox", str(projection_path)),
+            (
+                registration.registration_id,
+                message_id,
+                recipient_boxes[registration.registration_id],
+                str(projection_path),
+            ),
         )
 
 
 def _insert_mailbox_state_records(
     *,
     sender_registration: MailboxRegistration,
-    recipient_principals: Sequence[ManagedPrincipal],
     recipient_registrations: dict[str, MailboxRegistration],
+    recipient_boxes: dict[str, str],
     message_id: str,
     thread_id: str,
     created_at_utc: str,
@@ -5005,17 +5033,6 @@ def _insert_mailbox_state_records(
 ) -> None:
     """Insert deterministic default mailbox-local state rows."""
 
-    recipient_registration_ids = {
-        recipient_registrations[principal.address].registration_id
-        for principal in recipient_principals
-    }
-    affected_registration_ids = {
-        sender_registration.registration_id,
-        *(
-            recipient_registrations[principal.address].registration_id
-            for principal in recipient_principals
-        ),
-    }
     registrations_by_id = {
         sender_registration.registration_id: sender_registration,
         **{
@@ -5023,9 +5040,8 @@ def _insert_mailbox_state_records(
             for registration in recipient_registrations.values()
         },
     }
-    for registration_id in sorted(affected_registration_ids):
-        is_recipient = registration_id in recipient_registration_ids
-        registration = registrations_by_id[registration_id]
+    for registration_id, registration in sorted(registrations_by_id.items()):
+        box_name = recipient_boxes.get(registration_id, "sent")
         with _open_local_mailbox_connection(registration) as local_connection:
             _insert_local_message_state_row(
                 connection=local_connection,
@@ -5033,12 +5049,12 @@ def _insert_mailbox_state_records(
                 thread_id=thread_id,
                 created_at_utc=created_at_utc,
                 subject=subject,
-                is_read=not is_recipient,
+                is_read=box_name != "inbox",
                 is_answered=False,
                 is_starred=False,
-                is_archived=False,
+                is_archived=box_name == "archive",
                 is_deleted=False,
-                box_name="inbox" if is_recipient else "sent",
+                box_name=box_name,
             )
             _recompute_local_thread_summary(
                 connection=local_connection,
@@ -5215,6 +5231,7 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
             registrations={},
             sender_registration_ids={},
             recipient_registration_ids={},
+            projection_folders={},
             backup_path=None,
         )
 
@@ -5252,6 +5269,9 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
                 FROM message_recipients
                 """
             ).fetchall()
+            projection_rows = connection.execute(
+                "SELECT message_id, registration_id, folder_name FROM mailbox_projections"
+            ).fetchall()
     except sqlite3.DatabaseError as exc:
         raise ManagedMailboxOperationError(
             "ownership index is unreadable; restore an operator backup or explicitly rebootstrap the store"
@@ -5268,10 +5288,16 @@ def _snapshot_existing_index(sqlite_path: Path) -> _IndexSnapshot:
         (str(row[0]), str(row[1]), int(row[2])): None if row[3] is None else str(row[3])
         for row in recipient_rows
     }
+    projection_folders: dict[str, dict[str, set[str]]] = {}
+    for message_id, registration_id, folder_name in projection_rows:
+        projection_folders.setdefault(str(message_id), {}).setdefault(
+            str(registration_id), set()
+        ).add(str(folder_name))
     return _IndexSnapshot(
         registrations=registrations,
         sender_registration_ids=sender_registration_ids,
         recipient_registration_ids=recipient_registration_ids,
+        projection_folders=projection_folders,
         backup_path=None,
     )
 
@@ -5548,26 +5574,49 @@ def _insert_recovered_attachment_records(
         )
 
 
+def _recover_projection_folders(
+    *,
+    registrations: dict[str, MailboxRegistration],
+    message_id: str,
+    sender_registration_id: str | None,
+    recipient_registration_ids: Sequence[str | None],
+    recorded: dict[str, dict[str, set[str]]],
+) -> dict[str, set[str]]:
+    """Use committed folder membership or recover it from surviving projections."""
+
+    folders: dict[str, set[str]] = {}
+    if sender_registration_id is not None:
+        folders[sender_registration_id] = {"sent"}
+    for registration_id in recipient_registration_ids:
+        if registration_id is None or registration_id not in registrations:
+            continue
+        registration = registrations[registration_id]
+        archive_path = registration.mailbox_path / "archive" / f"{message_id}.md"
+        folders.setdefault(registration_id, set()).add(
+            "archive" if archive_path.is_symlink() else "inbox"
+        )
+    folders.update(recorded.get(message_id, {}))
+    return folders
+
+
 def _repair_projection_records(
     *,
     connection: sqlite3.Connection,
     registrations: dict[str, MailboxRegistration],
     recovered_message: _RecoveredMessageDocument,
-    sender_registration_id: str | None,
-    recipient_registration_ids: Sequence[str | None],
+    folders: dict[str, set[str]],
 ) -> int:
     """Repair projection symlinks and rebuild the projection catalog for one message."""
 
     message = recovered_message.message
     projection_count = 0
-    projection_specs: list[tuple[str | None, str]] = [(sender_registration_id, "sent")]
-    projection_specs.extend(
-        (registration_id, "inbox") for registration_id in recipient_registration_ids
+    projection_specs = (
+        (registration_id, folder_name)
+        for registration_id, folder_names in folders.items()
+        for folder_name in sorted(folder_names)
     )
 
     for registration_id, folder_name in projection_specs:
-        if registration_id is None:
-            continue
         registration = registrations.get(registration_id)
         if registration is None or not registration.mailbox_path.exists():
             continue
@@ -5576,8 +5625,8 @@ def _repair_projection_records(
                 f"invalid recovered mailbox path for `{registration.address}`: {registration.mailbox_path}"
             )
 
-        _ensure_mailbox_placeholder_dirs(registration.mailbox_path)
         projection_path = registration.mailbox_path / folder_name / f"{message.message_id}.md"
+        projection_path.parent.mkdir(parents=True, exist_ok=True)
         if projection_path.is_symlink():
             if projection_path.resolve() != recovered_message.canonical_path:
                 raise ManagedMailboxOperationError(
@@ -5611,35 +5660,14 @@ def _insert_recovered_mailbox_state_records(
     *,
     registrations: dict[str, MailboxRegistration],
     message: MailboxMessage,
-    sender_registration_id: str | None,
-    recipient_registration_ids: Sequence[str | None],
+    folders: dict[str, set[str]],
 ) -> tuple[int, int]:
     """Insert deterministic default mailbox-local state rows for one recovered message."""
 
-    restored_state_count = 0
     defaulted_state_count = 0
-    delivered_recipient_ids = {
-        registration_id
-        for registration_id in recipient_registration_ids
-        if registration_id is not None
-    }
-    affected_registration_ids = {
-        registration_id for registration_id in recipient_registration_ids if registration_id
-    }
-    if sender_registration_id is not None:
-        affected_registration_ids.add(sender_registration_id)
-    for registration_id in sorted(affected_registration_ids):
+    for registration_id, folder_names in sorted(folders.items()):
         if registration_id not in registrations:
             continue
-        is_recipient = registration_id in delivered_recipient_ids
-        state_values = (
-            not is_recipient,
-            False,
-            False,
-            False,
-            False,
-            "inbox" if is_recipient else "sent",
-        )
         defaulted_state_count += 1
 
         with _open_local_mailbox_connection(registrations[registration_id]) as local_connection:
@@ -5649,15 +5677,15 @@ def _insert_recovered_mailbox_state_records(
                 thread_id=message.thread_id,
                 created_at_utc=message.created_at_utc,
                 subject=message.subject,
-                is_read=bool(state_values[0]),
-                is_answered=bool(state_values[1]),
-                is_starred=bool(state_values[2]),
-                is_archived=bool(state_values[3]),
-                is_deleted=bool(state_values[4]),
-                box_name=str(state_values[5]),
+                is_read=_default_read_for_projection_folders(folder_names),
+                is_answered=False,
+                is_starred=False,
+                is_archived=_default_archived_for_projection_folders(folder_names),
+                is_deleted=False,
+                box_name=_default_box_for_projection_folders(folder_names),
             )
 
-    return restored_state_count, defaulted_state_count
+    return 0, defaulted_state_count
 
 
 def _best_effort_registration_id(

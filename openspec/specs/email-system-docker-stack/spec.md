@@ -1,10 +1,10 @@
 ## Purpose
-Define the repository-owned local email-system stack for development mail workflows using Stalwart, Postgres, and Cypht.
+Define the repository-owned development email stack using Stalwart, a loopback JMAP proxy, and Bulwark Webmail.
 
 ## Requirements
 
 ### Requirement: Repository-owned local email stack
-The repository SHALL provide a local Docker-based email stack under `dockers/email-system/` that is sufficient to start Stalwart, Postgres, and Cypht together for local mail usage.
+The repository SHALL provide a local Docker-based email stack under `dockers/email-system/` that starts Stalwart, the JMAP HTTP proxy, and Bulwark together for local mail usage.
 
 The repo-owned stack materials SHALL include the compose entry point plus the operator-facing configuration and documentation needed to start the stack from repository context.
 
@@ -19,11 +19,11 @@ The startup wrapper SHALL offer an explicit first-run option to pull the configu
 
 #### Scenario: Operator starts the local email stack from repository-owned files
 - **WHEN** an operator follows the documented local email-system workflow
-- **THEN** the repository provides the compose and configuration assets under `dockers/email-system/` needed to start Stalwart, Postgres, and Cypht together
+- **THEN** the repository provides the compose and configuration assets under `dockers/email-system/` needed to start Stalwart, the JMAP proxy, and Bulwark together
 - **AND THEN** the operator does not need to assemble the stack from ad hoc host-local commands outside the repository
 
 #### Scenario: Operator starts the stack with the required images already loaded locally
-- **WHEN** the required Stalwart, Postgres, and Cypht images are already present on the host
+- **WHEN** the configured Stalwart, JMAP proxy, and Bulwark images are already present on the host
 - **THEN** the documented compose bring-up path starts the stack without pulling or checking remote registries
 - **AND THEN** local image presence is treated as a prerequisite rather than something normal startup resolves by network fetch
 
@@ -58,86 +58,65 @@ Repo-owned compose files, helper scripts, and service config templates SHALL tre
 - **THEN** the compose stack and repo-owned helper paths consume that updated value from the env file
 - **AND THEN** the operator does not need to edit multiple unrelated repository files for one supported configuration change
 
-### Requirement: Stack ports use only non-privileged high ports
-Every stack-defined port SHALL be `>=10000`, including Stalwart HTTP, IMAP, and SMTP submission, Cypht HTTP, and Postgres. Published ports SHALL bind to host loopback. The default management API and Webadmin ports SHALL be `10080` and `10082`, respectively.
+### Requirement: Published stack ports use loopback high ports
+Every published stack port SHALL bind to host loopback and use a port of at least `10000`. The default Stalwart management and JMAP HTTP port SHALL be `10080`, the Bulwark HTTP port `10081`, and the Stalwart Webadmin HTTPS port `10082`.
 
 #### Scenario: Operator inspects the configured stack ports
 - **WHEN** an operator reviews the compose configuration and repo-owned service config for the local email stack
-- **THEN** every configured listener port and mapped service port used by the stack is `>=10000`
-- **AND THEN** the stack does not depend on privileged or sub-10000 ports anywhere in its repo-owned configuration
+- **THEN** every published host port uses loopback and a port of at least `10000`
+- **AND THEN** the proxy reaches Bulwark through the internal loopback listener in their shared network namespace
 
-#### Scenario: Cypht connects to Stalwart and Postgres on high ports
-- **WHEN** Cypht starts inside the local email stack
-- **THEN** its configured IMAP, SMTP, and Postgres connection targets all use ports `>=10000`
-- **AND THEN** Cypht does not depend on upstream low-port defaults for those services
+#### Scenario: Browser clients connect through the published webmail listener
+- **WHEN** a developer opens Bulwark at the configured webmail origin
+- **THEN** the proxy serves the webmail interface and its Stalwart JMAP requests at that origin
 
-### Requirement: Stack runtime state is kept under `dockers/email-system/.data`
-The local email stack SHALL persist service-owned mutable state under `dockers/email-system/.data/`.
-
-At minimum, the stack SHALL persist Stalwart server state, Postgres database state for Cypht, and Cypht's file-backed user data and attachments through paths rooted under `dockers/email-system/.data/`.
-
-The repository SHALL ignore `dockers/email-system/.data/` from Git so stack runtime state is not tracked as repository content.
+### Requirement: Stack runtime state uses a bind mount and a named volume
+The stack SHALL persist Stalwart server state in `dockers/email-system/.data/stalwart-v1/` and Bulwark application data in the Compose volume `bulwark-data`. The repository SHALL ignore `dockers/email-system/.data/`.
 
 #### Scenario: First boot creates service state in the temp runtime root
 - **WHEN** an operator starts the local email stack for the first time
-- **THEN** Stalwart, Postgres, and Cypht initialize their writable state through bind-mounted paths rooted under `dockers/email-system/.data/`
+- **THEN** Stalwart initializes its data directory through the bind mount and Bulwark initializes its application data in the named volume
 - **AND THEN** the repo-owned stack files remain configuration-only artifacts rather than mixed code-and-data directories
 
 #### Scenario: Operator resets the local mail environment
-- **WHEN** an operator intentionally clears `dockers/email-system/.data/` after stopping the stack
+- **WHEN** an operator stops the stack and intentionally removes the Bulwark volume and Stalwart data directory through the documented reset procedure
 - **THEN** the next startup rebuilds the local mail environment from the repo-owned stack configuration
-- **AND THEN** no additional hidden runtime state outside `dockers/email-system/.data/` is required for a clean reset
 
 #### Scenario: Git does not track stack runtime state
 - **WHEN** runtime files are created under `dockers/email-system/.data/`
 - **THEN** the repository ignore rules exclude those files from Git tracking
 - **AND THEN** developers do not need to clean runtime data out of normal source control changes
 
-### Requirement: Cypht acts only as the Stalwart-backed mail client
-The stack SHALL configure Cypht as the Stalwart-backed webmail client.
+### Requirement: Bulwark uses Stalwart JMAP for webmail
+Bulwark SHALL use Stalwart for mailbox login and mail operations through JMAP on the published webmail origin. Stalwart SHALL own mailbox accounts, sending identities, and access to shared folders.
 
-Cypht SHALL:
+#### Scenario: Mailbox user signs into Bulwark with Stalwart credentials
+- **WHEN** a provisioned mailbox user signs into Bulwark with the mailbox username and password
+- **THEN** Bulwark authenticates against Stalwart JMAP and uses that mailbox for reading and sending
 
-- persist its application data in the stack's Postgres service,
-- use plain connections to Stalwart IMAP for authentication and Stalwart SMTP for submission on the private Compose network,
-- run in single-server mode,
-- create a default sender profile after login.
+#### Scenario: Admin opens the operator shared inbox
+- **WHEN** the seeded admin opens the operator inbox through Bulwark
+- **THEN** Stalwart grants the configured read-only access and the message's read state remains under the operator mailbox's control
 
-#### Scenario: Cypht boots against the stack-managed Postgres database
-- **WHEN** the local email stack starts Cypht
-- **THEN** Cypht initializes and uses the stack-managed Postgres database for its own application persistence
-- **AND THEN** the stack does not require a separate SQLite database file for Cypht state
-
-#### Scenario: Mailbox user logs into Cypht with Stalwart credentials
-- **WHEN** a mailbox account exists in Stalwart and the user signs into Cypht with that mailbox username and password
-- **THEN** Cypht authenticates the login against Stalwart IMAP
-- **AND THEN** the user's default inbound and outbound mail configuration points at the same Stalwart-backed mailbox identity
-
-#### Scenario: Cypht is not used to provision accounts
+#### Scenario: Operator provisions a mailbox account
 - **WHEN** an operator needs to create or modify mailbox accounts for the stack
-- **THEN** the documented workflow directs that work to Stalwart administration or Stalwart API helpers rather than to Cypht UI features
-- **AND THEN** Cypht remains limited to reading and sending mail for already-provisioned accounts
+- **THEN** the documented workflow directs that work to Stalwart administration or Stalwart API helpers
 
 ### Requirement: Development defaults minimize authentication friction
 The local email stack SHALL use development-only low-friction authentication defaults.
 
-The default username and password for Postgres and the Stalwart admin mailbox SHALL both be `admin`. The Stalwart operator mailbox SHALL use username `houmao-operator` and password `admin` by default.
+The default username and password for the Stalwart admin mailbox SHALL both be `admin`. The Stalwart operator mailbox SHALL use username `houmao-operator` and password `admin` by default.
 
 The stack SHALL NOT require generated one-time admin passwords, secret injection, or additional auth layers as prerequisites for first local bring-up.
 
 #### Scenario: Operator accesses authenticated stack services during initial bring-up
 - **WHEN** the operator follows the default development workflow for the local email stack
-- **THEN** Stalwart admin access and Postgres database authentication use `admin` / `admin` defaults
+- **THEN** Stalwart Webadmin and Bulwark accept the seeded `admin` / `admin` mailbox credentials
 - **AND THEN** the operator does not need to retrieve generated secrets before bringing the stack into a usable state
 
-#### Scenario: Operator logs into Cypht during initial bring-up
-- **WHEN** the operator signs into Cypht using the default seeded Stalwart-backed mailbox identity
-- **THEN** the development login flow uses the same low-friction `admin` / `admin` credential convention for that seeded mailbox identity
-- **AND THEN** Cypht does not require a separate Cypht-local password distinct from the Stalwart-backed mailbox login
-
 #### Scenario: Developer signs into the operator mailbox
-- **WHEN** a developer signs into Cypht as `houmao-operator` with the default password `admin`
-- **THEN** Cypht opens the operator mailbox on the configured domain
+- **WHEN** a developer signs into Bulwark as `houmao-operator` with the default password `admin`
+- **THEN** Bulwark opens the operator mailbox on the configured domain using those Stalwart credentials
 
 ### Requirement: Mail account provisioning uses Stalwart's management API
 The stack SHALL use Stalwart's management API to ensure the configured domain and individual mailboxes. Reruns SHALL reuse existing principals. Fresh setup SHALL default to `houmao.localhost` with `admin@houmao.localhost` and `houmao-operator@houmao.localhost`. The operator address SHALL use the configured domain.
@@ -145,7 +124,7 @@ The stack SHALL use Stalwart's management API to ensure the configured domain an
 #### Scenario: Operator provisions the initial mail domain and first mailbox account
 - **WHEN** the operator runs the documented Stalwart provisioning workflow for a new local mail domain and mailbox user
 - **THEN** the workflow uses Stalwart's management API to ensure the domain exists and create the mailbox principal
-- **AND THEN** the resulting mailbox credentials can be used to sign into Cypht
+- **AND THEN** the resulting mailbox credentials can be used to sign into Bulwark
 
 #### Scenario: Operator reruns provisioning for an existing mailbox account
 - **WHEN** the operator reruns the provisioning workflow for a domain or mailbox account that already exists
@@ -159,3 +138,23 @@ The local email stack SHALL document itself as a local/development environment a
 - **WHEN** an operator follows the documentation for `dockers/email-system/`
 - **THEN** the docs describe the stack as local/dev oriented
 - **AND THEN** the docs avoid implying that DNS, TLS, MX delivery, credential hardening, or production hardening are fully handled by this change
+
+### Requirement: Bundled Stalwart advertises the published loopback JMAP origin
+JMAP discovery on the bundled stack SHALL advertise API and upload URLs on the published `127.0.0.1` origin and its configured Stalwart HTTP port. Stack verification SHALL check those advertised origins through the host's discovery endpoint. The Webadmin alias SHALL remain usable on its configured browser port.
+
+#### Scenario: Fresh checkout exposes a direct JMAP endpoint
+- **WHEN** a developer brings up the stack with defaults
+- **THEN** discovery via `http://127.0.0.1:10080/.well-known/jmap` advertises API and upload URLs at `http://127.0.0.1:10080`
+- **AND THEN** the developer can use a suitably provisioned normal account under the default origin policy
+
+#### Scenario: A custom host port is advertised
+- **WHEN** the developer sets a different Stalwart HTTP port in the active stack environment
+- **THEN** verification checks that discovery advertises the configured port for JMAP requests and uploads
+
+### Requirement: Bundled stack docs provide a send-capable JMAP sandbox path
+The setup guide SHALL document access to the seeded `houmao.localhost` mailboxes through Bulwark, IMAP, and SMTP. It SHALL document explicit provisioning for JMAP test accounts on a domain that the pinned Stalwart release accepts for sending identities.
+
+#### Scenario: Developer prepares accounts for agent mail verification
+- **WHEN** a developer follows the online JMAP mail test setup
+- **THEN** the guide identifies an explicitly selected sandbox domain, normal mailbox credentials, and the direct discovery endpoint
+- **AND THEN** the seeded administrator and operator accounts remain available for the local webmail workflow

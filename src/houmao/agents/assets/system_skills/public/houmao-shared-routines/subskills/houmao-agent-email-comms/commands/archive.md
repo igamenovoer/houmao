@@ -11,6 +11,8 @@ If the request does not map cleanly to these steps, use the native planning tool
 
 Archive a message only after the corresponding mailbox action succeeds and any required reply has been sent successfully.
 
+Check the selected channel's current `mail status` before changing placement. When the binding reserves placement for the owner, report the completed items for separately authorized backend filing. Keep ordinary read and answered changes within their supported scope.
+
 Run the scoped command after the processing and any required reply succeed.
 
 ```bash

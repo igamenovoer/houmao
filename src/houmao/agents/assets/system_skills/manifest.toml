@@ -107,7 +107,7 @@ route_name = "agent-definition"
 audiences = ["admin"]
 dependencies = ["houmao-credential-mgr"]
 commands = ["help", "roles", "recipes", "launch-dossiers", "specialists", "profiles", "recipe-profiles", "definition-authoring", "definition-deployment", "definition-batch", "create-agent-fast-forward", "launch-agent", "stop-agent"]
-aliases = ["presets=recipes", "specialist-mgr=agent-definition", "ready-profile=create-agent-fast-forward"]
+aliases = ["presets=recipes", "specialist-mgr=agent-definition", "ready-profile=create-agent-fast-forward", "authoring=definition-authoring", "deployment=definition-deployment", "batch=definition-batch", "launch-instance=launch-agent", "stop-instance=stop-agent"]
 
 [[shared_routines]]
 logical_id = "houmao-operator-messaging"
@@ -147,7 +147,7 @@ route_name = "adv-usage-pattern"
 audiences = ["admin", "agent"]
 dependencies = ["houmao-agent-email-comms", "houmao-agent-gateway"]
 commands = ["help", "self-notification", "notifier-prompt-driven-mail-loop", "pairwise-edge-loop", "relay-loop"]
-aliases = ["pairwise edge-loop=pairwise-edge-loop", "pairwise-edge-loop-via-gateway-and-mailbox=pairwise-edge-loop", "relay-loop-via-gateway-and-mailbox=relay-loop"]
+aliases = ["local-close-edge-loop=pairwise-edge-loop", "pairwise edge-loop=pairwise-edge-loop", "pairwise-edge-loop-via-gateway-and-mailbox=pairwise-edge-loop", "relay-loop-via-gateway-and-mailbox=relay-loop", "self-notification-via-reminders=self-notification", "self-wakeup-via-self-mail=self-notification"]
 
 [[shared_routines]]
 logical_id = "houmao-utils-workspace-mgr"
@@ -176,8 +176,8 @@ member_name = "houmao-mailbox-mgr"
 route_name = "mailbox-mgr"
 audiences = ["admin", "agent"]
 dependencies = []
-commands = ["help", "init", "status", "repair", "cleanup", "export", "register", "unregister", "agent-binding-status", "agent-binding-register", "agent-binding-unregister"]
-aliases = ["accounts-list", "accounts-get", "messages-list", "messages-get", "messages-clear", "clear-messages"]
+commands = ["help", "init", "status", "repair", "cleanup", "clear-messages", "export", "register", "unregister", "accounts-list", "accounts-get", "messages-list", "messages-get", "messages-clear", "agent-binding-status", "agent-binding-register", "agent-binding-unregister", "agent-binding-online"]
+aliases = ["mailbox-online=agent-binding-online"]
 
 [[shared_routines]]
 logical_id = "houmao-memory-mgr"
@@ -216,7 +216,7 @@ member_name = "houmao-agent-messaging"
 route_name = "agent-messaging"
 audiences = ["admin", "agent"]
 dependencies = ["houmao-agent-email-comms"]
-commands = ["help", "discover", "prompt", "interrupt", "gateway-queue", "send-keys", "mail", "reset-context"]
+commands = ["help", "discover", "request", "prompt", "interrupt", "gateway-queue", "send-keys", "mail", "reset-context"]
 aliases = ["raw-input=send-keys", "mail-handoff=mail"]
 
 [[shared_routines]]

@@ -160,7 +160,7 @@ from houmao.mailbox.stalwart import (
     build_stalwart_credential_ref,
     runtime_stalwart_credential_path,
 )
-from houmao.mailbox.stalwart_models import JmapMetadataPage, JmapMetadataQuery
+from houmao.mailbox.stalwart_models import JmapMetadataPage, JmapMetadataQuery, ValidatedJmapBinding
 from houmao.agents.realm_controller.agent_identity import derive_agent_id_from_name
 from houmao.server.models import (
     HoumaoDegradedChatContextDiagnostic,
@@ -6722,9 +6722,19 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
                 }
             ]
 
-        def validate_binding(self, *, sender_address: str | None = None) -> SimpleNamespace:
-            return SimpleNamespace(
-                account_id="acc-1", identity_id="identity-test", sender_address=sender_address
+        def validate_binding(self, *, sender_address: str | None = None) -> ValidatedJmapBinding:
+            return ValidatedJmapBinding(
+                account_id="acc-1",
+                identity_id="identity-test",
+                sender_address=sender_address or "HOUMAO-gpu@agents.localhost",
+                discovery_url=self.m_jmap_url,
+                api_url=self.m_jmap_url,
+                capabilities={},
+                mailbox_roles={"inbox": "inbox", "sent": "sent", "archive": "archive"},
+                max_objects_in_get=200,
+                max_calls_in_request=16,
+                can_move=True,
+                can_archive=True,
             )
 
         def primary_account_id(self) -> str:
@@ -6862,7 +6872,18 @@ def test_gateway_mail_routes_support_stalwart_mailbox_with_mocked_jmap(
 
     status_response = client.get("/v1/mail/status")
     assert status_response.status_code == 200
-    assert status_response.json()["online"]["transport"] == "stalwart"
+    online_status = status_response.json()["online"]
+    assert online_status["transport"] == "stalwart"
+    assert set(online_status["supported_operations"]) == {
+        "list",
+        "peek",
+        "read",
+        "send",
+        "reply",
+        "mark",
+        "move",
+        "archive",
+    }
 
     check_response = client.post(
         "/v1/mail/online/list",
@@ -6948,14 +6969,17 @@ def test_gateway_mail_mark_route_rejects_malformed_stalwart_message_normalizatio
         def __init__(
             self, *, jmap_url: str, login_identity: str, credential_file: Path, **kwargs: object
         ) -> None:
-            del jmap_url, login_identity, credential_file
+            self.m_jmap_url = jmap_url
 
         def status(self) -> dict[str, object]:
             return {"account_id": "acc-1"}
 
         def validate_binding(self, *, sender_address: str | None = None) -> SimpleNamespace:
             return SimpleNamespace(
-                account_id="acc-1", identity_id="identity-test", sender_address=sender_address
+                account_id="acc-1",
+                identity_id="identity-test",
+                sender_address=sender_address,
+                api_url=self.m_jmap_url,
             )
 
         def mark(
@@ -8354,9 +8378,11 @@ def test_gateway_mail_notifier_falls_back_when_required_skill_is_missing(
         runtime.shutdown()
 
 
+@pytest.mark.parametrize("placement_writable", [True, False], ids=["writable", "protected"])
 def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchanged_unread_mail(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    placement_writable: bool,
 ) -> None:
     gateway_root = _seed_cao_gateway_root_with_stalwart_mailbox(tmp_path)
     manifest_path = default_manifest_path(tmp_path, "cao_rest", "cao-rest-1")
@@ -8368,9 +8394,17 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
                 time.sleep(1.5)
             return super().send_terminal_input(terminal_id, message)
 
-    from tests.unit.mailbox.fake_notifier_client import install_notifier_client
+    from tests.unit.mailbox.fake_notifier_client import (
+        FakeNotifierJmapClient,
+        install_notifier_client,
+    )
 
-    install_notifier_client(monkeypatch)
+    class _StalwartJmapClientForNotifier(FakeNotifierJmapClient):
+        def validate_binding(self, *, sender_address: str | None = None) -> ValidatedJmapBinding:
+            binding = super().validate_binding(sender_address=sender_address)
+            return replace(binding, can_move=placement_writable, can_archive=placement_writable)
+
+    install_notifier_client(monkeypatch, _StalwartJmapClientForNotifier)
 
     fake_client = _SlowFakeCaoRestClient(base_url="http://localhost:9889")
     monkeypatch.setattr(
@@ -8431,10 +8465,14 @@ def test_gateway_mail_notifier_stalwart_adapter_defers_then_repeats_for_unchange
             "Use the mailbox API below directly for this round."
             in fake_client.submitted_prompts[1][1]
         )
-        assert (
-            "Mailbox API: `GET /v1/mail/status`; `POST /v1/mail/online/list|peek|read|reply|send|post|mark|move|archive`."
-            in fake_client.submitted_prompts[1][1]
-        )
+        prompt = fake_client.submitted_prompts[1][1]
+        operations = "list|peek|read|reply|send|mark"
+        if placement_writable:
+            operations += "|move|archive"
+            assert "Archive successfully processed messages" in prompt
+        else:
+            assert "report completed messages for mailbox-owner filing" in prompt
+        assert f"Mailbox API: `GET /v1/mail/status`; `POST /v1/mail/online/{operations}`." in prompt
         assert (
             "- `POST http://127.0.0.1:43123/v1/mail/online/archive`"
             not in fake_client.submitted_prompts[1][1]
@@ -8783,6 +8821,39 @@ def _dispatch_test_event(runtime: GatewayServiceRuntime, timeout: float = 1.0) -
         timeout_seconds=timeout,
         is_active=lambda: True,
     )
+
+
+@pytest.mark.parametrize("invalidated_by", ["busy", "replacement"])
+def test_plugin_dispatch_rechecks_observed_readiness_and_body_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, invalidated_by: str
+) -> None:
+    """An observation reserves nothing and cannot transfer to a replacement body."""
+
+    runtime, adapter = _plugin_dispatch_runtime(tmp_path, monkeypatch)
+    try:
+        reading = runtime.observe_plugin_prompt_readiness()
+        assert reading == (("generation-one", "@1", "%1"), True)
+        if invalidated_by == "busy":
+            runtime.m_plugin_dispatch_pending = True
+            assert runtime.observe_plugin_prompt_readiness() == (reading[0], False)
+        else:
+            adapter.generation = "generation-two"
+        with pytest.raises(PluginDispatchError) as caught:
+            runtime.dispatch_plugin_event(
+                PluginEvent(source_event_id="old", text="ordinary message"),
+                instance_id="notifications",
+                binding_id="binding-one",
+                timeout_seconds=1.0,
+                is_active=lambda: True,
+                expected_body_identity=reading[0],
+            )
+        assert caught.value.error_code == (
+            "not_ready" if invalidated_by == "busy" else "body_replaced"
+        )
+        assert caught.value.dispatch_outcome == "not_sent" and not adapter.started.is_set()
+    finally:
+        runtime.m_plugin_dispatch_pending = False
+        runtime.shutdown()
 
 
 @pytest.mark.parametrize("tool", ["claude", "dsh"])

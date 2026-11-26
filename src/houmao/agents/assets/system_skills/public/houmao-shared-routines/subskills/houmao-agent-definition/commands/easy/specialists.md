@@ -50,15 +50,17 @@ For `set`, keep the maintained patch command explicit and include only the user-
 Common specialist inputs:
 
 - `--name`
-- `--tool claude|codex|kimi`
+- `--tool claude|codex|kimi|dsh`
 - `--credential <name>`
 - `--system-prompt` or `--system-prompt-file`
 - `--setup <name>`; default is `default`
 - `--no-unattended` only when the user explicitly wants `as_is`; do not invent this flag from preference. For Kimi TUI automation, keep the default unattended prompt mode instead of adding raw Kimi permission flags.
 - `--model`
 - `--reasoning-level`
-- repeatable `--with-skill <dir>`
+- repeatable `--skill <registered-project-skill>` or `--with-skill <dir>` (registers in `.houmao/content/skills/` and binds)
 - repeatable `--env-set NAME=value`
+- managed system-skill policy: `--system-skill-pack <admin|agent>`, `--system-skills-mode default|extend|replace|none`, `--no-system-skills`
+- layered per-tool parameters: `--tool-params JSON-OR-@PATH` (including `tool_params.permissions` and adapter-specific runtime settings)
 
 For Codex GPT-5.6, normalized reasoning level 0 is invalid. Sol and Terra expose six ordered levels (`low`, `medium`, `high`, `xhigh`, `max`, `ultra`), and Luna exposes five through `max`. Higher values saturate at the model maximum. For Kimi, select an alias from native TOML. Positive reasoning levels index the alias's effective `support_efforts` from 1 and use its exact labels. Level 0 requires a model that permits thinking off. Leave the numeric override unset to use native defaults.
 
@@ -67,6 +69,7 @@ Tool-specific auth inputs:
 - Claude: `--api-key`, optional `--claude-auth-token`, optional `--claude-oauth-token`, optional `--claude-config-dir`, optional `--base-url`, optional `--claude-model`
 - Claude optional bootstrap state: `--claude-state-template-file`; this is optional bootstrap state and not a credential-providing method
 - Codex: `--api-key`, optional `--base-url`, optional `--codex-org-id`, optional `--codex-auth-json`
+- DSH: create an explicit DSH credential (`--adapter deepseek|pi-ai`, `--api-key`, `--base-url`, `--api-key-env`, `--base-url-env`) via `project credentials dsh add` and reference it with `--credential <name>`, or pass supported common `--api-key` / `--base-url` inputs when creating
 - Kimi accepts `--kimi-config-toml`, optionally with `--api-key` for a matching native key reference or `--kimi-credential-json` for OAuth. Use `--kimi-code-home` to import a supported OAuth home.
 
 ## Credential Discovery During Create
@@ -91,6 +94,7 @@ Load only the selected tool credential-kind reference when needed:
 
 - Claude: [../../../houmao-credential-mgr/references/claude-credential-kinds.md](../../../houmao-credential-mgr/references/claude-credential-kinds.md)
 - Codex: [../../../houmao-credential-mgr/references/codex-credential-kinds.md](../../../houmao-credential-mgr/references/codex-credential-kinds.md)
+- DSH: [../../../houmao-credential-mgr/references/dsh-credential-kinds.md](../../../houmao-credential-mgr/references/dsh-credential-kinds.md)
 - Kimi: [../../../houmao-credential-mgr/references/kimi-credential-kinds.md](../../../houmao-credential-mgr/references/kimi-credential-kinds.md)
 
 For Claude vendor-login files, normalize reuse requests to `--claude-config-dir <claude-config-root>`. If the user points at `.credentials.json`, use its parent directory.
@@ -116,6 +120,8 @@ Common update and clear inputs:
 - `--clear-reasoning-level`
 - repeatable `--env-set NAME=value`
 - `--clear-env`
+- `--system-skill-pack <admin|agent>`, `--system-skills-mode default|extend|replace|none`, `--no-system-skills`, `--clear-system-skills`
+- `--tool-params JSON-OR-@PATH`, `--clear-tool-params`
 
 ## Guardrails
 

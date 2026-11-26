@@ -1,11 +1,11 @@
 [project]
 name = "houmao-cccc"
-version = "0.2.0"
-description = "Owner-bound CCCC chat and deferred Mail integration for Houmao gateways"
+version = "0.3.0"
+description = "Owner-bound CCCC chat and deferred Mail for Houmao gateways and direct clients"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-dependencies = ["houmao>=3.0.0rc1,<4", "httpx>=0.28,<0.29"]
+dependencies = ["houmao>=3.0.0rc8,<4", "httpx>=0.28,<0.29"]
 
 [project.entry-points."houmao.gateway_plugins"]
 cccc = "houmao_cccc:definition"

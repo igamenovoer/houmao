@@ -45,16 +45,18 @@ from houmao.gateway.access_models import (
     validate_gateway_base_url as validate_gateway_base_url,
 )
 from houmao.gateway.authorization import GatewayAuthorizer
-from houmao.gateway.authorization_catalog import DEFAULT_GROUP_SET
+from houmao.gateway.authorization_catalog import DEFAULT_FALLBACK_SET, DEFAULT_GROUP_SET
 from houmao.gateway.authorization_models import (
     AuthorizationActor,
     AuthorizationDecision,
+    DefaultFallbackReceipt,
     DefaultPermissionGroupReceipt,
     Permission,
     PermissionGroupName,
     PolicySnapshot,
+    PrincipalDefaultFallback,
 )
-from houmao.gateway.authorization_store import AuthorizationStore
+from houmao.gateway.authorization_store import AuthorizationStore, AuthorizationTransaction
 from houmao.gateway.caller_proof import (
     CHALLENGE_LIFETIME_SECONDS as CHALLENGE_LIFETIME_SECONDS,
     CallerProofs,
@@ -93,14 +95,12 @@ class GatewayAccessPolicy:
         catalog: Callable[[], Iterable[Permission]] | None = None,
         supports: Callable[[Permission], bool] | None = None,
         supports_common: Callable[[Permission], bool] | None = None,
-        require_keyed_transition: Callable[[], None] | None = None,
     ) -> None:
         """Bind one transient listener to retained owner authorization."""
 
         self.m_store: AuthorizationStore = store
         self.m_listener_id: str = listener_id
         self.m_self: Callable[[], GatewaySelfKey | None] = current_self
-        self.m_require_keyed_transition: Callable[[], None] | None = require_keyed_transition
         self.m_proofs: CallerProofs = CallerProofs(
             store=store, target=target, current_self=current_self, listener_id=listener_id
         )
@@ -279,8 +279,6 @@ class GatewayAccessPolicy:
                 ):
                     raise GatewayAccessError(409, "enrollment_conflict")
                 actor = "bootstrap"
-                if self.m_require_keyed_transition is not None:
-                    self.m_require_keyed_transition()
             else:
                 actor = self._require_admin(current, grant, ADMIN_ADD)
             transaction.replace(add_admin_key(current, key), actor=actor, action=ADMIN_ADD.action)
@@ -305,27 +303,17 @@ class GatewayAccessPolicy:
     ) -> DefaultPermissionGroupReceipt:
         """Commit an explicit default selection under its admitted admin authority."""
 
-        if DEFAULT_GROUP_SET not in grant.permissions:
-            raise GatewayAccessError(403, "insufficient_authority")
         with self.m_store.transaction() as transaction:
-            if require_current_target is not None:
-                require_current_target()
             current = transaction.snapshot
-            self.m_authorizer.require_current(
-                current,
-                grant,
-                target=self.m_proofs.target(),
-                listener_id=self.m_listener_id,
-                current_self=(
-                    transaction.load_self(grant.target.incarnation)
-                    if grant.actor.kind == "self"
-                    else None
-                ),
+            self._require_policy_administrator(
+                transaction, grant, DEFAULT_GROUP_SET, require_current_target
             )
             changed = transaction.replace(
                 current.model_copy(
                     update={
                         "default_permission_group": group,
+                        "default_permission_group_version": 1,
+                        "default_permission_effects": (),
                         "default_permission_revision": current.default_permission_revision + 1,
                     }
                 ),
@@ -333,9 +321,71 @@ class GatewayAccessPolicy:
                 action=DEFAULT_GROUP_SET.action,
             )
         return DefaultPermissionGroupReceipt(
-            default_permission_group=changed.default_permission_group,
+            default_permission_group=group,
             default_permission_revision=changed.default_permission_revision,
             policy_revision=changed.revision,
+        )
+
+    def set_default_fallback(
+        self,
+        grant: GatewayGrant,
+        principal_id: str,
+        enabled: bool,
+        *,
+        require_current_target: Callable[[], None] | None = None,
+    ) -> DefaultFallbackReceipt:
+        """Commit a principal's new fallback setting under current administrator authority."""
+
+        with self.m_store.transaction() as transaction:
+            current = transaction.snapshot
+            self._require_policy_administrator(
+                transaction, grant, DEFAULT_FALLBACK_SET, require_current_target
+            )
+            if not any(row.principal_id == principal_id for row in current.principals):
+                raise GatewayAccessError(404, "unknown_principal")
+            setting = PrincipalDefaultFallback(
+                principal_id=principal_id, enabled=enabled, revision=current.revision + 1
+            )
+            remaining = tuple(
+                row
+                for row in current.principal_default_fallback
+                if row.principal_id != principal_id
+            )
+            changed = transaction.replace(
+                current.model_copy(update={"principal_default_fallback": (*remaining, setting)}),
+                actor=grant.actor.principal_id or "anonymous",
+                action=DEFAULT_FALLBACK_SET.action,
+            )
+        return DefaultFallbackReceipt(
+            principal_id=setting.principal_id,
+            enabled=setting.enabled,
+            default_fallback_revision=setting.revision,
+            policy_revision=changed.revision,
+        )
+
+    def _require_policy_administrator(
+        self,
+        transaction: AuthorizationTransaction,
+        grant: GatewayGrant,
+        permission: Permission,
+        require_current_target: Callable[[], None] | None,
+    ) -> None:
+        """Recheck the admitted exact admin effect and current selected target at commit."""
+
+        if permission not in grant.permissions:
+            raise GatewayAccessError(403, "insufficient_authority")
+        if require_current_target is not None:
+            require_current_target()
+        self.m_authorizer.require_current(
+            transaction.snapshot,
+            grant,
+            target=self.m_proofs.target(),
+            listener_id=self.m_listener_id,
+            current_self=(
+                transaction.load_self(grant.target.incarnation)
+                if grant.actor.kind == "self"
+                else None
+            ),
         )
 
     def change_self_registration(

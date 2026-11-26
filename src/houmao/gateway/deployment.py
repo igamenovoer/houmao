@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -47,6 +48,7 @@ class GatewayDeployment(BaseModel):
     advertised_url: str | None = None
     admin_signer_path: str | None = Field(default=None, repr=False)
     peer_signer_path: str | None = Field(default=None, repr=False)
+    stalwart_policy_url: str | None = None
 
     @field_validator("advertised_url")
     @classmethod
@@ -54,6 +56,18 @@ class GatewayDeployment(BaseModel):
         """Require a deployable, exact advertised base URL."""
 
         return None if value is None else validate_gateway_base_url(value)
+
+    @field_validator("stalwart_policy_url")
+    @classmethod
+    def _validate_stalwart_policy_url(cls, value: str | None) -> str | None:
+        """Require a separate origin for forwarding signed mail rules."""
+
+        if value is None:
+            return None
+        origin = validate_gateway_base_url(value)
+        if not origin.startswith("https://") or urlsplit(origin).path:
+            raise ValueError("Stalwart policy connector must be an HTTPS origin.")
+        return origin
 
     @field_validator("admin_signer_path", "peer_signer_path")
     @classmethod

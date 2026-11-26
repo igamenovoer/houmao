@@ -10,8 +10,10 @@ from pathlib import Path
 import re
 import time
 from typing import Literal
+from urllib.parse import quote
 
 import click
+from pydantic import TypeAdapter
 
 from houmao.ag_ui.authorization import supports_ag_ui_permission
 from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
@@ -52,9 +54,12 @@ from houmao.gateway._access_sshsig import key_fingerprint
 from houmao.gateway.access_models import MANAGED_SELF_PATH, ManagedSelfChange, ProofPurpose
 from houmao.gateway.authorization import GatewayAuthorizer
 from houmao.gateway.authorization_catalog import (
+    DEFAULT_FALLBACK_SET,
     DEFAULT_GROUP_SET,
     FILE_ACTIONS,
     PERMISSION_GROUPS,
+    RETIRED_MAIL_DELIVER,
+    RETIRED_PROMPT,
     ROLE_TEMPLATE_ACTIONS,
     group_allows,
     is_admin_exclusive,
@@ -62,9 +67,12 @@ from houmao.gateway.authorization_catalog import (
 )
 from houmao.gateway.authorization_models import (
     BUILTIN_PEER_ROLES,
+    RETIRED_OBSERVER_ROLE,
     AuthorizationActor,
     Credential,
+    DefaultFallbackRequest,
     DefaultPermissionGroupRequest,
+    Identifier,
     Permission,
     PermissionGroupName,
     PolicySnapshot,
@@ -83,6 +91,7 @@ from houmao.gateway.deployment import (
 from houmao.gateway.operations import CORE_PERMISSIONS, supports_mail_permission
 from houmao.passive_server.admission import PASSIVE_PERMISSIONS
 from houmao.passive_server.client import PassiveServerClient
+from houmao.passive_server.models import PassiveProofEndpoint
 from houmao.srv_ctrl.commands.common import (
     ManagedAgentScopeContext,
     get_managed_agent_scope_context,
@@ -94,6 +103,7 @@ _FILE = click.Path(exists=True, dir_okay=False, path_type=Path)
 _EXPIRES = click.IntRange(min=0)
 _ENDPOINT_REFUSED = "Could not verify the selected gateway target and listener."
 _FILE_RESOURCE = re.compile(r"files:[a-f0-9]{32}")
+_IDENTIFIER = TypeAdapter(Identifier)
 _INSPECTION_PERMISSIONS = (
     CORE_PERMISSIONS
     | PASSIVE_PERMISSIONS
@@ -158,6 +168,16 @@ def _summary(state: PolicySnapshot, **fields: object) -> dict[str, object]:
         "default_permission_group": state.default_permission_group,
         "default_permission_group_version": state.default_permission_group_version,
         "default_permission_revision": state.default_permission_revision,
+        **(
+            {
+                "default_permission_effects": [
+                    permission.model_dump(mode="json")
+                    for permission in state.default_permission_effects
+                ]
+            }
+            if state.default_permission_group is None
+            else {}
+        ),
         **fields,
     }
 
@@ -218,8 +238,6 @@ def initialize_policy(empty: bool, seed: Path | None, manifest: Path | None) -> 
         )
         launch_seed = load_gateway_admin_seed(seed) if seed is not None else GatewayLaunchSeed()
         access.require_current()
-        if launch_seed.admin_keys:
-            access.require_keyed_mail_qualification()
         state = access.store.initialize(
             seed_snapshot(access.owner, launch_seed), allow_retired=True
         )
@@ -302,13 +320,14 @@ def grant_permission(principal_id: str, resource: str, action: str, expires_at: 
         """Replace the same principal/resource/action row to update its expiry."""
 
         permission = Permission(resource=resource, action=action)
-        if is_admin_exclusive(permission):
+        if is_admin_exclusive(permission) or permission == RETIRED_MAIL_DELIVER:
             raise GatewayAccessError(403, "insufficient_authority")
         grant = ScopedGrant(principal_id=principal_id, permission=permission, expires_at=expires_at)
         remaining = tuple(
             row
             for row in state.grants
-            if (row.principal_id, row.permission) != (principal_id, permission)
+            if (row.principal_id, row.permission, row.source)
+            != (principal_id, permission, "direct")
         )
         return state.model_copy(update={"grants": (*remaining, grant)})
 
@@ -382,7 +401,10 @@ def put_role(
             ),
             template=provenance,
         )
-        if any(is_admin_exclusive(effect) for effect in role.permissions):
+        if any(
+            is_admin_exclusive(effect) or effect == RETIRED_MAIL_DELIVER
+            for effect in role.permissions
+        ):
             raise GatewayAccessError(403, "insufficient_authority")
 
     def change(state: PolicySnapshot) -> PolicySnapshot:
@@ -447,6 +469,12 @@ def _plugin_declared_permissions(
 def assign_role(principal_id: str, role_id: str, expires_at: int | None, local: bool) -> None:
     """Assign or renew a target-local role for one principal."""
 
+    if role_id == RETIRED_OBSERVER_ROLE and not local:
+        raise click.UsageError(
+            "The observer role is retired. Grant agent.status.read on agent and disable "
+            "default fallback for this principal."
+        )
+
     def change(state: PolicySnapshot) -> PolicySnapshot:
         """Upsert one explicit assignment by principal and role."""
 
@@ -490,6 +518,30 @@ def revoke_role(principal_id: str, role_id: str, local: bool) -> None:
     _update("role.revoke", change, principal_id=principal_id, role_id=role_id)
 
 
+def _fallback_inspection(state: PolicySnapshot, principal_id: str) -> dict[str, object]:
+    """Explain fallback eligibility for an ordinary verified key of the principal."""
+
+    setting = state.find_default_fallback(principal_id)
+    enabled = setting is None or setting.enabled
+    if not enabled:
+        reason = "disabled"
+    elif state.admin_mode == "open":
+        reason = "open_roster"
+    elif any(
+        row.principal_id == principal_id and row.builtin_version is not None
+        for row in state.role_assignments
+    ):
+        reason = "retained_builtin_assignment"
+    else:
+        reason = "eligible"
+    return {
+        "enabled": enabled,
+        "revision": setting.revision if setting is not None else None,
+        "reason": reason,
+        "eligible": reason == "eligible",
+    }
+
+
 @single_access_group.command(name="list")
 def list_policy() -> None:
     """Show public enrollment identifiers, grants, and roles for the owner."""
@@ -501,7 +553,13 @@ def list_policy() -> None:
         emit(
             _summary(
                 state,
-                principals=[row.model_dump(mode="json") for row in state.principals],
+                principals=[
+                    {
+                        **row.model_dump(mode="json"),
+                        "default_fallback": _fallback_inspection(state, row.principal_id),
+                    }
+                    for row in state.principals
+                ],
                 credentials=[
                     {
                         "key_id": row.key_id,
@@ -554,14 +612,16 @@ def explain_permission(principal_id: str, resource: str, action: str, key_id: st
             raise GatewayAccessError(404, "unknown_key")
         permission = Permission(resource=resource, action=action)
         now = int(time.time())
-        direct = next(
-            (
-                row
-                for row in state.grants
-                if row.principal_id == principal_id and row.permission == permission
-            ),
-            None,
-        )
+        matching_grants = [
+            {
+                "source": row.source,
+                "expires_at": row.expires_at,
+                "active": row.expires_at is None or row.expires_at > now,
+            }
+            for row in state.grants
+            if row.principal_id == principal_id and row.permission == permission
+        ]
+        direct = next((row for row in matching_grants if row["source"] == "direct"), None)
         roles = {role.role_id: role for role in state.roles if permission in role.permissions}
         matching_roles = [
             {
@@ -600,7 +660,7 @@ def explain_permission(principal_id: str, resource: str, action: str, key_id: st
         known_permission = permission in _INSPECTION_PERMISSIONS or _supports_inspection(permission)
         decisions: list[dict[str, object]] = []
         for key in keys:
-            if action == "agent.prompt" and resource == "agent":
+            if permission in {RETIRED_MAIL_DELIVER, RETIRED_PROMPT}:
                 decisions.append(
                     {"key_id": key.key_id, "allowed": False, "reason": "retired_effect"}
                 )
@@ -637,11 +697,10 @@ def explain_permission(principal_id: str, resource: str, action: str, key_id: st
                 direct_grant=(
                     None
                     if direct is None
-                    else {
-                        "expires_at": direct.expires_at,
-                        "active": direct.expires_at is None or direct.expires_at > now,
-                    }
+                    else {"expires_at": direct["expires_at"], "active": direct["active"]}
                 ),
+                matching_grants=matching_grants,
+                default_fallback=_fallback_inspection(state, principal_id),
                 matching_roles=matching_roles,
                 resource_availability=(
                     "defined" if permission in _INSPECTION_PERMISSIONS else "unresolved"
@@ -903,6 +962,33 @@ def _retained_actor(
     )
 
 
+def _passive_policy_client(
+    url: str, ca_bundle: Path | None, signer: Path | None
+) -> tuple[PassiveServerClient, PassiveProofEndpoint]:
+    """Pin direct passive policy administration to the verified local owner."""
+
+    access = _owner_access()
+    url = validate_gateway_base_url(url)
+    if ca_bundle is not None and signer is None:
+        raise click.UsageError("A custom passive CA bundle requires --signer.")
+    binding = (
+        GatewayClientBinding(
+            base_url=url,
+            owner=access.owner,
+            purpose="caller",
+            private_key_path=str(signer),
+            ca_bundle_path=str(ca_bundle) if ca_bundle is not None else None,
+        )
+        if signer is not None
+        else None
+    )
+    client = PassiveServerClient(url, binding=binding, target_incarnation=access.target.incarnation)
+    selected = client.describe_agent_proof(access.owner.agent_id)
+    if selected.target != access.target:
+        raise click.ClickException(_ENDPOINT_REFUSED)
+    return client, selected
+
+
 @single_access_group.group(name="default-group")
 def default_group() -> None:
     """Manage the selected agent's retained default caller permissions."""
@@ -925,7 +1011,7 @@ def set_default_group(
     passive_url: str | None,
     signer: Path | None,
 ) -> None:
-    """Set one of the six built-in groups through a single chosen path."""
+    """Set one of the five built-in groups through a single chosen path."""
 
     if sum((url is not None, retained, passive_url is not None)) > 1:
         raise click.UsageError("Choose one of --url, --passive-url, or --retained.")
@@ -950,29 +1036,9 @@ def set_default_group(
                 raise click.UsageError(
                     "The passive path uses the verified local owner coordinates."
                 )
-            access = _owner_access()
-            passive_url = validate_gateway_base_url(passive_url)
-            binding = (
-                GatewayClientBinding(
-                    base_url=passive_url,
-                    owner=access.owner,
-                    purpose="caller",
-                    private_key_path=str(signer),
-                    ca_bundle_path=str(ca_bundle) if ca_bundle is not None else None,
-                )
-                if signer is not None
-                else None
-            )
-            if ca_bundle is not None and binding is None:
-                raise click.UsageError("A custom passive CA bundle requires --signer.")
-            client_passive = PassiveServerClient(
-                passive_url, binding=binding, target_incarnation=access.target.incarnation
-            )
-            selected = client_passive.describe_agent_proof(access.owner.agent_id)
-            if selected.target != access.target:
-                raise click.ClickException(_ENDPOINT_REFUSED)
+            client_passive, selected = _passive_policy_client(passive_url, ca_bundle, signer)
             receipt = client_passive.set_default_permission_group(
-                access.owner.agent_id,
+                selected.target.owner.agent_id,
                 DefaultPermissionGroupRequest(
                     group=group,
                     expected_target=selected.target,
@@ -999,6 +1065,91 @@ def set_default_group(
             )
         if receipt.default_permission_group != group:
             raise click.ClickException("The selected path returned a different retained group.")
+        emit(receipt.model_dump(mode="json"))
+
+
+@single_access_group.group(name="default-fallback")
+def default_fallback() -> None:
+    """Manage default permission fallback for a verified principal."""
+
+
+@default_fallback.command(name="set")
+@click.argument("principal")
+@click.argument("setting", type=click.Choice(("enabled", "disabled")))
+@_endpoint_options
+@click.option("--retained", is_flag=True, help="Use the selected local policy directly.")
+@click.option("--passive-url", help="Use the direct route at this trusted passive listener.")
+@click.option("--signer", type=_FILE, help="Explicit private key for an authenticated call.")
+def set_default_fallback(
+    principal: str,
+    setting: str,
+    url: str | None,
+    context_id: str | None,
+    generation: str | None,
+    presence: str | None,
+    ca_bundle: Path | None,
+    retained: bool,
+    passive_url: str | None,
+    signer: Path | None,
+) -> None:
+    """Set fallback for PRINCIPAL without changing independent unsigned admission."""
+
+    if sum((url is not None, retained, passive_url is not None)) > 1:
+        raise click.UsageError("Choose one of --url, --passive-url, or --retained.")
+    enabled = setting == "enabled"
+    with _access_errors():
+        principal = _IDENTIFIER.validate_python(principal)
+        if retained:
+            if any(value is not None for value in (context_id, generation, presence, ca_bundle)):
+                raise click.UsageError("Retained access uses the verified local owner coordinates.")
+            access = _owner_access()
+            path = f"/v1/admin/principals/{quote(principal, safe='')}/default-fallback"
+            policy, actor = _retained_actor(
+                access,
+                method="PUT",
+                path=path,
+                body=DefaultFallbackRequest(enabled=enabled).model_dump_json().encode(),
+                signer=signer,
+            )
+            receipt = policy.set_default_fallback(
+                policy.authorize(actor, (DEFAULT_FALLBACK_SET,)), principal, enabled
+            )
+        elif passive_url is not None:
+            if any(value is not None for value in (context_id, generation, presence)):
+                raise click.UsageError(
+                    "The passive path uses the verified local owner coordinates."
+                )
+            client_passive, selected = _passive_policy_client(passive_url, ca_bundle, signer)
+            receipt = client_passive.set_default_fallback(
+                selected.target.owner.agent_id,
+                principal,
+                DefaultFallbackRequest(
+                    enabled=enabled,
+                    expected_target=selected.target,
+                    expected_listener_id=selected.presence_id,
+                ),
+            )
+        else:
+            endpoint = _verified_endpoint(url, context_id, generation, presence, ca_bundle)
+            client = (
+                endpoint.signed_client(signer)
+                if signer is not None
+                else GatewayClient(
+                    base_url=endpoint.base_url,
+                    ca_bundle_path=endpoint.ca_bundle,
+                    respect_proxy_env=False,
+                )
+            )
+            receipt = client.set_default_fallback(
+                principal,
+                DefaultFallbackRequest(
+                    enabled=enabled,
+                    expected_target=endpoint.descriptor.target,
+                    expected_listener_id=endpoint.descriptor.presence_id,
+                ),
+            )
+        if (receipt.principal_id, receipt.enabled) != (principal, enabled):
+            raise click.ClickException("The selected path returned a different fallback setting.")
         emit(receipt.model_dump(mode="json"))
 
 

@@ -2,18 +2,18 @@
 
 This page is for Python package authors who want to add an HTTP or external-service integration to a Houmao gateway, and operators who enable those packages. Plugins run as trusted Python code in the gateway process. Install them in the same Python environment as Houmao; changing Houmao's source code is unnecessary.
 
-The public SDK is `houmao.gateway.plugins`, contract version `1`. A plugin owns a relative FastAPI router and an asynchronous resource lifespan. The gateway owns discovery, route admission, credentials, worker supervision, status, and dispatch to its single managed agent.
+The public SDK is `houmao.gateway.plugins`, contract version `2`. A plugin owns a relative FastAPI router and an asynchronous resource lifespan. The gateway owns discovery, route admission, credentials, worker supervision, status, and dispatch to its single managed agent. [Gateway SDK declaration](../../../src/houmao/gateway/plugins/models.py)
 
 ## Install and Enable a Package
 
-The [independent notification example](https://github.com/igamenovoer/houmao/tree/main/examples/gateway-plugin) is a complete distribution. Its source imports only the public SDK and declares both a Houmao dependency range and an entry point:
+The independent notification example is a complete distribution. It imports only the public SDK. Its package metadata declares the Houmao dependency range and entry point below. [Example distribution](../../../examples/gateway-plugin/) · [Package metadata](../../../examples/gateway-plugin/pyproject.toml)
 
 ```toml
 [project]
 name = "houmao-example-notifications"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["houmao>=2.4,<3"]
+dependencies = ["houmao>=3.0.0rc1,<4"]
 
 [project.entry-points."houmao.gateway_plugins"]
 example-notifications = "houmao_example_plugin:definition"
@@ -54,7 +54,7 @@ The file is a complete replacement selection, rather than a patch. Omitting `--p
 
 ## Implement the Public Contract
 
-Return a `PluginDefinition` from the selected entry point:
+Return a `PluginDefinition` from the selected entry point. [Example plugin declaration](../../../examples/gateway-plugin/src/houmao_example_plugin/__init__.py)
 
 ```python
 definition = PluginDefinition(
@@ -74,6 +74,8 @@ The factory accepts `(context, validated_config)` and returns an object with `ro
 | `owner` | Immutable `agent_id`, `runtime_session_id`, and optional `agent_name` for the gateway owner. |
 | `instance_id`, `binding_id` | Host-selected instance and stable owner/account binding identities. |
 | `listener` | Optional resolved host, port, and base URL supplied during post-bind activation. |
+| `events.wait_until_ready(timeout_seconds=...)` | Observe readiness for the current body. Return a context-bound observation or `None` on timeout. |
+| `events.validate(event)` | Validate the complete event and its projected prompt without reserving admission. |
 | `events.dispatch(event)` | Await immediate confirmed handoff of one ordinary notification, or receive `PluginDispatchError`. |
 | `workers.start_soon(name, worker)` | Start an asynchronous zero-argument worker under instance supervision. |
 | `credentials.read()` | Reopen the selected private credential document during the active lifespan. |
@@ -140,6 +142,10 @@ async def notify(event: PluginEvent) -> PluginDispatchResult:
 ```
 
 The owner comes from the context. Event input cannot override its agent ID, runtime session, sender account, target route, or credentials. The gateway bounds the entire event envelope before dispatch and applies ordinary readiness admission to the current agent body.
+
+The CCCC plugin selects the fenced request presentation by supplying `PluginEvent.presentation` in place of `text`. Construct a `PluginRequestPresentation` with a `PluginRequestBinding` from the verified Group and Actor and an ordered list of `PluginRequestMessage` entries. The host checks the binding against its CCCC instance selection and writes the trusted header using the live owner-local gateway URL. It quotes the individual messages inside one request fence, keeps correlation fields out of the prompt, and checks the complete rendered prompt against `max_event_bytes`.
+
+A supervised receiver can call `await context.events.wait_until_ready(timeout_seconds=...)` and pass the returned observation to `await context.events.dispatch(event, readiness=observation)`. The observation is advisory and carries the identity of the current body. The host repeats its ready-only checks at dispatch. A readiness race returns `not_ready`, and a body replacement returns `body_replaced`. Both errors carry `dispatch_outcome="not_sent"` when they occur before admission. A revoked context ends the wait. For CCCC projections, a queued native receipt needs evidence that the exact prompt reached the current body before the dispatch can succeed.
 
 | Outcome | Sender Observation | Sender Action |
 | --- | --- | --- |

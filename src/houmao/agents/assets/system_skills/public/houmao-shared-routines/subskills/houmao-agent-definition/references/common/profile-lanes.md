@@ -1,42 +1,26 @@
-# Profile Lanes
+# Profile Lanes and Qualified Run Modes
 
-Houmao has two reusable birth-time profile lanes. They share some storage and projection shape, but the authoring commands stay lane-bounded.
+Houmao separates specialist-backed project profiles, recipe-backed project launch profiles, and native launch dossiers so authoring commands stay lane-bounded.
 
-## Project Profile
+## Lane Comparison
 
-- Skill subcommand: `profiles`.
-- Command family: `houmao-mgr project profile ...`
-- Source kind: one project specialist.
-- Typical use: a durable launchable profile over a specialist.
-- Launch path: `houmao-mgr project agents launch --profile <profile>`.
-- Owner in this skill: [commands/easy/profiles.md](../../commands/easy/profiles.md) and [commands/easy/create-agent-fast-forward.md](../../commands/easy/create-agent-fast-forward.md).
-- Default routing: loose `profile`, `agent profile`, `project profile`, or `ready profile` wording means this lane unless the user explicitly asks for native-agent launch-dossier behavior.
+| Lane | Subcommand | CLI Family | Source | Default Routing |
+| --- | --- | --- | --- | --- |
+| Project profile | `profiles` | `houmao-mgr project profile ...` | Project specialist | Default for `profile`, `agent profile`, `project profile`, or `ready profile` ([profiles.md](../../commands/easy/profiles.md), [create-agent-fast-forward.md](../../commands/easy/create-agent-fast-forward.md)); launched via `project agents launch --profile <name>`. |
+| Recipe launch profile | `recipe-profiles` | `houmao-mgr project agents launch-profiles ...` | Low-level recipe | Used when a project launch profile is explicitly backed by a recipe/preset ([recipe-profiles.md](../../commands/low-level/recipe-profiles.md)). |
+| Native launch dossier | `launch-dossiers` | `houmao-mgr internals native-agent launch-dossiers ...` | Low-level recipe | Used only when the caller explicitly names `launch-dossiers` or `internals native-agent launch-dossiers` ([launch-dossiers.md](../../commands/low-level/launch-dossiers.md)). |
 
-## Launch Dossier
+Use `set` for routine patch edits, pass `--yes` on `create`/`add` only for intentional same-name replacement, and never cross-overwrite one lane with another.
 
-- Skill subcommand: `launch-dossiers`.
-- Command family: `houmao-mgr internals native-agent launch-dossiers ...`
-- Source kind: one low-level recipe.
-- Typical use: precise recipe-backed build and launch defaults.
-- Launch path: project-backed birth uses `houmao-mgr project agents launch --profile <profile>`; launch dossiers are low-level authoring inputs and do not have a maintained public root-level managed-agent launch path.
-- Owner in this skill: [commands/low-level/launch-dossiers.md](../../commands/low-level/launch-dossiers.md).
-- Routing: use this lane only when the user explicitly says `launch-dossiers`, launch dossier, or exact `internals native-agent launch-dossiers`.
+## Qualified Run Modes
 
-## Shared Rules
-
-- Both lanes may project into `.houmao/agents/launch-profiles/<name>.yaml`.
-- Use the command family that matches the stored lane.
-- Use `set` for ordinary patch edits.
-- Use create with `--yes` only when the user intends same-name replacement.
-- Do not replace a project profile with a launch dossier, or the reverse.
-
-## Run Modes
-
-Use `--mode headless` for one native CLI process per prompt, `--mode service` for a persistent request protocol, `--mode tui` for a terminal UI, or `--mode web` for a native browser UI. Profile authoring stores the choice in `defaults.posture.mode`. Running a profile with an explicit `--mode` overrides it only for the new instance.
+Use `--mode headless` (one CLI process per turn), `--mode service` (persistent structured request protocol), `--mode tui` (interactive terminal UI), or `--mode web` (native browser/ACP UI). Profiles persist `defaults.posture.mode`; a launch-level `--mode` overrides it for that single instance only.
 
 | Tool | Project Default | Qualified Modes |
 | --- | --- | --- |
-| Claude, Codex, Kimi | `tui` | `headless`, `tui` |
-| DSH | `web` | `web` |
+| Claude (`claude`) | `tui` | `headless`, `tui` |
+| Codex (`codex`) | `tui` | `headless`, `service`, `tui` |
+| Kimi (`kimi`) | `tui` | `headless`, `service`, `tui`, `web` |
+| DSH (`dsh`) | `web` | `headless`, `service`, `web` |
 
-Report the manager's unsupported selection diagnostic when the requested mode is unavailable. Launch reports identify the actual terminal target or token-free browser origin and bound session. Headless and service use managed control through the manager or the gateway. Select unattended or `as_is` prompt policy independently.
+Report the CLI's unsupported-mode diagnostic if an unqualified combination is requested. Select `--prompt-mode unattended|as_is` independently of `--mode`, and use `--headless-display-style [plain|json|fancy]` / `--headless-display-detail [concise|detail]` when customizing live pane rendering for `headless` sessions.

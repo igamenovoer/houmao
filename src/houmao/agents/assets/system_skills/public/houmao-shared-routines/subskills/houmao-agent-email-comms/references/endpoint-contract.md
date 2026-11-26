@@ -1,29 +1,49 @@
-# Shared Gateway Mail Contract
+---
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+---
 
-Use the exact gateway base URL supplied by the current context or returned by `houmao-mgr agents self mail resolve-live`. A notifier round must already supply its URL, channel, and expected binding ID. Missing round context is a contract error; do not rediscover it.
+# Shared Gateway Mail Contract, Receipts, and Policies
 
-`GET /v1/mail/status` returns both optional channels (`offline`, `online`) and `canonical_mail_identity`. Each configured channel reports owner, binding ID, revision, address, availability, and backend limitations without credential material. Resolver output uses slot envelopes under `mailboxes.offline` and `mailboxes.online`.
+Use the exact `gateway_base_url` supplied by current context or returned by `houmao-mgr agents self mail resolve-live` (notifier rounds must already supply `gateway_base_url`, `channel`, and `expected_binding_id` fail-closed).
 
-Lifecycle routes require explicit channel selection:
+## Status and Lifecycle Routes (`schema_version: 3`)
 
-| Route | Additional Fields |
-| --- | --- |
-| `POST /v1/mail/{channel}/list` | `box`, read/answered filters, archived filter, finite `limit` (default 50, max 200), optional `since` and opaque `cursor` |
-| `POST /v1/mail/{channel}/peek` | `message_ref`, optional `box`; leaves read state unchanged |
-| `POST /v1/mail/{channel}/read` | `message_ref`, optional `box`; marks read |
-| `POST /v1/mail/{channel}/send` | `to`, optional `cc`, `subject`, `body_content`, optional attachments |
-| `POST /v1/mail/{channel}/post` | operator-origin `subject`, `body_content`, optional reply policy and attachments; backend support required |
-| `POST /v1/mail/{channel}/reply` | `message_ref`, `body_content`, optional attachments |
-| `POST /v1/mail/{channel}/mark` | `message_refs`, one or more read/answered/archived flags |
-| `POST /v1/mail/{channel}/move` | `message_refs`, `destination_box` |
-| `POST /v1/mail/{channel}/archive` | `message_refs` |
+`GET /v1/mail/status` reports `offline`, `online`, and `canonical_mail_identity` (`resolve-live` wraps slots under `mailboxes.offline` and `mailboxes.online`). Every channel-scoped lifecycle request body requires `"schema_version": 3` and `"expected_binding_id"` (including fresh `send` and `post`):
 
-Every lifecycle body includes `schema_version: 3` and `expected_binding_id`, including fresh send/post requests that have no message reference. Valid channels are `offline` and `online`. Message and thread handles remain opaque and scoped to owner, channel, and binding. Wrong scope or replacement targeting fails before backend effects. Stop on conflict; never re-resolve and resend automatically.
+| Route | Required / Optional Fields | Notes |
+| --- | --- | --- |
+| `POST /v1/mail/{channel}/list` | `box`, optional read/answered/archived filters, `limit` (`50`, max `200`), `since`, `cursor` | Metadata-only (`messages`, `next_cursor`, `has_more`, `complete`); `include_body` is rejected. |
+| `POST /v1/mail/{channel}/peek` | `message_ref`, optional `box` | Returns content + `content_complete` / limit fields without marking read. |
+| `POST /v1/mail/{channel}/read` | `message_ref`, optional `box` | Returns content + `content_complete` / limit fields and marks read. |
+| `POST /v1/mail/{channel}/send` | `to`, optional `cc`, `subject`, `body_content`, optional `attachments` | Managed-agent outbound send. The response contains `message.message_ref` and transport evidence. |
+| `POST /v1/mail/{channel}/post` | `subject`, `body_content`, optional reply policy & `attachments` | Operator-origin note on supported offline backends. The response contains `message.message_ref`. |
+| `POST /v1/mail/{channel}/reply` | `message_ref`, `body_content`, optional `attachments` | Replies in-thread. The response contains the new `message.message_ref`. |
+| `POST /v1/mail/{channel}/mark` | `message_refs`, one or more `read`/`answered`/`archived` booleans | Updates flags on the pinned binding. The archived flag requires placement authority. |
+| `POST /v1/mail/{channel}/move` | `message_refs`, `destination_box` | Moves messages between boxes when current placement capabilities permit it. |
+| `POST /v1/mail/{channel}/archive` | `message_refs` | Archives completed messages where the binding permits ordinary archive. |
 
-Offline and online delivery remain isolated. Canonical identity, provider outage, or an email domain cannot choose another channel. Peek, read, and answered status are separate from archive completion. See [scoped command examples](scoped-cli.md) for request construction and [manager fallback](managed-agent-fallback.md) when no gateway is attached.
+See [scoped-cli.md](scoped-cli.md) for CLI invocation and [managed-agent-fallback.md](managed-agent-fallback.md) when no gateway is attached.
 
-List returns one metadata-only `messages` page, `next_cursor`, `has_more`, and `complete`. Counts describe that page; `total_count` is optional. Preserve filter, account, and binding scope on continuation. Stale cursors interrupt the page chain rather than silently joining incompatible snapshots. `include_body` is rejected. Peek/read return explicit content and disclose `content_complete` plus content-limit information when full retrieval is unavailable.
+## Compact Write Receipts
+
+The CLI returns compact receipts with `status`, `authoritative`, top-level `message_ref`, and `parent_message_ref` on reply. The direct gateway HTTP response carries the reference at `message.message_ref`. Both expose `transport_evidence` on success. Inspect stored fields with `mail peek` on the same channel and binding. Reconcile a submission-only or uncertain write with same-binding `peek` or `mail list --box sent` before resending.
 
 ## Write Permissions
 
-The gateway checks `mail.send`, `mail.reply`, or `mail.post` on the exact selected channel and binding. A request with a nonempty `attachments` list additionally requires `mail.attachment.owner_file` on that same binding. The attachment action authorizes a read under the target owner's file policy. An ordinary text-only request uses the corresponding mail action alone. For enrollment and grants, use the access routine named in [Related Skills](../SKILL-MAIN.md#help).
+- **Sender gateway write actions**: the sender's gateway checks `mail.send`, `mail.reply`, or `mail.post` on the selected channel and binding; non-empty `attachments` additionally require `mail.attachment.owner_file` on that same binding.
+
+## Backend Delivery and Placement
+
+The selected mail backend owns recipient placement. A matching new arrival on a protected binding goes directly to Archive, including while the recipient gateway is stopped. Rule changes apply to subsequent deliveries. A verified `transport_evidence` value of `offline_deposit` confirms a deposit, and `provider_submission` confirms provider acceptance. Both preserve the sender's channel and binding and omit recipient rules and folder placement.
+
+Check `GET /v1/mail/status` for the selected binding's current lifecycle operations. On protected bindings the mailbox owner handles placement through separately authorized backend access. Use permitted read and answered state changes independently of filing. Gateway and manager fallback both restrict archived-state marks, move, and archive on these bindings.

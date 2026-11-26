@@ -2,139 +2,51 @@
 
 from __future__ import annotations
 
+import base64
+import ipaddress
 import json
+import socket
 import sqlite3
+import ssl
 import subprocess
 import sys
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
-from types import SimpleNamespace
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 
-from houmao.agents import mailbox_runtime_support
-from houmao.agents.mailbox_runtime_models import (
-    MailboxesResolvedConfig,
-    MailboxSlotConfig,
-    StalwartMailboxResolvedConfig,
-)
-from houmao.agents.realm_controller import gateway_access_runtime, gateway_service, manifest
-from houmao.agents.realm_controller.errors import SessionManifestError
-from houmao.mailbox.online_authority import OnlineConnectionAuthority
-from houmao.mailbox.online_binding import OnlineBindingService
-from houmao.mailbox.online_models import (
-    OnlineAttachRequest,
-    OnlineAuthorityContext,
-    OnlineBindingError,
-)
 from houmao.mailbox.stalwart import (
+    StalwartConnectionPolicyError,
     StalwartError,
     StalwartJmapClient,
+    StalwartManagementClient,
     StalwartMethodError,
     StalwartMutationError,
+    StalwartProvisionedBinding,
+    StalwartReadinessError,
+    build_stalwart_credential_ref,
+    ensure_stalwart_mailbox,
+    jmap_origin,
+    normalize_jmap_origins,
+    runtime_stalwart_credential_path,
 )
 from houmao.mailbox.stalwart_models import JmapMetadataQuery
 from houmao.mailbox.sync import SyncBudget, SyncObserver, SyncScope
-from houmao.srv_ctrl.commands import managed_agents
 
 CORE = "urn:ietf:params:jmap:core"
 MAIL = "urn:ietf:params:jmap:mail"
 SUBMISSION = "urn:ietf:params:jmap:submission"
-
-
-@pytest.mark.parametrize(
-    ("policy_available", "expected_code"),
-    [(True, "provider_delivery_unqualified"), (False, "recipient_policy_unavailable")],
-)
-def test_managed_stalwart_refuses_before_provider_access(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, policy_available: bool, expected_code: str
-) -> None:
-    """Refuse keyed or unavailable recipient authority before credentials or provider I/O."""
-
-    context = OnlineAuthorityContext(tmp_path / "manifest.json", "bob", "runtime")
-    monkeypatch.setattr(
-        manifest,
-        "load_session_manifest",
-        lambda _path: SimpleNamespace(payload={"registry_generation_id": "g"}),
-    )
-
-    def resolve(_path: Path) -> SimpleNamespace:
-        if not policy_available:
-            raise SessionManifestError("private owner state unavailable")
-        return SimpleNamespace(
-            store=SimpleNamespace(snapshot=lambda: SimpleNamespace(admin_mode="keyed")),
-            require_current=lambda: None,
-        )
-
-    monkeypatch.setattr(gateway_access_runtime, "gateway_access_for_manifest", resolve)
-    authority = OnlineConnectionAuthority.from_context(context)
-    with pytest.raises(OnlineBindingError) as operation:
-        with authority.operation(expected_binding_id="stale-provider"):
-            pytest.fail("Provider operation was admitted")
-    assert operation.value.code == expected_code
-
-    service = OnlineBindingService.from_context(context)
-    with pytest.raises(OnlineBindingError) as attached:
-        service.attach(
-            OnlineAttachRequest(
-                expected_revision="initial",
-                address="bob@example.test",
-                login_identity="bob",
-                jmap_url="https://provider.example.test/jmap",
-                credential_source_ref=str(tmp_path / "absent-secret"),
-            )
-        )
-    assert attached.value.code == expected_code
-
-    configured = StalwartMailboxResolvedConfig(
-        transport="stalwart",
-        principal_id="bob",
-        address="bob@example.test",
-        jmap_url="https://provider.example.test/jmap",
-        management_url=None,
-        login_identity="bob",
-        credential_ref="absent-secret",
-        bindings_version="initial",
-        agent_id="bob",
-        binding_id="stale-provider",
-    )
-    mailboxes = MailboxesResolvedConfig(online=MailboxSlotConfig(binding=configured))
-    selected_manifest = SimpleNamespace(
-        agent_id="bob",
-        launch_plan=SimpleNamespace(mailboxes=SimpleNamespace(model_dump=lambda **_: {})),
-    )
-
-    def unexpected_provider(*_args: object, **_kwargs: object) -> None:
-        pytest.fail("Status probed a protected provider binding")
-
-    monkeypatch.setattr(
-        mailbox_runtime_support,
-        "mailboxes_resolved_config_from_payload",
-        lambda *_args, **_kwargs: mailboxes,
-    )
-    monkeypatch.setattr(
-        managed_agents,
-        "mailboxes_resolved_config_from_payload",
-        lambda *_args, **_kwargs: mailboxes,
-    )
-    monkeypatch.setattr(
-        managed_agents, "_read_running_agent_manifest", lambda _authority: selected_manifest
-    )
-    monkeypatch.setattr(managed_agents, "build_gateway_mailbox_adapter", unexpected_provider)
-    monkeypatch.setattr(gateway_service, "build_gateway_mailbox_adapter", unexpected_provider)
-    local = managed_agents._local_manager_mail_status(context)
-    remote = gateway_service.GatewayServiceRuntime.get_mail_status(
-        SimpleNamespace(
-            m_manifest_path=context.manifest_path,
-            _load_manifest_payload_for_mailbox_support=lambda: selected_manifest,
-        )
-    )
-    for status in (local, remote):
-        assert status.online is not None and status.online.available is False
 
 
 def _email(
@@ -201,9 +113,29 @@ class _WireState:
     )
     mailboxes: list[dict[str, Any]] = field(
         default_factory=lambda: [
-            {"id": "inbox-id", "role": "inbox", "name": "Inbox", "myRights": {}},
-            {"id": "sent-id", "role": "sent", "name": "Sent", "myRights": {}},
-            {"id": "archive-id", "role": "archive", "name": "Archive", "myRights": {}},
+            {
+                "id": "inbox-id",
+                "role": "inbox",
+                "name": "Inbox",
+                "myRights": {
+                    "mayReadItems": True,
+                    "maySetSeen": True,
+                    "maySetKeywords": True,
+                    "mayRemoveItems": True,
+                },
+            },
+            {
+                "id": "sent-id",
+                "role": "sent",
+                "name": "Sent",
+                "myRights": {"mayAddItems": True},
+            },
+            {
+                "id": "archive-id",
+                "role": "archive",
+                "name": "Archive",
+                "myRights": {"mayAddItems": True},
+            },
         ]
     )
     accounts: dict[str, Any] = field(
@@ -215,7 +147,10 @@ class _WireState:
         default_factory=lambda: {MAIL: "account-a", SUBMISSION: "account-a"}
     )
     api_url: str | None = None
+    session_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
+    upload_url: str | None = None
     redirect_url: str | None = None
+    post_redirect_url: str | None = None
     get_limit: int = 200
     query_cap: int = 200
     state: str = "email-state-newer"
@@ -254,6 +189,18 @@ class _WireState:
             return method, {"list": self.mailboxes, "state": "mailboxes-1", "notFound": []}
         if method == "Identity/get":
             return method, {"list": self.identities, "state": "identities-1", "notFound": []}
+        if method == "Identity/set":
+            value = {"id": "identity-created", **args["create"]["resource"]}
+            self.identities.append(value)
+            return method, {"created": {"resource": {"id": value["id"]}}}
+        if method == "Mailbox/set":
+            value = {
+                "id": "archive-created",
+                "myRights": {"mayAddItems": True},
+                **args["create"]["resource"],
+            }
+            self.mailboxes.append(value)
+            return method, {"created": {"resource": {"id": value["id"]}}}
         if method == "Email/query":
             messages = sorted(
                 self.messages.values(), key=lambda item: item["receivedAt"], reverse=True
@@ -313,6 +260,15 @@ class _WireState:
 @pytest.fixture
 def wire(tmp_path: Path) -> Iterator[tuple[_WireState, Path]]:
     """Serve a hermetic fake JMAP provider over actual loopback HTTP."""
+    with _wire_provider(tmp_path) as selected:
+        yield selected
+
+
+@contextmanager
+def _wire_provider(
+    tmp_path: Path, *, tls: ssl.SSLContext | None = None
+) -> Iterator[tuple[_WireState, Path]]:
+    """Serve deterministic provider state over an isolated local listener."""
     state = _WireState(messages={"old": _email("old")})
 
     class Handler(BaseHTTPRequestHandler):
@@ -323,7 +279,8 @@ def wire(tmp_path: Path) -> Iterator[tuple[_WireState, Path]]:
 
         def do_GET(self) -> None:
             """Return discovery or an explicitly configured redirect."""
-            state.requests.append(("GET", self.path, self.headers.get("Authorization"), None))
+            authorization = self.headers.get("Authorization")
+            state.requests.append(("GET", self.path, authorization, None))
             if state.redirect_url and self.path == "/.well-known/jmap":
                 self.send_response(302)
                 self.send_header("Location", state.redirect_url)
@@ -339,14 +296,25 @@ def wire(tmp_path: Path) -> Iterator[tuple[_WireState, Path]]:
                     "accounts": state.accounts,
                     "primaryAccounts": state.primary_accounts,
                     "apiUrl": state.api_url or state.url + "/method-endpoint",
-                    "uploadUrl": state.url + "/upload/{accountId}",
+                    "uploadUrl": state.upload_url or state.url + "/upload/{accountId}",
+                    **state.session_overrides.get(authorization or "", {}),
                 }
             )
 
         def do_POST(self) -> None:
             """Return the requested method results or a deterministic transport failure."""
-            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            data = self.rfile.read(int(self.headers["Content-Length"]))
+            if self.path.startswith("/upload/"):
+                state.requests.append(("POST", self.path, self.headers.get("Authorization"), data))
+                self._json({"blobId": "test-blob"})
+                return
+            body = json.loads(data)
             state.requests.append(("POST", self.path, self.headers.get("Authorization"), body))
+            if state.post_redirect_url is not None:
+                self.send_response(302)
+                self.send_header("Location", state.post_redirect_url)
+                self.end_headers()
+                return
             responses = []
             for method, args, call_id in body["methodCalls"]:
                 state.methods.append((method, args))
@@ -369,9 +337,13 @@ def wire(tmp_path: Path) -> Iterator[tuple[_WireState, Path]]:
             self.wfile.write(data)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    state.url = f"http://127.0.0.1:{server.server_port}"
-    thread = Thread(target=server.serve_forever, daemon=True)
+    if tls is not None:
+        server.socket = tls.wrap_socket(server.socket, server_side=True)
+    scheme = "http" if tls is None else "https"
+    state.url = f"{scheme}://127.0.0.1:{server.server_port}"
+    thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
     thread.start()
+    tmp_path.mkdir(parents=True, exist_ok=True)
     credential = tmp_path / "credential.json"
     credential.write_text(json.dumps({"password": "test-only-secret"}))
     credential.chmod(0o600)
@@ -475,6 +447,490 @@ def test_unapproved_origin_and_redirect_never_receive_provider_credentials(
         _client(wire).validate_binding()
     assert len(state.requests) == 1
     assert state.methods == []
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://*.example.test",
+        "http://user:password@example.test",
+        "http://example.test?",
+        "http://example.test/#fragment",
+        "http://example.test/a",
+        "http://metachar\\example.test",
+        "http://example%2etest",
+        "https://example.test:0",
+        "https://example.test:",
+        "https://example.test:65536",
+        "file://example.test",
+        "http://-example.test",
+        "https:///example.test",
+    ],
+)
+def test_malformed_origin_approvals_fail_before_discovery(
+    wire: tuple[_WireState, Path], origin: str
+) -> None:
+    """Require an exact valid origin before sending any provider requests."""
+    with pytest.raises(StalwartConnectionPolicyError) as caught:
+        _client(wire, allowed_api_origins=(origin,))
+    assert caught.value.code == "endpoint_invalid"
+    assert "password" not in str(caught.value)
+    assert wire[0].requests == []
+
+
+def test_origins_canonicalize_default_ports_hosts_and_ipv6() -> None:
+    """Persist one normalized representation per approved origin."""
+    assert normalize_jmap_origins(
+        ("HTTPS://Example.TEST:443/", "https://example.test", "http://[0:0:0:0:0:0:0:1]:80")
+    ) == ("https://example.test", "http://[::1]")
+    assert jmap_origin("http://Example.TEST:8080/method?opaque=private") == (
+        "http://example.test:8080"
+    )
+
+
+def test_approved_intranet_http_supports_same_origin_discovery_redirect(
+    wire: tuple[_WireState, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use the explicit scheme, host, and port for discovery and redirected requests."""
+    state, _ = wire
+    state.url = state.url.replace("127.0.0.1", "mail.intranet.test")
+    state.redirect_url = state.url + "/session"
+    lookup = socket.getaddrinfo
+
+    def address(host: str, *args: Any, **kwargs: Any) -> Any:
+        """Keep the intranet fixture on loopback while preserving its hostname."""
+        return lookup("127.0.0.1" if host == "mail.intranet.test" else host, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", address)
+    monkeypatch.setenv("no_proxy", "*")
+    for approvals in (
+        (),
+        (state.url.replace("http:", "https:"),),
+        ("http://mail.intranet.test:80",),
+    ):
+        with pytest.raises(StalwartConnectionPolicyError, match="this exact HTTP origin"):
+            _client(wire, allowed_api_origins=approvals)
+        assert state.requests == []
+    client = _client(wire, allowed_api_origins=(state.url,))
+    assert client.validate_binding().identity_id == "identity-alice"
+    assert [path for verb, path, _, _ in state.requests if verb == "GET"] == [
+        "/.well-known/jmap",
+        "/session",
+    ]
+    assert all(auth == client.authorization_header() for _, _, auth, _ in state.requests)
+
+
+def test_api_and_upload_origins_require_approval_and_method_pin(
+    wire: tuple[_WireState, Path], tmp_path: Path
+) -> None:
+    """Discovery cannot add a new method or upload destination."""
+    state, _ = wire
+    with _wire_provider(tmp_path / "other") as (other, _):
+        state.api_url = other.url + "/method"
+        state.upload_url = other.url + "/upload/{accountId}"
+        with pytest.raises(StalwartConnectionPolicyError, match=other.url):
+            _client(wire).validate_binding()
+        assert other.requests == []
+        with pytest.raises(StalwartConnectionPolicyError, match="method origin changed"):
+            _client(wire, allowed_api_origins=(other.url,), api_origin=state.url).validate_binding()
+        assert other.requests == []
+        state.api_url = state.url + "/method"
+        with pytest.raises(StalwartConnectionPolicyError, match=other.url):
+            _client(wire).validate_binding()
+        assert other.requests == []
+
+        state.api_url = other.url + "/method"
+        client = _client(wire, allowed_api_origins=(other.url,), api_origin=other.url)
+        binding = client.validate_binding()
+        attachment = tmp_path / "example.txt"
+        attachment.write_text("sample", encoding="utf-8")
+        client.upload_attachments(account_id=binding.account_id, attachments=(attachment,))
+        assert [path for _, path, _, _ in other.requests] == [
+            "/method",
+            "/method",
+            "/upload/account-a",
+        ]
+        assert all(auth == client.authorization_header() for _, _, auth, _ in other.requests)
+
+
+def test_redirects_cannot_cross_an_approved_origin_or_replay_post(
+    wire: tuple[_WireState, Path], tmp_path: Path
+) -> None:
+    """Enforce the redirect boundary even if another origin is approved."""
+    state, _ = wire
+    with _wire_provider(tmp_path / "other") as (other, _):
+        state.redirect_url = other.url + "/session"
+        with pytest.raises(StalwartConnectionPolicyError, match="stay on its selected origin"):
+            _client(wire, allowed_api_origins=(other.url,)).validate_binding()
+        state.redirect_url = None
+        state.post_redirect_url = state.url + "/never-replay"
+        with pytest.raises(StalwartError, match="status=302"):
+            _client(wire).validate_binding()
+        assert other.requests == []
+        assert not any(path == "/never-replay" for _, path, _, _ in state.requests)
+
+
+def test_plaintext_jmap_keeps_credentials_off_environment_http_proxy(
+    wire: tuple[_WireState, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Use the approved provider directly for discovery, methods, and uploads."""
+    state, _ = wire
+    state.redirect_url = state.url + "/session"
+    with _wire_provider(tmp_path / "proxy") as (proxy, _):
+        monkeypatch.setenv("http_proxy", proxy.url)
+        monkeypatch.setenv("no_proxy", "")
+        client = _client(wire)
+        binding = client.validate_binding()
+        attachment = tmp_path / "sample.txt"
+        attachment.write_text("test attachment", encoding="utf-8")
+        uploads = client.upload_attachments(
+            account_id=binding.account_id, attachments=(attachment,)
+        )
+        assert uploads[0]["blobId"] == "test-blob"
+        assert proxy.requests == []
+        assert [path for _, path, _, _ in state.requests] == [
+            "/.well-known/jmap",
+            "/session",
+            "/method-endpoint",
+            "/method-endpoint",
+            "/upload/account-a",
+        ]
+
+
+def test_https_uses_verified_tls_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Allow HTTPS without opt-in and require a trusted server certificate."""
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "JMAP test")])
+    now = datetime.now(UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(minutes=1))
+        .not_valid_after(now + timedelta(minutes=5))
+        .add_extension(
+            x509.SubjectAlternativeName([x509.IPAddress(ipaddress.IPv4Address("127.0.0.1"))]),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    cert_path = tmp_path / "test-cert.pem"
+    cert_path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+    key_path = tmp_path / "test-key.pem"
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption(),
+        )
+    )
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert_path, key_path)
+    with _wire_provider(tmp_path, tls=tls) as selected:
+        with pytest.raises(StalwartConnectionPolicyError, match="connection failed"):
+            _client(selected).validate_binding()
+        assert selected[0].requests == []
+        monkeypatch.setenv("SSL_CERT_FILE", str(cert_path))
+        assert _client(selected).validate_binding().identity_id == "identity-alice"
+
+
+@pytest.mark.parametrize(
+    "fault", ["archive_role", "sent_add", "inbox_keyword", "duplicate_identity"]
+)
+def test_activation_requires_unique_identity_and_lifecycle_rights(
+    wire: tuple[_WireState, Path], fault: str
+) -> None:
+    """Report what requires repair using only JMAP read methods."""
+    state, _ = wire
+    if fault == "archive_role":
+        state.mailboxes[2]["role"] = None
+        expected = "mailbox role `archive`"
+    elif fault == "sent_add":
+        state.mailboxes[1]["myRights"].pop("mayAddItems")
+        expected = "mayAddItems"
+    elif fault == "inbox_keyword":
+        state.mailboxes[0]["myRights"]["maySetKeywords"] = False
+        expected = "maySetKeywords"
+    else:
+        state.identities.append({"id": "duplicate", "email": "alice@example.test"})
+        expected = "unambiguous authorized sending identity"
+    with pytest.raises(StalwartReadinessError, match=expected):
+        _client(wire).validate_binding()
+    assert all(method.endswith("/get") for method, _ in state.methods)
+
+
+def test_runtime_mailbox_can_be_ready_without_placement_rights(
+    wire: tuple[_WireState, Path],
+) -> None:
+    """Readiness requires normal mail rights and preserves placement refusals."""
+
+    state, _ = wire
+    state.mailboxes[0]["myRights"]["mayRemoveItems"] = False
+    state.mailboxes[2]["myRights"]["mayAddItems"] = False
+    client = _client(wire)
+    binding = client.validate_binding()
+    assert not binding.can_archive
+    assert not binding.can_move
+    with pytest.raises(StalwartError, match="mayAddItems"):
+        client.archive(message_ref="1")
+    assert all(method != "Email/set" for method, _ in state.methods)
+
+
+def test_protected_runtime_rechecks_rights_before_rule_application(
+    wire: tuple[_WireState, Path],
+) -> None:
+    """Keep a prior protected check from authorizing subsequent runtime rights."""
+
+    state, _ = wire
+    state.mailboxes[0]["myRights"].update(mayRemoveItems=False, mayAddItems=False)
+    state.mailboxes[1]["myRights"].update(mayRemoveItems=False)
+    state.mailboxes[2]["myRights"].update(mayReadItems=False, mayRemoveItems=False, mayAddItems=False)
+    client = _client(wire)
+    client.require_protected_runtime("account-a")
+    state.mailboxes[2]["myRights"]["mayReadItems"] = True
+    with pytest.raises(StalwartReadinessError, match="required isolation"):
+        client.require_protected_runtime("account-a")
+
+
+def test_provider_work_read_fences_archived_message_before_fetching_content(
+    wire: tuple[_WireState, Path],
+) -> None:
+    """A stale Inbox reference cannot select Archive content or change read state."""
+
+    state, _ = wire
+    message = _email("routed-mail")
+    message["mailboxIds"] = {"archive-id": True}
+    state.messages["routed-mail"] = message
+    client = _client(wire)
+    with pytest.raises(StalwartMethodError, match="notFound"):
+        client.get_email_in_box(email_id="routed-mail", box="inbox")
+    with pytest.raises(StalwartMethodError, match="notFound"):
+        client.mark(
+            message_ref="routed-mail", read=True, answered=None, archived=None, expected_box="inbox"
+        )
+    assert all(method != "Email/set" for method, _ in state.methods)
+    assert all(not args.get("fetchTextBodyValues") for _, args in state.methods)
+
+
+@dataclass
+class _ManagementState:
+    """Model a separate administrative principal store for provisioning tests."""
+
+    principals: list[dict[str, Any]] = field(default_factory=list)
+    calls: list[tuple[str, dict[str, str]]] = field(default_factory=list)
+    lose_create_response: bool = False
+
+    def request(self, headers: dict[str, str], method: str, path: str, body: Any) -> dict[str, Any]:
+        """Persist a create before an optional simulated response failure."""
+        self.calls.append((method, headers))
+        if method == "GET":
+            selected = parse_qs(urlsplit(path).query)["types"][0]
+            return {"data": {"items": [p for p in self.principals if p["type"] == selected]}}
+        assert method == "POST" and body is not None
+        identifier = len(self.principals) + 1
+        self.principals.append({**body, "name": body["name"].lower(), "id": identifier})
+        if self.lose_create_response and body["type"] == "individual":
+            raise StalwartError("Creation response unavailable.")
+        return {"data": identifier}
+
+
+@pytest.fixture
+def management_state(monkeypatch: pytest.MonkeyPatch) -> _ManagementState:
+    """Capture management calls without hitting network services."""
+    state = _ManagementState()
+
+    def request(
+        self: StalwartManagementClient, method: str, path: str, *, body: Any = None
+    ) -> dict[str, Any]:
+        """Pass the explicitly selected administrative credentials to the fixture."""
+        return state.request(self.m_auth_headers, method, path, body)
+
+    monkeypatch.setattr(StalwartManagementClient, "_request_json", request)
+    return state
+
+
+def _provision(
+    wire: tuple[_WireState, Path], tmp_path: Path, **options: Any
+) -> StalwartProvisionedBinding:
+    """Provision one run-owned normal mailbox on the hermetic provider."""
+    state, _ = wire
+    arguments = {
+        "runtime_root": tmp_path / "runtime",
+        "session_root": tmp_path / "session",
+        "principal_id": "Alice",
+        "address": "alice@example.com",
+        "jmap_url": state.url + "/.well-known/jmap",
+        "management_url": state.url + "/api",
+        "management_auth_headers": {"Authorization": "Bearer explicit-test-admin"},
+    }
+    return ensure_stalwart_mailbox(**(arguments | options))
+
+
+def test_provisioning_retries_interrupted_creation_without_password_rotation(
+    wire: tuple[_WireState, Path], tmp_path: Path, management_state: _ManagementState
+) -> None:
+    """Reuse the private password and existing JMAP resource IDs on repeated provisioning."""
+    state, _ = wire
+    state.identities.clear()
+    state.mailboxes.pop()
+    management_state.lose_create_response = True
+    with pytest.raises(StalwartError, match="Creation response unavailable"):
+        _provision(wire, tmp_path)
+    assert {principal["type"] for principal in management_state.principals} == {
+        "domain",
+        "individual",
+    }
+    created_password = management_state.principals[1]["secrets"][0]
+    assert state.requests == []
+
+    management_state.lose_create_response = False
+    first = _provision(wire, tmp_path)
+    second = _provision(wire, tmp_path, session_root=tmp_path / "second")
+    assert first.credential_ref == second.credential_ref
+    assert first.credential_file.read_bytes() == second.credential_file.read_bytes()
+    assert json.loads(second.credential_file.read_bytes())["password"] == created_password
+    assert second.credential_file.stat().st_mode & 0o777 == 0o600
+    assert first.login_identity == second.login_identity == "alice"
+    assert first.account_id == second.account_id == "account-a"
+    assert first.identity_id == second.identity_id == "identity-created"
+    assert first.mailbox_roles == second.mailbox_roles
+    assert second.mailbox_roles["archive"] == "archive-created"
+    assert first.api_origin == second.api_origin == state.url
+    assert first.management_principal_id == "2"
+    assert [method for method, _ in management_state.calls].count("POST") == 2
+    assert all(
+        headers["Authorization"] == "Bearer explicit-test-admin"
+        for _, headers in management_state.calls
+    )
+    assert all(str(auth).startswith("Basic ") for _, _, auth, _ in state.requests)
+    assert [method for method, _ in state.methods if method.endswith("/set")] == [
+        "Identity/set",
+        "Mailbox/set",
+    ]
+
+
+@pytest.mark.parametrize("domain", ["example.localhost", "example.test"])
+def test_provisioning_rejects_unsupported_domains_before_provider_access(
+    wire: tuple[_WireState, Path], tmp_path: Path, management_state: _ManagementState, domain: str
+) -> None:
+    """Reject unsupported sending domains before creating a domain or principal."""
+    with pytest.raises(StalwartReadinessError, match="recognized public suffix"):
+        _provision(wire, tmp_path, address=f"alice@{domain}")
+    assert management_state.calls == []
+    assert wire[0].requests == []
+
+
+def test_provisioning_preflights_discovery_policy_before_provider_access(
+    wire: tuple[_WireState, Path], tmp_path: Path, management_state: _ManagementState
+) -> None:
+    """Reject missing origin approval before any management operation."""
+    with pytest.raises(StalwartConnectionPolicyError, match="this exact HTTP origin"):
+        _provision(wire, tmp_path, jmap_url="http://mail.intranet.test/.well-known/jmap")
+    assert management_state.calls == []
+    assert wire[0].requests == []
+
+
+def test_provisioning_rejects_conflicting_existing_mailbox(
+    wire: tuple[_WireState, Path], tmp_path: Path, management_state: _ManagementState
+) -> None:
+    """Preserve somebody else's principal and never rotate its credentials."""
+    management_state.principals.append(
+        {"type": "individual", "name": "someone-else", "emails": ["alice@example.com"]}
+    )
+    with pytest.raises(StalwartError, match="conflicts with an existing account"):
+        _provision(wire, tmp_path)
+    assert [method for method, _ in management_state.calls] == ["GET"]
+    assert not tuple((tmp_path / "runtime").rglob("*.json"))
+
+
+def test_provisioning_alternate_login_cannot_prepare_another_account(
+    wire: tuple[_WireState, Path],
+    tmp_path: Path,
+    management_state: _ManagementState,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pin the selected canonical account before using an alternate login."""
+    state, _ = wire
+    state.identities.clear()
+    state.mailboxes.pop()
+    monkeypatch.setattr(
+        "houmao.mailbox.stalwart.secrets.token_urlsafe", lambda size: "test-password"
+    )
+    alternate = base64.b64encode(b"unrelated:test-password").decode("ascii")
+    state.session_overrides[f"Basic {alternate}"] = {
+        "accounts": {"account-b": state.accounts["account-a"]},
+        "primaryAccounts": {MAIL: "account-b", SUBMISSION: "account-b"},
+    }
+    with pytest.raises(StalwartReadinessError, match="account selection is missing"):
+        _provision(wire, tmp_path, login_identity="unrelated")
+    assert [verb for verb, _, _, _ in state.requests] == ["GET", "GET"]
+    assert state.methods == []
+
+
+def test_legacy_base_url_provisioning_reuses_credential_after_discovery_fix(
+    wire: tuple[_WireState, Path], tmp_path: Path, management_state: _ManagementState
+) -> None:
+    """Migrate only the former same-provider discovery credential for a matching principal."""
+    state, _ = wire
+    state.identities = [{"id": "identity-existing", "email": "alice@example.com"}]
+    management_state.principals.extend(
+        [
+            {"type": "domain", "name": "example.com", "id": 1},
+            {"type": "individual", "name": "alice", "emails": ["alice@example.com"], "id": 2},
+        ]
+    )
+    reference = build_stalwart_credential_ref(
+        address="alice@example.com", jmap_url=state.url + "/jmap"
+    )
+    legacy_file = runtime_stalwart_credential_path(tmp_path / "runtime", reference)
+    legacy_file.parent.mkdir(parents=True, mode=0o700)
+    legacy_file.write_text('{"password":"existing-test-password"}', encoding="utf-8")
+    legacy_file.chmod(0o600)
+
+    result = _provision(wire, tmp_path)
+    assert result.credential_ref != reference
+    assert result.identity_id == "identity-existing"
+    assert json.loads(result.credential_file.read_bytes())["password"] == "existing-test-password"
+    migrated = runtime_stalwart_credential_path(tmp_path / "runtime", result.credential_ref)
+    assert migrated.read_bytes() == result.credential_file.read_bytes()
+    assert all(method == "GET" for method, _ in management_state.calls)
+    assert all(method.endswith("/get") for method, _ in state.methods)
+
+
+def test_provisioning_require_existing_domain_fails_before_create(
+    wire: tuple[_WireState, Path], tmp_path: Path, management_state: _ManagementState
+) -> None:
+    """Preserve the explicit leave-as-found policy of shared test providers."""
+    with pytest.raises(StalwartError, match="Required Stalwart domain example.com does not exist"):
+        _provision(wire, tmp_path, allow_create_domain=False)
+    assert [method for method, _ in management_state.calls] == ["GET", "GET"]
+    assert management_state.principals == []
+
+
+def test_provisioning_reports_and_resumes_partial_jmap_preparation(
+    wire: tuple[_WireState, Path], tmp_path: Path, management_state: _ManagementState
+) -> None:
+    """Keep a created identity when Archive creation fails and retry only Archive."""
+    state, _ = wire
+    state.identities.clear()
+    state.mailboxes.pop()
+    state.errors["Mailbox/set"] = "forbidden"
+    with pytest.raises(StalwartReadinessError, match="Archive role \\(forbidden\\)") as caught:
+        _provision(wire, tmp_path)
+    assert "provider-private-text" not in str(caught.value)
+    assert not (tmp_path / "session").exists()
+    assert state.identities[0]["id"] == "identity-created"
+    del state.errors["Mailbox/set"]
+    assert _provision(wire, tmp_path).mailbox_roles["archive"] == "archive-created"
+    assert [method for method, _ in state.methods if method.endswith("/set")] == [
+        "Identity/set",
+        "Mailbox/set",
+        "Mailbox/set",
+    ]
 
 
 def test_server_filters_precede_limit_and_metadata_never_requests_body(

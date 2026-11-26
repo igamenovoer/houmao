@@ -22,7 +22,20 @@ def load_gateway_client_binding(path: Path) -> GatewayClientBinding:
         raise ValueError("Gateway client binding is unavailable or invalid.") from None
 
 
-def managed_self_gateway_client(*, base_url: str, timeout_seconds: float = 5.0) -> GatewayClient:
+def managed_self_agent_id() -> str:
+    """Identify the current, verified Houmao agent for a private integration profile."""
+
+    from houmao.agents.instance_state import resolve_verified_self
+
+    try:
+        return resolve_verified_self().agent_id
+    except (ValueError, OSError, RuntimeError):
+        raise ValueError("Current managed self authority is unavailable.") from None
+
+
+def managed_self_gateway_client(
+    *, base_url: str | None = None, timeout_seconds: float = 5.0
+) -> GatewayClient:
     """Select the current managed generation's signer for its exact owner endpoint."""
 
     from houmao.agents.instance_state import resolve_verified_self
@@ -40,7 +53,8 @@ def managed_self_gateway_client(*, base_url: str, timeout_seconds: float = 5.0) 
             raise ValueError("Missing gateway capability.")
         current = load_gateway_current_instance(paths.current_instance_path)
         endpoint = current.endpoint_descriptor
-        if endpoint is None or owner_gateway_base_url(current.port) != base_url:
+        selected_url = owner_gateway_base_url(current.port)
+        if endpoint is None or (base_url is not None and selected_url != base_url):
             raise ValueError("Gateway does not match the current managed self endpoint.")
         binding, generation = owner_gateway_client_binding(
             identity.manifest_path, port=current.port, private=True, prefer_self=True
@@ -50,7 +64,7 @@ def managed_self_gateway_client(*, base_url: str, timeout_seconds: float = 5.0) 
     except (ValueError, OSError, RuntimeError):
         raise ValueError("Current managed self gateway authority is unavailable.") from None
     return GatewayClient(
-        base_url=base_url,
+        base_url=selected_url,
         binding=binding,
         target_incarnation=generation,
         target_presence_id=endpoint.presence_id,

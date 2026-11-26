@@ -20,7 +20,8 @@ Use this reference when the mailbox-admin task could land on more than one maint
 
 - Use `houmao-mgr mailbox ...` when the user targets one arbitrary filesystem mailbox root, passes `--mailbox-root`, or wants mailbox state outside the project overlay default.
 - Use `houmao-mgr project mailbox ...` when the user explicitly wants the active project mailbox root or `.houmao/mailbox`.
-- Use `houmao-mgr agents single --agent-id <id> mailbox ...` or `houmao-mgr agents single --agent-name <name> mailbox ...` when the user wants to inspect, add, or remove late filesystem mailbox support on one existing local managed agent.
+- Use `houmao-mgr agents single --agent-id <id> mailbox offline ...` (or `--agent-name <name>`, plus verified `agents self mailbox offline ...`) when the user wants to inspect, join, or leave late filesystem mailbox support on one existing local managed agent.
+- Use `houmao-mgr agents single --agent-id <id> mailbox online {attach|detach|reconnect|refresh|status}` (or `--agent-name <name>`, plus verified `agents self mailbox online ...`) when the user wants to attach, detach, reconnect, refresh, or inspect late Stalwart online mailbox support on an existing managed agent.
 
 ## Root Defaults
 

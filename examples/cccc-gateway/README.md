@@ -33,4 +33,4 @@ Give the agent [the usage instructions](agent-instructions.md), substituting its
 
 See [the integration reference](../../docs/reference/gateway/cccc.md) for message commands, error handling, reconnects, explicit retries, and cleanup. Revoke only the grants you provisioned and delete only Groups owned by your test.
 
-Version 0.2 also supports [explicit deferred Mail](../../docs/reference/gateway/cccc-mail.md) through the same Actor binding when the second provider patch is installed. The [chat qualification](qualification.md) and [Mail qualification](mail-qualification.md) record separate installed-wheel and real-agent evidence.
+Version 0.3 supports [explicit deferred Mail](../../docs/reference/gateway/cccc-mail.md) through the same Actor binding through receiver protocol v2. The [chat qualification](qualification.md) and [Mail qualification](mail-qualification.md) record separate installed-wheel and real-agent evidence.

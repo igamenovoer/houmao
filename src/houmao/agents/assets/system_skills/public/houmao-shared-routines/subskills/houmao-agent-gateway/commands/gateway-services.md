@@ -12,64 +12,37 @@ metadata:
     Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
 ---
 
-# Use Gateway-Only Services
-
-Use this action when the task specifically needs the live gateway's own control, queueing, raw-input, TUI inspection, or headless-session surfaces instead of the broader transport-neutral managed-agent path. If the request is generic managed-agent inspection rather than a gateway-owned service, use `houmao-shared-routines->houmao-agent-inspect` instead.
+# Use Gateway-Only Control and Plugin Services (`gateway-services`)
 
 ## Workflow
 
-1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the target selector and the exact gateway service the user wants from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the task still lacks a required target, prompt body, sequence, or direct-gateway endpoint, ask the user in Markdown before proceeding.
-4. Run `agents single ... gateway status` or `agents self gateway status` first unless current context already proves that a live gateway is attached.
-5. Run the matching direct gateway command for CLI prompt, interrupt, send-keys, or TUI work.
-6. Use the matching pair-managed routes when the task is already operating through pair-managed HTTP.
-7. Use direct `{gateway.base_url}/v1/...` only when the operation needs that surface. Verify the exact live target and satisfy the endpoint's current binding and caller permissions. Route independently signed JSON requests through `houmao-shared-routines->houmao-agent-access->request()`.
-8. When the attached agent needs to communicate with other agents through the shared mailbox facade, run `agents self mail resolve-live` to obtain the exact current `gateway.base_url`, then hand off the exact `/v1/mail/*` contract to `houmao-shared-routines->houmao-agent-email-comms`.
+1. **Confirm gateway-specific scope**: use `houmao-shared-routines->houmao-agent-inspect` for generic read-only inspection and `houmao-shared-routines->houmao-agent-messaging` for transport-neutral `request`/`prompt`/`interrupt`; use `gateway-services` when operating gateway-only `/v1/control/*` surfaces or attached gateway plugins such as `houmao-cccc`.
+2. **Verify live gateway attachment** via `agents single ... gateway status` or `agents self gateway status` when not already confirmed, recovering any missing target, prompt/key sequence, or plugin `--instance` before running commands.
+3. **Execute the matching CLI or HTTP surface**:
+   - **Scoped gateway CLI**: `agents single|self ... gateway {prompt|interrupt|send-keys}` and `gateway tui {state|history|watch|note-prompt}`.
+   - **Mode-specific control HTTP** (see [../references/http-surface.md](../references/http-surface.md)): `headless` (`/v1/control/headless/{state,next-prompt-session}`), `service` (`/v1/control/service/{state,requests/{request_id}}`), `web` (`/v1/control/web/{state,history}`), and `tui` (`/v1/control/tui/{state,history,note-prompt}`).
+   - **`houmao-cccc` gateway plugin CLI & routes**: run `houmao-cccc [--gateway-url <url>] [--signer-binding <json>] [--instance <id>] {binding,capabilities,discovery,members,connection,chat,mail}` (omitting `--gateway-url` inside verified managed self; using `--direct-profile <json>` + `--agent-id` only for direct Actor profile mode), backed by `/v1/plugins/{instance}/*` (`delivery`, `chat`, `mail`).
+4. **Route signed custom JSON calls or mounts** to `houmao-shared-routines->houmao-agent-access->request()` and `houmao-shared-routines->houmao-agent-files`, and `/v1/mail/*` to `houmao-shared-routines->houmao-agent-email-comms`.
 
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from [../references/http-surface.md](../references/http-surface.md) and the user request, then execute the plan.
 
-## Command Shapes
-
-Run direct scoped gateway-service commands:
+## Representative Commands
 
 ```bash
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway prompt --prompt <text>
-<chosen houmao-mgr launcher> agents self gateway prompt --prompt <text>
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> gateway send-keys --sequence <keys>
+# Gateway-only control and TUI tracking
+<chosen houmao-mgr launcher> agents single --agent-id <id> gateway prompt --prompt "<text>" [--admission-policy ready-only|if-no-pending|always]
+<chosen houmao-mgr launcher> agents single --agent-id <id> gateway send-keys --sequence "<keys>"
 <chosen houmao-mgr launcher> agents self gateway tui state
+
+# houmao-cccc plugin via verified managed self or explicit gateway
+houmao-cccc binding
+houmao-cccc members --group "$GROUP_ID"
+houmao-cccc chat send --connection-token "$TOKEN" --to "$ACTOR_ID" --operation-id "$OP_ID" --text 'Ready for review.'
+houmao-cccc chat reply --handle "$HANDLE" --operation-id "$REPLY_ID" --text 'Approved.'
+houmao-cccc chat deliveries --handle "$HANDLE"
 ```
-
-Pair-managed gateway routes:
-
-- `POST /houmao/agents/{agent_ref}/gateway/requests`
-- `POST /houmao/agents/{agent_ref}/gateway/control/prompt`
-- `POST /houmao/agents/{agent_ref}/gateway/control/send-keys`
-- `GET /houmao/agents/{agent_ref}/gateway/control/headless/state`
-- `POST /houmao/agents/{agent_ref}/gateway/control/headless/next-prompt-session`
-- `GET /houmao/agents/{agent_ref}/gateway/tui/state`
-- `GET /houmao/agents/{agent_ref}/gateway/tui/history`
-- `POST /houmao/agents/{agent_ref}/gateway/tui/note-prompt`
-
-Direct live gateway routes:
-
-- `POST {gateway.base_url}/v1/requests`
-- `POST {gateway.base_url}/v1/control/prompt`
-- `POST {gateway.base_url}/v1/control/send-keys`
-- `GET {gateway.base_url}/v1/control/headless/state`
-- `POST {gateway.base_url}/v1/control/headless/next-prompt-session`
-- `GET {gateway.base_url}/v1/control/tui/state`
-- `GET {gateway.base_url}/v1/control/tui/history`
-- `POST {gateway.base_url}/v1/control/tui/note-prompt`
-
-Use [the HTTP surface summary](../references/http-surface.md) for authorization and target-binding guidance. For versioned files use `houmao-shared-routines->houmao-agent-files`, which owns mount selection and file-specific requests.
 
 ## Guardrails
 
-- DO NOT silently replace explicit gateway work with `houmao-mgr agents single ... prompt`, `houmao-mgr agents self prompt`, or the transport-neutral `/houmao/agents/{agent_ref}/requests` surface.
-- DO NOT use raw `send-keys` as a substitute for ordinary prompt-turn work.
-- DO NOT claim that `tui note-prompt` submits work to the agent.
-- DO NOT guess `{gateway.base_url}` when the exact live gateway endpoint is not already available.
-- DO NOT restate the full shared mailbox route contract here; use `houmao-shared-routines->houmao-agent-email-comms` after discovery hands you the exact live base URL.
-- DO NOT guess prompt text, key sequences, or live gateway endpoints.
-- DO NOT substitute raw unsigned HTTP for an operation that requires verified caller proof.
+- DO NOT silently replace explicit gateway control calls with transport-neutral `agents single|self prompt`, or use `send-keys` / `tui note-prompt` as ordinary prompt submission.
+- DO NOT guess `{gateway.base_url}` or send unsigned HTTP to routes requiring verified caller proof, or conflate `houmao-cccc` plugin chat/mail with native Houmao `/v1/mail/*`.

@@ -37,7 +37,7 @@ This runner has no agent body or gateway scheduler. It reports reminder count as
 
 Use [the development launcher](../../../../skillset/dev/houmao-dev-launch-agents/commands/attach-online-mail.md) for a selected self-hosted or cloud-API agent fixture, then attach normal online mail to its active gateway. Keep the body PID and conversation marker before/after attach, refresh, reconnect, and detach. Check offline mail remains configured and operational throughout.
 
-Exercise metadata pages, one selected peek/read, send/reply/mark/archive, same-account credential refresh, gateway restart, and expired-state recovery. Test the body both ready and busy. Count due reminder cycles, accepted gateway reminders, and actual dispatched prompts separately. An unchanged eligible message should permit later periodic reminders; same-cycle retries must not duplicate admission. Reconnect, cache eviction, and rebase must not repeat compaction for continuously eligible work. Record provider-side delivery outcomes before retrying any uncertain mutation.
+Exercise both keyed setup orders. First attach an account to a gateway with an enrolled administrator. Then start with an open gateway, attach the account, and enroll its first administrator. Verify the binding survives enrollment and gateway restart. Exercise metadata pages, selected peek and read, send, reply, flag changes, authorized archive, same-account credential refresh, and expired-state recovery. Test the body both ready and busy. Count due cycles, admitted reminders, and dispatched prompts separately. Unchanged eligible mail permits later reminders. A same-cycle retry preserves one admission. Reconnect, cache eviction, and rebase preserve compaction history for continuously eligible work. Verify provider outcomes before retrying an uncertain mutation.
 
 ## Authenticated Gateway Checks
 
@@ -72,6 +72,39 @@ Separate retained archive size from eligible inbox backlog. Increase archive cor
 Collect provider release/configuration, actual accounts and messages created, active inbox sizes, host CPU/RAM, topology/TLS policy, operational budgets, concurrency, and sample duration. Report warm and cold connection epochs separately. Measure per-cycle and aggregate HTTP requests, JMAP methods, payload bytes, p50/p95 latency, per-process/aggregate RSS, time to current work, time to idle checkpoint, and reminder/compaction counts. Retain only sanitized summaries in the repository.
 
 Pass/fail checks include the configured per-cycle method/time bounds, complete reconciliation before checkpoint advancement, metadata-only selection, no scope leakage, preserved periodic reminders, and one-shot compaction continuity. Performance percentiles need a stated sample count and acceptance threshold chosen for the actual deployment. A representative one-account report cannot substantiate 100-agent or million-message capacity.
+
 ## Recipient Policy Qualification
 
-Treat Stalwart account authentication and provider submission receipts as evidence of submission. Keyed Houmao policy requires authorization after final recipient routing and before each inbox deposit through SMTP, JMAP, and local delivery. The included Stalwart adapter cannot qualify all of those paths. Houmao refuses attaching or using a provider inbox under a keyed roster, and requires detaching an existing provider binding before first-key enrollment. Existing keyed deployments with online inboxes can detach them and continue using qualified offline delivery. The external provider remains responsible for its own inbox and routing configuration.
+Ordinary online attachment works on open and keyed gateways with normal mailbox credentials. Protected rule application has separate prerequisites. Qualify them for the deployed Stalwart release and topology before enrolling the connector target. The earlier authenticated gateway run exercised ordinary mailbox operations. It did not exercise this protected deployment.
+
+The 2026-11-26 Stalwart v0.15.5 run on Linux aarch64 verified native JMAP Sieve compilation, update, readback, and delivery straight to Archive with the gateway stopped. Rule application and removal preserved existing Inbox and Archive membership. The ordinary Stalwart account could still change placement through JMAP, so the protected runtime check refused it.
+
+The protected connector updates a dedicated existing `houmao-protected-archive` personal Sieve script through owner-side JMAP credentials. In the exact recipient account, prepare the Archive role and an active wrapper that includes this script before any delivery action. The connector pins the account, Archive role, active wrapper blob, and initial managed script blob. It preserves unrelated rules by updating only the included script. The runtime may read Inbox, submit mail, and update ordinary flags through its separate credential. Keep all provider permissions to modify rules or override folder placement outside runtime authority. [Stalwart Sieve](https://stalw.art/docs/sieve/) · [Connector Authority](../../../../src/houmao/mailbox/stalwart_policy_authority.py)
+
+Submit matching and nonmatching messages across the enabled delivery paths with the gateway stopped. Include SMTP, JMAP, aliases, list expansion, spam handling, and any local route that reaches the account. Verify the matched message is in Archive without Inbox membership and that an unaffected message is in Inbox. Use both uppercase and lowercase domains in the sender address to check normalization. Match address metadata as a mail rule. SMTP authentication and gateway key identity remain separate. Apply and remove the rule against a seeded Inbox and Archive and verify prior placement stays unchanged. Verify matching and nonmatching submissions have the same accepted sender receipt.
+
+Use runtime credentials against every enabled provider API to verify that rule administration, opening protected Archive content, and placement mutations are refused. Include JMAP, IMAP, ManageSieve, and provider administration surfaces as applicable. Keep connector state, management credentials, and owner authorization outside the gateway's host account and storage. If any delivery path or runtime credential bypasses protected placement, leave that target unenrolled. Protected apply reports unsupported for an unenrolled target. Ordinary attachment remains available.
+
+The gateway's owner-private access configuration can set `stalwart_policy_url` to the trusted connector's HTTPS origin. Forward `POST /v1/mail/online/policy/apply` for the exact binding with an independently signed mail-only update. The connector verifies the signature against its private owner enrollment and confirms the provider effect before recording an applied revision. Verify a receipt independently through the connector's private database. [Online Binding and Mail Policy](stalwart-setup-and-first-session.md)
+
+### Run the Qualified Connector
+
+From a separate provider-management account, prepare the personal script `houmao-protected-archive` with an empty body or comment. Add `require "include";` to the active script's declarations and `include :personal "houmao-protected-archive";` before its first delivery action. Keep the existing active script's unrelated rules. The connector updates only the included script. Use provider-authorized JMAP `SieveScript/get` to obtain the active script and initial include `blobId` values. Use `Mailbox/get` to obtain the bound account's Archive role ID.
+
+Place the settings JSON and database under a private directory of the separate connector account. The settings select the exact runtime `binding_id`, a stable connector `backend_id`, `jmap_url`, management `login_identity` and `credential_file`, `account_id`, `archive_id`, `active_script_blob`, `initial_policy_blob`, and `database`. Use a provider HTTPS endpoint and private provider password file. The gateway receives only the connector URL.
+
+Provide `runtime_jmap_url`, `runtime_login_identity`, `runtime_credential_file`, and `runtime_sender_address` so the connector can check the actual restricted endpoint and login. It refuses protected application if that login can change mailbox placement, read Archive, or access JMAP Sieve. Deployment qualification covers other enabled protocols and account routes.
+
+Stalwart requires account membership for JMAP submission. A stock mailbox-owner login therefore does not meet the protected runtime test. A deployment that uses a restricted JMAP access service must keep the provider login at that service, grant only the intended runtime actions, and independently verify the resulting boundary. The disposable native filing test did not qualify such a deployment.
+
+```bash
+pixi run python scripts/qualification/stalwart-mail/policy_connector.py \
+  --settings /private/connector/settings.json owner-set --public-key /private/connector/owner.pub
+pixi run python scripts/qualification/stalwart-mail/policy_connector.py \
+  --settings /private/connector/settings.json serve --host 192.0.2.10 \
+  --certificate /private/connector/tls.pem --tls-key /private/connector/tls-key.pem
+pixi run python scripts/qualification/stalwart-mail/policy_connector.py \
+  --settings /private/connector/settings.json receipt "$operation_id"
+```
+
+Use the same `owner-set` command to rotate authority. Use `owner-set --revoke` to revoke the enrolled key and preserve the committed policy. After an uncertain update, check its exact receipt independently. An exact retry can verify the installed script and record its result without resending a native update.

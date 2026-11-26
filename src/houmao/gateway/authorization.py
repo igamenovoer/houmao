@@ -12,7 +12,7 @@ import casbin  # type: ignore[import-untyped]
 from houmao.gateway._access_storage import GatewayAccessError
 from houmao.gateway.access_models import GatewaySelfKey, GatewayTarget
 from houmao.gateway.authorization_catalog import (
-    MAIL_DELIVER,
+    RETIRED_MAIL_DELIVER,
     RETIRED_PROMPT,
     group_allows,
     is_admin_exclusive,
@@ -120,11 +120,12 @@ class GatewayAuthorizer:
         self._require_owner(snapshot, target)
         credential = _require_actor(snapshot, actor, target, current_self)
         required = self._require_supported(permissions)
-        if actor.kind == "mail" and required != (MAIL_DELIVER,):
-            raise GatewayAccessError(403, "insufficient_authority")
         enforcer = self._enforcer(snapshot, required)
         basis, default_permissions = self._admit_basis(
             snapshot, actor, credential, required, enforcer
+        )
+        fallback_revision = (
+            _principal_fallback_revision(snapshot, actor) if basis == "default" else None
         )
         return AuthorizationDecision(
             actor=actor,
@@ -140,6 +141,7 @@ class GatewayAuthorizer:
                 snapshot.default_permission_revision if basis == "default" else None
             ),
             default_permissions=default_permissions,
+            default_fallback_revision=fallback_revision,
         )
 
     def revalidate(
@@ -192,6 +194,8 @@ class GatewayAuthorizer:
         if decision.basis == "default":
             if (
                 snapshot.default_permission_revision != decision.default_permission_revision
+                or _principal_fallback_revision(snapshot, actor)
+                != decision.default_fallback_revision
                 or not _default_eligible(snapshot, actor, credential)
             ):
                 raise GatewayAccessError(403, "insufficient_authority")
@@ -245,7 +249,9 @@ class GatewayAuthorizer:
         """Allow only declared exact operations or host-validated concrete resources."""
 
         required = tuple(dict.fromkeys(permissions))
-        if not 1 <= len(required) <= 64 or RETIRED_PROMPT in required:
+        if not 1 <= len(required) <= 64 or any(
+            permission in {RETIRED_PROMPT, RETIRED_MAIL_DELIVER} for permission in required
+        ):
             raise GatewayAccessError(403, "insufficient_authority")
         try:
             catalog = set(self.m_catalog() if callable(self.m_catalog) else self.m_catalog)
@@ -329,8 +335,9 @@ class GatewayAuthorizer:
             groups = {
                 **BUILTIN_PEER_ROLES,
                 _SELF: "managed-self",
-                _DEFAULT: snapshot.default_permission_group,
             }
+            if snapshot.default_permission_group is not None:
+                groups[_DEFAULT] = snapshot.default_permission_group
             policies.extend(
                 [subject, domain, permission.resource, permission.action]
                 for subject, group in groups.items()
@@ -343,15 +350,19 @@ class GatewayAuthorizer:
                 )
             )
             policies.extend(
-                [
-                    _principal_subject(grant.principal_id),
-                    domain,
-                    permission.resource,
-                    permission.action,
-                ]
+                [_DEFAULT, domain, permission.resource, permission.action]
+                for permission in snapshot.default_permission_effects
+                if permission in required
+            )
+            active_grants = {
+                (grant.principal_id, grant.permission)
                 for grant in snapshot.grants
                 if (grant.expires_at is None or grant.expires_at > now)
-                and (permission := grant.permission) in required
+                and grant.permission in required
+            }
+            policies.extend(
+                [_principal_subject(principal_id), domain, permission.resource, permission.action]
+                for principal_id, permission in active_grants
             )
             policies.extend(
                 [_role_subject(role.role_id), domain, permission.resource, permission.action]
@@ -405,10 +416,7 @@ def _require_actor(
         if credential is None or AuthorizationActor.from_credential(credential) != actor:
             raise GatewayAccessError(401, "invalid_proof")
         return credential
-    if (
-        actor.kind == "mail"
-        and transport_principal(snapshot, actor.transport_member) != actor.principal_id
-    ):
+    if actor.kind == "mail":
         raise GatewayAccessError(401, "invalid_proof")
     if actor.kind == "self" and (
         current_self is None
@@ -453,12 +461,14 @@ def _scoped(actor: AuthorizationActor) -> str:
 def _default_eligible(
     snapshot: PolicySnapshot, actor: AuthorizationActor, credential: Credential | None
 ) -> bool:
-    """A retained peer assignment suppresses fallback even after its expiry."""
+    """Apply verified principal restrictions independently of unsigned admission."""
 
+    setting = snapshot.find_default_fallback(actor.principal_id)
     return (
         snapshot.admin_mode == "keyed"
         and actor.kind != "self"
         and (credential is None or credential.admin_revision is None)
+        and (setting is None or setting.enabled)
         and not any(
             assignment.principal_id == actor.principal_id and assignment.builtin_version is not None
             for assignment in snapshot.role_assignments
@@ -466,17 +476,11 @@ def _default_eligible(
     )
 
 
-def transport_principal(snapshot: PolicySnapshot, logical_agent_id: str | None) -> str | None:
-    """Resolve one transport-verified logical identity in the recipient's policy."""
+def _principal_fallback_revision(snapshot: PolicySnapshot, actor: AuthorizationActor) -> int | None:
+    """Pin the actual verified principal and keep unsigned requests independent."""
 
-    principals = [
-        principal.principal_id
-        for principal in snapshot.principals
-        if principal.kind == "agent" and principal.logical_agent_id == logical_agent_id
-    ]
-    if len(principals) > 1:
-        raise GatewayAccessError(403, "ambiguous_sender_identity")
-    return principals[0] if principals else None
+    setting = snapshot.find_default_fallback(actor.principal_id)
+    return setting.revision if setting is not None else None
 
 
 def _principal_subject(principal_id: str) -> str:

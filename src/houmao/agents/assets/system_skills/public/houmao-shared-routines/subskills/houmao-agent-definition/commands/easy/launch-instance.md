@@ -48,26 +48,27 @@ Add optional flags only when the user supplied them explicitly or the selected t
 
 ## Common Options
 
-- `--auth`
+- `--agent-id` or `--agent-id-mode uuid|name-hash` (mutually exclusive)
+- `--auth`, `--model`, `--reasoning-level`
 - `--session-name`
-- `--mode headless|service|tui|web`
+- `--mode headless|service|tui|web` (see [Qualified Run Modes](../../references/common/profile-lanes.md#qualified-run-modes))
+- `--headless-display-style plain|json|fancy`, `--headless-display-detail concise|detail`
 - `--tmux-server user-default|houmao-default|new|socket` and, for `socket`, `--tmux-socket-path`
-- `--no-gateway`
-- `--gateway-port`
+- `--no-gateway`, `--gateway-port`, `--gateway-admin-seed FILE` (owner-side initial gateway admin public keys)
 - `--gateway-background` only when the user explicitly requests detached background gateway execution
 - gateway TUI timing overrides only when explicitly requested
-- `--workdir`
+- `--workdir` and `--executor <profile>` (trusted execution profile for the target context)
+- `--reuse-home` (restart on a compatible stopped preserved home for the resolved identity) and `--force [keep-stale|clean]` (replace an existing fresh live owner when explicitly requested)
 - `--env-set NAME=value|NAME`
-- `--mail-transport filesystem|email`
-- `--mail-root`
-- `--mail-account-dir`
-- repeatable `--managed-header-section SECTION=enabled|disabled`
+- `--mail-transport filesystem|email`, `--mail-root`, `--mail-account-dir`
+- `--managed-header` / `--no-managed-header` and repeatable `--managed-header-section SECTION=enabled|disabled` (`MANAGED_PROMPT_HEADER_VERSION = 2`)
+- `--tool-params JSON-OR-@PATH` (one-shot layered per-tool parameters, including `tool_params.permissions`)
 
 ## Notes
 
 - `--specialist` and `--profile` are mutually exclusive.
 - Profile-backed launch applies stored profile defaults before direct CLI overrides.
-- A launch-level `--mode` overrides the stored mode for this instance. Omit it to preserve the profile default. See [Run Modes](../../references/common/profile-lanes.md#run-modes) for tool defaults.
+- A launch-level `--mode` overrides the stored mode for this instance. Omit it to preserve the profile default. See [Qualified Run Modes](../../references/common/profile-lanes.md#qualified-run-modes) for tool defaults.
 - A launch-level tmux choice overrides the saved profile for this birth. See [Tmux Server Choices](../../references/common/tmux-server.md) for owner-side resolution, fallback precedence, and relaunch.
 - Choose prompt policy separately from run mode. For Kimi, set `--prompt-mode unattended` to disable interactive questions through Houmao.
 - Profile-backed launch applies any stored memo seed before prompt composition and provider startup.

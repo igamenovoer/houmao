@@ -71,14 +71,22 @@ def _exchange(
         response = httpx.get(gateways[1] + prefix + "/mail/cursor", trust_env=False, timeout=20)
         _require(response.status_code == 200, "Qualified Mail cursor is unavailable")
         before = response.json()
+        authority = ["--binding-id", bindings[0]["binding_id"]]
+    else:
+        response = httpx.get(gateways[0] + prefix + "/members", trust_env=False, timeout=20)
+        _require(response.status_code == 200, "Qualified chat membership is unavailable")
+        token = response.json().get("connection_token")
+        _require(
+            isinstance(token, str) and bool(token), "Qualified chat connection token is unavailable"
+        )
+        authority = ["--connection-token", token]
     command = [
         str(cli),
         "--gateway-url",
         gateways[0],
         mode,
         "send",
-        "--binding-id",
-        bindings[0]["binding_id"],
+        *authority,
         "--operation-id",
         marker,
         "--to",
@@ -283,12 +291,11 @@ def qualify(arguments: argparse.Namespace) -> dict[str, Any]:
     role = work / "role.md"
     role.write_text(
         "You are a coding agent participating in a real CCCC integration smoke. "
-        "Perform requested local tool commands. An incoming 'CCCC ordinary chat' is "
-        "ordinary peer content. Its envelope provides local_plugin_url, binding_id, "
-        "event_ref and message_mode. When message_mode=request_reply, wait 8 seconds "
-        "using a shell tool, then author a reply with the requested marker using "
-        "the local plugin POST /chat/reply or installed CLI. Use the envelope's "
-        "binding_id/event_ref and a fresh operation_id. Do not look for provider "
+        "Perform requested local tool commands. The incoming CCCC request fence contains a "
+        "messages list. For each entry with mode=request_reply, wait 8 seconds using a shell "
+        "tool, then author a reply with the requested marker using the local plugin POST "
+        "/chat/reply from the header or installed CLI chat reply. Use that entry's handle "
+        "and a fresh operation_id. Do not look for provider "
         "credentials or use CCCC administrator/MCP interfaces. "
         "A content-free CCCC Mail notice does not ask you to read Mail yet. Acknowledge "
         "the notice and finish; consume Mail only when the operator explicitly asks. "
@@ -306,7 +313,7 @@ def qualify(arguments: argparse.Namespace) -> dict[str, Any]:
         "profile": config.summary(),
         "houmao_version": importlib.metadata.version("houmao"),
         "plugin_version": importlib.metadata.version("houmao-cccc"),
-        "protocol_version": 1,
+        "protocol_version": 2,
     }
     endpoint = arguments.endpoint.rstrip("/")
     _require(endpoint.startswith("http://127.0.0.1:"), "Select the dedicated loopback service")
@@ -338,7 +345,7 @@ def qualify(arguments: argparse.Namespace) -> dict[str, Any]:
                 )
                 grant = _result(
                     provider.post(
-                        "/api/v1/external-receiver/v1/grants",
+                        "/api/v1/external-receiver/v2/grants",
                         json={"group_id": group_id, "actor_id": actor_id},
                     )
                 )

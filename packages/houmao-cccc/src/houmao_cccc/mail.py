@@ -162,6 +162,80 @@ class MailBatch(BaseModel):
     receipt: MailReadReceipt | None = None
 
 
+def qualified_mail(capabilities: dict[str, JsonValue]) -> bool:
+    """Require the complete Mail contract for either gateway or direct operation."""
+
+    operations, features, limits = (
+        capabilities.get("operations"),
+        capabilities.get("features"),
+        capabilities.get("limits"),
+    )
+    return (
+        capabilities.get("mail") is True
+        and isinstance(operations, list)
+        and MAIL_OPERATIONS.issubset({op for op in operations if isinstance(op, str)})
+        and isinstance(features, dict)
+        and all(features.get(feature) is True for feature in MAIL_FEATURES)
+        and isinstance(limits, dict)
+        and type(limits.get("max_mail_messages")) is int
+        and cast(int, limits["max_mail_messages"]) > 0
+        and type(limits.get("max_mail_response_bytes")) is int
+        and cast(int, limits["max_mail_response_bytes"]) >= 1024
+    )
+
+
+def mail_event_id(event: dict[str, JsonValue]) -> str:
+    """Validate native Mail ancestry before returning an exact event identifier."""
+
+    identifier = event.get("id")
+    data = event.get("data")
+    if (
+        not isinstance(identifier, str)
+        or not isinstance(data, dict)
+        or event.get("kind") != "chat.message"
+        or data.get("message_mode") != "mail"
+    ):
+        raise ValueError("Malformed Mail event")
+    return _identifier(identifier)
+
+
+def validate_mail_receipt(
+    receipt: MailReadReceipt, operation_id: str, actor_generation: str
+) -> None:
+    """Check that a native read decision describes the fixed Actor and operation."""
+
+    if (
+        receipt.operation_id != operation_id
+        or receipt.actor_generation != actor_generation
+        or (receipt.outcome == "consumed" and not receipt.event_ids)
+        or (receipt.outcome == "empty" and receipt.event_ids)
+        or receipt.after_cursor
+        != (receipt.event_ids[-1] if receipt.event_ids else receipt.before_cursor)
+    ):
+        raise ValueError("Receipt scope differs")
+
+
+def validate_mail_read(
+    batch: MailBatch, *, operation_id: str, actor_generation: str, expected_cursor: str, count: int
+) -> MailReadReceipt:
+    """Match a completed consuming read to its precondition and exact returned events."""
+
+    receipt = batch.receipt
+    if receipt is None or batch.outcome is None or len(batch.messages) > count:
+        raise ValueError("Missing read decision")
+    validate_mail_receipt(receipt, operation_id, actor_generation)
+    if receipt.before_cursor != expected_cursor:
+        raise ValueError("Receipt does not describe the requested precondition")
+    if batch.outcome == "already_completed":
+        if batch.messages:
+            raise ValueError("Repeated read returned another batch")
+    elif receipt.event_ids != [mail_event_id(event) for event in batch.messages] or (
+        batch.outcome != receipt.outcome or batch.cursor.event_id != receipt.after_cursor
+    ):
+        raise ValueError("Receipt does not describe the returned batch")
+    return receipt
+
+
 def _size(value: JsonValue) -> int:
     """Measure the same compact UTF-8 JSON representation used by HTTP responses."""
 
@@ -237,24 +311,7 @@ class MailService:
     def qualified(self) -> bool:
         """Require the complete negotiated consuming-read and recovery contract."""
 
-        capabilities = self._plugin().m_provider_capabilities
-        operations, features, limits = (
-            capabilities.get("operations"),
-            capabilities.get("features"),
-            capabilities.get("limits"),
-        )
-        return (
-            capabilities.get("mail") is True
-            and isinstance(operations, list)
-            and MAIL_OPERATIONS.issubset({op for op in operations if isinstance(op, str)})
-            and isinstance(features, dict)
-            and all(features.get(feature) is True for feature in MAIL_FEATURES)
-            and isinstance(limits, dict)
-            and type(limits.get("max_mail_messages")) is int
-            and cast(int, limits["max_mail_messages"]) > 0
-            and type(limits.get("max_mail_response_bytes")) is int
-            and cast(int, limits["max_mail_response_bytes"]) >= 1024
-        )
+        return qualified_mail(self._plugin().m_provider_capabilities)
 
     def capabilities(self) -> dict[str, JsonValue]:
         """Project effective Mail limits separately from chat and email channels."""
@@ -387,15 +444,7 @@ class MailService:
     def _receipt_result(self, receipt: MailReadReceipt, operation_id: str) -> dict[str, JsonValue]:
         """Decorate authoritative receipts without fetching or caching message bodies."""
 
-        if (
-            receipt.operation_id != operation_id
-            or receipt.actor_generation != self._plugin()._config().actor_generation
-            or (receipt.outcome == "consumed" and not receipt.event_ids)
-            or (receipt.outcome == "empty" and receipt.event_ids)
-            or receipt.after_cursor
-            != (receipt.event_ids[-1] if receipt.event_ids else receipt.before_cursor)
-        ):
-            raise ValueError("Receipt scope differs")
+        validate_mail_receipt(receipt, operation_id, self._plugin()._config().actor_generation)
         return {
             **receipt.model_dump(mode="json"),
             "before_cursor_ref": self._ref("mail-cursor", receipt.before_cursor),
@@ -520,13 +569,7 @@ class MailService:
 
         projected: list[JsonValue] = []
         for event in messages:
-            identifier = event.get("id")
-            data = event.get("data")
-            if not isinstance(identifier, str) or not isinstance(data, dict):
-                raise ValueError("Malformed Mail event")
-            _identifier(identifier)
-            if event.get("kind") != "chat.message" or data.get("message_mode") != "mail":
-                raise ValueError("Non-Mail event returned")
+            mail_event_id(event)
             projected.append(self._plugin()._decorate_event(event))
         return projected
 
@@ -610,20 +653,15 @@ class MailService:
                 mutation=True,
             )
             batch = MailBatch.model_validate(result)
-            if batch.receipt is None or batch.outcome is None or len(batch.messages) > count:
-                raise ValueError("Missing read decision")
-            if batch.receipt.before_cursor != expected_cursor:
-                raise ValueError("Receipt does not describe the requested precondition")
+            decision = validate_mail_read(
+                batch,
+                operation_id=body.operation_id,
+                actor_generation=plugin._config().actor_generation,
+                expected_cursor=expected_cursor,
+                count=count,
+            )
             messages = self._messages(batch.messages)
-            ids = [cast(dict[str, JsonValue], event)["event_id"] for event in messages]
-            if batch.outcome == "already_completed":
-                if messages:
-                    raise ValueError("Repeated read returned another batch")
-            elif batch.receipt.event_ids != ids or batch.outcome != batch.receipt.outcome:
-                raise ValueError("Receipt does not describe the returned batch")
-            elif batch.cursor.event_id != batch.receipt.after_cursor:
-                raise ValueError("Returned cursor differs from the committed boundary")
-            receipt = self._receipt_result(batch.receipt, body.operation_id)
+            receipt = self._receipt_result(decision, body.operation_id)
             response: dict[str, JsonValue] = {
                 **self._identity(),
                 **self._cursor_result(batch.cursor),

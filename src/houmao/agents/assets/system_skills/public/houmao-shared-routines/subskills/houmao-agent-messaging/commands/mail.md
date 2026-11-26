@@ -51,3 +51,5 @@ Pass the recipient address to the mailbox skill. The sender's binding and creden
 - DO NOT turn mailbox work into a raw `send-keys` or ordinary prompt workflow.
 - DO NOT skip scoped `agents ... mail resolve-live` when the task depends on whether a live gateway mailbox facade exists.
 - DO NOT guess a direct gateway base URL for mailbox work.
+
+Report verified offline deposit or online provider submission using `transport_evidence`. The recipient backend owns private filing and Inbox eligibility.

@@ -7,7 +7,7 @@ Maintain flavor-specific human-readable workspace contract docs when creating wo
 Record:
 
 - workspace flavor and root
-- agents, source profiles, cwd values, and branches
+- agents, source profiles, cwd/`--workdir` values (including `--executor` target-context filesystem alignment and DSH Web `--mode web` browser workspace root binding), and branches
 - repo bindings and materialization modes
 - visibility surfaces and safe write targets
 - cross-run shared knowledge surfaces and per-run owner-state paths

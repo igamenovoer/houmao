@@ -8,3 +8,5 @@ Gateway: `{{GATEWAY_BASE_URL}}`
 {{MAILBOX_API_SUMMARY}}{{APPENDIX_BLOCK}}{{NOTIFY_BLOCKS_APPEND}}
 
 Use the mailbox skill or API above for this round.
+
+{{MAIL_COMPLETION_GUIDANCE}}

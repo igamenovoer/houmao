@@ -8,12 +8,14 @@ import json
 import os
 import sys
 import time
-import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from houmao.mailbox.protocol import validate_mailbox_address
+from houmao.mailbox.stalwart import StalwartError, StalwartManagementClient
 
 OPERATOR_MAILBOX_NAME = "houmao-operator"
 
@@ -24,6 +26,8 @@ class StackConfig:
 
     env_file: Path
     http_port: int
+    webadmin_port: int
+    hostname: str
     imap_port: int
     submission_port: int
     bootstrap_user: str
@@ -37,20 +41,22 @@ class StackConfig:
     operator_mailbox_password: str
 
     @property
+    def http_origin(self) -> str:
+        """Return the published Stalwart HTTP origin."""
+
+        return f"http://127.0.0.1:{self.http_port}"
+
+    @property
     def api_base_url(self) -> str:
         """Return the Stalwart management API base URL."""
 
-        return f"http://127.0.0.1:{self.http_port}/api"
+        return self.http_origin + "/jmap"
 
     @property
     def operator_mailbox_email(self) -> str:
         """Return the operator address on the configured mail domain."""
 
         return f"{OPERATOR_MAILBOX_NAME}@{self.mail_domain}"
-
-
-class ApiRequestError(RuntimeError):
-    """Raised when a Stalwart API request fails."""
 
 
 def _strip_inline_comment(value: str) -> str:
@@ -116,6 +122,8 @@ def load_stack_config(env_file: Path) -> StackConfig:
     return StackConfig(
         env_file=env_file,
         http_port=int(_require_value(values, "STALWART_HTTP_PORT")),
+        webadmin_port=int(values.get("STALWART_WEBADMIN_PORT", "10082")),
+        hostname=_require_value(values, "STALWART_HOSTNAME"),
         imap_port=int(_require_value(values, "STALWART_IMAP_PORT")),
         submission_port=int(_require_value(values, "STALWART_SUBMISSION_PORT")),
         bootstrap_user=_require_value(values, "STALWART_BOOTSTRAP_USER"),
@@ -139,137 +147,79 @@ def _authorization_header(user: str, password: str) -> str:
     return "Basic " + base64.b64encode(token).decode("ascii")
 
 
-def api_request(
-    config: StackConfig,
-    method: str,
-    path: str,
-    payload: Any | None = None,
-    ok_statuses: tuple[int, ...] = (200,),
-    auth_user: str | None = None,
-    auth_password: str | None = None,
-) -> Any:
-    """Send a JSON request to the Stalwart management API."""
-
-    url = config.api_base_url + path
-    body: bytes | None = None
-    headers = {
-        "Accept": "application/json",
-        "Authorization": _authorization_header(
-            auth_user or config.bootstrap_user,
-            auth_password or config.bootstrap_password,
-        ),
-    }
-
-    if payload is not None:
-        body = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    request = urllib.request.Request(url=url, data=body, headers=headers, method=method)
-
-    try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            status = response.getcode()
-            raw_body = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
-        raw_body = exc.read().decode("utf-8", errors="replace")
-        status = exc.code
-        if status not in ok_statuses:
-            raise ApiRequestError(
-                f"{method} {path} failed with HTTP {status}: {raw_body or exc.reason}"
-            ) from exc
-        return json.loads(raw_body) if raw_body else None
-    except urllib.error.URLError as exc:
-        raise ApiRequestError(f"{method} {path} failed: {exc.reason}") from exc
-
-    if status not in ok_statuses:
-        raise ApiRequestError(f"{method} {path} returned unexpected status {status}: {raw_body}")
-
-    return json.loads(raw_body) if raw_body else None
-
-
-def get_principal(config: StackConfig, principal_name: str) -> dict[str, Any] | None:
-    """Fetch a principal by name, returning None when it does not exist."""
-
-    encoded_name = urllib.parse.quote(principal_name, safe="")
-    try:
-        response = api_request(
-            config,
-            method="GET",
-            path=f"/principal/{encoded_name}",
-            ok_statuses=(200, 404),
-        )
-    except ApiRequestError as exc:
-        if "HTTP 404" in str(exc):
-            return None
-        raise
-
-    if not response or "data" not in response:
-        return None
-    return response["data"]
-
-
-def normalize_list(value: Any) -> list[str]:
-    """Normalize Stalwart response values that may be scalars or arrays."""
-
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(item) for item in value]
-    if isinstance(value, str):
-        return [value]
-    return [str(value)]
+def management(
+    config: StackConfig, *, auth_user: str | None = None, auth_password: str | None = None
+) -> StalwartManagementClient:
+    """Make a local registry client using the chosen account."""
+    return StalwartManagementClient(
+        base_url=config.api_base_url,
+        auth_headers={
+            "Authorization": _authorization_header(
+                auth_user if auth_user is not None else config.bootstrap_user,
+                auth_password if auth_password is not None else config.bootstrap_password,
+            )
+        },
+    )
 
 
 def wait_for_api(config: StackConfig, timeout_seconds: int) -> None:
-    """Wait until the Stalwart management API responds."""
-
+    """Wait until the Stalwart registry responds."""
+    client = management(config)
     deadline = time.monotonic() + timeout_seconds
-    last_error: str | None = None
-
+    last_error: StalwartError | None = None
     while time.monotonic() < deadline:
         try:
-            api_request(
-                config,
-                method="GET",
-                path="/principal?types=domain&count=1&limit=1",
-                ok_statuses=(200,),
-            )
+            client.registry_request("Domain/query", {"limit": 1})
             return
-        except ApiRequestError as exc:
-            last_error = str(exc)
+        except StalwartError as exc:
+            last_error = exc
             time.sleep(1)
+    raise StalwartError(f"Timed out waiting for the Stalwart registry: {last_error}")
 
-    raise ApiRequestError(f"Timed out waiting for Stalwart API: {last_error}")
+
+def ensure_domain(config: StackConfig, domain_name: str) -> dict[str, Any]:
+    """Ensure the target domain exists without changing an existing domain."""
+    return management(config).ensure_domain(domain_name)
 
 
-def ensure_domain(config: StackConfig, domain_name: str) -> bool:
-    """Ensure that the target domain principal exists."""
-
-    existing = get_principal(config, domain_name)
-    if existing is not None:
-        if existing.get("type") != "domain":
-            raise ApiRequestError(f"Principal {domain_name!r} exists but is not a domain")
-        print(f"Domain already exists: {domain_name}")
-        return False
-
-    payload = {
-        "type": "domain",
-        "name": domain_name,
-        "description": f"Development domain {domain_name}",
-        "secrets": [],
-        "emails": [],
-        "urls": [],
-        "memberOf": [],
-        "roles": [],
-        "lists": [],
-        "members": [],
-        "enabledPermissions": [],
-        "disabledPermissions": [],
-        "externalMembers": [],
+def configure_server(config: StackConfig) -> None:
+    """Apply the development settings in recovery mode on a fresh store."""
+    wait_for_api(config, 60)
+    client = management(config)
+    domain = client.ensure_domain(config.mail_domain)
+    settings = {
+        "SystemSettings": {"defaultHostname": config.hostname, "defaultDomainId": domain["id"]},
+        "Imap": {"allowPlainTextAuth": True},
+        "MtaStageAuth": {"saslMechanisms/else": "[plain, login]"},
+        "Authentication": {"minPasswordLength": 5, "minPasswordStrength": "zero"},
     }
-    api_request(config, method="POST", path="/principal", payload=payload, ok_statuses=(200,))
-    print(f"Created domain: {domain_name}")
-    return True
+    for object_name, fields in settings.items():
+        client.registry_request(f"{object_name}/set", {"update": {"singleton": fields}})
+
+    existing = {
+        row["name"]: row["id"]
+        for row in client.list_registry_objects("NetworkListener", properties=("id", "name"))
+    }
+    listeners = {
+        "http": (config.http_port, "http", False),
+        "https": (config.webadmin_port, "http", True),
+        "imap": (config.imap_port, "imap", False),
+        "submission": (config.submission_port, "smtp", False),
+    }
+    for name, (port, protocol, tls) in listeners.items():
+        fields = {
+            "bind": {f"[::]:{port}": True},
+            "protocol": protocol,
+            "useTls": tls,
+            "implicitTls": tls,
+        }
+        if name in existing:
+            client.registry_request("NetworkListener/set", {"update": {existing[name]: fields}})
+        else:
+            client.registry_request(
+                "NetworkListener/set", {"create": {"listener": {"name": name, **fields}}}
+            )
+    print("Configured the loopback development listeners and domain.")
 
 
 def ensure_account(
@@ -278,125 +228,163 @@ def ensure_account(
     email: str,
     password: str,
     description: str,
-    roles: list[str] | None = None,
+    *,
+    administrator: bool = False,
     reset_password: bool = False,
 ) -> bool:
-    """Ensure that an individual mailbox principal exists."""
-
-    desired_roles = roles or ["user"]
-    existing = get_principal(config, name)
+    """Ensure one mailbox and preserve its password unless explicitly resetting it."""
+    client = management(config)
+    email = validate_mailbox_address(email)
+    alias, domain = email.rsplit("@", 1)
+    login = name if "@" in name else f"{name}@{domain}"
+    existing = next(
+        (
+            account
+            for account in client.list_principals(types=("individual",))
+            if account["login"].casefold() == login.casefold()
+        ),
+        None,
+    )
     if existing is None:
-        payload = {
-            "type": "individual",
-            "name": name,
-            "description": description,
-            "secrets": [password],
-            "emails": [email],
-            "memberOf": [],
-            "roles": desired_roles,
-            "lists": [],
-            "members": [],
-            "enabledPermissions": [],
-            "disabledPermissions": [],
-            "externalMembers": [],
-        }
-        api_request(config, method="POST", path="/principal", payload=payload, ok_statuses=(200,))
+        client.create_principal(
+            {
+                "type": "individual",
+                "name": name,
+                "description": description or None,
+                "emails": [email],
+                "secrets": [password],
+                "roles": ["admin" if administrator else "user"],
+            }
+        )
         print(f"Created mailbox account: {name} ({email})")
         return True
 
-    if existing.get("type") != "individual":
-        raise ApiRequestError(f"Principal {name!r} exists but is not an individual account")
-
-    updates: list[dict[str, Any]] = []
-    existing_emails = normalize_list(existing.get("emails"))
-    existing_roles = normalize_list(existing.get("roles"))
-
-    if email not in existing_emails:
-        updates.append({"action": "addItem", "field": "emails", "value": email})
-    for role in desired_roles:
-        if role not in existing_roles:
-            updates.append({"action": "addItem", "field": "roles", "value": role})
-    if description and existing.get("description") != description:
-        updates.append({"action": "set", "field": "description", "value": description})
+    changes: dict[str, object] = {}
+    if email.casefold() not in {address.casefold() for address in existing["emails"]}:
+        alias_domain = client.ensure_domain(domain, allow_create=False)
+        aliases = dict(existing.get("aliases") or {})
+        index = max((int(key) for key in aliases), default=-1) + 1
+        aliases[str(index)] = {"name": alias, "domainId": alias_domain["id"]}
+        changes["aliases"] = aliases
+    if administrator and existing.get("roles") != {"@type": "Admin"}:
+        changes["roles"] = {"@type": "Admin"}
+    if description and description != existing.get("description"):
+        changes["description"] = description
     if reset_password:
-        updates.append({"action": "set", "field": "secrets", "value": [password]})
-
-    if updates:
-        encoded_name = urllib.parse.quote(name, safe="")
-        api_request(
-            config,
-            method="PATCH",
-            path=f"/principal/{encoded_name}",
-            payload=updates,
-            ok_statuses=(200,),
-        )
-        print(f"Updated mailbox account: {name}")
-        return True
-
-    print(f"Mailbox account already exists: {name} ({email})")
-    return False
+        changes["credentials"] = {"0": {"@type": "Password", "secret": password}}
+    if changes:
+        client.registry_request("Account/set", {"update": {existing["id"]: changes}})
+        print(f"Updated mailbox account: {name} ({email})")
+    return bool(changes)
 
 
 def admin_mailbox_email(config: StackConfig) -> str:
-    """Return the email address that should be assigned to the provisioned admin mailbox."""
-
+    """Return the configured admin mailbox address."""
     if config.admin_user == config.seed_mailbox_name:
         return config.seed_mailbox_email
     return f"{config.admin_user}@{config.mail_domain}"
 
 
-def _verify_mailbox_address(config: StackConfig, name: str, address: str) -> None:
-    """Verify that an individual principal owns the expected address."""
+def require_account(config: StackConfig, name: str, address: str) -> dict[str, Any]:
+    """Return the selected account and verify its expected address."""
+    account = management(config).find_mailbox_account(name, address)
+    if account is None:
+        raise StalwartError(f"Missing development mailbox {name} ({address}).")
+    return account
 
-    account = get_principal(config, name)
-    if account is None or account.get("type") != "individual":
-        raise ApiRequestError(f"Missing expected mailbox principal: {name}")
-    if address not in normalize_list(account.get("emails")):
-        raise ApiRequestError(f"Mailbox principal {name!r} is missing email {address!r}")
+
+def ensure_operator_share(config: StackConfig) -> None:
+    """Give the admin lookup and read access to the seeded operator's folders."""
+    if config.admin_user == OPERATOR_MAILBOX_NAME:
+        return
+    admin = require_account(config, config.admin_user, admin_mailbox_email(config))
+    operator = require_account(config, OPERATOR_MAILBOX_NAME, config.operator_mailbox_email)
+    client = management(config)
+    mailbox_id = operator["id"]
+    folders = client.jmap_request(
+        "Mailbox/get", {"accountId": mailbox_id, "properties": ["id", "shareWith"]}
+    )
+    rights = {"mayReadItems": True}
+    admin_id = admin["id"]
+    updates = {
+        folder["id"]: {f"shareWith/{admin_id}": rights}
+        for folder in folders["list"]
+        if {
+            key: value
+            for key, value in ((folder.get("shareWith") or {}).get(admin_id) or {}).items()
+            if value
+        }
+        != rights
+    }
+    if updates:
+        client.jmap_request("Mailbox/set", {"accountId": mailbox_id, "update": updates})
+    permissions = admin.get("permissions") or {"@type": "Inherit"}
+    denied = permissions.get("disabledPermissions", {})
+    if not denied.get("impersonate"):
+        updated_permissions = {
+            **permissions,
+            "@type": "Merge" if permissions["@type"] == "Inherit" else permissions["@type"],
+            "disabledPermissions": {**denied, "impersonate": True},
+        }
+        client.registry_request(
+            "Account/set", {"update": {admin_id: {"permissions": updated_permissions}}}
+        )
 
 
 def verify_defaults(config: StackConfig) -> None:
-    """Verify the development domain, admin login, and default mailbox addresses."""
-
-    domain = get_principal(config, config.mail_domain)
-    if domain is None or domain.get("type") != "domain":
-        raise ApiRequestError(f"Missing expected domain principal: {config.mail_domain}")
-
-    admin_account = get_principal(config, config.admin_user)
-    if admin_account is None or admin_account.get("type") != "individual":
-        raise ApiRequestError(f"Missing expected admin principal: {config.admin_user}")
-
-    admin_roles = normalize_list(admin_account.get("roles"))
-    if "admin" not in admin_roles:
-        raise ApiRequestError(f"Admin principal {config.admin_user!r} is missing the admin role")
-
-    expected_admin_email = admin_mailbox_email(config)
-    admin_emails = normalize_list(admin_account.get("emails"))
-    if expected_admin_email not in admin_emails:
-        raise ApiRequestError(
-            f"Admin principal {config.admin_user!r} is missing email {expected_admin_email!r}"
-        )
-
-    api_request(
-        config,
-        method="GET",
-        path="/principal?types=domain&count=1&limit=1",
-        ok_statuses=(200,),
-        auth_user=config.admin_user,
-        auth_password=config.admin_password,
+    """Verify the domain, mailbox addresses, and admin management authorization."""
+    management(config).ensure_domain(config.mail_domain, allow_create=False)
+    admin = require_account(config, config.admin_user, admin_mailbox_email(config))
+    require_account(config, config.seed_mailbox_name, config.seed_mailbox_email)
+    operator = require_account(config, OPERATOR_MAILBOX_NAME, config.operator_mailbox_email)
+    if admin.get("roles") != {"@type": "Admin"}:
+        raise StalwartError(f"The seeded mailbox {config.admin_user} is missing the admin role.")
+    admin_client = management(
+        config, auth_user=config.admin_user, auth_password=config.admin_password
     )
+    admin_client.registry_request("Domain/query", {"limit": 1})
+    if admin["id"] != operator["id"]:
+        folders = admin_client.jmap_request(
+            "Mailbox/get",
+            {"accountId": operator["id"], "properties": ["role", "myRights"]},
+        )["list"]
+        if not any(row.get("role") == "inbox" for row in folders) or any(
+            {name for name, enabled in row["myRights"].items() if enabled} != {"mayReadItems"}
+            for row in folders
+        ):
+            raise StalwartError("The operator mailbox is missing its read-only share to admin.")
+    print(f"Verified seeded mailboxes on {config.mail_domain}.")
 
-    _verify_mailbox_address(config, config.seed_mailbox_name, config.seed_mailbox_email)
-    _verify_mailbox_address(config, OPERATOR_MAILBOX_NAME, config.operator_mailbox_email)
 
-    print(
-        "Verified default principals: "
-        f"domain={config.mail_domain}, "
-        f"admin={config.admin_user}, "
-        f"mailbox={config.seed_mailbox_name}, "
-        f"email={config.seed_mailbox_email}, "
-        f"operator={config.operator_mailbox_email}"
-    )
+def verify_jmap_origin(config: StackConfig) -> None:
+    """Check which API and upload origins the published JMAP session advertises."""
+
+    discovery_url = config.http_origin + "/.well-known/jmap"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(discovery_url, timeout=5) as response:
+            session_url = response.geturl()
+            session = json.load(response)
+    except (OSError, ValueError) as exc:
+        raise StalwartError(f"Unable to read the JMAP session at {discovery_url}.") from exc
+
+    if not isinstance(session, dict):
+        raise StalwartError("Stalwart JMAP discovery returned an invalid session document.")
+
+    expected = urllib.parse.urlsplit(config.http_origin)
+    for name, url in (
+        ("session URL", session_url),
+        ("apiUrl", session.get("apiUrl")),
+        ("uploadUrl", session.get("uploadUrl")),
+    ):
+        parts = urllib.parse.urlsplit(url) if isinstance(url, str) else None
+        if parts is None or (parts.scheme, parts.netloc) != (expected.scheme, expected.netloc):
+            raise StalwartError(
+                f"Stalwart JMAP {name} must use {config.http_origin}. "
+                "Check the active Stalwart configuration and published port."
+            )
+
+    print(f"Verified JMAP API and upload origin at {config.http_origin}.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -412,6 +400,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    subparsers.add_parser(
+        "configure-server", help="Configure a fresh Stalwart store in recovery mode."
+    )
     wait_parser = subparsers.add_parser("wait-api", help="Wait for the Stalwart API to respond.")
     wait_parser.add_argument(
         "--timeout-seconds",
@@ -470,6 +461,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Verify the configured development domain and default mailboxes.",
     )
 
+    subparsers.add_parser(
+        "verify-jmap-origin",
+        help="Verify the origins advertised by the published JMAP discovery endpoint.",
+    )
+
     return parser
 
 
@@ -481,7 +477,9 @@ def main() -> int:
     config = load_stack_config(args.env_file)
 
     try:
-        if args.command == "wait-api":
+        if args.command == "configure-server":
+            configure_server(config)
+        elif args.command == "wait-api":
             wait_for_api(config, args.timeout_seconds)
         elif args.command == "ensure-domain":
             ensure_domain(config, args.name or config.mail_domain)
@@ -493,7 +491,6 @@ def main() -> int:
                 email=args.email,
                 password=args.password,
                 description=args.description,
-                roles=["user"],
                 reset_password=args.reset_password,
             )
         elif args.command == "ensure-defaults":
@@ -506,7 +503,7 @@ def main() -> int:
                 email=admin_mailbox_email(config),
                 password=config.admin_password,
                 description="Development admin mailbox",
-                roles=["admin"],
+                administrator=True,
                 reset_password=args.reset_password,
             )
             if config.seed_mailbox_name != config.admin_user:
@@ -516,7 +513,6 @@ def main() -> int:
                     email=config.seed_mailbox_email,
                     password=config.seed_mailbox_password,
                     description="Default development mailbox",
-                    roles=["user"],
                     reset_password=args.reset_password,
                 )
             configured_names = {config.admin_user, config.seed_mailbox_name}
@@ -528,15 +524,18 @@ def main() -> int:
                 description=(
                     "" if OPERATOR_MAILBOX_NAME in configured_names else "Houmao operator mailbox"
                 ),
-                roles=["admin"] if OPERATOR_MAILBOX_NAME == config.admin_user else ["user"],
+                administrator=OPERATOR_MAILBOX_NAME == config.admin_user,
                 reset_password=args.reset_password,
             )
+            ensure_operator_share(config)
         elif args.command == "verify-defaults":
             wait_for_api(config, 30)
             verify_defaults(config)
+        elif args.command == "verify-jmap-origin":
+            verify_jmap_origin(config)
         else:
             parser.error(f"Unsupported command: {args.command}")
-    except (ApiRequestError, ValueError) as exc:
+    except (StalwartError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1
 

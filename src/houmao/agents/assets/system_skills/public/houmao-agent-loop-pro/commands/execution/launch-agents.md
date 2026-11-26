@@ -14,79 +14,29 @@ metadata:
 
 # Launch Agents
 
-## Workflow
-
-1. **Validate invocation context**. Preserve the actor posture, selected target, operation intent, and predecessor evidence supplied by the owning skill.
-2. **Resolve required inputs**. Recover explicit values from current context and stop or ask when a required value remains missing.
-3. **Execute the detailed procedure below**. Follow its ordering, gates, side-effect boundary, owned references, and output contract.
-4. **Validate and report**. Return changed or inspected artifacts, evidence, blockers, and the command-specific stop condition.
-
-If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
+Launch prepared loop participants into live runtime sessions after `validate-loop` passes and before `start` delivers initial loop work.
 
 ## Read First
 
-- `../reference/generated-contract-defaults.md`
-- MUST READ: `../reference/runtime-mail-model.md`
-- `../reference/platform-boundaries.md`
-- `../reference/system-input-questions.md`
+- [../../references/generated-contract-defaults.md](../../references/generated-contract-defaults.md)
+- MUST READ: [../../references/runtime-mail-model.md](../../references/runtime-mail-model.md)
+- [../../references/platform-boundaries.md](../../references/platform-boundaries.md)
+- [../../references/system-input-questions.md](../../references/system-input-questions.md)
 
-## Preconditions
+## Workflow
 
-- Generated execplan exists.
-- Agent/project-profile facts have been prepared by `prepare-agents`.
-- Workspace readiness is complete or explicitly not required.
-- `validate-loop` has passed for pre-launch readiness, or the operator provides an equivalent current validation report.
-- Operator wants prepared participants launched before `start`.
+1. Require `<loop-dir>`, `<loop-dir>/execplan/manifest.toml`, current `validate-execplan` and `validate-loop` pass evidence, prepared launch facts from `prepare-agents`, and workspace readiness evidence from `prepare-workspace` (when workspaces are used).
+2. Verify every required participant has a concrete agent id, project profile (or explicit raw profile), tool (`claude`, `codex`, `kimi`, `dsh`), qualified `--mode` (`headless`, `service`, `tui`, `web`), launch cwd, memo seed posture (`MANAGED_PROMPT_HEADER_VERSION = 2` `<houmao_managed_header>` and `<memo_cue>` injection), installed generated skills, `system_skills` pack posture, and notifier prompt posture when mail-driven.
+3. Confirm no required participant is already live with an incompatible mode, executor, `--tmux-server`, cwd, profile, or mailbox binding.
+4. Launch missing live participants via `houmao-shared-routines->houmao-agent-instance` or `houmao-mgr project agents launch`, passing explicit `--mode` (`headless`, `service`, `tui`, `web`), `--tmux-server` (`user-default`, `houmao-default`, `new`, `socket` when TUI-backed), and `--executor` when targeting a named or remote executor (including ACP-backed `dsh` `headless`/`service`/`web` sessions).
+5. Confirm liveness, session/binding identity, and gateway/mailbox attachment through `houmao-shared-routines->houmao-agent-inspect` without sending loop-start prompts or mail.
+6. Report launched vs already-live agents, concrete agent ids, profiles, modes, executor/tmux-server bindings, session ids, cwd, mailbox posture, launch surfaces used, unlaunched blockers, and whether `start` may proceed.
 
-## Inputs
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this procedure, its owning skill constraints, available references, and the user request, then execute the plan.
 
-Require:
-- `<loop-dir>`
-- `<loop-dir>/execplan/manifest.toml`
-- generated execplan validation evidence or a current `validate-execplan` pass
-- pre-launch readiness validation report from `validate-loop`
-- prepared agent/project-profile and launch facts from `prepare-agents`
-- workspace readiness facts from `prepare-workspace`, including current validation evidence or summary when managed workspaces are required, or explicit manual workspace evidence
+## Guardrails
 
-Use when present:
-- generated agent bindings;
-- generated run artifact contracts;
-- generated notifier prompt paths;
-- launch cwd and memo posture reports;
-- mailbox, gateway, notifier, memory, and inspection posture reports.
-
-## Actions
-
-1. Confirm `validate-loop` passed for the current generated execplan revision, prepared agent/profile facts, workspace facts, and launch posture.
-2. Read `execplan/manifest.toml`, generated agent bindings, prepared launch facts, workspace readiness facts or manual evidence, and run contracts.
-3. Confirm every required participant has:
-   - concrete agent id;
-   - project profile name, or explicit raw launch profile name;
-   - prompt or definition source;
-   - launch cwd posture;
-   - memo seed posture when required;
-   - installed generated skills;
-   - Houmao system-skill preinstall posture;
-   - notifier prompt posture when mail-driven.
-4. Confirm no required participant is already live in an incompatible session, cwd, profile, or mailbox posture.
-5. Launch missing live agents through `houmao-shared-routines->houmao-agent-instance` or supported `houmao-mgr project` launch surfaces.
-6. Inspect launched or already-live agents through maintained inspection surfaces when needed to confirm liveness and session identity.
-7. Do not send loop-start prompts, mail, or work payloads.
-
-## Report
-
-Report:
-- launched agents and already-live agents;
-- concrete agent ids, project profile or explicit raw launch profile names, session ids, cwd, and mailbox posture when known;
-- launch surface used;
-- participants not launched and why;
-- warnings that `start` should check;
-- whether `start` may proceed with only final lightweight liveness and start-trigger checks.
-
-## Constraints
-
-- Do not create or repair profiles, specialists, generated skills, system-skill posture, workspaces, mailboxes, gateways, memories, harness state, run artifacts, or generated execplan files.
-- Do not call or route to `prepare-agents`, `prepare-workspace`, or `validate-loop` as normal behavior.
-- Do not launch agents when required pre-launch readiness evidence is missing or stale.
-- Do not deliver first loop work, start triggers, generated mail, or participant task prompts.
-- Do not ask agents to wait in-chat for future mail or tick work.
+- DO NOT create or repair specialists, profiles, skills, `system_skills` packs, workspaces, mailboxes, gateways, memories, harness state, or `execplan/` files during `launch-agents`.
+- DO NOT invoke `prepare-agents`, `prepare-workspace`, or `validate-loop` implicitly or launch when pre-launch readiness evidence is missing or stale.
+- DO NOT send initial loop triggers, generated mail, or task prompts here; reserve trigger delivery for `start`.
+- DO NOT instruct launched agents to wait, sleep, or poll in-chat for future mail or tick events.

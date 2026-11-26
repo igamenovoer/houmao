@@ -19,11 +19,13 @@ from houmao.mailbox.models import (
     GatewayMailListRequestV1,
     GatewayMailListResponseV1,
 )
+from houmao.mailbox.policy import MailPolicyReceipt, SignedMailPolicyUpdate
 from houmao.mailbox.registry import (
     OfflineRegistryError,
     RegistryAttachment,
     RegistryEnrollment,
     RegistryMember,
+    RegistryPolicyOwnerResult,
 )
 from houmao.mailbox.registry_config import read_private_credential, validate_registry_url
 
@@ -102,7 +104,6 @@ class OfflineRegistryClient:
         address: str,
         member_credential: str,
         display_name: str | None = None,
-        require_recipient_policy: bool = False,
     ) -> RegistryMember:
         """Enroll using this client's admin credential and a caller-prepared member token."""
 
@@ -111,7 +112,6 @@ class OfflineRegistryClient:
             address=address,
             member_credential=SecretStr(member_credential),
             display_name=display_name,
-            require_recipient_policy=require_recipient_policy,
         )
         payload = request.model_dump(mode="json")
         payload["member_credential"] = request.member_credential.get_secret_value()
@@ -155,6 +155,47 @@ class OfflineRegistryClient:
                 "PUT",
                 "/houmao/registry/members/" + quote(agent_id, safe="") + "/credential",
                 {"member_credential": member_credential},
+            )
+        )
+
+    def set_policy_owner(
+        self, agent_id: str, *, expected_registration_id: str, public_key: str | None
+    ) -> RegistryPolicyOwnerResult:
+        """Set the separate owner's verification key with a registry admin credential."""
+
+        return RegistryPolicyOwnerResult.model_validate(
+            self._json(
+                "PUT",
+                "/houmao/registry/members/" + quote(agent_id, safe="") + "/mail/policy/owner",
+                {"expected_registration_id": expected_registration_id, "public_key": public_key},
+            )
+        )
+
+    def apply_policy(self, request: SignedMailPolicyUpdate) -> MailPolicyReceipt:
+        """Relay a signed update for this credential's registration."""
+
+        return MailPolicyReceipt.model_validate(
+            self._json(
+                "POST",
+                "/houmao/registry/self/mail/policy/apply",
+                request.model_dump(mode="json"),
+            )
+        )
+
+    def policy_receipt(
+        self, agent_id: str, *, expected_registration_id: str, operation_id: str
+    ) -> MailPolicyReceipt:
+        """Read backend evidence using an independent registry admin credential."""
+
+        return MailPolicyReceipt.model_validate(
+            self._json(
+                "GET",
+                "/houmao/registry/members/"
+                + quote(agent_id, safe="")
+                + "/mail/policy/receipts/"
+                + quote(operation_id, safe="")
+                + "?"
+                + urlencode({"expected_registration_id": expected_registration_id}),
             )
         )
 

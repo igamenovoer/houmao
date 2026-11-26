@@ -22,24 +22,27 @@ Bob can enroll Alice on one stable principal and use an exact `builtin:` assignm
 
 | Group | Additional Effects |
 | --- | --- |
-| `agent-observer` | Read Bob's status. |
-| `agent-requester` | Deliver mail to Bob and send a quoted work request. |
+| `agent-requester` | Read Bob's status and send a quoted work request. |
 | `agent-maintainer` | Read, edit, and publish versions on Bob's owner-exposed common skill and MCP mounts. |
 | `agent-operator` | Send verbatim prompts, invoke supported slash commands, and interrupt. Separate permissions cover raw keys, model and session selection, and admission overrides. |
 | `managed-self` | Bob's verified current runtime can use all supported non-admin effects on its own target. |
 | `agent-admin` | An enrolled admin key can use all supported effects, including admin routines. |
 
-In keyed mode, the initial default `agent-requester` lets an unenrolled caller reach Bob by status, work request, or qualified mail. Bob can type `access role-assign alice builtin:agent-observer` to narrow Alice's verified requests. An independently submitted unsigned work request still receives the default with anonymous attribution. An expired `builtin:` assignment continues to suppress fallback for that principal until Bob removes the assignment. Exact roles and grants add their effects to the applicable group.
+In keyed mode, the initial default `agent-requester` provides status and work-request authority to eligible callers. For status-only access, grant Alice the exact status effect and disable her verified fallback. Eligible unsigned requests use the configured default with anonymous attribution. A retained `builtin:` assignment suppresses fallback for that principal even after its effects expire. Exact roles and grants add their effects to the applicable group. Ordinary mail follows the mailbox backend's delivery rules.
 
 ```bash
-houmao-mgr agents single --agent-id "$BOB_ID" access role-assign alice builtin:agent-observer
-houmao-mgr agents single --agent-id "$BOB_ID" access default-group set agent-observer --signer "$BOB_ADMIN_KEY"
+houmao-mgr agents single --agent-id "$BOB_ID" access grant alice agent agent.status.read
+houmao-mgr agents single --agent-id "$BOB_ID" access default-fallback set alice disabled --retained --signer "$BOB_ADMIN_KEY"
+houmao-mgr agents single --agent-id "$BOB_ID" access explain alice agent agent.status.read
+houmao-mgr agents single --agent-id "$BOB_ID" access explain alice agent agent.request.submit
 houmao-mgr agents single --agent-id "$BOB_ID" access default-group set agent-requester --retained --signer "$BOB_ADMIN_KEY"
 ```
 
-The default-group command selects the attached gateway, direct `--passive-url`, or owner-local `--retained` path before sending. A retained update works while Bob is stopped. The gateway route is `PUT /v1/admin/default-permission-group`. The direct passive route is `PUT /houmao/agents/{agent_ref}/admin/default-permission-group`. The policy accepts all six groups. Selecting `agent-admin` lets otherwise unassigned callers perform applicable admin operations, including changing the default again. Roster mutation still requires the appropriate enrollment proof. Selecting `managed-self` confers its effects under the caller's own provenance.
+The default and fallback setters select the attached gateway, direct `--passive-url`, or owner-local `--retained` path. A retained update works while Bob is stopped. The gateway routes are `PUT /v1/admin/default-permission-group` and `PUT /v1/admin/principals/{principal_id}/default-fallback`. The direct passive routes put the same resources under `/houmao/agents/{agent_ref}/admin/`. The five named groups in the table are available as default choices. Selecting `agent-admin` lets otherwise unassigned eligible callers perform applicable admin operations. Roster mutation still requires enrollment proof. Selecting `managed-self` confers its effects under the caller's own provenance.
 
-`access list` shows the current default group, version, revision, roles, and enrollments. `access explain alice agent agent.request.submit` shows the decision for Alice's enrolled keys. The default-setting revision fences pending effects even if Bob later restores the same group. The empty admin roster authorizes all supported effects regardless of the selected default.
+`access list` shows the current default, per-principal fallback settings, revisions, roles, and enrollments. `access explain alice agent agent.request.submit` shows the decision for Alice's enrolled keys. The default and applicable principal fallback revisions fence pending effects even if Bob later restores the same values. An empty initialized admin roster authorizes all supported effects regardless of the selected default.
+
+On upgrade, a retained `agent-observer` assignment becomes an exact status effect with its original expiry and disabled fallback for that principal. A retained observer default appears as status-only in inspection. Its replacement uses one of the current named groups.
 
 ## Bind a Role to One Resource
 

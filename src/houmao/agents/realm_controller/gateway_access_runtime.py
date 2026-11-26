@@ -65,15 +65,6 @@ class GatewayRuntimeAccess:
         if current.target != self.target or current.execution_binding != self.execution_binding:
             raise SessionManifestError("Gateway execution authority has changed.")
 
-    def require_keyed_mail_qualification(self) -> None:
-        """Refuse promotion to a keyed roster with an unqualified provider binding."""
-
-        self.require_current()
-        manifest = load_session_manifest(self.manifest_path)
-        payload = parse_session_manifest_payload(manifest.payload, source="runtime manifest")
-        if payload.launch_plan.mailboxes.online.binding is not None:
-            raise GatewayAccessError(409, "provider_delivery_unqualified")
-
     def require_self_registration(self) -> GatewaySelfKey:
         """Load the exact generation's public registration for startup and readiness."""
 
@@ -179,27 +170,22 @@ def provision_gateway_generation(
     agent_id: str,
     generation_id: str,
     seed: GatewayLaunchSeed | None = None,
-    online_mailbox_configured: bool = False,
 ) -> None:
     """Prepare a fresh generation, optionally initializing the first owner policy."""
 
     owner, root = _owner_access(binding, agent_id, initialize=True)
     store = AuthorizationStore(root, owner)
     if seed is None:
-        state = store.snapshot()
+        store.snapshot()
     else:
         record = load_managed_agent_record_by_agent_id(
             agent_id, env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: binding.registry_root}
         )
         previous_binding = record.execution_binding if record is not None else None
         if previous_binding is not None and previous_binding.context_id == owner.context_id:
-            state = store.snapshot()
+            store.snapshot()
         else:
-            state = store.initialize(seed_snapshot(owner, seed))
-    if online_mailbox_configured and state.admin_mode == "keyed":
-        raise SessionManifestError(
-            "The configured online mailbox cannot enforce keyed Houmao delivery policy."
-        )
+            store.initialize(seed_snapshot(owner, seed))
     store.provision_self(generation_id)
 
 

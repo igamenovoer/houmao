@@ -31,21 +31,29 @@ from houmao.gateway.access_models import (
     MAX_ACCESS_DOCUMENT,
     parse_access_document,
 )
+from houmao.gateway.authorization_catalog import RETIRED_MAIL_DELIVER
 from houmao.gateway.authorization_models import (
+    RETIRED_OBSERVER_ROLE,
+    STATUS_READ_PERMISSION,
     Action,
     AuthorizationAuditEntry,
     AuthorizationDecision,
     Credential,
     Identifier,
+    LegacyPolicySnapshot,
     PolicySnapshot,
+    PrincipalDefaultFallback,
+    ScopedGrant,
 )
 
 _DATABASE = "authorization.sqlite3"
 _INITIALIZED = ".authorization-initialized"
 _INITIALIZATION_LOCK = ".authorization-initialize.lock"
-_DATABASE_VERSION = 2
+_DATABASE_VERSION = 3
 _APPLICATION_ID = 0x484D415A
 _AUDIT_READ_LIMIT = 1024
+# Retained v2 documents may grow to record migrated grants and fallback fences.
+_POLICY_DOCUMENT_LIMIT = MAX_ACCESS_DOCUMENT * 2
 _IDENTIFIER = TypeAdapter(Identifier)
 _ACTION = TypeAdapter(Action)
 _DEFINITION = (
@@ -282,7 +290,9 @@ class AuthorizationStore:
         ):
             raise GatewayAccessError(422, "invalid_policy_seed")
         try:
-            seed = parse_access_document(PolicySnapshot, _encode_policy(seed))
+            seed = parse_access_document(
+                PolicySnapshot, _encode_policy(seed), max_bytes=_POLICY_DOCUMENT_LIMIT
+            )
         except ValueError:
             raise GatewayAccessError(422, "invalid_policy_seed") from None
         try:
@@ -446,27 +456,42 @@ class AuthorizationStore:
                 with _connect(directory, read_only=read_only) as connection:
                     if connection.execute("PRAGMA application_id").fetchone()[0] != _APPLICATION_ID:
                         raise ValueError("invalid policy schema")
-                    if (
-                        not read_only
-                        and connection.execute("PRAGMA user_version").fetchone()[0] == 1
-                    ):
-                        self._migrate_self_schema(connection)
-                    if connection.execute("PRAGMA user_version").fetchone()[0] != _DATABASE_VERSION:
+                    version = connection.execute("PRAGMA user_version").fetchone()[0]
+                    if not read_only and version in {1, 2}:
+                        self._migrate_schema(connection)
+                        version = connection.execute("PRAGMA user_version").fetchone()[0]
+                    if version != _DATABASE_VERSION:
                         raise ValueError("invalid policy schema")
                     yield connection
         except (OSError, sqlite3.Error, ValueError):
             raise GatewayAccessError(503, "policy_unavailable") from None
 
-    def _migrate_self_schema(self, connection: sqlite3.Connection) -> None:
-        """Add generation key tables while retaining the committed policy and its evidence."""
+    def _migrate_schema(self, connection: sqlite3.Connection) -> None:
+        """Upgrade retained privilege definitions and generation keys under one writer fence."""
 
         with connection:
             connection.execute("BEGIN IMMEDIATE")
-            if connection.execute("PRAGMA user_version").fetchone()[0] == 1:
-                self._snapshot(connection)
+            version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if version == _DATABASE_VERSION:
+                return
+            if version not in {1, 2}:
+                raise ValueError("invalid policy schema")
+            legacy = parse_access_document(LegacyPolicySnapshot, _policy_payload(connection))
+            if legacy.owner != self.m_owner:
+                raise ValueError("policy belongs to a different owner")
+            if version == 1:
                 for definition in _SELF_DEFINITION:
                     connection.execute(definition)
-                connection.execute(f"PRAGMA user_version = {_DATABASE_VERSION}")
+            updated = _migrate_observers(legacy)
+            connection.execute(
+                "UPDATE policy SET payload = ? WHERE singleton = 1", (_encode_policy(updated),)
+            )
+            connection.execute(
+                """INSERT INTO audit (recorded_at, actor, action, policy_revision)
+                   VALUES (?, 'owner', 'policy.migrate-observer', ?)""",
+                (int(time.time()), updated.revision),
+            )
+            connection.execute(f"PRAGMA user_version = {_DATABASE_VERSION}")
 
     def _require_marker(self, directory: int) -> None:
         """Check the owner-bound marker separately from the mutable database."""
@@ -488,16 +513,80 @@ class AuthorizationStore:
     def _snapshot(self, connection: sqlite3.Connection) -> PolicySnapshot:
         """Load one bounded strict policy record and verify its owner."""
 
-        row = connection.execute(
-            "SELECT payload FROM policy WHERE singleton = 1 AND length(payload) <= ?",
-            (MAX_ACCESS_DOCUMENT,),
-        ).fetchone()
-        if row is None or not isinstance(row["payload"], bytes):
-            raise ValueError("policy document is unavailable")
-        state = parse_access_document(PolicySnapshot, row["payload"])
+        state = parse_access_document(
+            PolicySnapshot, _policy_payload(connection), max_bytes=_POLICY_DOCUMENT_LIMIT
+        )
         if state.owner != self.m_owner:
             raise ValueError("policy belongs to a different owner")
         return state
+
+
+def _policy_payload(connection: sqlite3.Connection) -> bytes:
+    """Read the one bounded retained document without assuming its schema version."""
+
+    row = connection.execute(
+        "SELECT payload FROM policy WHERE singleton = 1 AND length(payload) <= ?",
+        (_POLICY_DOCUMENT_LIMIT,),
+    ).fetchone()
+    if row is None or not isinstance(payload := row["payload"], bytes):
+        raise ValueError("policy document is unavailable")
+    return payload
+
+
+def _migrate_observers(legacy: LegacyPolicySnapshot) -> PolicySnapshot:
+    """Convert retired observer effects while retaining each independent grant and expiry."""
+
+    revision = legacy.revision + 1
+    grants = [row for row in legacy.grants if row.permission != RETIRED_MAIL_DELIVER]
+    assignments = []
+    fallback = []
+    for row in legacy.role_assignments:
+        if row.builtin_version is None or row.role_id != RETIRED_OBSERVER_ROLE:
+            assignments.append(row)
+            continue
+        grants.append(
+            ScopedGrant(
+                principal_id=row.principal_id,
+                permission=STATUS_READ_PERMISSION,
+                expires_at=row.expires_at,
+                source="retired-observer",
+            )
+        )
+        fallback.append(
+            PrincipalDefaultFallback(
+                principal_id=row.principal_id, enabled=False, revision=revision
+            )
+        )
+    legacy_group = legacy.default_permission_group
+    exact = legacy_group == "agent-observer"
+    return PolicySnapshot(
+        owner=legacy.owner,
+        policy_id=legacy.policy_id,
+        revision=revision,
+        roster_revision=legacy.roster_revision,
+        open_epoch=legacy.open_epoch,
+        default_permission_group=None if legacy_group == "agent-observer" else legacy_group,
+        default_permission_group_version=None if exact else legacy.default_permission_group_version,
+        default_permission_revision=legacy.default_permission_revision + exact,
+        default_permission_effects=(STATUS_READ_PERMISSION,) if exact else (),
+        principal_default_fallback=tuple(fallback),
+        principals=legacy.principals,
+        credentials=legacy.credentials,
+        grants=tuple(grants),
+        roles=tuple(
+            role.model_copy(
+                update={
+                    "permissions": tuple(
+                        permission
+                        for permission in role.permissions
+                        if permission != RETIRED_MAIL_DELIVER
+                    )
+                }
+            )
+            for role in legacy.roles
+        ),
+        role_assignments=tuple(assignments),
+    )
 
 
 @contextmanager
@@ -620,7 +709,18 @@ def _advance_policy(before: PolicySnapshot, candidate: PolicySnapshot) -> Policy
     default_changed = (
         candidate.default_permission_group,
         candidate.default_permission_group_version,
-    ) != (before.default_permission_group, before.default_permission_group_version)
+        candidate.default_permission_effects,
+    ) != (
+        before.default_permission_group,
+        before.default_permission_group_version,
+        before.default_permission_effects,
+    )
+    fallback_revisions = {row.principal_id: row for row in before.principal_default_fallback}
+    if any(
+        fallback_revisions.get(row.principal_id) != row and row.revision != revision
+        for row in candidate.principal_default_fallback
+    ):
+        raise GatewayAccessError(409, "default_fallback_revision_conflict")
     updated = candidate.model_copy(
         update={
             "revision": revision,
@@ -670,6 +770,6 @@ def _encode_policy(state: PolicySnapshot) -> bytes:
     """Reject owner policy documents exceeding the retained size bound."""
 
     payload = state.model_dump_json().encode()
-    if len(payload) > MAX_ACCESS_DOCUMENT:
+    if len(payload) > _POLICY_DOCUMENT_LIMIT:
         raise GatewayAccessError(413, "policy_too_large")
     return payload
