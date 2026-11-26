@@ -147,11 +147,11 @@ For `create`:
 
 1. Verify `repo-root` is a Git repo.
 2. Create `houmao-ws/`, local `workspaces.md`, task-local `workspace.md`, task-local `shared-kb/`, task-local `owner-states/`, per-agent `states/`, and any requested `owner-states/<subdir>/...` directories as needed.
-3. Ensure `/houmao-ws/` is ignored from the parent repo, preferring `.git/info/exclude` unless the operator explicitly requests a tracked ignore-file update.
+3. Ensure `/houmao-ws/` is ignored from the parent repo per [../references/git-worktree-and-ignore-rules.md](../references/git-worktree-and-ignore-rules.md), preferring `.git/info/exclude` unless the operator explicitly requests a tracked ignore-file update.
 4. Create one Git worktree per agent at `<task-root>/<agent-name>/repo`.
-5. Apply the shared local-state symlink policy from [reference/local-state-links.md](../references/local-state-links.md), preserving relative paths for linked local-only state.
-6. Apply the shared tracked-submodule policy from [reference/submodules.md](../references/submodules.md).
-7. Write or update `<task-root>/workspace.md` plus the local `houmao-ws/workspaces.md`, including the repo-root cwd, shared visibility surface, task-local contract, untracked workspace collection, ignore decision, shared knowledge path, owner-state path, and in-repo read/write ownership rules.
+5. Apply the shared local-state symlink policy from [../references/local-state-links.md](../references/local-state-links.md), preserving relative paths for linked local-only state.
+6. Apply the shared tracked-submodule policy from [../references/submodules.md](../references/submodules.md).
+7. Write or update `<task-root>/workspace.md` plus the local `houmao-ws/workspaces.md`, including the repo-root cwd (or explicit DSH Web / `--executor` workdir choice), shared visibility surface, task-local contract, untracked workspace collection, ignore decision, shared knowledge path, owner-state path, and in-repo read/write ownership rules.
 8. Update launch profiles so each agent cwd points at `<repo-root>`.
 9. Optionally create per-agent memo seed Markdown and attach it to profiles.
 

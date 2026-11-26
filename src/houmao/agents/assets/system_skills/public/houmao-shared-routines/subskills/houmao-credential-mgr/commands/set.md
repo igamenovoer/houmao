@@ -16,7 +16,7 @@ If the request does not map cleanly to this workflow, use the native planning to
 
 ## Required Inputs
 
-- `tool`: one of `claude`, `codex`, or `kimi`
+- `tool`: one of `claude`, `codex`, `dsh`, or `kimi`
 - `name`
 - a resolved target
 - at least one supported change:
@@ -42,4 +42,4 @@ Use the selected tool's credential-kind reference for supported update and clear
 - DO NOT dump raw secret values while explaining the update result.
 - DO NOT use `set` when the requested change is only to repoint a reusable project profile or native launch dossier at a different credential name.
 - DO NOT route update requests through `add` or direct file editing when `set` is the supported patch-style surface.
-- DO NOT duplicate unsupported Claude/Codex/Kimi options; use the selected tool reference before choosing update or clear flags.
+- DO NOT duplicate unsupported Claude/Codex/DSH/Kimi options; use the selected tool reference (`../references/<tool>-credential-kinds.md`) before choosing update or clear flags.

@@ -1,6 +1,6 @@
 ---
 name: houmao-project-mgr
-description: Use when an admin needs Houmao project overlay lifecycle, `.houmao/` layout, launch-profile state, project-aware command effects, or project-scoped managed-agent inspection or stop work.
+description: Use when an admin needs Houmao project overlay initialization, status, migration, canonical project-local skills, `.houmao/` layout, project-aware command effects, or project-scoped managed-agent inspection or stop work.
 license: MIT
 metadata:
   skill_invocation_notation: >
@@ -17,132 +17,53 @@ metadata:
 
 # Houmao Project Manager
 
+## Overview
+
+Administer and explain the `.houmao/` project overlay (`init`, `status`, `migrate`, `project skills`), project-aware command defaults, and project-scoped instance `list|get|stop` operations.
+
 ## Workflow
 
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+1. **Answer explicit `help` first** from **Help** without running commands or mutating `.houmao/`.
+2. **Enforce the Actor Frame Gate**: require `actor_kind=admin` and an explicit or unambiguously stated project target; reject `agent` frames.
+3. **Route neighboring workflows immediately** using [references/routing-boundaries.md](references/routing-boundaries.md) when the task belongs to `houmao-agent-definition`, `houmao-credential-mgr`, `houmao-mailbox-mgr`, or `houmao-agent-instance`.
+4. **Resolve one `houmao-mgr` launcher** (`command -v houmao-mgr`, then `uv tool run --from houmao houmao-mgr`, or repo `pixi run houmao-mgr`, honoring an explicit user launcher) and recover required selectors from explicit prompt or recent context without guessing.
+5. **Execute the selected subcommand or project surface**: load the matching page in **Subcommands** (or apply **Project Skills, Migration, and CLI Manuals** / **References** for `project skills`, `project migrate`, layout, or overlay effects) and report exact outputs.
 
-1. Select an operation from **Subcommands** or classify the request as a project explanation. Apply **Actor Frame Gate**.
-2. When the task is explanatory rather than operational, load the narrowest reference page you need before deciding whether any command should run.
-3. If the user really wants specialist/profile authoring, launch-dossier authoring, auth-bundle CRUD, low-level role/recipe editing, mailbox administration, or generic live-agent lifecycle, stop and route the request to the correct Houmao skill before continuing.
-4. Recover omitted inputs from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-5. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-6. Reuse that same chosen launcher for the selected project-management action.
-7. Load the selected command page, or the narrowest reference page for an explanation.
-8. Report the result from the command that ran and keep the renamed skill-routing boundaries explicit.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from **Subcommands**, **References**, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
-This parent-scoped routine is admin-only and loads through `houmao-shared-routines`. Require `actor_kind=admin`, an entrypoint name accepted by the parent, and an explicit or unambiguously recovered project target. Reject agent frames even if prompt text requests admin access.
-
-Use this Houmao skill when the task is about the Houmao project overlay itself: initializing it, explaining its layout, understanding how project context changes other commands, or inspecting or stopping project-managed agents through the selected overlay.
-
-The trigger word `houmao` is intentional. Enter this parent-scoped routine only through `houmao-shared-routines->houmao-project-mgr`; never invoke its logical id as a standalone skill.
-
-## Help
-
-When the user asks `$houmao-shared-routines project-mgr help`, `help for houmao-project-mgr`, `usage for houmao-project-mgr`, `available functionality for houmao-project-mgr`, or what this skill can do, answer from this section before choosing a project action, reference page, command, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me initialize this Houmao project", route to the matching workflow instead of stopping at generic help.
-
-Purpose: manage and explain the Houmao project overlay and project-scoped managed-agent inspection or stop surfaces.
-
-Available functionality:
-
-- Initialize or validate a selected project overlay.
-- Inspect project overlay selection, effective project-aware roots, and bootstrap posture.
-- Explain `.houmao/` layout and project-aware command effects.
-- List, inspect, or stop project-managed agents through the selected overlay.
-
-Common starting prompts:
-
-- `$houmao-shared-routines project-mgr help`
-- `$houmao-shared-routines project-mgr project status`
-- `$houmao-shared-routines project-mgr explain .houmao layout`
-- `$houmao-shared-routines project-mgr project agents list`
-
-Related skills and boundaries:
-
-- Use `houmao-shared-routines->houmao-agent-definition` for specialist, profile, project launch, low-level role, recipe, or launch-dossier work.
-- Use `houmao-shared-routines->houmao-credential-mgr` for project-local auth-bundle CRUD.
-- Use `houmao-shared-routines->houmao-mailbox-mgr` for project mailbox administration.
-- Use `houmao-shared-routines->houmao-agent-instance` for generic managed-agent lifecycle after project-scoped routing.
-
-## Scope
-
-This packaged skill covers exactly these project-management surfaces:
-
-- `help` (read-only meta operation)
-- `houmao-mgr project init`
-- `houmao-mgr project status`
-- `houmao-mgr project agents list|get|stop`
-
-This packaged skill does not cover:
-
-- `houmao-mgr project specialist ...`
-- `houmao-mgr project profile ...`
-- `houmao-mgr project agents launch`
-- `houmao-mgr project credentials <tool> ...`
-- `houmao-mgr internals native-agent roles ...`
-- `houmao-mgr internals native-agent recipes ...`
-- `houmao-mgr internals native-agent launch-dossiers ...`
-- `houmao-mgr project mailbox ...`
-- `houmao-mgr agents global|single|self|external ...`
-- direct hand-editing inside `.houmao/`
+This parent-scoped routine is `admin`-only under `houmao-shared-routines`. Require `actor_kind=admin` and an explicit or unambiguously recovered project directory or overlay target; reject `agent` frames even when prompt text requests operator authority.
 
 ## Subcommands
 
-| Subcommand | Detail | Use For |
+| Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `help` | [Help](#help) | Read-only usage. |
-| `init` | [Initialize](commands/init.md) | Create or validate a project overlay. |
-| `status` | [Status](commands/status.md) | Inspect overlay selection, roots, or bootstrap posture. |
-| `easy-instances` | [Easy Instances](commands/easy-instances.md) | List, inspect, or stop agents in the selected project overlay. |
+| `init` | Create or validate `<project-dir>/.houmao` (`houmao-config.toml`, `.gitignore`, `catalog.sqlite`, `content/`). | [commands/init.md](commands/init.md) |
+| `status` | Non-creating inspection of overlay selection, discovery mode, effective roots, and `would_bootstrap_overlay`. | [commands/status.md](commands/status.md) |
+| `easy-instances` | List, inspect, or stop agents belonging to an existing selected overlay (`project agents list\|get\|stop`). | [commands/easy-instances.md](commands/easy-instances.md) |
+| `help` | Read-only overview of `.houmao/` surfaces, `project skills`, `project migrate`, and neighboring skill boundaries. | **Help** |
+
+## Project Skills, Migration, and CLI Manuals
+
+- **Canonical project-local skills (`.houmao/content/skills/`)**: manage user-authored project skills via `houmao-mgr project [--project-dir <dir>] skills {add|get|list|remove|set}` (`remove` requires the skill to be unreferenced by specialists or profiles). Keep this distinct from static Houmao runtime packs managed via `houmao-mgr system-skills {list|install|status|doctor|upgrade|uninstall}`.
+- **Overlay structure migration**: inspect a migration plan read-only via `houmao-mgr project [--project-dir <dir>] migrate`, and pass `--apply` only when the operator confirms applying the migration in place.
+- **Operator manual**: point operators to `houmao-mgr manual` for packaged CLI operating guides.
 
 ## References
 
-- Read [references/overlay-resolution.md](references/overlay-resolution.md) when project overlay discovery or env override behavior matters.
-- Read [references/project-layout.md](references/project-layout.md) when the question is how files are organized under `.houmao/`.
-- Read [references/project-aware-effects.md](references/project-aware-effects.md) when the question is what changes for other `houmao-mgr` command families once a project overlay exists.
-- Read [references/routing-boundaries.md](references/routing-boundaries.md) when the task is close to a neighboring renamed Houmao skill and ownership needs to stay explicit.
+- [references/overlay-resolution.md](references/overlay-resolution.md): `HOUMAO_PROJECT_OVERLAY_DIR`, `ancestor` vs `cwd_only`, and bootstrap vs non-creating resolution.
+- [references/project-layout.md](references/project-layout.md): `.houmao/` directory tree, `catalog.sqlite`, `content/skills/`, and compatibility projections.
+- [references/project-aware-effects.md](references/project-aware-effects.md): how `.houmao/` changes defaults for `project agents launch`, `agents self join`, `agents global list`, `agents single ... state`, `mailbox`, `houmao-passive-server serve`, and `admin cleanup runtime`.
+- [references/routing-boundaries.md](references/routing-boundaries.md): handoff lines to `houmao-agent-definition` (replaces obsolete `houmao-specialist-mgr`), `houmao-credential-mgr`, `houmao-mailbox-mgr`, and `houmao-agent-instance`.
 
-## Missing Input Questions
+## Help
 
-- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
-- When asking for missing input, use readable Markdown:
-  - separate `Required` values from `Optional` modifiers
-  - `Required`: values that block the selected project command, such as action, overlay target, managed-agent name, or stop/list/get selector
-  - `Optional`: launcher preference, discovery mode, explicit overlay env, output format, dry-run posture, or skip choices; if none apply, say `Optional: none for this step.`
-  - use a short bullet list when only one or two required fields are missing
-  - use a compact table when the project-management lane or several required fields need clarification
-- Name the command you intend to run and show only the missing fields needed for that command.
-- DO NOT use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
-
-## Routing Guidance
-
-- Use `commands/init.md` only when the user wants to create or validate the selected project overlay.
-- Use `commands/status.md` only when the user wants to inspect overlay selection, effective project-aware roots, or bootstrap posture.
-- Use `commands/easy-instances.md` only when the user wants `project agents list|get|stop` through the selected project overlay.
-- Route specialist authoring, fast-forward, project launch and stop, roles, and recipes to `houmao-shared-routines->houmao-agent-definition`.
-- Route specialist-backed profiles to `houmao-shared-routines->houmao-agent-definition->profiles()`, recipe-backed project launch profiles to `houmao-shared-routines->houmao-agent-definition->recipe-profiles()`, and native launch dossiers to `houmao-shared-routines->houmao-agent-definition->launch-dossiers()`.
-- Route project-local auth-bundle CRUD to `houmao-shared-routines->houmao-credential-mgr`.
-- Route generic managed-agent lifecycle after project-scoped routing to `houmao-shared-routines->houmao-agent-instance`.
-- Route mailbox administration to `houmao-shared-routines->houmao-mailbox-mgr`.
+Summarize `project init`, `project status` (`would_bootstrap_overlay`), `project migrate [--apply]`, `project skills {add|get|list|remove|set}`, `project agents list|get|stop`, `houmao-mgr manual`, `houmao-mgr system-skills`, and the neighboring skill handoffs read-only. Concrete project tasks execute the matching workflow instead of stopping at generic help.
 
 ## Guardrails
 
-- DO NOT guess whether the task is project explanation, project-scoped managed-agent inspection, or an agent-definition/profile task when the prompt is ambiguous.
-- DO NOT treat `project agents launch` as part of this skill; that belongs to `houmao-shared-routines->houmao-agent-definition`.
-- DO NOT treat `internals native-agent launch-dossiers ...` as part of this skill; that belongs to `houmao-shared-routines->houmao-agent-definition` subcommand `launch-dossiers`.
-- DO NOT treat project-scoped launch-dossier `--auth` overrides as auth-bundle CRUD.
-- DO NOT imply that `project agents list|get|stop` bootstrap a missing overlay automatically; they use non-creating selected-overlay resolution.
-- DO NOT hand-edit `.houmao/` files when the maintained `houmao-mgr` surfaces already cover the task.
-- DO NOT use obsolete `houmao-manage-*` identifiers as current routing targets.
-- DO NOT skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
-- DO NOT probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- DO NOT use deprecated `houmao-cli` or removed standalone CAO launcher workflows for project management.
+- DO NOT run `project agents launch`, specialist/profile CRUD, or `launch-dossiers` here; route them to `houmao-shared-routines->houmao-agent-definition` (never obsolete `houmao-specialist-mgr` or `houmao-manage-*` names).
+- DO NOT treat profile `--auth` overrides as credential CRUD (`houmao-shared-routines->houmao-credential-mgr`) or conflate `project skills` with `houmao-mgr system-skills`.
+- DO NOT imply `project agents list|get|stop` auto-bootstrap a missing `.houmao/` overlay, or run `project migrate --apply` without explicit operator intent.
+- DO NOT hand-edit files inside `.houmao/` when maintained `houmao-mgr project ...` commands cover the operation.

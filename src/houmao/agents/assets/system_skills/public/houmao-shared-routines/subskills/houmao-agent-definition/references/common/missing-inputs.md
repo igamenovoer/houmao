@@ -22,6 +22,6 @@ Use this page whenever the selected subskill still lacks required command inputs
 
 ## Guardrails
 
-- Do not infer names, tools, credential values, workdirs, profile lanes, or update fields from partial matches.
-- Do not ask for optional fields unless the user requested behavior that needs them.
-- Do not continue from partially inferred auth values, mailbox identities, or runtime posture.
+- DO NOT infer names, tools, credential values, workdirs, profile lanes, or update fields from partial matches.
+- DO NOT ask for optional fields unless the user requested behavior that needs them.
+- DO NOT continue from partially inferred auth values, mailbox identities, or runtime posture.

@@ -37,4 +37,3 @@ Run one of the direct cleanup commands:
 - DO NOT assume cleanup is safe for a live session; this skill is for stopped-session cleanup only.
 - DO NOT add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.
 - DO NOT create or search stopped-session tombstones, stopped-agent indexes, or unsupported registry state.
-- DO NOT add `--purge-registry` unless the user explicitly asks to delete the lifecycle record.

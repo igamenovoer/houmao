@@ -57,10 +57,11 @@ Run deployment changes in the selected agent's execution-owner context. Pass `--
 
 ```bash
 houmao-mgr agents single --agent-id "$AGENT_ID" gateway attach --access-config "$ACCESS_CONFIG"
-houmao-mgr agents single --agent-id "$AGENT_ID" gateway attach --plugins-config "$PLUGINS_CONFIG"
+houmao-mgr agents single --agent-id "$AGENT_ID" gateway attach --plugins-config "$PLUGINS_CONFIG" \
+  [--plugin-config-override 'cccc={"group_id":"team-a"}']
 ```
 
-Use `--plugins-config` for the gateway's versioned YAML or JSON plugin selection. The packages must be installed in the gateway's environment. Omitting this flag reuses the persisted selection. An explicitly empty selection clears it on the next attach. The flags can be combined when both settings are part of the same requested attach.
+Use `--plugins-config` for the gateway's versioned YAML or JSON plugin selection (for example enabling `houmao-cccc`), and repeatable `--plugin-config-override INSTANCE=JSON` to overlay per-instance configuration values for an explicitly selected plugin instance without editing the base config file. The plugin packages must be installed in the gateway's environment. Omitting `--plugins-config` reuses the persisted selection; an explicitly empty selection clears it on the next attach. The flags can be combined when part of the same requested attach.
 
 An equivalent configuration can reuse a live gateway. Changed deployment or plugin settings require an explicit gateway detach and attach. The agent body can keep running. For retained policy, grants, and live administrator roster changes, use `houmao-shared-routines->houmao-agent-access`. For native skill and MCP freshness, use `houmao-shared-routines->houmao-agent-instance->native-resources()`.
 

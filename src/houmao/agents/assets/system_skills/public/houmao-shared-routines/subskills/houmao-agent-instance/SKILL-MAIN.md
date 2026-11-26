@@ -1,6 +1,6 @@
 ---
 name: houmao-agent-instance
-description: Use when a Houmao managed-agent instance must be launched, joined, listed, stopped, relaunched, cleaned up, or must inspect or mutate its definition-owned runtime variables, named mindsets, or private workspace through actor-scoped commands.
+description: Use when a Houmao managed-agent instance must be launched, joined, listed, stopped, relaunched, or cleaned up, when registering `agents external` imports or reconciling `--executor` locators, or when accessing native resources, runtime variables, mindsets, or private workspaces.
 license: MIT
 metadata:
   skill_invocation_notation: >
@@ -17,168 +17,53 @@ metadata:
 
 # Houmao Agent Instance
 
+## Overview
+
+Manage Houmao managed-agent instance lifecycle (`launch`, `join`, `list`, `stop`, `relaunch`, `cleanup`), external communication-only imports (`agents external`), executor locator maintenance (`admin executors`), native-home freshness, and definition-owned `instance-state` surfaces (`runtime-variables`, `mindsets`, `private-workspace`).
+
 ## Workflow
 
-Before starting the workflow, answer explicit skill-help intent from `## Help` and stop.
+1. **Answer explicit `help` first** from **Help** without running commands or mutating runtime or registry state.
+2. **Enforce the Actor Frame Gate** and route neighboring tasks before mutating: specialist/profile authoring to `houmao-shared-routines->houmao-agent-definition`, read-only state/usage/logs/screen inspection to `houmao-shared-routines->houmao-agent-inspect`, `request`/`prompt`/`interrupt` to `houmao-shared-routines->houmao-agent-messaging`, gateway sidecars (`web-entry`, `reminders`, `mail-notifier`) to `houmao-shared-routines->houmao-agent-gateway`, and versioned gateway mounts to `houmao-shared-routines->houmao-agent-files`.
+3. **Select one operation** from **Subcommands** (or apply **External Agents, Executors, and Browser Handoffs** when managing `agents external`, `admin executors`, or `open-browser`), recovering required inputs from explicit prompt or recent context without guessing.
+4. **Resolve one `houmao-mgr` launcher** (`command -v houmao-mgr`, then `uv tool run --from houmao houmao-mgr`, or repo `pixi run houmao-mgr`, honoring an explicit user launcher) and load only the selected command page.
+5. **Execute the command** with only user-requested or lane-required flags and report exact lifecycle, locator, or `instance-state` outcomes.
 
-1. Select an action from **Subcommands**.
-2. Apply **Actor Frame Gate**. For definition-owned state, use the verified-self reads or the explicit-target operator commands documented on the selected page. For `native-resources`, use its own target and refresh rules.
-3. If the requested action is `launch`, determine whether the source is:
-   - a project profile for `houmao-mgr project agents launch --profile`, or
-   - a predefined specialist for `houmao-mgr project agents launch --specialist`
-4. If the requested action is still ambiguous after checking the current prompt and recent chat context, ask the user before proceeding.
-5. Choose one `houmao-mgr` launcher for the current turn:
-   - first run `command -v houmao-mgr` and use the `houmao-mgr` already on `PATH` when present
-   - if that lookup fails, use `uv tool run --from houmao houmao-mgr`
-   - only if the PATH lookup and uv-managed fallback do not satisfy the turn, choose the appropriate development launcher such as `pixi run houmao-mgr`, repo-local `.venv/bin/houmao-mgr`, or project-local `uv run houmao-mgr`
-   - if the user explicitly asks for a specific launcher, follow that request instead of the default order
-6. Reuse that same chosen launcher for the selected instance-lifecycle or state action.
-7. For supported command authoring, show and run direct maintained commands with only fields the user explicitly supplied or that were recovered from explicit recent context:
-   - `project agents launch` for project-scoped birth from a specialist or project profile
-   - `agents self join`
-   - `agents global list`
-   - `agents single ... stop`
-   - `agents single ... relaunch`
-   - `agents single ... cleanup session`
-   - `agents single ... cleanup logs`
-   - `agents self instance-state ...` for verified-self state reads
-   - `agents single --agent-id|--agent-name ... instance-state ...` for explicit-target admin state reads or mutation
-8. If required input is missing or explicit inputs conflict, stop and recover the missing or conflicting input before running the target command.
-9. Do not add optional posture, chat-session, cleanup, gateway, workspace, or mutation flags unless the user explicitly requested them or the selected tool/lane requires them.
-10. Load the selected command page from **Subcommands**.
-11. Follow the selected action page and report the result from the command that ran.
-
-
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from **Subcommands**, **External Agents, Executors, and Browser Handoffs**, and the user request, then execute the plan.
 
 ## Actor Frame Gate
 
-This parent-scoped routine loads only through `houmao-shared-routines`. Require the immutable admin or verified-agent frame validated by that parent; otherwise stop before lifecycle routing.
-
-- Admin branch: act for the human operator, require an explicit project or managed-agent target, and never substitute `agents self` for that target.
-- Agent branch: require freshly verified self identity, use verified self for supported self lifecycle follow-up, and require an explicit peer target for cross-agent work.
-
-Preserve the actor branch for the entire route. Joining a session follows the admin entrypoint's explicit adoption handoff and never rewrites this frame in place.
-
-Use this Houmao skill when you need to create, adopt, list, stop, relaunch, or clean up live managed-agent instances through `houmao-mgr` instead of hand-editing runtime files. It also owns definition-deployed instance state: typed runtime variables, named mindset revisions and skill snapshots, and one optional private workspace with stable semantic directory mappings. Managed-agent birth is project-scoped through `project agents launch`; follow-up lifecycle and instance state are split across `agents global`, explicit-target `agents single`, and verified-self `agents self`.
-
-The trigger word `houmao` is intentional. Enter this parent-scoped routine only through `houmao-shared-routines->houmao-agent-instance`; never invoke its logical id as a standalone skill.
-
-## Help
-
-When the user asks `$houmao-shared-routines agent-instance help`, `help for houmao-agent-instance`, `usage for houmao-agent-instance`, `available functionality for houmao-agent-instance`, or what this skill can do, answer from this section before choosing a lifecycle action, command, action page, or missing-input question. This is read-only help: do not run commands, mutate files, send mail, change gateway state, or alter managed-agent lifecycle state during help. If the user asks a concrete task such as "help me stop this agent", route to the matching workflow instead of stopping at generic help.
-
-Purpose: manage live Houmao-managed agent instances and their definition-owned, per-instance runtime state through supported actor-scoped commands.
-
-Available functionality:
-
-- `launch` new managed-agent instances from roles, presets, launch dossiers, or specialists.
-- `join` one already-running supported provider session.
-- `list` current live managed agents from the lifecycle perspective.
-- `stop`, `relaunch`, or `cleanup` selected managed-agent instances.
-- `native-resources` for the active native home, skill and MCP freshness, and qualified refresh.
-- `runtime-variables` for typed, revisioned per-instance values.
-- `mindsets` for named question sets, current revisions, diffs, and atomic skill snapshots.
-- `private-workspace` for manifest validation, semantic directory resolution, materialization, remapping, tracking posture, mindset projection, and safe cleanup.
-
-Common starting prompts:
-
-- `$houmao-shared-routines agent-instance help`
-- `$houmao-shared-routines agent-instance list`
-- `$houmao-shared-routines agent-instance launch from specialist <name>`
-- `$houmao-shared-routines agent-instance stop <agent>`
-- `$houmao-shared-routines as-agent agent-instance runtime-variables get <key>`
-- `$houmao-shared-routines agent-instance mindsets set <agent> <name>`
-- `$houmao-shared-routines agent-instance private-workspace doctor <agent>`
-
-Related skills and boundaries:
-
-- Use `houmao-shared-routines->houmao-agent-definition` for specialist-scoped project launch and stop entry points or reusable definition authoring.
-- Use `houmao-shared-routines->houmao-agent-inspect` for generic read-only state, logs, artifacts, mailbox posture, or screen inspection.
-- Use `houmao-shared-routines->houmao-agent-messaging` for prompt, interrupt, mailbox routing, or reset-context work.
-- Use `houmao-shared-routines->houmao-agent-gateway` for gateway sidecar lifecycle and gateway-only control.
-- Use `houmao-shared-routines->houmao-agent-files` for versioned reads or edits on a gateway-managed logical mount.
+This parent-scoped routine loads only through `houmao-shared-routines` and requires an immutable `admin` or verified `agent` frame; missing or mismatched frames fail closed. Admin callers require an explicit project or `--agent-id`/`--agent-name` target and never default to `agents self`. Verified `agent` callers use `agents self` only for supported self follow-up (`relaunch`, `refresh`/`home`, read-only `instance-state` reads and `mindsets snapshot`), cannot mutate their own `runtime-variables`/`mindsets`/`private-workspace` mappings through self-read routes, and require explicit targets for peer work. Session `join` transitions actor posture only through the parent entrypoint's adoption handoff after `agents self join` succeeds.
 
 ## Subcommands
 
-| Subcommand | Detail | Use For |
+| Subcommand | Use For | Detail |
 | --- | --- | --- |
-| `help` | [Help](#help) | Read-only usage. |
-| `launch` | [Launch](commands/launch.md) | Start a new agent from a project source with selected birth overrides. |
-| `join` | [Join](commands/join.md) | Adopt a supported provider session through the operator handoff. |
-| `list` | [List](commands/list.md) | List live managed instances. |
-| `stop` | [Stop](commands/stop.md) | Stop a selected managed instance. |
-| `relaunch` | [Relaunch](commands/relaunch.md) | Relaunch through recorded instance authority. |
-| `cleanup` | [Cleanup](commands/cleanup.md) | Remove selected stopped-session artifacts or logs. |
-| `native-resources` | [Native Resources](commands/native-resources.md) | Resolve the native home, check common-plugin freshness, or request qualified refresh. |
-| `runtime-variables` | [Runtime Variables](commands/runtime-variables.md) | Verified-self reads or explicit-target operator management. |
-| `mindsets` | [Mindsets](commands/mindsets.md) | Verified-self reads and snapshots or explicit-target operator management. |
-| `private-workspace` | [Private Workspace](commands/private-workspace.md) | Verified-self path reads or explicit-target operator management. |
+| `launch` | Launch a project-scoped instance (`--profile` or `--specialist`, `--mode`, `--tmux-server`, `--executor`, `--reuse-home`, `--force`). | [Launch](commands/launch.md) |
+| `join` | Adopt a running supported provider session via `agents self join` and operator handoff. | [Join](commands/join.md) |
+| `list` | List local live managed instances (`agents global list`) or registered `agents external list`. | [List](commands/list.md) |
+| `stop` | Stop a selected managed instance (`agents single ... stop`). | [Stop](commands/stop.md) |
+| `relaunch` | Revive or restart a session on its recorded `--tmux-server`/mode without rebuilding home (plus DSH ACP gateway re-attach notes). | [Relaunch](commands/relaunch.md) |
+| `cleanup` | Remove stopped-session `session` or `logs` artifacts (`agents single ... cleanup`). | [Cleanup](commands/cleanup.md) |
+| `native-resources` | Inspect active `home`, check common skill/MCP freshness, or run qualified `refresh` (never mutates gateway mounts). | [Native Resources](commands/native-resources.md) |
+| `runtime-variables` | Read (`agents self`) or CAS-update (`agents single`, `--expected-revision`) non-secret typed instance variables. | [Runtime Variables](commands/runtime-variables.md) |
+| `mindsets` | Take atomic fail-closed skill snapshots (`agents self`) or manage revisioned question sets (`agents single`). | [Mindsets](commands/mindsets.md) |
+| `private-workspace` | Resolve or manage an individual agent's TOML/SQLite auxiliary workspace (`doctor`, zero drift, `--confirm` cleanup). | [Private Workspace](commands/private-workspace.md) |
+| `help` | Read-only summary of lifecycle verbs, `agents external`, `admin executors`, `open-browser`, and `instance-state` boundaries. | **Help** |
 
-`houmao-shared-routines->houmao-agent-definition` also owns the specialist-scoped easy `launch` and `stop` entry points, but this skill remains the canonical follow-up lifecycle surface for broader live-agent management.
+## External Agents, Executors, and Browser Handoffs
 
-This packaged skill does not cover:
+- **Remote communication-only imports (`agents external`)**: register, inspect, re-verify, or remove local pointers to remotely owned agents on `houmao-passive-server` via `houmao-mgr agents external {register|list|get|verify|remove}` (`register --name <alias> --api-base-url <url> --agent-ref <id-or-name> [--gateway-enabled|--no-gateway-enabled] [--replace]`). `remove` deletes only the local import without stopping or modifying the remote agent.
+- **Executor bindings and locators**: pass `--executor <profile>` at launch to bind a trusted execution-owner context; maintain operator-side locators without provisioning contexts or deleting agents via `houmao-mgr admin executors {reconcile|forget}`.
+- **Native Web browser handoff (`open-browser`)**: for an active local Kimi Web (`--mode web`) owner, run `houmao-mgr agents single --agent-id|--agent-name ... open-browser` to open the native browser directly; for gateway-issued 60-second single-use Web entry links, use `houmao-shared-routines->houmao-agent-gateway->web-entry()`.
 
-- `houmao-mgr project specialist create`
-- `houmao-mgr project specialist list`
-- `houmao-mgr project specialist get`
-- `houmao-mgr project specialist remove`
-- `houmao-mgr project agents list`
-- `houmao-mgr project agents get`
-- `houmao-mgr project agents stop`
-- generic managed-agent inspection of current state, logs, runtime artifacts, mailbox posture, or tmux backing
-- `houmao-mgr agents single ... prompt` and `houmao-mgr agents self prompt`
-- `houmao-mgr agents single ... interrupt` and `houmao-mgr agents self interrupt`
-- `houmao-mgr agents single ... turn ...` and `houmao-mgr agents self turn ...`
-- `houmao-mgr agents single ... gateway ...` and `houmao-mgr agents self gateway ...`
-- `houmao-mgr agents single ... mailbox ...` and `houmao-mgr agents self mailbox ...`
-- `houmao-mgr agents single ... mail ...` and `houmao-mgr agents self mail ...`
-- destructive selected-agent cleanup under `houmao-mgr agents single ... cleanup ...`
-- `houmao-mgr project mailbox ...`
-- `houmao-mgr admin cleanup runtime ...`
+## Help
 
-## Missing Input Questions
-
-- Recover required values from the current prompt first and recent chat context second, but only when the user stated them explicitly.
-- If any required input is still missing after that check, ask the user for exactly the missing fields instead of guessing.
-- When asking for missing input, use readable Markdown:
-  - separate `Required` values from `Optional` modifiers
-  - `Required`: values that block the selected lifecycle command, such as action, launch source lane, role/preset/launch-dossier/specialist name, instance name, join target, live-agent selector, cleanup kind, or cleanup selector
-  - `Optional`: launcher preference, gateway or mailbox launch posture, headless provider args, output format, cleanup modifiers, or skip choices; if none apply, say `Optional: none for this step.`
-  - use a short bullet list when only one or two required fields are missing
-  - use a compact table when the lane or several required fields need clarification
-- Name the command you intend to run and show only the missing fields needed for that command.
-- DO NOT use this format for user-task or domain-intent questions unless the question is about Houmao runtime behavior.
-
-## Routing Guidance
-
-- Use `commands/launch.md` only when the user wants to create one new managed-agent instance from a predefined role, preset, launch dossier, or specialist.
-- Use `commands/join.md` only when the user wants Houmao to adopt one already-running supported provider session.
-- Use `commands/list.md` only when the user wants the lifecycle-oriented list of current live managed agents. For generic read-only inspection of one agent, use `houmao-shared-routines->houmao-agent-inspect`.
-- Use `commands/stop.md` only when the user wants to stop one live managed agent.
-- Use `commands/relaunch.md` only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home.
-- Use `commands/cleanup.md` only when the user wants to remove stopped-session envelope artifacts or session-local logs.
-- Use `commands/native-resources.md` to inspect the active native home, check common-plugin freshness, or request refresh.
-- Use `commands/runtime-variables.md` for definition-declared typed values. Skills that consume live values must read them at use time instead of treating launch-time prompt snapshots as current.
-- Use `commands/mindsets.md` for definition-declared named question sets. A required skill must take one atomic mindset snapshot before substantive work and stop if the snapshot fails.
-- Use `commands/private-workspace.md` for one definition-owned individual workspace. Keep it distinct from multi-agent workspace topology under `houmao-utils-workspace-mgr`.
-- Treat this skill as the canonical follow-up lifecycle surface after any specialist-scoped `launch` or `stop` handled through `houmao-shared-routines->houmao-agent-definition`.
+Summarize project-scoped `launch`, `join`, `list`, `stop`, `relaunch`, stopped-only `cleanup`, `agents external`, `admin executors`, `open-browser`, `native-resources`, `runtime-variables`, `mindsets`, and `private-workspace` (distinct from multi-agent topologies in `houmao-shared-routines->houmao-utils-workspace-mgr`) read-only.
 
 ## Guardrails
 
-- DO NOT guess the intended action when the prompt could mean either specialist authoring or live instance lifecycle.
-- DO NOT guess required action inputs that remain missing after checking the prompt and recent chat context.
-- DO NOT route `project specialist ...` tasks through this skill.
-- DO NOT present this skill as the canonical owner of generic managed-agent inspection; use `houmao-shared-routines->houmao-agent-inspect` for that read-only work.
-- DO NOT route manual mailbox-enabled launch flags, mailbox cleanup, or mailbox registration tasks through this skill.
-- DO NOT reject launch-dossier-backed launch just because the stored profile already carries gateway or mailbox defaults.
-- DO NOT route project-aware instance `list|get|stop` through this skill; use the canonical `agents` lifecycle surface once the instance exists.
-- DO NOT let an agent mutate its own runtime variables, mindset definitions, workspace mappings, tracking posture, or workspace contents through the read-only self surface.
-- DO NOT use admin `agents self` state commands; require an explicit `agents single --agent-id|--agent-name` target.
-- DO NOT read a live runtime variable from a stale launch-time prompt when the consuming skill contract requires the current value.
-- DO NOT continue a required mindset-backed skill when the atomic snapshot fails.
-- DO NOT hand-edit the private workspace TOML manifest or SQLite index.
-- DO NOT silently replace `agents single ... relaunch` or `agents self relaunch` with a fresh launch command when relaunch authority or relaunch posture is unavailable.
-- DO NOT skip `command -v houmao-mgr` as the default first step unless the user explicitly requests a different launcher.
-- DO NOT probe Pixi, repo-local `.venv`, or project-local `uv run` before the PATH check and uv fallback unless the user explicitly asks for one of those launchers.
-- DO NOT use deprecated `houmao-cli` or removed standalone CAO launcher workflows for managed-agent lifecycle work.
+- DO NOT guess missing launch sources (`--profile` vs `--specialist`), target selectors, or cleanup scopes, or silently replace unavailable `relaunch` with a fresh `launch`.
+- DO NOT run `cleanup` against a live session, route instance cleanup to `agents self cleanup` or `admin cleanup runtime`, or treat `agents external remove` / `admin executors forget` as stopping the owning agent.
+- DO NOT store secrets in `runtime-variables`, continue a mindset-required skill after `mindsets snapshot` fails, mutate gateway logical mounts from `refresh`, or hand-edit private-workspace TOML/SQLite files.
+- DO NOT conflate individual `private-workspace` with multi-agent worktrees (`houmao-shared-routines->houmao-utils-workspace-mgr`) or use `agents self` state commands in `admin` posture.

@@ -5,7 +5,7 @@ Use this action only when the user wants to list credentials for one supported t
 ## Workflow
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the tool family from the current prompt first and recent chat context second when it was stated explicitly.
+2. Recover the tool family (`claude`, `codex`, `dsh`, or `kimi`) from the current prompt first and recent chat context second when it was stated explicitly.
 3. Recover the target:
    - use `project [--project-dir <dir>] credentials <tool> list` when the request is project-local
    - use `internals native-agent credentials <tool> list --native-agent-root <path>` when the user explicitly targets a native-agent root

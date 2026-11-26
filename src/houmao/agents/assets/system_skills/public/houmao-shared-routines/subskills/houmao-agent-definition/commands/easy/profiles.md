@@ -56,14 +56,19 @@ Project profiles may store:
 - model posture: `--model`, `--reasoning-level`
 - prompt mode: `--prompt-mode unattended|as_is`
 - durable env: repeatable `--env-set NAME=value`
+- managed system-skill policy: `--system-skill-pack <admin|agent>`, `--system-skills-mode inherit|extend|replace|none`, `--no-system-skills`
+- skill overrides: `--add-registered-skill <name>`, `--remove-registered-skill <name>`, `--add-private-skill <dir>`, `--add-private-skill-symlink <dir>`, `--remove-private-skill <path>`
 - mailbox defaults: `--mail-transport filesystem|stalwart`, `--mail-principal-id`, `--mail-address`, `--mail-root`, `--mail-base-url`, `--mail-jmap-url`, `--mail-management-url`
-- run mode: `--mode headless|service|tui|web` at `defaults.posture.mode`
+- run mode: `--mode headless|service|tui|web` at `defaults.posture.mode` (qualified per tool in [Profile Lanes](../../references/common/profile-lanes.md#qualified-run-modes))
+- headless live pane display: `--headless-display-style plain|json|fancy`, `--headless-display-detail concise|detail`
 - tmux server: `--tmux-server` and, for `socket`, `--tmux-socket-path`
 - gateway posture: `--no-gateway`, `--gateway-port`
-- managed prompt header: `--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`
+- relaunch chat-session policy: `--relaunch-chat-session-mode new|tool_last_or_new|exact` and `--relaunch-chat-session-id <id>` (when `exact`)
+- managed prompt header (`MANAGED_PROMPT_HEADER_VERSION = 2`, including `<memo_cue>`): `--managed-header`, `--no-managed-header`, repeatable `--managed-header-section SECTION=enabled|disabled`
 - prompt overlay: `--prompt-overlay-mode append|replace`, `--prompt-overlay-text`, `--prompt-overlay-file`
 - gateway mail-notifier default: `--gateway-mail-notifier-appendix-text`
 - memo seed: `--memo-seed-text`, `--memo-seed-file`, `--memo-seed-dir`
+- layered per-tool parameters: `--tool-params JSON-OR-@PATH` (including `tool_params.permissions`)
 
 ## Saved Tmux Server
 
@@ -77,7 +82,7 @@ houmao-mgr project profile get --name worker
 
 ## Default Run Mode
 
-Store `--mode` when the user specifies a supported mode. Omit it to let the project choose the tool default described in [Profile Lanes](../../references/common/profile-lanes.md#run-modes). Kimi-backed profiles default to TUI. A launch-level `--mode` selects a different mode for one instance.
+Store `--mode` when the user specifies a supported mode. Omit it to let the project choose the tool default described in [Profile Lanes](../../references/common/profile-lanes.md#qualified-run-modes) (`Claude`: `headless|tui`; `Codex`: `headless|service|tui`; `Kimi`: `headless|service|tui|web`; `DSH`: `headless|service|web`, default `web`). A launch-level `--mode` selects a different mode for one instance.
 
 For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-question control. Do not store raw Kimi `--auto` or `--yolo` launch arguments to achieve unattended TUI behavior.
 
@@ -93,15 +98,20 @@ For Kimi-backed profiles, use `--prompt-mode unattended` as the managed no-quest
 - `--clear-reasoning-level`
 - `--clear-prompt-mode`
 - `--clear-env`
+- `--clear-system-skills`
 - `--clear-mailbox`
 - `--clear-mode`
+- `--clear-headless-display-style`
+- `--clear-headless-display-detail`
 - `--clear-tmux-server`
+- `--clear-relaunch-chat-session`
 - `--clear-managed-header`
 - `--clear-managed-header-section SECTION`
 - `--clear-managed-header-sections`
 - `--clear-prompt-overlay`
 - `--clear-gateway-mail-notifier-appendix`
 - `--clear-memo-seed`
+- `--clear-tool-params`
 
 ## Rules
 

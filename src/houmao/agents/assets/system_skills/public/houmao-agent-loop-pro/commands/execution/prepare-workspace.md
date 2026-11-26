@@ -16,18 +16,17 @@ metadata:
 
 ## Workflow
 
-1. **Validate invocation context**. Preserve the actor posture, selected target, operation intent, and predecessor evidence supplied by the owning skill.
-2. **Resolve required inputs**. Recover explicit values from current context and stop or ask when a required value remains missing.
-3. **Execute the detailed procedure below**. Follow its ordering, gates, side-effect boundary, owned references, and output contract.
-4. **Validate and report**. Return changed or inspected artifacts, evidence, blockers, and the command-specific stop condition.
+1. Confirm the inherited actor posture, `<loop-dir>` preconditions, and required inputs, loading only the `## Read First` references.
+2. Execute `## Actions` within this command's side-effect boundary.
+3. Return the structured report (`## Report`) and stop on any unresolved blocker.
 
-If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this command procedure, its owning skill constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from this procedure, its owning skill constraints, and the user request, then execute the plan.
 
 ## Read First
 
-- `../reference/generated-contract-defaults.md`
-- `../reference/platform-boundaries.md`
-- `../reference/system-input-questions.md`
+- [../../references/generated-contract-defaults.md](../../references/generated-contract-defaults.md)
+- [../../references/platform-boundaries.md](../../references/platform-boundaries.md)
+- [../../references/system-input-questions.md](../../references/system-input-questions.md)
 
 ## Preconditions
 
@@ -90,7 +89,7 @@ A workspace-manager `plan` report alone is not launch-ready evidence when manage
 
 ## Tips
 
-- When Git worktrees are required, read `../reference/git-worktree-readiness.md`.
+- When Git worktrees are required, read [../../references/git-worktree-readiness.md](../../references/git-worktree-readiness.md).
 - Treat Git worktree readiness as a multi-part contract: registered worktree, branch/cwd posture, submodules, required local-state links, project-scope validation commands, and recorded evidence.
 - Keep standard worktree creation and repair routed through `houmao-shared-routines->houmao-utils-workspace-mgr` when it can represent the layout.
 

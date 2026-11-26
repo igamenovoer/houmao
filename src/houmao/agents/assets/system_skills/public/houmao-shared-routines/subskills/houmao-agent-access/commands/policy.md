@@ -1,58 +1,67 @@
-# Manage Retained Policy
+# Manage Retained Policy, Built-In Groups, Role Templates, and `self-key`
 
 ## Workflow
 
-1. Select the target agent and verify the execution owner. Owner-local policy commands work with the gateway detached.
-2. For inspection, use `list` or `explain`. For a change, confirm the exact principal, key fingerprint, resource, action, or role that the owner specified.
-3. Apply only the requested enrollment, grant, role, or revocation. If enrolling a peer, authenticate its public identity through a trusted channel first.
-4. Report the target, affected identifiers, and current policy evidence. Distinguish a retained assignment from a permission that only a qualified live operation can verify.
+1. **Select the target agent and verify caller authority**: owner-local policy commands (`--retained`) and detached passive-listener updates (`--passive-url`) work with the gateway detached; live gateway calls use verified local records or explicit `--url`, `--context-id`, `--generation`, `--presence`, and `--ca-bundle` coordinates.
+2. **Inspect before or after changes** using `access list` (shows current `admin_mode` roster posture, `default-group`, principals, key fingerprints, grants, and roles) or `access explain PRINCIPAL RESOURCE ACTION [--key-id KEY_ID]`.
+3. **Apply only the requested mutation**: principal/key enrollment, `grant`/`revoke`, `role-put` (explicit permissions or `--template --resource`), `role-assign`/`role-revoke`, `default-group set`, or `self-key {rotate|revoke}`. Authenticate any peer public key through a trusted channel before enrolling.
+4. **Report policy revision and immediate-admission stderr feedback**: `grant` and `revoke` emit stderr guidance explaining whether open-roster admission or another rule still governs at that policy revision, and distinguish retained policy changes from live-only operation checks.
 
 Use the native planning tool when an owner request spans several of these supported policy operations.
 
-## Example
-
-This enrolls a managed reviewer with a separately verified public key and grants read access to one discovered mount. Use the exact target resource returned by discovery, such as `files:<mount-id>`.
+## Principals, Keys, Grants, and `self-key` Lifecycle
 
 ```bash
 policy=(houmao-mgr --print-json agents single --agent-id "$TARGET_AGENT_ID" access)
-"${policy[@]}" principal-add reviewer \
-  --kind agent --label "Reviewer" --logical-agent-id "$SOURCE_AGENT_ID"
+"${policy[@]}" list
+"${policy[@]}" principal-add reviewer --kind agent --label "Reviewer" --logical-agent-id "$SOURCE_AGENT_ID"
 "${policy[@]}" credential-enroll reviewer --public-key "$SOURCE_PUBLIC_KEY_FILE"
 "${policy[@]}" grant reviewer "$MOUNT_RESOURCE" files.read
 "${policy[@]}" explain reviewer "$MOUNT_RESOURCE" files.read
 ```
 
-Use `list` to show the retained principals, key fingerprints, grants, roles, and role assignments. `explain PRINCIPAL RESOURCE ACTION --key-id KEY_ID` limits the explanation to one enrolled key. A live-only operation can return an unresolved decision while the retained grant is present.
-
-Read the recorded change and policy revision from the `grant` or `revoke` output. The stderr guidance explains whether open admission still supplies authority at that revision. In keyed mode, use `access explain` to see the relevant grant, role, and key evidence for the action. Use `access list` for the current roster mode and default group.
-
-## Other Operations
-
-| Intent | Scoped Access Command |
+| Intent | Scoped `access` Command |
 | --- | --- |
-| Define the exact permission set of a reusable role | `role-put ROLE --permission RESOURCE ACTION` with one repeated option per effect |
-| Assign a role | `role-assign PRINCIPAL ROLE` |
-| Remove a direct grant | `revoke PRINCIPAL RESOURCE ACTION` |
-| Remove a role assignment | `role-revoke PRINCIPAL ROLE` |
-| Revoke an enrolled key and its admin qualification | `credential-revoke KEY_ID` |
-| Rotate a peer key | Enroll the authenticated replacement key on the existing principal, then revoke the old fingerprint. |
+| Inspect roster mode, `default-group`, keys, grants, and roles | `list` |
+| Define a role from exact permissions | `role-put ROLE_ID --permission RESOURCE ACTION` (repeatable) |
+| Define a role from a built-in resource template | `role-put ROLE_ID --template TEMPLATE --resource RESOURCE [--action ACTION]` |
+| Assign or remove a role / direct grant (`--expires-at` optional) | `role-assign PRINCIPAL ROLE_ID`, `role-revoke PRINCIPAL ROLE_ID`, `revoke PRINCIPAL RESOURCE ACTION` |
+| Rotate or revoke a peer key | Enroll authenticated replacement key on the principal first, then `credential-revoke OLD_KEY_ID` (revoking the sole admin key reopens the roster; see [Admin Roster](admin-roster.md)). |
+| Rotate or revoke the target's `managed-self` key | `self-key {rotate\|revoke} [--retained \| --url ... --context-id ... --generation ... --presence ...] [--signer ADMIN_KEY] [--expected-revision N]` |
 
-A direct grant or role assignment accepts `--expires-at` in UTC Unix seconds. Review the current role before replacing its permission set. If a credential carries the only administrator qualification, revoking it reopens the roster. Use [Admin Roster](admin-roster.md) for live roster rotation.
+## Built-In Group Ladder, `default-group`, and Role Templates
+
+Houmao provides six built-in groups (`builtin:<group>` on `role-assign`, bare `<group>` on `default-group set`):
+
+1. **`agent-observer`**: read-only status/inspection only (denies inbound peer mail and attributed `request`).
+2. **`agent-requester`** *(initial keyed default for unassigned callers)*: adds inbound mail and quoted attributed `request` (`agent.request.submit`).
+3. **`agent-maintainer`**: adds common versioned `skills` and `mcp` mount read/edit/push authority.
+4. **`agent-operator`**: adds direct verbatim `prompt` (`agent.prompt.direct`), supported slash commands, and interruption.
+5. **`agent-admin`**: includes full gateway and policy administration.
+6. **`managed-self`**: bound to the target runtime's own `self-key` for supported self-scoped non-admin actions.
+
+Configure `default-group` through one explicit path (live `--url`, local `--retained`, or detached `--passive-url`):
+
+```bash
+houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access role-assign peer-reviewer builtin:agent-observer
+houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access default-group set agent-observer --retained --signer "$TARGET_ADMIN_KEY"
+houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access default-group set agent-requester --passive-url "$TRUSTED_PASSIVE_URL" --signer "$TARGET_ADMIN_KEY"
+```
+
+With an initialized empty admin roster (`open`), reachable callers receive applicable admin permissions; once keyed, unassigned or `--unsigned` callers receive the configured `default-group`, while enrolled principals evaluate their assigned roles/grants (for example, assigning a verified caller `builtin:agent-observer` denies mail and `request` even if `default-group` remains `agent-requester`).
+
+Exact-resource `--template` options on `access role-put`:
+
+- **Mount templates** (`--resource files:<mount-id>`): `skill-reviewer` (`files.read`), `skill-editor` (`files.read` + `files.edit`), `skill-publisher` (`files.read` + `files.push`), `skill-maintainer` (`files.read` + `files.edit` + `files.push`).
+- **Mailbox, AG-UI, and plugin templates**: `mailbox-reader`, `mailbox-sender`, `ag-ui-viewer`, `ag-ui-runner`, and `plugin-actions` (with `--resource <plugin-resource> --action <declared-action>`).
+
+```bash
+houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access role-put mount-editor --template skill-editor --resource "$MOUNT_RESOURCE"
+houmao-mgr agents single --agent-id "$TARGET_AGENT_ID" access role-put mount-publisher --template skill-publisher --resource "$MOUNT_RESOURCE"
+```
 
 ## Guardrails
 
-- DO NOT infer that a retained grant proves current live applicability.
-- DO NOT grant to a public key whose principal or logical source has not been authenticated.
-- DO NOT infer a broad grant or revoke unrelated assignments from a narrower request.
-## Built-In Groups and the Default
-
-Bob can assign a verified Alice `builtin:agent-observer` for status only, `builtin:agent-requester` for status, mail, and quoted requests, `builtin:agent-maintainer` to add common skill and MCP edits, or `builtin:agent-operator` to add direct prompts, supported slash commands, and interruption. Bob's current runtime uses its `managed-self` identity for supported non-admin actions. `agent-admin` includes policy administration.
-
-```bash
-houmao-mgr agents single --agent-id "$BOB_ID" access role-assign alice builtin:agent-observer
-houmao-mgr agents single --agent-id "$BOB_ID" access default-group set agent-observer --retained --signer "$BOB_ADMIN_KEY"
-```
-
-Keyed Bob initially gives unassigned callers `agent-requester` without enrollment. Alice's verified observer assignment denies mail and wrapped requests. A separate unsigned request receives the configured default with anonymous attribution. With an empty admin roster, every caller receives the applicable admin permissions. Use `access list` to inspect Bob's chosen default and `access explain alice agent agent.request.submit` to examine Alice's verified authority.
-
-For one common skill or MCP mount, get its exact `files:<mount-id>` from file discovery. `access role-put editor --template skill-editor --resource "$MOUNT_RESOURCE"` creates a role with read and edit. `skill-publisher` gives read and publish on that exact resource. Assign them separately so the editor can save a draft and the publisher can decide when to apply it.
+- DO NOT infer that a retained grant proves current live operation readiness without checking live target state.
+- DO NOT enroll or grant permissions to an unauthenticated public key, or widen/revoke unrelated grants beyond the owner's request.
+- DO NOT expose private `--signer` keys or generated `self-key` secret material in chat or logs.

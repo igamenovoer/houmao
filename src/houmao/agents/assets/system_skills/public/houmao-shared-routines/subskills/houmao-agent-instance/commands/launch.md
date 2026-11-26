@@ -14,122 +14,41 @@ metadata:
 
 # Launch Agent Instance
 
-Use this action only when the user wants to create one new managed-agent instance from a project-scoped source.
-
 ## Workflow
 
-1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Determine which launch lane the request actually needs:
-   - project-profile-backed managed launch
-   - specialist-backed managed launch from an existing project specialist
-3. Recover the required launch inputs from the current prompt first and recent chat context second when they were stated explicitly.
-4. If the source lane or required target inputs are still missing, ask the user in Markdown before proceeding. Prefer a compact table that shows the intended lane and exactly which required fields are still missing.
-5. If the request depends on direct mailbox flags such as `--mail-transport`, `--mail-root`, or `--mail-account-dir`, stop and explain that manual mailbox-enabled launch is outside this skill's scope.
-6. Build the selected launch command. Apply **Tmux Server Selection** and **Default Run Mode** for requested overrides.
-7. Run the direct command only after required inputs are explicit and conflicts are resolved.
-8. Report the managed-agent identity and the verified terminal or browser handoff. For headless and service, report the managed control reference.
+1. **Confirm the project-scoped launch source**: `--profile <profile>` (specialist-backed project profile) or `--specialist <specialist> --name <agent-name>` (mutually exclusive). Ask with `Required`/`Optional` labels if source or required identity is missing.
+2. **Route manual mailbox-flag launches**: if the caller passes explicit `--mail-transport`, `--mail-root`, or `--mail-account-dir` birth flags rather than relying on stored profile defaults, route to `houmao-shared-routines->houmao-agent-definition->launch-agent()`.
+3. **Select only explicitly requested overrides** from **Launch Options** below (omitting `--mode` or `--tmux-server` when stored profile or tool defaults should govern; see [Qualified Run Modes](../../houmao-agent-definition/references/common/profile-lanes.md#qualified-run-modes)).
+4. **Execute `houmao-mgr project agents launch`** using the parent's resolved launcher.
+5. **Report the launched identity and surface handoff**: tmux session/socket (`tui`), managed control reference (`headless` or `service`), or browser origin (`web`, noting `agents single ... open-browser` for local Kimi Web owners and `houmao-shared-routines->houmao-agent-gateway->web-entry()` for gateway Web links). Direct follow-up messaging to `houmao-shared-routines->houmao-agent-messaging` and inspection to `houmao-shared-routines->houmao-agent-inspect`.
 
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from **Launch Options** and the user request, then execute the plan.
 
-## Default Run Mode
-
-Launch uses the stored profile mode when supplied. See [Run Modes](../../houmao-agent-definition/references/common/profile-lanes.md#run-modes) for defaults and available selections. Set prompt policy and gateway options independently of run mode.
-
-## Tmux Server Selection
-
-For one launch, set `--tmux-server user-default|houmao-default|new|socket`. The first two select the execution account's native default or its shared Houmao default. The Houmao default has a registry-backed address and starts as needed. Choose `new` to start a private server for the new agent. Choose `socket` with `--tmux-socket-path "$OWNER_SOCKET"` for an already-running server at an absolute owner-side path.
+## Command Shapes and Launch Options
 
 ```bash
-houmao-mgr project agents launch --profile worker --name worker-1 --tmux-server houmao-default
+<chosen houmao-mgr launcher> project agents launch --profile <profile> [--name <agent-name>] [options]
+<chosen houmao-mgr launcher> project agents launch --specialist <specialist> --name <agent-name> [options]
 ```
 
-The launch flag overrides the profile for this birth. If both omit a choice, Houmao uses an admitted executor socket or explicit local scope, then the enclosing tmux server, then the account's native default. A conflicting pinned execution socket or an unavailable explicit socket is a launch error. Subsequent control follows the recorded birth socket, including relaunch.
-
-## Command Selection
-
-### Project-Profile-Backed Managed Launch
-
-Use this lane when the user wants to launch through an existing project profile.
-
-Run the direct project-profile launch command:
-
-```bash
-<chosen houmao-mgr launcher> project agents launch --profile <profile> [--name <agent-name>]
-```
-
-Required inputs:
-
-- `--profile`
-
-Common optional inputs:
-
-- `--name`
-- `--auth`
-- `--session-name`
-- `--mode headless|service|tui|web`
-- `--workdir`
-- `--managed-header-section SECTION=enabled|disabled`
-- `--provider` only when it matches the provider resolved from the stored launch profile
-
-Behavior note:
-
-- `--profile` and `--specialist` are mutually exclusive.
-- The stored project profile resolves the source specialist and contributes birth-time defaults before direct CLI overrides.
-- Stored project-profile defaults may already include gateway posture, prompt overlay, gateway mail-notifier appendix text, durable env records, and declared mailbox configuration.
-- Preserve the stored mode, including `web` or `service`, by omitting the one-shot `--mode` flag.
-- Profile-owned mail-notifier appendix text is seeded into runtime gateway notifier state during launch, but it does not enable notifier polling by itself.
-- Do not add one-shot background gateway overrides unless the user explicitly asks for background gateway execution. Stored launch-profile gateway posture owns launch-time defaults when present.
-- `--managed-header-section` is a one-shot section override and does not rewrite stored launch-profile section policy.
-- Direct CLI overrides such as `--name`, `--auth`, and `--workdir` apply to one launch only and do not rewrite the stored project profile.
-- After launch, follow-up prompting or outgoing mailbox work should go through `houmao-shared-routines->houmao-agent-messaging`, which will discover any live gateway and prefer it when available.
-- After launch, read-only state, screen, mailbox-posture, log, or artifact inspection should go through `houmao-shared-routines->houmao-agent-inspect`.
-
-### Specialist-Backed Managed Launch
-
-Use this lane when the user wants to launch from an existing specialist.
-
-Run the direct specialist-backed launch command:
-
-```bash
-<chosen houmao-mgr launcher> project agents launch --specialist <specialist> --name <agent-name>
-```
-
-Required inputs:
-
-- `--specialist`
-- `--name`
-
-Common optional inputs:
-
-- `--auth`
-- `--session-name`
-- `--mode headless|service|tui|web`
-- `--workdir`
-- `--env-set NAME=value|NAME`
-- `--managed-header-section SECTION=enabled|disabled`
-
-Behavior note:
-
-- `--workdir` changes only the launched agent runtime cwd.
-- Omit `--mode` to use the selected specialist's tool default.
-- The selected easy-project overlay and specialist source stay authoritative even when `--workdir` points outside that project.
-- `--managed-header-section` is a one-shot section override for the launched instance.
-- Do not add background gateway flags unless the user explicitly asks for background gateway execution; defer detailed specialist-backed launch-time gateway behavior to `houmao-shared-routines->houmao-agent-definition`.
-
-For Kimi TUI automation, use unattended prompt mode to disable native approval or user-question prompts.
+| Option | Applies To | Behavior |
+| --- | --- | --- |
+| `--name <agent-name>` | `--specialist` (required), `--profile` (optional override) | Friendly managed-agent instance name. |
+| `--agent-id <id>` \| `--agent-id-mode [uuid\|name-hash]` | `--profile`, `--specialist` | Explicit opaque ID or deterministic `name-hash` creation mode (`uuid` default; mutually exclusive). |
+| `--mode [headless\|service\|tui\|web]` | `--profile`, `--specialist` | One-shot run mode override (`Claude`: `headless\|tui`; `Codex`: `headless\|service\|tui`; `Kimi`: `headless\|service\|tui\|web`; `DSH`: `headless\|service\|web`). |
+| `--headless-display-style [plain\|json\|fancy]`, `--headless-display-detail [concise\|detail]` | `--profile`, `--specialist` | Live pane display overrides for `headless` launches. |
+| `--tmux-server [user-default\|houmao-default\|new\|socket]`, `--tmux-socket-path <abs-path>` | `--profile`, `--specialist` | Owner-side tmux server selection (`socket` requires an existing server at `--tmux-socket-path`); recorded at birth for later control and `relaunch`. |
+| `--session-name <name>`, `--workdir <dir>` | `--profile`, `--specialist` | Tmux session name on the selected server; runtime cwd (`--workdir` never changes the active `.houmao/` overlay). |
+| `--executor <profile>` | `--profile`, `--specialist` | Trusted execution-owner context profile (operator locators managed via `admin executors reconcile\|forget`). |
+| `--reuse-home` | `--profile`, `--specialist` | Restart on a compatible stopped preserved home for the resolved managed identity. |
+| `--force [keep-stale\|clean]` | `--profile`, `--specialist` | Replace an existing fresh live owner of the resolved identity (`--force` defaults to `keep-stale`). |
+| `--auth <cred>`, `--model <m>`, `--reasoning-level <n>`, `--env-set <K=V\|K>` | `--profile`, `--specialist` | One-shot auth, model, reasoning, or environment overrides without mutating the stored profile. |
+| `--no-gateway`, `--gateway-port <port>`, `--gateway-background`, `--gateway-admin-seed <file>` | `--profile`, `--specialist` | Gateway birth overrides (foreground auxiliary window by default; pass `--gateway-background` only on explicit request; `--gateway-admin-seed` seeds initial admin public keys). |
+| `--managed-header` / `--no-managed-header`, `--managed-header-section SECTION=enabled\|disabled` | `--profile`, `--specialist` | One-shot `MANAGED_PROMPT_HEADER_VERSION = 2` overrides. |
+| `--tool-params JSON-OR-@PATH` | `--profile`, `--specialist` | Layered per-tool parameters for this instance (including `tool_params.permissions`). |
 
 ## Guardrails
 
-- DO NOT guess whether the source should be `project agents launch --specialist` or `project agents launch --profile`.
-- DO NOT invent role selectors, launch profile names, specialist names, provider ids, or instance names.
-- DO NOT proceed with partially inferred launch inputs when the prompt and recent chat context do not state them explicitly; ask the user first.
-- DO NOT route specialist-backed launch through retired root-level managed-agent launch paths.
-- DO NOT route project-profile-backed launch through retired root-level managed-agent launch paths.
-- DO NOT route raw role/preset launch through the public `agents` family; use project sources or internal native-agent plumbing when explicitly required.
-- DO NOT describe `--workdir` as changing the source project, preset owner, selected overlay, runtime root, jobs root, or mailbox root.
-- DO NOT include direct mailbox launch flags in this skill; manual mailbox-enabled launch is out of scope here.
-- DO NOT reject the launch-profile lane just because the stored profile carries mailbox or gateway defaults.
-- DO NOT treat prompt submission or gateway attach as part of launch completion for this skill.
-- DO NOT add raw Kimi `--auto` or `--yolo` launch flags to achieve managed unattended mode.
-- DO NOT invent alternate launch command shapes; use the direct scoped commands shown in this action and maintained project/profile guidance.
-- DO NOT add a background gateway override unless the user explicitly asks for detached background gateway execution.
+- DO NOT guess `--profile` vs `--specialist`, names, or optional overrides, or reject `--profile` launches merely because the stored profile declares mailbox or gateway defaults.
+- DO NOT pass `--gateway-background`, `--force`, or `--reuse-home` unless the caller explicitly requested that behavior, or add raw Kimi `--auto`/`--yolo` flags in place of unattended prompt mode.
+- DO NOT describe `--workdir` as changing the selected `.houmao/` overlay, runtime root, or mailbox root.

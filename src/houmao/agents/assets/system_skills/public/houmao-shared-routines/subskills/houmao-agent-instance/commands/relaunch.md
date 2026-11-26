@@ -1,48 +1,40 @@
+---
+metadata:
+  skill_invocation_notation: >
+    Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
+    SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
+    accepted only as legacy input when SKILL-MAIN.md is absent.
+    Skill and subskill entrypoints use bare object paths: `X` invokes skill X and
+    `X->Y->Z` invokes subskill Z. Subcommands use parenthesized components:
+    `X->cmd()` invokes a direct subcommand, `X->Y->cmd()` invokes a subcommand of
+    subskill Y, and `X->parent()->child()` invokes child subcommand child exposed
+    by parent subcommand parent. Intermediate subcommands act as object generators.
+    Forms such as `X()` and `X->Y()` are invalid for skill or subskill entrypoints.
+---
+
 # Relaunch Agent Instance
-
-Use this action only when the user wants to relaunch one tmux-backed managed-agent surface without rebuilding the managed-agent home. Relaunch can target either an active managed session or a stopped relaunchable lifecycle record; stopped relaunch revives the same managed-agent identity, session root, and built home instead of behaving like a fresh launch.
-
-For skills/MCP updates that should preserve the running agent, use the parent's native-resource guidance and scoped `refresh --check` or `refresh`. Do not translate that request into relaunch. Refresh can report partial effects or restart-required; invoke this relaunch workflow only for a separately explicit restart/relaunch request. Relaunch can regenerate launch-derived material and follows its stored/default conversation policy.
 
 ## Workflow
 
-1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
-2. Recover the relaunch target from the current prompt first and recent chat context second when it was stated explicitly.
-3. If the user is clearly asking for current-session relaunch from inside the owning tmux session, allow the current-session `agents self relaunch` form without requiring an unnecessary explicit selector.
-4. If no explicit target is available and current-session relaunch is not clearly the intended valid path, ask the user in Markdown before proceeding. Prefer a short bullet list when you only need the live managed-agent name or id.
-5. Choose a chat-session selector only when the user asks for one or a stored launch-profile relaunch policy should be left to the runtime default. Use fresh relaunch by omitting selector flags unless the user explicitly asks to continue the latest provider chat or resume an exact provider session id.
-6. Build the direct `agents self relaunch` command for current-session relaunch, or `agents single ... relaunch` for selected-agent relaunch.
-7. Run the direct command.
-8. Report the relaunch result returned by the command. When the selected record was stopped, make it clear that relaunch revived the existing managed session rather than creating a new one.
+1. **Distinguish `relaunch` from `refresh` and fresh `launch`**: use `native-resources` (`refresh --check` or `refresh`) when updating skills/MCP without restarting; use `relaunch` only when restarting or reviving an existing session's recorded identity, session root, built home, birth `--tmux-server` socket, and run mode.
+2. **Resolve target scope**: use `agents self relaunch` only when clearly requested from inside the owning managed tmux session; otherwise require explicit `--agent-id` or `--agent-name` on `agents single`.
+3. **Apply `--chat-session-mode` conservatively**: omit chat-session flags to honor the stored profile relaunch policy (or `new` default); pass `--chat-session-mode [new|tool_last_or_new|exact]` (plus `--chat-session-id <id>` for `exact`) only when explicitly requested.
+4. **Run the `relaunch` command** and, when reviving a stopped record, state clearly that the existing managed-agent identity was revived on its recorded birth `--tmux-server` socket and run mode rather than freshly launched.
+5. **Re-attach DSH ACP / Web gateway companions when needed**: if a relaunched DSH (`service` or `web` ACP-backed) session had an attached gateway companion whose live upstream session handle changed across relaunch, run `gateway detach` followed by `gateway attach` via `houmao-shared-routines->houmao-agent-gateway->lifecycle()` so the gateway re-binds the revived session cleanly.
 
-If the request does not map cleanly to this workflow, use the native planning tool to build a step-by-step plan from the owning skill, this procedure, its constraints, available references, and the user request, then execute the plan.
+If the request does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from [../SKILL-MAIN.md](../SKILL-MAIN.md) and the user request, then execute the plan.
 
-## Command Shape
-
-Run one of the direct relaunch commands:
+## Command Shapes
 
 ```bash
-<chosen houmao-mgr launcher> agents self relaunch
-<chosen houmao-mgr launcher> agents single --agent-id <agent-id> relaunch
-<chosen houmao-mgr launcher> agents single --agent-name <agent-name> relaunch
+<chosen houmao-mgr launcher> agents self relaunch [--chat-session-mode new|tool_last_or_new|exact] [--chat-session-id <id>]
+<chosen houmao-mgr launcher> agents single --agent-id <agent-id> relaunch [--port <pair-port>] [--chat-session-mode ...]
+<chosen houmao-mgr launcher> agents single --agent-name <agent-name> relaunch [--port <pair-port>] [--chat-session-mode ...]
 ```
 
-Selector meanings:
-
-- `new` starts a fresh provider chat for this relaunch only.
-- `tool_last_or_new` asks the provider CLI to continue its latest chat when supported.
-- `exact` requires `--chat-session-id` and resumes that provider chat id.
-
-## Unavailable Relaunch
-
-- If relaunch is unavailable because the selected session has no relaunch posture or the current-session authority cannot be resolved, report that relaunch is unavailable instead of silently switching to a fresh launch flow.
+If relaunch posture or authority is unavailable for the target record, report the blocker without silently falling back to `project agents launch`.
 
 ## Guardrails
 
-- DO NOT guess which live managed agent the user meant.
-- DO NOT require an explicit selector when the supported current-session relaunch form is already the intended path.
-- DO NOT reinterpret a relaunch request as `project agents launch`.
-- DO NOT add `--chat-session-mode tool_last_or_new` or `--chat-session-mode exact` unless the user asks for continuation, gives a provider session id, or explicitly wants to override the stored launch-profile relaunch policy.
-- DO NOT add chat-session selector flags unless the user explicitly requested them or supplied an exact provider session id.
-- DO NOT claim that relaunch always recreates a missing tmux session or otherwise acts as a generic fresh-launch recovery path.
-- DO NOT describe stopped-session relaunch as a fresh launch; it is lifecycle revival of the same managed-agent identity.
+- DO NOT guess the target agent, silently substitute `project agents launch` when `relaunch` fails, or claim `relaunch` switches `--tmux-server` or run mode.
+- DO NOT add `--chat-session-mode tool_last_or_new` or `exact` unless the caller explicitly asked to resume conversation state.

@@ -6,7 +6,7 @@ Use this action only when the user wants to run a maintained provider login help
 
 1. Use the `houmao-mgr` launcher already chosen by the top-level skill.
 2. Recover the tool family, credential name, target, and whether this is a create or explicit update from the current prompt first and recent chat context second when they were stated explicitly.
-3. If the selected tool is `kimi`, do not run or invent a maintained Houmao Kimi login helper. For a fresh default Kimi Code OAuth login, load `../references/kimi-code-login-handling.md`. For API keys, existing config files, credential JSON files, or existing Kimi Code homes, route Kimi credential creation or updates through `commands/add.md` or `commands/set.md` with explicit Kimi credential inputs instead.
+3. If the selected tool is `kimi` or `dsh`, do not run or invent a maintained Houmao `login` helper: for fresh default Kimi Code OAuth login load [../references/kimi-code-login-handling.md](../references/kimi-code-login-handling.md), and for `dsh` (`--adapter deepseek|pi-ai`) or explicit Kimi keys/files/homes route through [add.md](add.md) or [set.md](set.md).
 4. If the tool family, credential name, or target is still missing, ask the user before proceeding.
 5. Use the default create-only login behavior unless the user explicitly said to update, replace, or refresh an existing credential.
 6. Build the direct command: `project credentials <tool> login` for the project lane or `internals native-agent credentials <tool> login` for the direct native-agent lane.

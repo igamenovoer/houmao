@@ -1,32 +1,30 @@
-# Open a Live Managed Web Agent
+# Open a Live Managed Web Agent (`web-entry` and `open-browser`)
 
 ## Workflow
 
-1. **Verify the target**. Require an explicit agent ID or name in its execution owner's context and confirm the attached gateway and live Web mode.
-2. **Select caller proof**. Use the valid initialized empty-roster path or a signer authorized for `web.enter`. See [Command Shapes](#command-shapes).
-3. **Issue one entry link** through the scoped manager only when the user requests browser entry and can receive the link privately.
-4. **Use the private result** in a browser that reaches both the owner-local gateway and native Web app. Report only safe outcome fields.
+1. **Choose between `gateway web-entry` and `open-browser`** in the target agent's execution-owner context:
+   - **`agents single ... open-browser`**: opens the native local browser directly for an active local Kimi Web (`--mode web`) owner without issuing a gateway bearer URL.
+   - **`agents single ... gateway web-entry`**: issues one 60-second single-use bearer URL through an attached live Web gateway (`open` initialized roster or `keyed` signer with `web.enter`).
+2. **Verify target and caller proof** for `web-entry`: require an explicit `--agent-id` or `--agent-name`, confirm live Web mode + attached gateway, and select either the initialized empty-roster (`open`) path or an enrolled `--signer` with `web.enter`.
+3. **Run the selected command** only when the user requested browser access and can receive any `web-entry` link privately.
+4. **Report safe status fields only** (never echoing the single-use `web-entry` bearer URL into shared logs, mail, or public summaries).
 
-If the request does not map cleanly to this workflow, use the native planning tool to resolve the owner context, live target evidence, and private browser handoff before executing.
+If the request does not map cleanly to these steps, use the native planning tool to resolve the owner context, live Web mode, and private browser handoff before executing.
 
 ## Command Shapes
 
-Use the manager launcher selected by the parent. The owner-local command accepts an explicit agent ID or name. A valid initialized empty roster permits unsigned issuance.
-
 ```bash
-houmao-mgr agents single --agent-id "$AGENT_ID" gateway web-entry
+# Open native browser directly for an active local Kimi Web owner
+<chosen houmao-mgr launcher> agents single --agent-id "$AGENT_ID" open-browser
+
+# Issue a 60-second single-use gateway web-entry bearer URL (open roster vs keyed web.enter)
+<chosen houmao-mgr launcher> agents single --agent-id "$AGENT_ID" gateway web-entry
+<chosen houmao-mgr launcher> agents single --agent-name "$AGENT_NAME" gateway web-entry --signer "$SIGNER"
 ```
 
-In keyed mode use the owner-configured `admin_signer_path` or pass an absolute private key path for an enrolled signer with `web.enter`.
-
-```bash
-houmao-mgr agents single --agent-name "$AGENT_NAME" gateway web-entry --signer "$SIGNER"
-```
-
-The command returns `url` and `expires_at_utc`. The URL is a bearer secret valid for one redemption within 60 seconds. Open it through the exact owner-local address or a private forward that reaches both services. If the gateway, mode, or policy is unavailable, report the blocker. The lifecycle operation handles separately requested gateway attachment.
+`gateway web-entry` returns `url` and `expires_at_utc` (valid for one redemption within `60` seconds over the owner-local address or a private tunnel reaching both the gateway and native Web service). If the gateway is detached, use [lifecycle.md](lifecycle.md) only when attachment is requested.
 
 ## Guardrails
 
-- DO NOT use a pair port or an advertised public proxy URL for this owner-local browser handoff.
-- DO NOT expose the returned URL in shared logs, mail, prompts, or ordinary result summaries.
-- DO NOT choose a private signer merely because a file or an SSH agent is available.
+- DO NOT use `--pair-port` or an advertised public proxy URL for owner-local `web-entry` or `open-browser`.
+- DO NOT expose a `web-entry` bearer `url` in shared logs, mail, prompts, or ordinary summaries, or pick a `--signer` key unasked.

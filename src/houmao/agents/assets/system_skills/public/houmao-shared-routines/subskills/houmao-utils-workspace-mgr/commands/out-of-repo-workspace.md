@@ -108,7 +108,7 @@ from the source repo on branch:
 houmao/<agent-name>/main
 ```
 
-Apply the shared local-state symlink policy from [reference/local-state-links.md](../references/local-state-links.md) and tracked-submodule policy from [reference/submodules.md](../references/submodules.md).
+Apply the shared Git worktree/ignore rules from [../references/git-worktree-and-ignore-rules.md](../references/git-worktree-and-ignore-rules.md), local-state symlink policy from [../references/local-state-links.md](../references/local-state-links.md), and tracked-submodule policy from [../references/submodules.md](../references/submodules.md).
 
 For `symlink`, create a symlink at the same path and warn that agents using the same symlink target share one mutable working tree.
 
@@ -183,9 +183,9 @@ For `create`:
 5. Create or attach local-only shared bare repos.
 6. Create per-agent `common-kb` worktrees.
 7. Materialize target repo bindings under each `repos/` path.
-8. Apply the shared local-state symlink policy from [reference/local-state-links.md](../references/local-state-links.md).
-9. Apply the shared tracked-submodule policy from [reference/submodules.md](../references/submodules.md).
-10. Write or update `<ws-root>/workspace.md`.
+8. Apply the shared local-state symlink policy from [../references/local-state-links.md](../references/local-state-links.md).
+9. Apply the shared tracked-submodule policy from [../references/submodules.md](../references/submodules.md).
+10. Write or update `<ws-root>/workspace.md` (recording any `--executor` context or DSH Web `--workdir` binding).
 11. Update launch profiles to the planned cwd values.
 12. Optionally create per-agent memo seed Markdown and attach it to profiles.
 

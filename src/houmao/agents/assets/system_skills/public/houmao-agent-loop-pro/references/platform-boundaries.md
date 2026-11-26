@@ -14,83 +14,33 @@ metadata:
 
 # Platform Boundaries
 
-## Purpose
-
-Use this page whenever generated loops touch Houmao platform operations rather than loop-local generated contracts.
-
-## Core Boundary
-
-- Generated loop material owns loop semantics.
-- Maintained Houmao skills and CLI surfaces own platform mechanics.
-- Do not duplicate maintained platform contracts inside generated loop skills, generated harnesses, or routed pages.
+Use this reference whenever generated pro loops interact with Houmao platform mechanics rather than loop-local contracts. Generated loop material owns loop semantics; maintained Houmao routines and CLIs own platform mechanics.
 
 ## Maintained Skill Ownership
 
-- `houmao-shared-routines->houmao-utils-workspace-mgr`: workspace planning, creation, validation, and summaries.
-- `houmao-shared-routines->houmao-mailbox-mgr`: mailbox setup, inspection, repair, cleanup, export, registration, and late mailbox binding.
-- `houmao-shared-routines->houmao-agent-email-comms`: ordinary mail status, list, read, send, post, reply, mark, move, and archive operations.
-- `houmao-shared-routines->houmao-process-emails-via-gateway`: notifier-driven open-mail rounds when the current round provides the gateway base URL.
-- `houmao-shared-routines->houmao-agent-messaging`: managed-agent prompt, interrupt, mailbox handoff, and gateway-backed communication routing.
-- `houmao-shared-routines->houmao-agent-gateway`: gateway lifecycle, notifier posture, reminders, and gateway posture.
-- `houmao-shared-routines->houmao-agent-instance`: managed-agent launch, join, relaunch, stop, and lifecycle control.
-- `houmao-shared-routines->houmao-agent-definition`: specialist, project-profile, launch-dossier, credential-defaulting, and pre-launch definition preparation. Treat `houmao-mgr project ...` as its underlying CLI surface for this skill.
-- `houmao-shared-routines->houmao-memory-mgr`: memo seed and memory posture.
-- `houmao-shared-routines->houmao-agent-inspect`: managed-agent liveness, TUI state, mailbox posture, runtime artifacts, logs, and tmux inspection.
+- `houmao-shared-routines->houmao-agent-definition`: specialists, project profiles, `project skills` registration, launch dossiers, credential routing, and `system_skills` pack policy (`houmao-mgr project ...`).
+- `houmao-shared-routines->houmao-utils-workspace-mgr`: multi-agent workspace `plan`, `create`, `validate`, and `summarize` operations (`in-repo-workspace` and `out-of-repo-workspace`).
+- `houmao-shared-routines->houmao-agent-instance`: live agent `launch`, `join`, `relaunch`, `stop`, `cleanup`, `--executor` target selection, and `agents external` registration.
+- `houmao-shared-routines->houmao-agent-access`: gateway admission policy (`open` vs `keyed`), 6-group `default-group` ladder, roles/templates, grants, peer keys, and `self-key` rotation/revocation.
+- `houmao-shared-routines->houmao-agent-files`: authorized gateway file reads, patches, uploads, and `publish` (`agents self files push --when-idle`) across `workspace`, `memory`, `skills`, and `mcp` mounts.
+- `houmao-shared-routines->houmao-mailbox-mgr`: offline mailbox provisioning/repair/cleanup/export and `agents single|self mailbox online` Stalwart JMAP bindings.
+- `houmao-shared-routines->houmao-agent-email-comms` and `houmao-shared-routines->houmao-process-emails-via-gateway`: ordinary mail `status`/`list`/`read`/`peek`/`send`/`post`/`reply`/`mark`/`move`/`archive` and bounded gateway notifier rounds.
+- `houmao-shared-routines->houmao-agent-messaging`: live peer/self `request`, `prompt`, `interrupt`, and mailbox handoff routing.
+- `houmao-shared-routines->houmao-agent-gateway`: gateway lifecycle, notifier/reminder services, web-entry/dashboard, `open-browser`, and optional gateway plugins such as `houmao-cccc`.
+- `houmao-shared-routines->houmao-adv-usage-pattern`: multi-agent gateway/mailbox loop patterns and `houmao-cccc` group-chat push/pull/queue coordination patterns.
+- `houmao-shared-routines->houmao-memory-mgr`: birth-time memo seeds and live `pages/` memory operations.
+- `houmao-shared-routines->houmao-agent-inspect`: read-only liveness, `state` (`headless`, `service`, `tui`, `web`), logs, usage records, artifacts, and socket-qualified `tmux -S` inspection.
 
 ## Generated Material Ownership
 
-- `execplan/specs/`: loop machine contracts.
-- `execplan/skills/`: generated role instructions, event handlers, tick handlers, and operator skills.
-- `execplan/agents/`: participant-to-agent bindings, prompt sources, installed generated skills, Houmao system-skill preinstall posture, workspace policy, and notifier prompt text.
-- `execplan/harness/`: loop-local validation, query, rendering, dynamic lookup, and controlled record application.
+- `execplan/specs/`: loop machine contracts, schemas, and templates.
+- `execplan/skills/`: generated role instructions, on-event handlers, on-tick handlers, and `<loop-slug>-operator-control`.
+- `execplan/agents/`: participant-to-agent bindings, prompt sources, generated skill mounts, `system_skills` preinstall expectations, workspace policy, and notifier prompt paths.
+- `execplan/harness/`: loop-local deterministic validation, lookup, template rendering, state initialization/query, and controlled record application.
 - `execplan/docs/`: generated human support views.
 
-## Workspace Rule
+## Execution Stage, Mail, And Plugin Boundaries
 
-- When a generated loop needs managed agent workspaces, `prepare-agents` first resolves concrete agent/project-profile facts when workspace setup needs agent or profile names.
-- `prepare-workspace` adapts generated workspace contracts, generated agent bindings, and prepared agent/profile facts to `houmao-shared-routines->houmao-utils-workspace-mgr` `plan`, `create`, `validate`, or `summarize`.
-- Generated workspace contracts may describe launch cwd, work roots, task `shared-kb/`, task `owner-states/<subdir>/...`, per-agent `states/`, shared resources, read/write rules, workspace-manager inputs, validation commands, and readiness postconditions.
-- Do not create agent workspaces directly from general execution pages when the workspace manager can represent the layout.
-- Keep workspace preparation separate from agent preparation; neither stage calls the other.
-- Manual workspace setup is acceptable only when explicit readiness evidence satisfies the generated workspace contract.
-
-## Launch Rule
-
-- `prepare-agents` prepares launchable project profiles and prepared agent facts; it does not launch live agents as normal behavior.
-- `validate-loop` checks read-only pre-launch readiness before `launch-agents`; do not fold live workspace readiness into `validate-execplan`.
-- `launch-agents` uses maintained Houmao launch surfaces to start prepared agents and report live-agent/session facts.
-- `start` sends the first loop trigger after agents are live; it does not launch agents.
-
-## Mail And Gateway Rule
-
-Generated loop skills must not implement:
-- custom mailbox storage;
-- custom mailbox state management;
-- ad hoc gateway discovery;
-- local substitutes for ordinary mail send, read, reply, and archive behavior.
-
-Generated loops may define:
-- message families;
-- payload schemas;
-- render templates;
-- reply expectations;
-- loop-local state effects caused by mail.
-
-## Operator Control Rule
-
-- Generated loops may define one loop-local `<loop-slug>-operator-control` skill for lifecycle semantics, mode switching, manual stepping, and routing to generated harness commands.
-- Generated operator-control skills own loop identity and loop-local control decisions, not platform mechanics.
-- Generated harnesses may record requested control changes, run state, execution mode, operator intent events, and observed notifier posture.
-- Enabling, disabling, or inspecting notifier posture remains owned by `houmao-shared-routines->houmao-agent-gateway`.
-- Prompting agents remains owned by `houmao-shared-routines->houmao-agent-messaging`; ordinary mail operations remain owned by `houmao-shared-routines->houmao-agent-email-comms`.
-
-## Harness Rule
-
-Generated harnesses do not own:
-- mailbox delivery;
-- managed-agent launch;
-- gateway discovery;
-- memory management;
-- workspace planning, creation, validation, or summaries.
-
-Generated harnesses do own loop-local deterministic helpers such as validation, lookup, rendering, state initialization, state query, record validation, and controlled record application.
+- **Workspace and launch**: `prepare-agents` resolves concrete profile and agent facts without launching agents or mutating workspaces; `prepare-workspace` adapts workspace contracts (`shared-kb/`, `owner-states/<subdir>/`, per-agent `states/`) to `houmao-shared-routines->houmao-utils-workspace-mgr` (or verifies explicit manual evidence); `validate-loop` performs read-only readiness checks; `launch-agents` starts live participants; `start` sends the initial trigger.
+- **Mail, access, files, and `houmao-cccc`**: generated skills and harnesses may define message families, schemas, templates, reply expectations, and loop-local state transitions, and may reference `houmao-cccc` group rooms when configured on the gateway, but must never implement custom mailbox storage, ad hoc gateway discovery, custom permission stores, direct unmanaged cross-agent file edits, or local substitutes for `houmao-agent-email-comms`, `houmao-agent-access`, `houmao-agent-files`, or `houmao-cccc` plugin routes.
+- **Operator control**: `<loop-slug>-operator-control` and generated harnesses record loop-local control intent and run state while delegating notifier toggles to `houmao-shared-routines->houmao-agent-gateway`, live prompts/requests to `houmao-shared-routines->houmao-agent-messaging`, and mail transport to `houmao-shared-routines->houmao-agent-email-comms`.
