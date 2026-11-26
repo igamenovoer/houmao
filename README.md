@@ -70,7 +70,7 @@ tmux -V
 npx skills add https://github.com/igamenovoer/houmao-skills
 ```
 
-The unqualified skills URL tracks the latest stable Houmao release. Append a matching tag such as `#v3.0.0rc7` to pin the skills to an exact `houmao-mgr` version. Without `npx` or internet access, or when you need an explicit agent home, use `houmao-mgr system-skills install --tool <tool> --pack admin`. [System Skills CLI Reference](docs/reference/cli/system-skills.md)
+The unqualified skills URL tracks the latest stable Houmao release. Append a matching tag such as `#v3.0.0` to pin the skills to an exact `houmao-mgr` version. Without `npx` or internet access, or when you need an explicit agent home, use `houmao-mgr system-skills install --tool <tool> --pack admin`. [System Skills CLI Reference](docs/reference/cli/system-skills.md)
 
 Now start your CLI agent from the project directory and ask:
 

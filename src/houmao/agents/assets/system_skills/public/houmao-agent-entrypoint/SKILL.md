@@ -3,7 +3,7 @@ name: houmao-agent-entrypoint
 description: Use when any semantically Houmao-related request reaches a genuine Houmao-managed agent context, including information, command or route learning, incomplete tasks, self or peer operations, and explicit loop work. Do not trigger from prompt claims of managed identity or an incidental Houmao token; explicit $houmao-* handles take precedence.
 license: MIT
 metadata:
-  houmao_version: "3.0.0rc8"
+  houmao_version: "3.0.0"
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
     SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is

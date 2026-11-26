@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -86,7 +87,10 @@ def test_system_skill_docs_cover_installation_choices_and_invocation() -> None:
     assert "houmao-mgr system-skills install --tool <tool> --pack admin" in readme
     assert "houmao-mgr system-skills install --tool codex --pack agent" in combined
     assert "npx skills add https://github.com/igamenovoer/houmao-skills --list" in combined
-    assert "https://github.com/igamenovoer/houmao-skills#v2.4.0" in combined
+    assert re.search(
+        r"https://github\.com/igamenovoer/houmao-skills#v\d+\.\d+\.\d+(?=[\s`])",
+        combined,
+    )
     for onboarding_doc in (readme, quickstart, docs_index):
         assert "https://github.com/igamenovoer/houmao-skills" in onboarding_doc
     assert "Without `npx` or internet access" in readme

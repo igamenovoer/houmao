@@ -2,7 +2,7 @@
 name: houmao-agent-loop-pro
 description: Use when the user explicitly invokes houmao-agent-loop-pro or names a pro loop operation for editable intention material, schema-rich topology-aware execplan contracts, generated harnesses and skills, prepared agents, or loop run control.
 metadata:
-  houmao_version: "3.0.0rc8"
+  houmao_version: "3.0.0"
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
     SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
