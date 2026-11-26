@@ -60,6 +60,6 @@ The finalized turn record SHALL include the correct `status`, `completed_at_utc`
 
 #### Scenario: Successful Hermes Headless Launch
 
-- **WHEN** a caller supplies qualified Hermes headless inputs to the passive headless launch endpoint
+- **WHEN** a caller supplies valid Hermes headless inputs, `hermes` is on the selected execution context's PATH, and the native launch succeeds
 - **THEN** the endpoint returns the normal managed headless launch metadata
 - **AND THEN** later submissions and inspections use the saved Hermes owner and the finite CLI turn contract

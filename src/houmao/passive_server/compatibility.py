@@ -44,6 +44,7 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentMailboxSummaryView,
+    HoumaoManagedAgentNativeTuiDetailView,
     HoumaoManagedAgentServiceDetailView,
     HoumaoManagedAgentStateResponse,
     HoumaoManagedAgentTurnView,
@@ -183,6 +184,63 @@ def managed_service_detail_response(
         identity=summary_state.identity,
         summary_state=summary_state,
         detail=HoumaoManagedAgentServiceDetailView(state=summary_state.control),
+    )
+
+
+def managed_native_tui_detail_response(
+    *,
+    identity: HoumaoManagedAgentIdentity,
+    observation: ManagedControlObservationV1,
+    mailbox_summary: HoumaoManagedAgentMailboxSummaryView | None = None,
+    gateway_summary: HoumaoManagedAgentGatewaySummaryView | None = None,
+) -> HoumaoManagedAgentDetailResponse:
+    """Project structured readiness and keep the terminal handoff under the saved identity."""
+
+    available = (
+        observation.freshness == "current"
+        and observation.owner_available is True
+        and observation.connection_ready is True
+    )
+    phase: TurnPhase = "unknown"
+    if available:
+        if (
+            observation.active_turn_id is not None
+            or observation.native_admission_state == "running"
+        ):
+            phase = "active"
+        elif observation.can_accept_prompt_now is True:
+            phase = "ready"
+    summary = HoumaoManagedAgentStateResponse(
+        tracked_agent_id=identity.tracked_agent_id,
+        identity=identity,
+        availability="available" if available else "unavailable",
+        turn=HoumaoManagedAgentTurnView(
+            phase=phase, active_turn_id=observation.active_turn_id if available else None
+        ),
+        last_turn=HoumaoManagedAgentLastTurnView(
+            result=_RESULT_FROM_NATIVE_OUTCOME.get(observation.last_outcome, "unknown")
+            if observation.last_outcome is not None
+            else "unknown",
+            turn_id=observation.last_turn_id,
+        ),
+        capabilities=_capabilities(identity),
+        control=observation,
+        diagnostics=[]
+        if available
+        else [
+            HoumaoErrorDetail(
+                kind="native_tui_unavailable",
+                message="Verified native terminal control is unavailable.",
+            )
+        ],
+        mailboxes=mailbox_summary,
+        gateway=gateway_summary,
+    )
+    return HoumaoManagedAgentDetailResponse(
+        tracked_agent_id=identity.tracked_agent_id,
+        identity=identity,
+        summary_state=summary,
+        detail=HoumaoManagedAgentNativeTuiDetailView(state=observation),
     )
 
 

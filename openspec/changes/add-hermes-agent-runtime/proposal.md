@@ -6,11 +6,12 @@ Houmao cannot currently launch or control Hermes Agent. Hermes exposes structure
 
 ## What Changes
 
-- Add Hermes as an installed native tool with `tui`, `service`, and `headless` run modes. Use `service` as the managed launch default when no mode is selected. Reject Hermes `web` launches during preflight.
+- Add Hermes as a native tool with `tui`, `service`, and `headless` run modes. Find `hermes` on PATH in the selected execution context and report an error if it is missing. Use `service` as the managed launch default and reject Hermes `web` launches.
 - Launch the real Hermes TUI in tmux and use its private native RPC for prompt submission, state, events, and interruption. Bind the managed conversation before opening the terminal.
-- Use `hermes acp` in service mode and the one-shot JSONL CLI in headless mode. Supervise the Hermes daemon that executes turns and preserve exact continuation and request ownership across clients.
+- Use `hermes acp` in service mode and the one-shot JSONL CLI in headless mode. Supervise the Hermes daemon that executes turns and preserve managed conversation selection and request ownership across clients. Headless continuation passes the verified session ID to the stock Hermes `--resume` option and inherits its lookup behavior.
+- Use the home created by Houmao as the daemon ownership boundary. Start a daemon when the home has none and automatically adopt a daemon launched for that exact home. Manual use of a managed home is unsupported.
 - For Hermes TUI, check native readiness immediately before submission. If a human turn starts after that check, retain and track Hermes's accepted queue entry. Give manager, gateway, AG-UI, mail, and CCCC the same admission behavior and distinguish native queue acceptance from turn start and completion.
-- Materialize private Hermes role, skills, provider configuration, and session state using the selected Houmao launch profile. Qualify the installed Hermes v0.23.4 build locally with explicit credentials and desktop-control and browser tools excluded.
+- Materialize role, skills, provider configuration, and session state in each agent's private home. Exercise the three managed modes locally with explicit credentials and desktop-control and browser tools excluded.
 
 ## Capabilities
 
@@ -20,7 +21,7 @@ Houmao cannot currently launch or control Hermes Agent. Hermes exposes structure
 
 ### Modified Capabilities
 
-- `native-cli-provider-support` adds Hermes to the maintained provider set for its qualified modes.
+- `native-cli-provider-support` adds Hermes to the maintained provider set for its supported modes.
 - `houmao-system-skill-installation` projects selected public skill packs into managed Hermes homes.
 - `agent-model-selection` treats the qualified Hermes model and route as session-bound launch inputs.
 - `managed-agent-run-modes` defines Hermes mode selection and allows a finite headless CLI to use an owned native daemon.
@@ -40,4 +41,4 @@ Houmao cannot currently launch or control Hermes Agent. Hermes exposes structure
 
 - Agent definitions, native home preparation, launch policy and model inputs, runtime manifests, service supervision, and the headless turn runner.
 - Manager, authenticated gateway, passive server, AG-UI, mail notifier, and the optional `houmao-cccc` integration. Preserve the existing public control entrypoints and CCCC delivery selection.
-- Reference documentation, runtime and integration tests, and managed launch fixtures. The Hermes executable is supplied by the operator in the selected execution context.
+- Reference documentation, runtime and integration tests, and managed launch fixtures.

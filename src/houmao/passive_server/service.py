@@ -40,6 +40,10 @@ from houmao.agents.realm_controller.native_refresh_models import (
     NativeRefreshResultV1,
 )
 from houmao.agents.realm_controller.headless_snapshots import latest_headless_turn
+from houmao.agents.realm_controller.managed_control import (
+    MANAGED_STRUCTURED_TUI_BACKENDS,
+    ManagedControlObservationV1,
+)
 from houmao.agents.realm_controller.manifest import require_registry_mode_authority
 from houmao.agents.realm_controller.native_surface import TerminalNativeSurfaceV1
 from houmao.agents.realm_controller.runtime import _gateway_lifecycle_lock, resume_runtime_session
@@ -129,6 +133,7 @@ from houmao.passive_server.compatibility import (
     managed_headless_history_from_turn_records,
     managed_headless_state_from_control_state,
     managed_identity_from_discovered_agent,
+    managed_native_tui_detail_response,
     managed_runtime_headless_detail_response,
     managed_runtime_headless_state_from_observation,
     managed_service_detail_response,
@@ -950,6 +955,8 @@ class PassiveServerService:
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
+        if resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+            return (501, {"detail": "Terminal parser state is unsupported for Hermes TUI"})
         client = self._gateway_client_for_agent(resolved)
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
@@ -983,6 +990,8 @@ class PassiveServerService:
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
+        if resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+            return (501, {"detail": "Terminal tracker history is unsupported for Hermes TUI"})
         client = self._gateway_client_for_agent(resolved)
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
@@ -1002,6 +1011,8 @@ class PassiveServerService:
         resolved = self._resolve_agent_or_error(agent_ref)
         if isinstance(resolved, tuple):
             return resolved
+        if resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+            return (501, {"detail": "Terminal tracker prompt notes are unsupported for Hermes TUI"})
         client = self._gateway_client_for_agent(resolved)
         if client is None:
             return (502, {"detail": "No gateway attached to agent"})
@@ -1843,7 +1854,10 @@ class PassiveServerService:
             )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
-        if resolved.record.mode in {"headless", "service"}:
+        if (
+            resolved.record.mode in {"headless", "service"}
+            or resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
+        ):
             detail = self._managed_runtime_detail_response(resolved)
             return detail if isinstance(detail, tuple) else detail.summary_state
         if resolved.record.mode == "web":
@@ -1878,7 +1892,10 @@ class PassiveServerService:
             )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
-        if resolved.record.mode in {"headless", "service"}:
+        if (
+            resolved.record.mode in {"headless", "service"}
+            or resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
+        ):
             return self._managed_runtime_detail_response(resolved)
         if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
@@ -1905,7 +1922,11 @@ class PassiveServerService:
         """Return the tracker only for the selected generation's actual TUI."""
 
         record = agent.record
-        if record.mode != "tui" or not isinstance(record.native_surface, TerminalNativeSurfaceV1):
+        if (
+            record.mode != "tui"
+            or record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
+            or not isinstance(record.native_surface, TerminalNativeSurfaceV1)
+        ):
             return None
         return self.m_observation.get_observer(record.agent_id, generation_id=record.generation_id)
 
@@ -1926,7 +1947,7 @@ class PassiveServerService:
     def _managed_runtime_detail_response(
         self, agent: DiscoveredAgent
     ) -> HoumaoManagedAgentDetailResponse | tuple[int, dict[str, Any]]:
-        """Read one-shot or service state from the same verified runtime as the manager."""
+        """Read structured state from the same verified runtime as the manager."""
 
         record = agent.record
         try:
@@ -1948,6 +1969,13 @@ class PassiveServerService:
                 )
                 mailbox = mailbox_summary_from_registry_record(record)
                 gateway = self._managed_gateway_summary(agent)
+                if record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+                    return managed_native_tui_detail_response(
+                        identity=identity,
+                        observation=controller.observe_managed_tui(),
+                        mailbox_summary=mailbox,
+                        gateway_summary=gateway,
+                    )
                 if record.mode == "service":
                     return managed_service_detail_response(
                         managed_service_state_from_observation(
@@ -1976,6 +2004,21 @@ class PassiveServerService:
                 summary_state=summary, latest_turn=latest
             )
         except (OSError, RuntimeError, ValueError):
+            if record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+                return managed_native_tui_detail_response(
+                    identity=managed_identity_from_discovered_agent(agent).model_copy(
+                        update={"runtime_session_id": None}
+                    ),
+                    observation=ManagedControlObservationV1(
+                        source="tui_native",
+                        freshness="unknown",
+                        owner_available=False,
+                        connection_ready=False,
+                        can_accept_prompt_now=False,
+                        terminal_attachment="unverified",
+                    ),
+                    mailbox_summary=mailbox_summary_from_registry_record(record),
+                )
             return (503, {"detail": "Verified native runtime observation is unavailable"})
 
     def managed_agent_history(
@@ -1997,6 +2040,8 @@ class PassiveServerService:
             return self._managed_headless_unavailable_error(agent_ref)
         if resolved.record.mode == "service":
             return (501, {"detail": "Native service history is unavailable"})
+        if resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+            return (501, {"detail": "Terminal tracker history is unsupported for Hermes TUI"})
         if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:
@@ -2211,7 +2256,10 @@ class PassiveServerService:
             )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
-        if resolved.record.mode in {"headless", "service"}:
+        if (
+            resolved.record.mode in {"headless", "service"}
+            or resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
+        ):
             detail = self._managed_runtime_detail_response(resolved)
             return detail if isinstance(detail, tuple) else detail.summary_state
         if resolved.record.mode == "web":
@@ -2241,7 +2289,10 @@ class PassiveServerService:
             )
         if resolved is None:
             return (404, {"detail": f"Agent not found: {agent_ref}"})
-        if resolved.record.mode in {"headless", "service"}:
+        if (
+            resolved.record.mode in {"headless", "service"}
+            or resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
+        ):
             return self._managed_runtime_detail_response(resolved)
         if resolved.record.mode == "web":
             return self.managed_agent_state_detail(agent_ref)
@@ -2259,6 +2310,8 @@ class PassiveServerService:
         if isinstance(resolved, tuple):
             return resolved
         self._require_direct_access()
+        if resolved.record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+            return (501, {"detail": "Terminal tracker history is unsupported for Hermes TUI"})
         if resolved.record.mode == "web":
             web_observer = self.m_observation.get_web_observer(resolved.record.agent_id)
             if web_observer is None:

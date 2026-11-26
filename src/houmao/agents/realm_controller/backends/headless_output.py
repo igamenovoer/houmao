@@ -20,7 +20,7 @@ from houmao.agents.realm_controller.models import SessionEvent
 
 HeadlessDisplayStyle = Literal["plain", "json", "fancy"]
 HeadlessDisplayDetail = Literal["concise", "detail"]
-HeadlessProvider = Literal["claude", "codex", "kimi", "dsh"]
+HeadlessProvider = Literal["claude", "codex", "kimi", "dsh", "hermes"]
 
 CANONICAL_HEADLESS_EVENTS_ARTIFACT = "canonical-events.jsonl"
 """Artifact name for canonical normalized headless events."""
@@ -238,10 +238,14 @@ class CanonicalHeadlessEventParser:
         try:
             payload = json.loads(line)
         except (json.JSONDecodeError, RecursionError):
+            if self.m_provider == "hermes":
+                return []
             if self.m_provider == "dsh":
                 return [self._dsh_cli_invalid_record("raw_text")]
             return [self._diagnostic_event(text=line, provider_event_type="raw_text")]
         if not isinstance(payload, dict):
+            if self.m_provider == "hermes":
+                return []
             if self.m_provider == "dsh":
                 return [self._dsh_cli_invalid_record("non_mapping")]
             return [
@@ -283,6 +287,10 @@ class CanonicalHeadlessEventParser:
             return self._consume_codex_payload(payload)
         if self.m_provider == "dsh":
             return self._consume_dsh_payload(payload)
+        if self.m_provider == "hermes":
+            # The bridge verifies the requested Hermes session before normalizing
+            # its output. Raw output alone is never a canonical event source.
+            return []
         return self._consume_kimi_payload(payload)
 
     def _dsh_cli_invalid_record(self, event_type: str) -> CanonicalHeadlessEvent:
@@ -1318,6 +1326,8 @@ def resolve_headless_provider(
             return "kimi"
         if lowered.startswith("dsh"):
             return "dsh"
+        if lowered.startswith("hermes"):
+            return "hermes"
     raise ValueError(
         f"Unsupported headless provider tool/backend: tool={tool!r}, backend={backend!r}"
     )
@@ -2182,6 +2192,8 @@ def _coerce_provider(value: str) -> HeadlessProvider:
         return "kimi"
     if value == "dsh":
         return "dsh"
+    if value == "hermes":
+        return "hermes"
     raise ValueError(f"Unsupported canonical headless provider `{value}`.")
 
 

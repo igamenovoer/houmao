@@ -1,0 +1,22 @@
+schema_version: 1
+tool: hermes
+home_selector:
+  env_var: HERMES_HOME
+launch:
+  executable: hermes
+  args: []
+  default_tool_params: {}
+  env_injection:
+    mode: export_from_env_file
+setup_projection:
+  destination: .
+skills_projection:
+  destination: skills
+  mode: copy
+auth_projection:
+  files_dir: files
+  file_mappings: []
+  env:
+    source: env/vars.env
+    allowlist:
+      - HERMES_MANAGED_API_KEY

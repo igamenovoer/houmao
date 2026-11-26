@@ -227,6 +227,7 @@ from houmao.agents.realm_controller.models import (
     SessionEvent,
 )
 from houmao.agents.realm_controller.managed_control import (
+    MANAGED_STRUCTURED_TUI_BACKENDS,
     terminal_prompt_not_ready_reasons,
 )
 from houmao.agents.realm_controller.run_modes import RunMode
@@ -659,6 +660,7 @@ def _require_live_local_controller(
 ) -> RuntimeSessionController:
     """Return the local runtime controller or raise one operator-facing diagnostic."""
 
+    existing_only = existing_only or target.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
     if target.mode == "executor":
         raise click.ClickException(
             f"Operation {operation!r} is unsupported through the finite execution transport; no local fallback was attempted."
@@ -1479,7 +1481,8 @@ def resolve_relaunch_managed_agent_target(
                 "This managed agent is registered with retired backend "
                 "`houmao_server_rest`. Relaunch it through a maintained local/headless workflow."
             )
-        if _is_local_tmux_backed_active_record(record):
+        native_tui = record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
+        if not native_tui and _is_local_tmux_backed_active_record(record):
             try:
                 health = _probe_local_tmux_authority_for_record(record)
             except SessionManifestError as exc:
@@ -1498,7 +1501,7 @@ def resolve_relaunch_managed_agent_target(
                     identity=_identity_from_record(record),
                     record=record,
                 )
-        controller = _resume_controller_from_record(record)
+        controller = _resume_controller_from_record(record, existing_only=native_tui)
         identity = _identity_from_controller(controller)
         return ManagedAgentTarget(
             mode="local",
@@ -2681,7 +2684,11 @@ def prompt_managed_agent(
             ),
         )
 
-    if target.identity.mode == "tui" and target.record is not None:
+    if (
+        target.identity.mode == "tui"
+        and target.identity.backend not in MANAGED_STRUCTURED_TUI_BACKENDS
+        and target.record is not None
+    ):
         try:
             selected = read_selected_manifest(target)
             health = _probe_recorded_terminal(target.record, selected.payload)
@@ -2939,7 +2946,7 @@ def interrupt_managed_agent(target: ManagedAgentTarget) -> object:
     try:
         capabilities = controller.control_capabilities()
         capabilities.require("interrupt")
-        if capabilities.mode == "headless":
+        if capabilities.mode == "headless" and capabilities.backend != "hermes_headless":
             generation = controller.registry_generation_id
             if generation is None:
                 raise SessionManifestError("The selected owner has no current generation.")
@@ -2994,6 +3001,7 @@ def stop_managed_agent(target: ManagedAgentTarget) -> HoumaoManagedAgentActionRe
         target.controller is None
         and target.mode == "local"
         and record is not None
+        and record.identity.backend not in MANAGED_STRUCTURED_TUI_BACKENDS
         and _is_local_tmux_backed_active_record(record)
     ):
         try:

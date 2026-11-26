@@ -59,6 +59,9 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "hermes_tui",
+        "hermes_service",
+        "hermes_headless",
         "kimi_web",
         "cao_rest",
         "houmao_server_rest",
@@ -807,6 +810,7 @@ class SessionManifestPayloadV4(_StrictBoundaryModel):
             raise ValueError("terminal native surface differs from tmux session authority")
         if isinstance(self.native_surface, TerminalNativeSurfaceV1) and self.backend not in {
             "local_interactive",
+            "hermes_tui",
             "cao_rest",
             "houmao_server_rest",
         }:

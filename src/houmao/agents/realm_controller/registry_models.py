@@ -645,6 +645,7 @@ def _validate_native_surface(
         "local_interactive",
         "cao_rest",
         "houmao_server_rest",
+        "hermes_tui",
     }:
         raise ValueError("headless process supervision is not a native terminal surface")
     if (

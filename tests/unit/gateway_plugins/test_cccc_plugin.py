@@ -756,8 +756,9 @@ def test_refused_dispatch_reports_failure_without_replay(
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize("native_queued", [False, True])
 def test_successful_offer_contains_reply_handle_and_ordinary_content(
-    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    implementation: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, native_queued: bool
 ) -> None:
     """The body receives an ordinary event with a usable reply hint for this instance."""
 
@@ -765,6 +766,12 @@ def test_successful_offer_contains_reply_handle_and_ordinary_content(
         """Dispatch ordinary content and exercise its advertised reply command."""
 
         async with harness(implementation, monkeypatch, tmp_path) as h:
+            if native_queued:
+                h.context.events.dispatch.return_value = PluginDispatchResult(
+                    source_event_id="cccc:attempt1",
+                    native_admission="queued",
+                    native_prompt_id="hermes-admission-1",
+                )
             await h.service.m_offers.put(offer(text="/compact"))
             await h.service.m_offers.put(
                 offer(attempt_id="attempt2", event_id="event2", sequence=2, sender="a3")

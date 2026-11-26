@@ -26,6 +26,7 @@ from houmao.agents.dsh_credentials import (
     validate_dsh_env_name,
     write_dsh_credential_roles,
 )
+from houmao.agents.hermes_configuration import HERMES_API_KEY_ENV, HERMES_HOME_ENV
 from houmao.agents.kimi_launch_env import KIMI_CONFIG_ENV_NAMES, reject_kimi_config_env
 from houmao.agents.realm_controller.agent_identity import AGENT_DEF_DIR_ENV_VAR
 from houmao.owned_mutation import (
@@ -50,12 +51,13 @@ CredentialTargetKind = Literal["project", "agent_def_dir"]
 CredentialWriteOperation = Literal["add", "set"]
 CredentialLoginOperation = Literal["add", "set"]
 
-_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi", "dsh")
+_SUPPORTED_CREDENTIAL_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi", "dsh", "hermes")
 _TOOL_DISPLAY_NAMES: dict[str, str] = {
     "claude": "Claude",
     "codex": "Codex",
     "kimi": "Kimi",
     "dsh": "DeepSeek Harness",
+    "hermes": "Hermes",
 }
 _SECRET_ENV_TOKENS: tuple[str, ...] = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 _CLAUDE_RUNTIME_STATE_TEMPLATE_FILENAME = "claude_state.template.json"
@@ -80,6 +82,7 @@ _PROVIDER_HOME_ENV_VARS: dict[str, str] = {
     "codex": "CODEX_HOME",
     "kimi": "KIMI_CODE_HOME",
     "dsh": "DSH_HOME",
+    "hermes": HERMES_HOME_ENV,
 }
 _DEFAULT_DSH_CREDENTIAL_ROLES: dict[str, DshCredentialRoles] = {
     "deepseek": DshCredentialRoles(
@@ -109,6 +112,7 @@ _PROVIDER_AUTH_ENV_VARS: dict[str, frozenset[str]] = {
         }
     ),
     "kimi": KIMI_CONFIG_ENV_NAMES | {"KIMI_MODEL_API_KEY"},
+    "hermes": frozenset({HERMES_API_KEY_ENV}),
 }
 
 
@@ -298,7 +302,7 @@ def ensure_specialist_credential_bundle(
         )
         if kimi_code_home is not None:
             clear_file_sources = set(_KIMI_CODE_HOME_FILE_SOURCES)
-    elif tool == "dsh":
+    elif tool in {"dsh", "hermes"}:
         if any(
             value is not None
             for value in (
@@ -314,11 +318,15 @@ def ensure_specialist_credential_bundle(
             )
         ):
             raise click.ClickException(
-                "DSH supports explicit API credentials; native login import is unsupported."
+                f"{'DSH' if tool == 'dsh' else 'Hermes'} supports explicit API credentials; "
+                "native login import is unsupported."
             )
-        update = _DshCredentialUpdate(adapter="deepseek", api_key=api_key, base_url=base_url)
-        dsh_update = update if update.has_changes else None
-        env_values = {}
+        if tool == "dsh":
+            update = _DshCredentialUpdate(adapter="deepseek", api_key=api_key, base_url=base_url)
+            dsh_update = update if update.has_changes else None
+            env_values = {}
+        else:
+            env_values = _compact_env_values({HERMES_API_KEY_ENV: api_key})
         file_sources = {}
     else:
         raise click.ClickException(f"Unsupported specialist tool `{tool}`.")
@@ -593,9 +601,60 @@ def _build_tool_group(*, tool: str, project_only: bool, native_only: bool = Fals
                     operation=operation, project_only=project_only, native_only=native_only
                 )
             )
+    elif tool == "hermes":
+        hermes_operations: tuple[CredentialWriteOperation, ...] = ("add", "set")
+        for hermes_operation in hermes_operations:
+            tool_group.add_command(
+                _build_hermes_write_command(
+                    operation=hermes_operation, project_only=project_only, native_only=native_only
+                )
+            )
     else:
         raise click.ClickException(f"Unsupported credential tool `{tool}`.")
     return tool_group
+
+
+def _build_hermes_write_command(
+    *, operation: CredentialWriteOperation, project_only: bool, native_only: bool
+) -> click.Command:
+    """Build an explicit API-key credential writer for Hermes."""
+
+    @click.command(name=operation)
+    @_target_options(project_only, native_only=native_only)
+    @click.option("--name", required=True, help="Credential name.")
+    @click.option("--api-key", required=True, help="Key for the selected provider.")
+    def write_command(
+        name: str,
+        api_key: str,
+        use_project: bool = False,
+        agent_def_dir: Path | None = None,
+        native_agent_root: Path | None = None,
+    ) -> None:
+        """Write a selected Hermes API key."""
+
+        target = _resolve_command_target(
+            project_only=project_only,
+            native_only=native_only,
+            use_project=use_project,
+            agent_def_dir=agent_def_dir,
+            native_agent_root=native_agent_root,
+            allow_project_bootstrap=True,
+        )
+        emit(
+            _write_credential_bundle(
+                target=target,
+                tool="hermes",
+                name=name,
+                env_values=_compact_env_values({HERMES_API_KEY_ENV: api_key}),
+                file_sources={},
+                require_any_input=True,
+                operation=operation,
+                clear_env_names=set(),
+                clear_file_sources=set(),
+            )
+        )
+
+    return write_command
 
 
 def _build_dsh_write_command(
@@ -2336,7 +2395,7 @@ def _write_credential_bundle(
             ),
             allowed_roots=(temp_auth_root,),
         )
-        if tool in {"dsh", "kimi"}:
+        if tool in {"dsh", "kimi", "hermes"}:
             env_file_path.chmod(0o600)
         if tool == "kimi":
             for source_name in _KIMI_CODE_HOME_FILE_SOURCES:

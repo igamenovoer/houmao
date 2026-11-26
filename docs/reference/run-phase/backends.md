@@ -17,6 +17,9 @@ BackendKind = Literal[
     "dsh_headless",
     "dsh_web",
     "dsh_acp",
+    "hermes_headless",
+    "hermes_service",
+    "hermes_tui",
     "codex_app_server",
     "cao_rest",
     "houmao_server_rest",
@@ -145,6 +148,10 @@ The DSH headless backend requires DSH 0.2.2-rc.3 or later. It starts one native 
 ### dsh_acp
 
 DSH service mode requires DSH 0.2.2-rc.3 or later. It keeps one native `--profile acp` process and logical session across managed turns. The manager and authenticated gateway reach the same supervised owner. [DSH ACP Service](dsh-service.md)
+
+### Hermes
+
+Hermes service mode uses `hermes_service` and a persistent ACP client. The `hermes_tui` backend attaches Ink to the managed conversation and uses native prompt control. The `hermes_headless` backend starts a finite JSONL client per turn. Each mode uses the daemon for its recorded managed home. [Managed Hermes](hermes-modes.md)
 
 ### kimi_acp
 

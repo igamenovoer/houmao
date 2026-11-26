@@ -6,10 +6,12 @@ from pathlib import Path
 from types import SimpleNamespace
 import signal
 import subprocess
+import time
 
 import pytest
 
 import houmao.agents.realm_controller.backends.headless_runner as headless_runner_module
+from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.headless_bridge import main as run_headless_bridge
 from houmao.agents.realm_controller.backends.headless_output import (
     canonical_headless_event_artifact_path,
@@ -18,6 +20,7 @@ from houmao.agents.realm_controller.backends.headless_runner import (
     HeadlessCliRunner,
     interrupt_owned_headless_attempt,
 )
+from houmao.agents.realm_controller.backends.hermes_headless_protocol import HERMES_HEADLESS_REQUEST
 
 
 def _write_idle_shell(tmp_path: Path) -> Path:
@@ -126,6 +129,63 @@ def _tmux_wait_timeout() -> subprocess.CompletedProcess[str]:
         stdout="",
         stderr="timed out",
     )
+
+
+def test_hermes_viewer_can_settle_after_dispatch_permission_expires(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Expiry can prevent a launch but cannot cancel native work or erase its evidence."""
+
+    turn_dir = tmp_path / "turn"
+    turn_dir.mkdir()
+    (turn_dir / HERMES_HEADLESS_REQUEST).write_text(
+        json.dumps({"turn_id": "turn", "turn_index": 1, "session_id": "verified"})
+    )
+    runner = HeadlessCliRunner()
+    handoffs: list[str] = []
+    signals: list[int] = []
+    monkeypatch.setattr(runner, "_signal_active_tmux_process", signals.append)
+    control = HeadlessDispatchControl.from_callbacks(
+        allowed=lambda: True,
+        confirmed=lambda: handoffs.append("verified"),
+        deadline=time.monotonic() + 30,
+    )
+    runner.set_dispatch_control(control)
+
+    def launch(args: list[str]) -> subprocess.CompletedProcess[str]:
+        assert args[0] == "respawn-pane"
+        (turn_dir / "process.json").write_text(json.dumps({"child_pid": os.getpid()}))
+        control.m_deadline = time.monotonic() - 1
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+
+    def settle(**_kwargs: object) -> None:
+        runner.cancel_request_dispatch(control)
+        (turn_dir / "exitcode").write_text("0\n")
+        (turn_dir / "stdout.jsonl").write_text(
+            '{"type":"system","subtype":"init"}\n'
+            '{"type":"result","session_id":"verified","exit_code":0,"text":"done"}\n'
+        )
+
+    monkeypatch.setattr(headless_runner_module, "run_tmux_shared", launch)
+    monkeypatch.setattr(headless_runner_module, "wait_for_tmux_signal_shared", settle)
+
+    result = runner.run(
+        command=["hermes"],
+        env={},
+        cwd=tmp_path,
+        provider="hermes",
+        output_format="stream-json",
+        turn_index=1,
+        tmux_session_name="fixture",
+        tmux_pane_target="%7",
+        turn_artifacts_root=tmp_path,
+        turn_artifact_dir_name=turn_dir.name,
+    )
+
+    assert result.completion_source == "native_jsonl"
+    assert handoffs == ["verified"]
+    assert not signals
+    assert not (turn_dir / "usage-interrupt.json").exists()
 
 
 def test_headless_runner_parses_stream_json_and_session_id(tmp_path: Path) -> None:

@@ -34,12 +34,18 @@ from houmao.agents.realm_controller.backends.headless_runner import (
     load_headless_turn_events,
     read_headless_turn_return_code,
 )
+from houmao.agents.realm_controller.backends.hermes_headless import HermesHeadlessSession
+from houmao.agents.realm_controller.backends.hermes_headless_protocol import (
+    HERMES_HEADLESS_REQUEST,
+    reconcile_hermes_headless_turn,
+)
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
     tmux_session_exists,
 )
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
+    HeadlessTurnSettlementUnknown,
     LaunchPlanError,
     SessionManifestError,
 )
@@ -115,7 +121,7 @@ def _authority_tmux_session_exists(authority: ManagedHeadlessAuthorityRecord) ->
 
 
 _HEADLESS_BACKENDS = frozenset(
-    {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}
+    {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless", "hermes_headless"}
 )
 _BACKING_HANDOFF_SECONDS = 5.0
 _TURN_ID = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
@@ -343,7 +349,13 @@ class HeadlessAgentService:
                 },
             )
         backend = cast(
-            Literal["claude_headless", "codex_headless", "kimi_headless", "dsh_headless"],
+            Literal[
+                "claude_headless",
+                "codex_headless",
+                "kimi_headless",
+                "dsh_headless",
+                "hermes_headless",
+            ],
             resolved_backend,
         )
 
@@ -569,25 +581,32 @@ class HeadlessAgentService:
         )
         if any(record.turn_id == turn_id for record in existing_turns):
             return (409, {"detail": "The selected turn has already been admitted"})
+        if handle.authority.backend == "hermes_headless" and execution is not None:
+            return (422, {"detail": "Hermes uses its launch-selected model for every turn."})
         now_utc = datetime.now(UTC).isoformat(timespec="seconds")
 
         manifest_path = Path(handle.authority.manifest_path)
         if (
-            handle.authority.backend == "dsh_headless"
+            handle.authority.backend in {"dsh_headless", "hermes_headless"}
             and chat_session is not None
             and chat_session.mode == "tool_last_or_new"
         ):
-            return (422, {"detail": "DSH requires an explicit new or exact native session."})
+            detail = (
+                "DSH requires an explicit new or exact native session."
+                if handle.authority.backend == "dsh_headless"
+                else "Hermes does not support latest-session selection."
+            )
+            return (422, {"detail": detail})
         try:
             selection = _headless_chat_selection(manifest_path, chat_session)
         except (OSError, SessionManifestError, ValueError) as exc:
             return (422, {"detail": str(exc)})
         if authorize_effect is not None:
             authorize_effect()
-        if backing is None and handle.authority.backend == "dsh_headless":
+        if backing is None and handle.authority.backend in {"dsh_headless", "hermes_headless"}:
             generation = handle.controller.registry_generation_id
             if generation is None:
-                return (503, {"detail": "Managed DSH generation is unavailable"})
+                return (503, {"detail": "Managed headless generation is unavailable"})
             try:
                 claim = reserve_owner_prompt(
                     manifest_path, generation, request_id=turn_id, origin="passive"
@@ -913,6 +932,17 @@ class HeadlessAgentService:
         if not isinstance(backend_session, HeadlessInteractiveSession):
             return (500, {"detail": "Agent backend does not support interrupt"})
 
+        if handle.authority.backend == "hermes_headless":
+            if authorize_effect is not None:
+                authorize_effect()
+            with tmux_server_scope(handle.authority.tmux_socket_path):
+                hermes_result = backend_session.interrupt()
+            if hermes_result.status != "ok":
+                return (409, {"detail": hermes_result.detail})
+            return PassiveAgentActionResponse(
+                agent_id=tracked_agent_id, detail=hermes_result.detail
+            )
+
         with self.m_lock:
             if authorize_effect is not None:
                 authorize_effect()
@@ -1156,7 +1186,8 @@ class HeadlessAgentService:
             runtime_resumable=runtime_resumable,
             tmux_session_live=tmux_session_live,
             can_accept_prompt_now=runtime_resumable and tmux_session_live and active_turn is None,
-            interruptible=active_turn is not None
+            interruptible=authority.backend != "hermes_headless"
+            and active_turn is not None
             and (latest_turn is None or latest_turn.status != "unknown"),
             active_turn=active_turn,
             latest_turn=latest_turn,
@@ -1341,7 +1372,12 @@ class HeadlessAgentService:
             )
             log.info("Turn %s completed for agent %s", turn_id, tracked_agent_id)
         except Exception as exc:
-            log.error("Turn %s failed for agent %s: %s", turn_id, tracked_agent_id, exc)
+            if isinstance(exc, HeadlessTurnSettlementUnknown):
+                log.info(
+                    "Turn %s has unresolved native work for agent %s", turn_id, tracked_agent_id
+                )
+            else:
+                log.error("Turn %s failed for agent %s: %s", turn_id, tracked_agent_id, exc)
             record = self._refresh_turn_record(
                 tracked_agent_id=tracked_agent_id,
                 turn_id=turn_id,
@@ -1364,7 +1400,11 @@ class HeadlessAgentService:
                     if backing.owner_claim is not None:
                         status = (
                             record.status
-                            if record is not None and record.returncode is not None
+                            if record is not None
+                            and (
+                                record.returncode is not None
+                                or isinstance(backend, HermesHeadlessSession)
+                            )
                             else None
                         )
                         if (
@@ -1481,10 +1521,28 @@ class HeadlessAgentService:
         final_status: Literal["completed", "failed", "interrupted", "unknown"]
         handle = self._require_handle(tracked_agent_id)
         dsh_cli = handle is not None and handle.authority.backend == "dsh_headless"
+        hermes_cli = handle is not None and handle.authority.backend == "hermes_headless"
 
         if refused_before_launch:
             final_status = "failed"
             error_detail = "Work request authority changed before native handoff."
+        elif hermes_cli:
+            generation = (
+                handle.controller.registry_generation_id
+                if handle is not None and handle.controller is not None
+                else None
+            )
+            evidence = reconcile_hermes_headless_turn(turn_dir, generation_id=generation)
+            returncode = evidence.returncode
+            completion_source = evidence.completion_source
+            if evidence.status == "uncertain":
+                if error_detail is not None and not (turn_dir / HERMES_HEADLESS_REQUEST).exists():
+                    final_status = "failed"
+                else:
+                    final_status = "unknown"
+                    error_detail = "The Hermes client did not establish its native turn outcome."
+            else:
+                final_status = evidence.status
         elif status_path.exists():
             try:
                 returncode = read_headless_turn_return_code(status_path=status_path)

@@ -17,7 +17,7 @@ from houmao.agents.realm_controller.manifest import (
     write_session_manifest,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
-from houmao.agents.realm_controller.native_surface import NativeSurfaceV1
+from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, TerminalNativeSurfaceV1
 from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR
 from houmao.passive_server.config import PassiveServerConfig
 from houmao.passive_server.discovery import (
@@ -386,6 +386,25 @@ class TestRegistryDiscoveryScan:
 
         assert svc.index.get_by_id("dead1") is None
 
+    def test_hermes_discovery_does_not_require_a_live_tmux_view(self, tmp_path: Path) -> None:
+        """Keep exact published daemon control discoverable after the TUI exits."""
+
+        record = _make_record(
+            agent_id="hermes-agent",
+            agent_name="HOUMAO-hermes",
+            session_name="HOUMAO-hermes-pane",
+            tool="hermes",
+            backend="hermes_tui",
+            native_surface=TerminalNativeSurfaceV1(tmux_session_name="HOUMAO-hermes-pane"),
+        )
+        _write_record(tmp_path / "registry", record)
+        svc = self._make_service(tmp_path)
+        with patch("houmao.passive_server.discovery._get_live_tmux_session_names") as tmux:
+            svc.scan_once()
+
+        tmux.assert_not_called()
+        assert svc.index.get_by_id("hermes-agent") is not None
+
     def test_malformed_record_excluded(self, tmp_path: Path) -> None:
         registry_root = tmp_path / "registry"
         agent_dir = registry_root / "live_agents" / "bad1"
@@ -505,4 +524,4 @@ class TestRegistryDiscoveryScan:
             svc.scan_once()
         assert svc.index.get_by_id("owner1") is not None
         assert svc.index.get_by_id("owner2") is None
-        assert calls == [None, "/owner/first.sock", "/owner/second.sock"]
+        assert calls == ["/owner/first.sock", "/owner/second.sock"]

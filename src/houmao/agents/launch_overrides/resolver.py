@@ -72,6 +72,9 @@ _RESERVED_ARGS_BY_BACKEND: Final[dict[SupportedLaunchBackend, tuple[str, ...]]] 
         "--tui",
         "--no-tui",
     ),
+    "hermes_tui": (),
+    "hermes_service": (),
+    "hermes_headless": (),
 }
 _UNSUPPORTED_OVERRIDE_BACKENDS: Final[frozenset[SupportedLaunchBackend]] = frozenset({"cao_rest"})
 _KIMI_SESSION_ARGS = ("--session", "-S", "--resume", "--continue", "-c")
@@ -82,7 +85,14 @@ _TUI_IDENTITY_ARGS: Final[dict[str, tuple[str, ...]]] = {
     "kimi": _KIMI_SESSION_ARGS,
 }
 _OWNED_CONFIG_BACKENDS = frozenset(
-    {"codex_app_server", "kimi_acp", "kimi_web", "dsh_headless", "dsh_acp", "dsh_web"}
+    {
+        "codex_app_server",
+        "kimi_acp",
+        "kimi_web",
+        "dsh_headless",
+        "dsh_acp",
+        "dsh_web",
+    }
 )
 
 
@@ -252,7 +262,7 @@ def resolve_launch_behavior(
         translated_args = adapter.prepare_launch(effective, backend=backend)
 
     args_before_policy = (*native_args, *translated_args)
-    if backend in _OWNED_CONFIG_BACKENDS and args_before_policy:
+    if (tool == "hermes" or backend in _OWNED_CONFIG_BACKENDS) and args_before_policy:
         raise ValueError(
             f"backend={backend!r} uses owned native configuration and rejects raw launch arguments."
         )

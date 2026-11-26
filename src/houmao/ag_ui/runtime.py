@@ -17,7 +17,9 @@ from houmao.agents.realm_controller.managed_control import MANAGED_SERVICE_BACKE
 from houmao.agents.realm_controller.run_modes import RunMode
 from houmao.gateway.authorization_models import AuthorizationDecision
 
-AgUiTargetTransportFamily = Literal["headless", "tui", "service", "web", "http_rest", "unknown"]
+AgUiTargetTransportFamily = Literal[
+    "headless", "tui", "native_tui", "service", "web", "http_rest", "unknown"
+]
 
 
 @dataclass(frozen=True)
@@ -112,8 +114,16 @@ class AgUiRuntimeObservationProtocol(Protocol):
 def ag_ui_target_transport_family_for_backend(backend: str) -> AgUiTargetTransportFamily:
     """Map one gateway backend value to the AG-UI observation family."""
 
-    if backend in {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}:
+    if backend in {
+        "claude_headless",
+        "codex_headless",
+        "kimi_headless",
+        "dsh_headless",
+        "hermes_headless",
+    }:
         return "headless"
+    if backend == "hermes_tui":
+        return "native_tui"
     if backend in {"dsh_web", "kimi_web"}:
         return "web"
     if backend in MANAGED_SERVICE_BACKENDS:

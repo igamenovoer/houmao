@@ -110,7 +110,7 @@ class ModelPoolEntry(ModelOptions):
         """Require exactly one API case or an imported native login bundle."""
 
         if self.auth_method == "native-login":
-            if self.client == "dsh" or not self.auth_bundle:
+            if self.client in {"dsh", "hermes"} or not self.auth_bundle:
                 raise ValueError("native login requires a supported client and an auth bundle")
             bundle_path(Path(), self.client, self.auth_bundle)
             if any(

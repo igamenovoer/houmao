@@ -30,11 +30,12 @@ Fixture preparation SHALL use Anthropic Messages for Claude, OpenAI Responses fo
 
 ### Requirement: Hermes Fixtures Qualify Each Supported Run Mode
 
-The fixture workflow SHALL support separate raw and managed Hermes qualification for tui, service, and headless. A run SHALL record the selected model and route, executable build, qualified capabilities, and per-mode evidence without secrets.
+The fixture workflow SHALL support separate raw and managed Hermes verification for tui, service, and headless. A run SHALL record the selected model and route, resolved command, and observed per-mode evidence without secrets.
 
 #### Scenario: Hermes Qualification Exercises an Isolated Local Runtime
 
 - **WHEN** a developer selects a supported Hermes mode and a controlled self-hosted test configuration
 - **THEN** raw and managed lanes use independently isolated homes and exact workspace and model inputs
+- **AND THEN** each lane resolves `hermes` from PATH in its execution context
 - **AND THEN** the TUI lane uses an isolated tmux server
 - **AND THEN** an unavailable fixture or provider route is recorded separately from a passing qualification

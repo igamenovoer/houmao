@@ -34,6 +34,7 @@ ManagedControlOperation = Literal[
 ManagedControlEvidenceSource = Literal[
     "headless_artifacts",
     "terminal_tracker",
+    "tui_native",
     "web_native",
     "service_native",
     "owner_registry",
@@ -42,9 +43,10 @@ ManagedControlCorrelation = Literal["none", "surface", "request", "native_turn"]
 ManagedControlOutcome = Literal["completed", "failed", "interrupted", "uncertain"]
 
 MANAGED_WEB_BACKENDS: Final[frozenset[BackendKind]] = frozenset({"dsh_web", "kimi_web"})
+MANAGED_STRUCTURED_TUI_BACKENDS: Final[frozenset[BackendKind]] = frozenset({"hermes_tui"})
 
 MANAGED_SERVICE_BACKENDS: Final[frozenset[BackendKind]] = frozenset(
-    {"dsh_acp", "kimi_acp", "codex_app_server"}
+    {"dsh_acp", "kimi_acp", "codex_app_server", "hermes_service"}
 )
 
 
@@ -99,6 +101,11 @@ class ManagedControlObservationV1(BaseModel):
     last_request_id: str | None = None
     last_turn_id: str | None = None
     last_outcome: ManagedControlOutcome | None = None
+    native_admission_id: str | None = None
+    native_admission_state: str | None = None
+    terminal_attachment: Literal["attached", "detached", "unverified", "other_session"] | None = (
+        None
+    )
 
     @field_validator(
         "observed_at_utc",
@@ -108,6 +115,7 @@ class ManagedControlObservationV1(BaseModel):
         "active_turn_id",
         "last_request_id",
         "last_turn_id",
+        "native_admission_id",
     )
     @classmethod
     def _require_identifier(cls, value: str | None) -> str | None:
@@ -152,6 +160,11 @@ def managed_control_capabilities(
     correlation: ManagedControlCorrelation = "none"
     if mode == "headless":
         operations, source, correlation = _TURN_CONTROL, "headless_artifacts", "request"
+    elif backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+        operations = _TURN_CONTROL
+        if isinstance(native_surface, TerminalNativeSurfaceV1):
+            operations = (*operations, "human_handoff")
+        source, correlation = "tui_native", "native_turn"
     elif mode == "tui" and isinstance(native_surface, TerminalNativeSurfaceV1):
         operations = (*_TURN_CONTROL, "send_keys", "human_handoff")
         source, correlation = "terminal_tracker", "surface"

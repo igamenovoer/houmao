@@ -51,6 +51,10 @@ class BackendExecutionError(BrainLaunchRuntimeError):
     """Raised when a backend command fails to execute successfully."""
 
 
+class HeadlessTurnSettlementUnknown(BackendExecutionError):
+    """Signal that client completion leaves native execution unresolved."""
+
+
 class ServiceStartupCheck(Enum):
     """Safe native startup diagnostics that can cross the owner boundary."""
 
@@ -73,6 +77,10 @@ class ServiceStartupCheck(Enum):
     KIMI_SESSION = "Kimi ACP did not bind the selected native session."
     KIMI_MODEL = "Kimi ACP did not bind the configured native model."
     KIMI_PERMISSION_MODE = "Kimi ACP did not confirm its native permission_mode."
+    HERMES_DAEMON = "Hermes could not start or discover the native gateway for this home."
+    HERMES_PROCESS = "Hermes ACP could not start its native process. See its private diagnostics."
+    HERMES_INITIALIZE = "Hermes ACP did not negotiate the required protocol version 1."
+    HERMES_SESSION = "Hermes ACP did not bind the requested native session and workspace."
 
 
 class ServiceStartupCompatibilityError(BackendExecutionError):

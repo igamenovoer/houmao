@@ -16,6 +16,12 @@ from typing import Any, Literal
 import tomli_w
 import yaml
 
+from houmao.agents.hermes_configuration import (
+    HERMES_API_KEY_ENV,
+    hermes_runtime_environment,
+    prepare_hermes_home,
+    resolve_hermes_executable,
+)
 from houmao.agents.kimi_launch_env import KIMI_PRIVATE_ENV_NAMES, reject_kimi_config_env
 from houmao.execution.tmux import tmux_server_scope
 
@@ -40,6 +46,8 @@ _PROVIDER_PREFIXES = (
     "DEEPSEEK_",
     "QWEN_",
     "DSH_",
+    "HERMES_",
+    "OPENROUTER_",
 )
 _CLEAR_BINDINGS = (
     "ANTHROPIC_API_KEY",
@@ -205,6 +213,8 @@ def credential_values(config: ResolvedConfig) -> dict[str, str]:
         return values
     if config.client == "codex":
         return {"OPENAI_API_KEY": key, "OPENAI_BASE_URL": config.base_url}
+    if config.client == "hermes":
+        return {HERMES_API_KEY_ENV: key}
     if config.client == "claude":
         result = {"ANTHROPIC_AUTH_TOKEN": key, "ANTHROPIC_BASE_URL": config.base_url}
         result.update(
@@ -297,6 +307,11 @@ def _render_setup(config: ResolvedConfig, setup: Path, *, seed: Path) -> None:
             )
         private_write(setup / "tool-params.yaml", yaml.safe_dump(config.dsh_tool_params()).encode())
         return
+    if config.client == "hermes":
+        private_write(
+            setup / "tool-params.yaml", yaml.safe_dump({"base_url": config.base_url}).encode()
+        )
+        return
     if config.auth_method == "native-login":
         default = seed / "tools" / config.client / "setups/default"
         if default.exists():
@@ -337,11 +352,23 @@ def _render_assets(
 
     root = run_dir / "assets"
     tool_root = root / "tools" / config.client
-    adapter = yaml.safe_load((seed / "tools" / config.client / "adapter.yaml").read_text())
-    adapter["launch"]["executable"] = executable
+    adapter_path = seed / "tools" / config.client / "adapter.yaml"
+    if config.client == "hermes" and not adapter_path.is_file():
+        adapter_path = (
+            REPO_ROOT / "src/houmao/project/assets/starter_agents/tools/hermes/adapter.yaml"
+        )
+    adapter = yaml.safe_load(adapter_path.read_text(encoding="utf-8"))
+    if config.client != "hermes":
+        adapter["launch"]["executable"] = executable
     private_write(tool_root / "adapter.yaml", yaml.safe_dump(adapter).encode())
     private_write(root / "roles" / role / "system-prompt.md", prompt_file.read_bytes())
     private_directory(root / "skills")
+    if config.client == "hermes":
+        private_write(
+            root / "skills/fixture-probe/SKILL.md",
+            b"---\nname: fixture-probe\ndescription: Verify managed skill discovery.\n---\n"
+            b"# Fixture Probe\nReturn the fixture skill marker when asked.\n",
+        )
     _render_setup(config, tool_root / "setups/fixture", seed=seed)
     auth = tool_root / "auth/default"
     values = credential_values(config)
@@ -467,6 +494,8 @@ def _prepare_project(
             )
     elif tool == "kimi":
         args.extend(["--config-toml", str(auth_files / "config.toml")])
+    elif tool == "hermes":
+        args.extend(["--api-key", values[HERMES_API_KEY_ENV]])
     else:
         args.extend(
             [
@@ -477,7 +506,7 @@ def _prepare_project(
             ]
         )
     credential = manager_call(project, args, env=env)
-    if values and tool != "dsh":
+    if values and tool not in {"dsh", "hermes"}:
         # The adapter-driven writer owns supplemental selected credential inputs.
         from houmao.srv_ctrl.commands.credentials import (
             _resolve_agent_def_dir_target,
@@ -516,6 +545,8 @@ def _prepare_project(
         args.append("--no-unattended")
     if config.model:
         args.extend(["--model", config.model])
+    if tool == "hermes":
+        args.extend(["--with-skill", str(assets / "skills/fixture-probe")])
     for key, value in runtime_values(config).items():
         args.extend(["--env-set", f"{key}={value}"])
     specialist = manager_call(project, args, env=env)
@@ -558,19 +589,31 @@ def prepare_run(
         raise FixtureError("Role must be one directory identifier")
     if config.client == "dsh" and config.auth_method == "native-login":
         raise FixtureError("DSH fixtures require explicitly selected API credentials")
+    if config.client == "hermes" and config.auth_method != "api-key":
+        raise FixtureError("Hermes fixtures require explicitly selected API credentials")
     local_tmux = config.surface == "manager" or (
         config.surface == "raw" and config.mode in {"tui", "web"}
     )
     if tmux_server is not None and not local_tmux:
         raise FixtureError("--tmux-server requires a local tmux-backed fixture")
     if local_tmux and tmux_server is None:
-        tmux_server = "houmao-default"
+        tmux_server = "new" if config.client == "hermes" else "houmao-default"
+    if config.client == "hermes" and tmux_server == "houmao-default":
+        raise FixtureError("Hermes fixtures use an isolated tmux server")
     selection = config.selection()
     seed = (seed_root or REPO_ROOT / "tests/fixtures/plain-agent-def").resolve()
     prompt = (prompt_file or seed / "roles" / role / "system-prompt.md").resolve()
     if not prompt.is_file():
         raise FixtureError("Selected role prompt file is missing")
-    resolved_executable = shutil.which(executable or config.client)
+    if config.client == "hermes":
+        if executable not in {None, "hermes"}:
+            raise FixtureError("Select the Hermes fixture executable through PATH")
+        try:
+            resolved_executable = resolve_hermes_executable()
+        except ValueError as exc:
+            raise FixtureError(str(exc)) from None
+    else:
+        resolved_executable = shutil.which(executable or config.client)
     if resolved_executable is None:
         raise FixtureError(f"Client executable is unavailable: {config.client}")
     if config.native_bundle is not None:
@@ -611,7 +654,7 @@ def prepare_run(
         if config.client == "dsh":
             private_directory(home / "skills")
         setup = assets / "tools" / config.client / "setups/fixture"
-        if config.client != "dsh":
+        if config.client not in {"dsh", "hermes"}:
             _copy_files(setup, home)
         _copy_files(assets / "tools" / config.client / "auth/default/files", home)
         if config.client == "codex":
@@ -619,6 +662,22 @@ def prepare_run(
                 home / ".env", "".join(f"{key}={value}\n" for key, value in values.items()).encode()
             )
         selected_env = {**values, **runtime_values(config), HOME_VARIABLE[config.client]: str(home)}
+        if config.client == "hermes":
+            assert config.base_url is not None and config.model is not None
+            prepare_hermes_home(
+                home,
+                base_url=config.base_url,
+                model_name=config.model,
+                role_prompt=prompt.read_text(encoding="utf-8"),
+            )
+            _copy_files(assets / "skills", home / "skills")
+            selected_env = hermes_runtime_environment(home, selected_env)
+            if config.surface == "raw" and config.mode == "tui":
+                tmp = run_dir / "tui-tmp"
+                private_directory(tmp)
+                selected_env["TMPDIR"] = str(tmp)
+                if config.operator_prompt_mode == "unattended":
+                    selected_env["HERMES_NONINTERACTIVE"] = "1"
         write_json(run_dir / "private-env.json", selected_env)
         env = isolated_environment(selected_env, run_dir=run_dir)
         if config.client == "dsh":

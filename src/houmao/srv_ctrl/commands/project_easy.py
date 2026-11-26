@@ -1015,6 +1015,14 @@ def create_easy_specialist_command(
     resolved_tool_params = _tool_params_or_click(
         tool_name, tool_params, source="specialist tool_params"
     )
+    if tool_name == "hermes" and base_url is not None:
+        if "base_url" in resolved_tool_params:
+            raise click.ClickException(
+                "Select the Hermes endpoint once through --base-url or --tool-params."
+            )
+        resolved_tool_params = _tool_params_or_click(
+            tool_name, json.dumps({"base_url": base_url}), source="specialist --base-url"
+        )
     overlay = _ensure_project_overlay()
     specialist_name = _require_non_empty_name(name, field_name="--name")
     credential_name = (
@@ -1114,7 +1122,7 @@ def create_easy_specialist_command(
     )
     prompt_mode = (
         "as_is"
-        if no_unattended or tool_name not in {"claude", "codex", "kimi", "dsh"}
+        if no_unattended or tool_name not in {"claude", "codex", "kimi", "dsh", "hermes"}
         else "unattended"
     )
     launch_mapping: dict[str, Any] = {"prompt_mode": prompt_mode}

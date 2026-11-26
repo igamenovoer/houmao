@@ -2038,7 +2038,11 @@ def test_local_tui_mail_fallback_uses_owner_admission(
     gateway_dir.mkdir()
     with sqlite3.connect(gateway_dir / "queue.sqlite"):
         pass
-    monkeypatch.setattr(owner_admission, "_owner_manifest", lambda *_: SimpleNamespace(mode="tui"))
+    monkeypatch.setattr(
+        owner_admission,
+        "_owner_manifest",
+        lambda *_: SimpleNamespace(mode="tui", backend=backend_kind),
+    )
     if already_reserved:
         owner_admission.reserve_owner_prompt(manifest, "generation", origin="gateway")
 

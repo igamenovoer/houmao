@@ -32,6 +32,7 @@ from houmao.agents.brain_builder import (
     build_brain_home,
     validate_brain_inputs,
 )
+from houmao.agents.hermes_configuration import resolve_hermes_executable
 from houmao.agents.tool_params import parse_tool_params_cli_input
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.managed_launch_force import (
@@ -237,6 +238,7 @@ _PROVIDERS = frozenset(
         "codex",
         "kimi",
         "dsh",
+        "hermes",
     }
 )
 _JOIN_SUPPORTED_PROCESSES: dict[str, tuple[str, ...]] = {
@@ -984,6 +986,13 @@ def launch_managed_agent_locally(
             else None
         )
         selection = resolve_run_mode(target.tool, mode=mode, entrypoint="project")
+        if selection.tool == "hermes":
+            try:
+                resolve_hermes_executable(
+                    environment=owner_env, working_directory=resolved_working_directory
+                )
+            except (OSError, ValueError) as exc:
+                raise click.ClickException(str(exc)) from exc
         resolved_backend = selection.backend
         resolved_backend_name = resolved_backend
         effective_skill_names = _merge_launch_skill_names(
@@ -1027,12 +1036,14 @@ def launch_managed_agent_locally(
             reuse_home=reuse_home,
         )
         if (
-            selection.human_surface_kind != "terminal"
+            (selection.human_surface_kind != "terminal" or resolved_backend == "hermes_tui")
             and gateway_tui_tracking_timing_overrides is not None
             and gateway_tui_tracking_timing_overrides.has_values()
         ):
             raise click.ClickException(
-                "Gateway TUI timing overrides require a terminal native surface."
+                "Hermes TUI uses native readiness and does not support parser timing overrides."
+                if resolved_backend == "hermes_tui"
+                else "Gateway TUI timing overrides require a terminal native surface."
             )
         build_request = BuildRequest(
             agent_def_dir=target.agent_def_dir,
@@ -2008,6 +2019,10 @@ def join_agents_command(
 
     launch_env_bindings = _parse_join_launch_env(launch_env)
     requested_provider = provider.strip() if provider is not None else None
+    if requested_provider == "hermes":
+        raise click.ClickException(
+            "Hermes terminal join is unsupported. Launch Hermes through Houmao instead."
+        )
     if requested_provider == "dsh":
         raise click.ClickException(
             "DSH adoption is unsupported. Launch a managed DSH Web agent from a project profile."

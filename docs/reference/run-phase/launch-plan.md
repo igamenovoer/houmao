@@ -106,6 +106,12 @@ For Kimi Code 2.1.1 or later, `build_launch_plan()` records the resolved TUI per
 
 For both `kimi_headless` and Kimi `local_interactive`, provider-start planning verifies `$KIMI_CODE_HOME/SYSTEM.md` immediately before launch and repairs drift to the canonical `${base_prompt}` plus complete effective-prompt form. `metadata.native_system_prompt` records the method, relative path, projection state, effective and rendered hashes, built-in-prompt preservation, engine requirement, detected provider version, and validation result. The final environment always contains `KIMI_CODE_LEGACY_FLAG=0`; a later truthy runtime override fails before process start.
 
+### Hermes Launch Inputs
+
+Houmao resolves `hermes` with `command -v hermes` in the selected execution context. Service mode is the default. Select `tui` for the native terminal or `headless` for one-shot JSONL turns. The passive headless launch endpoint selects headless explicitly.
+
+Set `model.name` and `tool_params.base_url` to the model and its OpenAI-compatible Chat Completions endpoint. The selected credential bundle supplies `HERMES_MANAGED_API_KEY`. Houmao writes the role to `SOUL.md`, projects skills into `skills/`, and writes the route and credential reference to `config.yaml` in the private Hermes home. Choose the route at launch. To change it for a session, use a managed relaunch or start a new session.
+
 ## backend_for_tool
 
 ```python
@@ -125,6 +131,7 @@ Returns the default backend for a given tool name.
 | `claude` | `claude_headless` |
 | `codex` | `codex_headless` |
 | `kimi` | `kimi_headless` |
+| `hermes` | `hermes_service` |
 
 **Override behavior:**
 

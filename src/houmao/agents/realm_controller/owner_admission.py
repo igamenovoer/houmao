@@ -736,8 +736,28 @@ def _reconcile_active(
     for row in rows:
         attempt = _row_attempt(row)
         assert attempt is not None
+        if attempt.mode in {"tui", "headless"} and manifest.backend in {
+            "hermes_tui",
+            "hermes_headless",
+        }:
+            terminal = _read_native_terminal(attempt, manifest=manifest)
+            if terminal is not None:
+                outcome, evidence = terminal
+                _finish_attempt(connection, attempt.request_id, generation_id, outcome, evidence)
+                continue
+            if (
+                manifest.backend == "hermes_tui"
+                and reconcile_tui is not None
+                and attempt.handoff_at_utc is not None
+                and reconcile_tui(attempt)
+            ):
+                _finish_attempt(
+                    connection, attempt.request_id, generation_id, "settled", "tui_native"
+                )
+                continue
         if (
             attempt.mode == "tui"
+            and manifest.backend != "hermes_tui"
             and attempt.handoff_at_utc is not None
             and (
                 (reconcile_tui is not None and reconcile_tui(attempt))
@@ -807,6 +827,50 @@ def _read_native_terminal(
     """Read exact durable terminal evidence after the submitting process disappeared."""
 
     try:
+        if manifest.backend == "hermes_tui":
+            receipt = json.loads((attempt.turn_dir / "hermes-native-admission.json").read_text())
+            if (
+                not isinstance(receipt, dict)
+                or (
+                    receipt.get("request_id"),
+                    receipt.get("generation_id"),
+                    receipt.get("native_session_id"),
+                )
+                != (
+                    attempt.request_id,
+                    attempt.generation_id,
+                    manifest.backend_state.get("native_session_id"),
+                )
+                or not receipt.get("native_admission_id")
+            ):
+                return None
+            outcome = receipt.get("status")
+            if outcome in {"completed", "failed", "interrupted"}:
+                return cast(OwnerPromptTerminal, outcome), "tui_native"
+            return None
+        if manifest.backend == "hermes_headless":
+            from houmao.agents.realm_controller.backends.hermes_headless_protocol import (
+                reconcile_hermes_headless_turn,
+            )
+            from houmao.agents.realm_controller.manifest import commit_hermes_headless_completion
+
+            settlement = reconcile_hermes_headless_turn(
+                attempt.turn_dir, generation_id=attempt.generation_id
+            )
+            if settlement.status == "completed" and (
+                settlement.session_id is None
+                or settlement.turn_index is None
+                or not commit_hermes_headless_completion(
+                    attempt.manifest_path,
+                    generation_id=attempt.generation_id,
+                    session_id=settlement.session_id,
+                    turn_index=settlement.turn_index,
+                )
+            ):
+                return None
+            if settlement.status != "uncertain" and settlement.completion_source is not None:
+                return cast(OwnerPromptTerminal, settlement.status), settlement.completion_source
+            return None
         if attempt.mode == "headless":
             code = int((attempt.turn_dir / "exitcode").read_text().strip())
             if manifest.backend == "dsh_headless" and code in {0, 130}:
@@ -866,7 +930,7 @@ def _read_native_terminal(
                 match request.state:
                     case "completed" | "failed" | "interrupted" as outcome:
                         return outcome, "service_native"
-    except (OSError, ValueError, AttributeError, BackendExecutionError):
+    except (OSError, ValueError, AttributeError, BackendExecutionError, SessionManifestError):
         return None
     return None
 

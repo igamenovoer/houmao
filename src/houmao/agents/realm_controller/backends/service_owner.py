@@ -444,6 +444,12 @@ def _provider(config: ServiceOwnerConfig) -> ServiceProvider:
         )
 
         return create_codex_service_provider(config)
+    if config.backend == "hermes_service":
+        from houmao.agents.realm_controller.backends.hermes_acp_service import (
+            create_hermes_service_provider,
+        )
+
+        return create_hermes_service_provider(config)
     raise BackendExecutionError("Selected native service provider is unsupported")
 
 

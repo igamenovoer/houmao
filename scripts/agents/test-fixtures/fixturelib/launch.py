@@ -24,8 +24,9 @@ from uuid import uuid4
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
-from houmao.agents.launch_env import owner_tmux_launch_environment
-from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.hermes_configuration import resolve_hermes_executable
+from houmao.agents.launch_env import owner_launch_baseline, owner_tmux_launch_environment
+from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
@@ -73,7 +74,13 @@ def run_environment(run: dict[str, Any]) -> dict[str, str]:
     ):
         raise FixtureError("Invalid prepared private environment")
     legacy_socket = run.get("tmux_socket_path") if "tmux_server_mode" not in run else None
-    env = isolated_environment(selected, run_dir=root, tmux_socket_path=legacy_socket)
+    hermes = run["configuration"]["client"] == "hermes"
+    env = isolated_environment(
+        selected,
+        run_dir=root,
+        tmux_socket_path=legacy_socket,
+        process_env=owner_launch_baseline(os.environ) if hermes else None,
+    )
     if run["configuration"]["mode"] == "tui":
         env[f"HOUMAO_HOOK_OBSERVATION_{run['configuration']['client'].upper()}"] = "1"
     return env
@@ -283,6 +290,16 @@ def raw_command(run: dict[str, Any], *, prompt: str | None = None) -> list[str]:
         ]
         if session:
             command += ["--session-id", session]
+    elif client == "hermes":
+        mode = run["configuration"]["mode"]
+        if mode == "headless":
+            command += ["chat", "--oneshot", "--query-file", "-", "--format", "stream-json"]
+        elif mode == "service":
+            command += ["acp"]
+        else:
+            command += ["--tui"]
+        if session and mode in {"headless", "tui"}:
+            command += ["--resume", session]
     else:
         raise FixtureError(f"No direct terminal or one-shot fixture command for {client}")
     return command
@@ -360,6 +377,7 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
     stderr = root / f"raw-turn-{index}.stderr"
     client = run["configuration"]["client"]
     dsh = client == "dsh"
+    hermes = client == "hermes"
     env = run_environment(run)
     command = raw_command(run, prompt=prompt)
     if dsh:
@@ -369,6 +387,14 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
         env = home.environment
         if home.permission_preset is not None:
             command.extend(["--permission-mode", home.permission_preset])
+    if hermes:
+        from fixturelib.hermes import raw_hermes_daemon
+
+        daemon = raw_hermes_daemon(run, env)
+        daemon.ensure()
+        previous = run.get("identity", {}).get("provider_session_id")
+        if previous:
+            daemon.resolve_session(previous)
     private_write(stdout, b"")
     private_write(stderr, b"")
     with stdout.open("wb") as out, stderr.open("wb") as err:
@@ -376,7 +402,7 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
             command,
             cwd=run["workdir"],
             env=env,
-            stdin=subprocess.PIPE if dsh else subprocess.DEVNULL,
+            stdin=subprocess.PIPE if dsh or hermes else subprocess.DEVNULL,
             stdout=out,
             stderr=err,
             start_new_session=True,
@@ -386,7 +412,7 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
         run["active_process"] = worker
         _save(run)
         try:
-            if dsh:
+            if dsh or hermes:
                 process.communicate(input=prompt.encode(), timeout=timeout)
             else:
                 process.wait(timeout=timeout)
@@ -415,13 +441,20 @@ def _raw_turn(run: dict[str, Any], prompt: str, timeout: float) -> None:
                 outcome = "uncertain"
             summary["evidence_source"] = "native_stream"
         summary["status"] = outcome
+    elif hermes:
+        from fixturelib.hermes import raw_hermes_result
+
+        run.setdefault("raw_workers", []).append(worker)
+        session = raw_hermes_result(stdout, run.get("identity", {}).get("provider_session_id"))
+        summary["status"] = "completed" if code == 0 and session else "uncertain"
+        summary["evidence_source"] = "native_stream"
     else:
         session = _session_id(stdout, client)
     run.setdefault("turns", []).append(summary)
     if session:
         run.setdefault("identity", {})["provider_session_id"] = session
     _save(run)
-    if code != 0 or (dsh and summary["status"] != "completed"):
+    if code != 0 or ((dsh or hermes) and summary["status"] != "completed"):
         raise FixtureError("Raw client turn failed; inspect private stdout/stderr captures")
 
 
@@ -429,7 +462,8 @@ def _process_birth(process_id: int) -> str | None:
     """Read Linux process start ticks so delayed interruption cannot hit a reused PID."""
 
     try:
-        return Path(f"/proc/{process_id}/stat").read_text().rpartition(")")[2].split()[19]
+        fields = Path(f"/proc/{process_id}/stat").read_text().rpartition(")")[2].split()
+        return fields[19] if fields[0] != "Z" else None
     except (OSError, IndexError):
         return None
 
@@ -471,6 +505,10 @@ def interrupt_run(path: Path) -> dict[str, Any]:
             with _raw_web_environment(run):
                 control_raw_web(run, "interrupt")
             _save(run)
+        elif (
+            run["configuration"]["client"] == "hermes" and run["configuration"]["mode"] == "service"
+        ):
+            raise FixtureError("Raw Hermes ACP fixtures expose prompt and stop controls")
         elif not _signal_raw_driver(run, signal.SIGINT):
             raise FixtureError("No verified active raw fixture process to interrupt")
     elif run["configuration"]["surface"] == "manager":
@@ -484,9 +522,14 @@ def interrupt_run(path: Path) -> dict[str, Any]:
     return {"status": "interrupt_requested", "run_dir": run["run_dir"]}
 
 
-def _raw_tui(run: dict[str, Any], *, allow_start: bool) -> None:
+def _raw_tui(run: dict[str, Any], *, allow_start: bool, timeout: float) -> None:
     """Start one named tmux session with bindings sourced from a private script."""
 
+    hermes = run["configuration"]["client"] == "hermes"
+    if hermes:
+        from fixturelib.hermes import raw_hermes_daemon
+
+        raw_hermes_daemon(run, run_environment(run)).ensure()
     name = "fixture-" + Path(run["run_dir"]).name
     command = [sys.executable, str(Path(__file__).with_name("raw_child.py")), run["run_dir"]]
     owner_options = []
@@ -523,6 +566,54 @@ def _raw_tui(run: dict[str, Any], *, allow_start: bool) -> None:
     if session_id is None:
         raise FixtureError("Raw fixture session disappeared during launch")
     run["identity"]["tmux_session_id"] = session_id
+    if hermes:
+        _wait_for_raw_hermes_tui(server, started.stdout.strip(), timeout)
+
+
+def _wait_for_raw_hermes_tui(server: TmuxServer, pane_id: str, timeout: float) -> None:
+    """Wait for the fresh stock Ink pane to display its ready status line."""
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        capture = server.capture_exact(["capture-pane", "-p", "-t", pane_id])
+        if capture.returncode != 0:
+            raise FixtureError("Raw Hermes TUI pane disappeared during launch")
+        if re.search(r"^\s*[─—] ready\s*│", capture.stdout, re.MULTILINE):
+            return
+        time.sleep(0.2)
+    raise FixtureError("Raw Hermes TUI did not display a ready session")
+
+
+def _raw_hermes_acp(run: dict[str, Any], timeout: float) -> None:
+    """Start one stock ACP process under this fixture's persistent IO worker."""
+
+    from fixturelib.hermes import ACP_READY, raw_hermes_daemon
+
+    root = Path(run["run_dir"])
+    environment = run_environment(run)
+    raw_hermes_daemon(run, environment).ensure()
+    log = root / "raw-acp-worker.log"
+    private_write(log, b"")
+    with log.open("ab") as output:
+        process = subprocess.Popen(
+            [sys.executable, str(Path(__file__).with_name("hermes.py")), str(root)],
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=output,
+            stderr=output,
+            start_new_session=True,
+            umask=0o077,
+        )
+    run["active_process"] = {"pid": process.pid, "birth": _process_birth(process.pid)}
+    _save(run)
+    deadline = time.monotonic() + min(timeout, 65)
+    while time.monotonic() < deadline and process.poll() is None:
+        marker = root / ACP_READY
+        if marker.is_file():
+            run["identity"] = json.loads(marker.read_text(encoding="utf-8"))
+            return
+        time.sleep(0.05)
+    raise FixtureError("Raw Hermes ACP startup failed; inspect private ACP artifacts")
 
 
 def _owned_raw_tui_session(run: dict[str, Any], server: TmuxServer) -> str | None:
@@ -624,7 +715,17 @@ def launch_run(
         raise FixtureError("Passive-server launch requires explicit --passive-url")
     if config["surface"] == "raw" and config["mode"] == "headless" and not prompt:
         raise FixtureError("Raw headless launch requires --prompt")
-    if not os.access(run["executable"], os.X_OK):
+    available = True
+    if config["client"] == "hermes":
+        try:
+            run["executable"] = resolve_hermes_executable(
+                environment=run_environment(run), working_directory=Path(run["workdir"])
+            )
+        except ValueError:
+            available = False
+    else:
+        available = os.access(run["executable"], os.X_OK)
+    if not available:
         run["status"] = "not_run"
         run["prerequisites"] = {"missing": ["client_executable"], "live_requested": True}
         _save(run)
@@ -632,18 +733,19 @@ def launch_run(
     run["status"] = "launching"
     _save(run)
     try:
-        version = subprocess.run(
-            [run["executable"], "--version"],
-            env=run_environment(run),
-            capture_output=True,
-            text=True,
-            timeout=15,
-            umask=0o077,
-        )
-        # Store the version token only. Other executable output stays private.
-        line = version.stdout.strip().splitlines()
-        match = _VERSION_OUTPUT.fullmatch(line[0]) if version.returncode == 0 and line else None
-        run["client_version"] = match.group(1) if match else None
+        if config["client"] != "hermes":
+            version = subprocess.run(
+                [run["executable"], "--version"],
+                env=run_environment(run),
+                capture_output=True,
+                text=True,
+                timeout=15,
+                umask=0o077,
+            )
+            # Store the version token only. Other executable output stays private.
+            line = version.stdout.strip().splitlines()
+            match = _VERSION_OUTPUT.fullmatch(line[0]) if version.returncode == 0 and line else None
+            run["client_version"] = match.group(1) if match else None
         if config["surface"] == "raw":
             if config["mode"] == "headless":
                 _raw_turn(run, prompt or "", timeout)
@@ -654,7 +756,9 @@ def launch_run(
                 with _raw_web_environment(run, allow_start=allow_start):
                     launch_raw_web(run)
             elif config["mode"] == "tui":
-                _raw_tui(run, allow_start=_select_raw_tmux(run))
+                _raw_tui(run, allow_start=_select_raw_tmux(run), timeout=timeout)
+            elif config["client"] == "hermes" and config["mode"] == "service":
+                _raw_hermes_acp(run, timeout)
             else:
                 raise FixtureError("This mode requires the managed fixture surface")
         elif config["surface"] == "manager":
@@ -692,10 +796,19 @@ def launch_run(
         _record_native_surface(run)
         run["status"] = "launched"
         _save(run)
-        if prompt and (config["surface"] != "raw" or config["mode"] == "web"):
+        prompt_after_launch = config["surface"] != "raw" or config["mode"] in {"web", "service"}
+        if config["client"] == "hermes" and config["mode"] == "tui":
+            prompt_after_launch = True
+        if prompt and prompt_after_launch:
             return prompt_run(path, prompt=prompt, timeout=timeout)
         return public_run(run)
-    except (FixtureError, OSError, subprocess.SubprocessError, TmuxCommandError) as exc:
+    except (
+        BackendExecutionError,
+        FixtureError,
+        OSError,
+        subprocess.SubprocessError,
+        TmuxCommandError,
+    ) as exc:
         if isinstance(exc, ManagedCommandError):
             run["identity"] = exc.payload
             if exc.payload.get("agent_id") and exc.payload.get("manifest_path"):
@@ -750,6 +863,13 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             if not identity.get("provider_session_id"):
                 raise FixtureError("Raw continuation requires a captured provider session ID")
             _raw_turn(run, prompt, timeout)
+        elif config["client"] == "hermes" and config["mode"] == "service":
+            from fixturelib.hermes import raw_acp_prompt
+
+            worker = run.get("active_process", {})
+            if not worker.get("birth") or _process_birth(worker["pid"]) != worker["birth"]:
+                raise FixtureError("Raw Hermes ACP worker is unavailable")
+            run.setdefault("turns", []).append(raw_acp_prompt(run, prompt, timeout))
         else:
             server = _fixture_tmux(run)
             if _owned_raw_tui_session(run, server) is None:
@@ -792,6 +912,18 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
         if turn["status"] != "completed":
             _save(run)
             raise FixtureError("Managed headless turn did not complete")
+    elif config["client"] == "hermes":
+        receipt = manager_root_call(
+            ["agents", "single", "--agent-id", identity["agent_id"], "prompt", "--prompt", prompt],
+            env=run_environment(run),
+        )
+        delivery = receipt.get("delivery_state", "uncertain")
+        run.setdefault("turns", []).append(
+            {"request_id": receipt.get("request_id"), "status": delivery}
+        )
+        if not receipt.get("success") or delivery not in {"handed_off", "completed"}:
+            _save(run)
+            raise FixtureError("Managed Hermes prompt outcome was not verified")
     else:
         if config["mode"] == "tui":
             _gateway_request(
@@ -896,6 +1028,10 @@ def _cleanup(run: dict[str, Any]) -> None:
             if session_id is not None:
                 server.checked_command(["kill-session", "-t", session_id], no_start=True)
                 stopped_owned = True
+        if config["surface"] == "raw" and config["client"] == "hermes":
+            from fixturelib.hermes import raw_hermes_daemon
+
+            raw_hermes_daemon(run, run_environment(run)).stop()
         run["cleanup"] = "stopped_owned_identity" if stopped_owned else "no_owned_identity"
         if run.get("gateway_cleanup") == "detach_failed":
             try:
@@ -907,7 +1043,13 @@ def _cleanup(run: dict[str, Any]) -> None:
                 run["cleanup"] = "failed_requires_scoped_follow_up"
             except OSError:
                 run["gateway_cleanup"] = "already_unavailable"
-    except (FixtureError, OSError, subprocess.SubprocessError, TmuxCommandError):
+    except (
+        BackendExecutionError,
+        FixtureError,
+        OSError,
+        subprocess.SubprocessError,
+        TmuxCommandError,
+    ):
         run["cleanup"] = "failed_requires_scoped_follow_up"
 
 
@@ -971,10 +1113,15 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
 
     run = load_run(path)
     root = Path(run["run_dir"])
-    missing = []
-    if not os.access(run["executable"], os.X_OK):
-        missing.append("client_executable")
     config = run["configuration"]
+    missing = []
+    if config["client"] == "hermes":
+        try:
+            resolve_hermes_executable(working_directory=Path(run["workdir"]))
+        except ValueError:
+            missing.append("client_executable")
+    elif not os.access(run["executable"], os.X_OK):
+        missing.append("client_executable")
     local_tmux = config["surface"] == "manager" or (
         config["surface"] == "raw" and config["mode"] in {"tui", "web"}
     )
@@ -996,12 +1143,35 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
         elif config["surface"] == "manager" and identity.get("agent_id"):
             scope = ["agents", "single", "--agent-id", identity["agent_id"]]
             env = run_environment(run)
-            status = manager_root_call([*scope, "gateway", "status"], env=env)
-            if status.get("gateway_health") == "healthy" and status.get("gateway_port"):
-                live_identity = {**identity, "gateway_port": status["gateway_port"]}
-                run["usage"] = _gateway_request({**run, "identity": live_identity}, "/v1/usage")
+            if config["client"] == "hermes":
+                state = manager_root_call([*scope, "state"], env=env)
+                run["native_state"] = {
+                    "mode": config["mode"],
+                    "availability": state.get("availability"),
+                }
             else:
-                manager_root_call([*scope, "state"], env=env)
+                status = manager_root_call([*scope, "gateway", "status"], env=env)
+                if status.get("gateway_health") == "healthy" and status.get("gateway_port"):
+                    live_identity = {**identity, "gateway_port": status["gateway_port"]}
+                    run["usage"] = _gateway_request({**run, "identity": live_identity}, "/v1/usage")
+                else:
+                    manager_root_call([*scope, "state"], env=env)
+        elif config["surface"] == "raw" and config["client"] == "hermes":
+            from fixturelib.hermes import raw_hermes_daemon
+
+            try:
+                daemon = raw_hermes_daemon(run, run_environment(run)).discover()
+            except BackendExecutionError as exc:
+                raise FixtureError("Raw Hermes native daemon is unavailable") from exc
+            if daemon is None:
+                raise FixtureError("Raw Hermes native daemon is unavailable")
+            if config["mode"] == "tui" and _owned_raw_tui_session(run, _fixture_tmux(run)) is None:
+                raise FixtureError("Raw Hermes TUI session is unavailable")
+            if config["mode"] == "service":
+                worker = run.get("active_process", {})
+                if not worker.get("birth") or _process_birth(worker["pid"]) != worker["birth"]:
+                    raise FixtureError("Raw Hermes ACP worker is unavailable")
+            run["native_state"] = {"mode": config["mode"], "availability": "observed"}
         elif identity.get("tmux_session_name"):
             if _owned_raw_tui_session(run, _fixture_tmux(run)) is None:
                 raise FixtureError("Fixture tmux session is missing")

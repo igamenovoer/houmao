@@ -24,6 +24,6 @@ The identifiers `gemini`, `gemini_cli`, and `gemini_headless` SHALL NOT be accep
 
 #### Scenario: Hermes Is Selected Through Maintained Tool Surfaces
 
-- **WHEN** an operator selects `hermes` with a qualified backend through a maintained managed launch path
+- **WHEN** an operator selects `hermes` with a supported backend through a maintained managed launch path
 - **THEN** the path resolves Hermes consistently and identifies the selected run mode
 - **AND THEN** an unsupported Hermes operation is rejected without selecting a different tool

@@ -29,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dsh-credential-env-file", type=Path)
     parser.add_argument("--kimi-credential-env-file", type=Path)
     parser.add_argument("--kimi-credential-env-name", action="append", default=[])
+    parser.add_argument("--hermes-credential-env-file", type=Path)
+    parser.add_argument("--hermes-env-name", action="append", default=[])
     parser.add_argument("--permission-params", type=json.loads, default={})
     parser.add_argument(
         "--launch-arg",
@@ -53,6 +55,16 @@ def main(argv: list[str] | None = None) -> int:
 
     home = Path(namespace.home_path).resolve()
     environment = dict(os.environ)
+    if namespace.hermes_credential_env_file is not None:
+        if namespace.tool != "hermes":
+            parser.error("The Hermes credential source can only be used with Hermes.")
+        _exec_hermes(
+            home=home,
+            workspace=Path(namespace.working_directory),
+            env_file=namespace.hermes_credential_env_file,
+            env_names=namespace.hermes_env_name,
+            args=[*namespace.launch_args, *passthrough],
+        )
     if namespace.dsh_credential_env_file is not None:
         if namespace.tool != "dsh":
             parser.error("The DSH credential source can only be used with DSH.")
@@ -90,6 +102,41 @@ def main(argv: list[str] | None = None) -> int:
     command = [result.executable, *result.args, *passthrough]
     os.execvpe(result.executable, command, environment)
     return 0
+
+
+def _exec_hermes(
+    *,
+    home: Path,
+    workspace: Path,
+    env_file: Path,
+    env_names: list[str],
+    args: list[str],
+) -> None:
+    """Launch the selected native tool using only the explicit credential source."""
+
+    from houmao.agents.hermes_configuration import (
+        HERMES_API_KEY_ENV,
+        hermes_runtime_environment,
+        resolve_hermes_executable,
+    )
+    from houmao.agents.launch_env import owner_launch_baseline
+    from houmao.agents.realm_controller.errors import LaunchPlanError
+    from houmao.agents.realm_controller.loaders import parse_env_file
+
+    try:
+        credentials = parse_env_file(env_file)
+        environment = owner_launch_baseline(os.environ)
+        environment.update({name: os.environ[name] for name in env_names if name in os.environ})
+        environment.pop(HERMES_API_KEY_ENV, None)
+        if HERMES_API_KEY_ENV in credentials:
+            environment[HERMES_API_KEY_ENV] = credentials[HERMES_API_KEY_ENV]
+        native_environment = hermes_runtime_environment(home, environment)
+        executable = resolve_hermes_executable(
+            environment=native_environment, working_directory=workspace
+        )
+        os.execve(executable, [executable, *args], native_environment)
+    except (OSError, LaunchPlanError, ValueError) as exc:
+        raise SystemExit(str(exc)) from None
 
 
 def _dsh_launch_environment(
@@ -170,6 +217,9 @@ def _parse_backend(raw_value: str) -> LaunchSurface:
         "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "hermes_tui",
+        "hermes_service",
+        "hermes_headless",
         "kimi_web",
         "cao_rest",
     }:

@@ -239,6 +239,23 @@ class AgUiEventMapper:
 
         return self._assistant_text_events(message_id=f"{self.m_run_id}:web-output", text=text)
 
+    def map_native_tui_activity(self, state: str) -> ActivitySnapshotEvent:
+        """Publish request-scoped activity from a structured terminal backend."""
+
+        return ActivitySnapshotEvent(
+            message_id=f"{self.m_run_id}:native-tui",
+            activity_type="houmao.tui.native_request",
+            content=json.dumps({"state": state}),
+            replace=True,
+        )
+
+    def map_native_tui_output(self, text: str) -> list[BaseEvent]:
+        """Publish committed assistant output from the selected native admission."""
+
+        return self._assistant_text_events(
+            message_id=f"{self.m_run_id}:native-tui-output", text=text
+        )
+
     def graphic_artifact_events(
         self,
         *,

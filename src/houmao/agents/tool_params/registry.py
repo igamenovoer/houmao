@@ -12,11 +12,13 @@ import yaml
 from houmao.agents.tool_params.base import StrictToolParams, ToolParamsAdapter
 from houmao.agents.tool_params.claude import ClaudeToolParamsAdapter
 from houmao.agents.tool_params.codex import CodexToolParamsAdapter
+from houmao.agents.tool_params.hermes import HermesToolParamsAdapter
 from houmao.agents.tool_params.kimi import KimiToolParamsAdapter
 
 _ADAPTERS = {
     "claude": ClaudeToolParamsAdapter(),
     "codex": CodexToolParamsAdapter(),
+    "hermes": HermesToolParamsAdapter(),
     "kimi": KimiToolParamsAdapter(),
 }
 

@@ -34,6 +34,9 @@ from houmao.agents.realm_controller.backends.dsh_diagnostics import (
     dsh_diagnostic_tail,
     sanitize_dsh_diagnostic,
 )
+from houmao.agents.realm_controller.backends.hermes_headless_protocol import (
+    reconcile_hermes_headless_turn,
+)
 from houmao.agents.realm_controller.usage_support import (
     headless_artifact_process_alive,
     persist_terminal_evidence,
@@ -261,7 +264,7 @@ class HeadlessCliRunner:
         elapsed_ms = (time.monotonic() - started_monotonic) * 1000
         if provider == "dsh" and result.returncode == 130:
             self.m_interrupt_requested = True
-        if self.m_active_turn_dir is not None:
+        if self.m_active_turn_dir is not None and provider != "hermes":
             persist_terminal_evidence(
                 self.m_active_turn_dir,
                 returncode=result.returncode,
@@ -274,7 +277,11 @@ class HeadlessCliRunner:
             result,
             turn_id=turn_id,
             started_at_utc=started_at_utc,
-            completed_at_utc=completed_at_utc,
+            completed_at_utc=(
+                completed_at_utc
+                if provider != "hermes" or result.completion_source != "native_unresolved"
+                else None
+            ),
             wall_time_ms=elapsed_ms,
             interrupted=self.m_interrupt_requested,
         )
@@ -316,7 +323,8 @@ class HeadlessCliRunner:
         """Stop only this request's captured process, without targeting a replacement pane."""
 
         control.cancel()
-        if self.m_dispatch_control is not control:
+        # Hermes cannot attribute native cancellation to the finite viewer's PID.
+        if self.m_dispatch_control is not control or self.m_active_provider == "hermes":
             return
         process = self._active_process
         if process is not None and process.poll() is None:
@@ -674,7 +682,7 @@ class HeadlessCliRunner:
                     else 1.0
                 ),
             )
-            if self.m_dispatch_control is not None:
+            if self.m_dispatch_control is not None and provider != "hermes":
                 if provider == "dsh":
                     handoff_path = turn_dir / "dsh-native-handoff.json"
                     while not handoff_path.is_file() and not status_path.is_file():
@@ -748,11 +756,16 @@ class HeadlessCliRunner:
                     )
                 time.sleep(max(completion_poll_interval_seconds, 0.01))
 
-            stderr_text = (
-                _native_dsh_stderr(stderr_path, env)
-                if output_format == "dsh-cli"
-                else (stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else "")
-            )
+            if provider == "hermes":
+                stderr_text = (
+                    "Hermes client diagnostics are available in the private turn artifacts."
+                )
+            elif output_format == "dsh-cli":
+                stderr_text = _native_dsh_stderr(stderr_path, env)
+            else:
+                stderr_text = (
+                    stderr_path.read_text(encoding="utf-8") if stderr_path.exists() else ""
+                )
             returncode = read_headless_turn_return_code(status_path=status_path)
             canonical_events = load_preferred_canonical_headless_events(
                 turn_dir=turn_dir,
@@ -763,6 +776,12 @@ class HeadlessCliRunner:
             events = canonical_headless_events_to_session_events(canonical_events)
             session_id = extract_session_id(events)
             process_metadata = self._read_process_metadata_best_effort(process_path=process_path)
+            completion_source = "process_exit"
+            if provider == "hermes":
+                settlement = reconcile_hermes_headless_turn(turn_dir)
+                completion_source = settlement.completion_source or "native_unresolved"
+                if settlement.status == "completed" and self.m_dispatch_control is not None:
+                    self.m_dispatch_control.confirm_durable_handoff()
             if output_format == "dsh-cli" and returncode != 0:
                 stderr_text = _native_dsh_failure(stderr_text, canonical_events)
             if returncode != 0:
@@ -788,7 +807,7 @@ class HeadlessCliRunner:
                 process_path=process_path,
                 canonical_path=canonical_path if canonical_path.exists() else None,
                 process_metadata=process_metadata,
-                completion_source="process_exit",
+                completion_source=completion_source,
             )
         except BaseException as exc:
             control = self.m_dispatch_control
@@ -1117,6 +1136,8 @@ def load_headless_turn_events(
                 turn_index=turn_index,
             )
             return canonical_headless_events_to_session_events(canonical_events)
+        if provider == "hermes":
+            return []
 
     stdout_text = stdout_path.read_text(encoding="utf-8") if stdout_path.exists() else ""
     return parse_headless_output_text(

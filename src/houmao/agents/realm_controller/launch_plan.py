@@ -39,6 +39,12 @@ from houmao.agents.dsh_configuration import (
     read_dsh_mcp_environment,
 )
 from houmao.agents.dsh_credentials import require_dsh_credential_roles
+from houmao.agents.hermes_configuration import (
+    HERMES_API_KEY_ENV,
+    hermes_runtime_environment,
+    resolve_hermes_executable,
+    write_hermes_role,
+)
 from houmao.agents.tool_params.dsh import DshPermissionParams
 from houmao.agents.launch_env import validate_persistent_env_records
 from houmao.agents.model_mapping_policy import resolve_reasoning_mapping
@@ -58,6 +64,7 @@ from houmao.agents.launch_policy.models import (
     LaunchPolicyCompatibilityError,
     LaunchPolicyError,
     LaunchPolicyRequest,
+    LaunchPolicyResult,
     LaunchSurface,
     OperatorPromptMode,
     LaunchPolicyStrategy,
@@ -186,6 +193,17 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         manifest, backend=request.backend
     )
     private_names = _credential_binding_names(manifest)
+    if tool == "hermes":
+        if home_env_var != "HERMES_HOME":
+            raise LaunchPlanError("Hermes requires the HERMES_HOME home selector")
+        try:
+            if request.intent == "provider_start":
+                executable = resolve_hermes_executable(working_directory=request.working_directory)
+            env_values = hermes_runtime_environment(home_path, env_values)
+        except (OSError, ValueError) as exc:
+            raise LaunchPlanError(str(exc)) from exc
+        env_var_names = sorted(env_values)
+        private_names.update({HERMES_API_KEY_ENV, "HERMES_GATEWAY_LOCK_DIR"})
     kimi_config: dict[str, Any] = {}
     if tool == "kimi" and request.intent == "provider_start":
         try:
@@ -265,6 +283,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         "codex_headless",
         "kimi_headless",
         "dsh_headless",
+        "hermes_headless",
     }:
         metadata["headless_output_format"] = "stream-json"
         metadata["headless_display_style"] = "plain"
@@ -285,21 +304,24 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         )
 
     try:
-        launch_policy_result = apply_launch_policy(
-            LaunchPolicyRequest(
-                tool=tool,
-                backend=policy_backend,
-                executable=executable,
-                base_args=tuple(args),
-                requested_operator_prompt_mode=requested_operator_prompt_mode,
-                working_directory=request.working_directory.resolve(),
-                home_path=home_path,
-                env=policy_env,
-                application_kind=request.intent,
-                tool_params=resolved_launch_behavior.tool_params,
-                tool_param_sources=resolved_launch_behavior.tool_param_sources,
+        if tool == "hermes":
+            launch_policy_result = LaunchPolicyResult(executable, tuple(args), None, None)
+        else:
+            launch_policy_result = apply_launch_policy(
+                LaunchPolicyRequest(
+                    tool=tool,
+                    backend=policy_backend,
+                    executable=executable,
+                    base_args=tuple(args),
+                    requested_operator_prompt_mode=requested_operator_prompt_mode,
+                    working_directory=request.working_directory.resolve(),
+                    home_path=home_path,
+                    env=policy_env,
+                    application_kind=request.intent,
+                    tool_params=resolved_launch_behavior.tool_params,
+                    tool_param_sources=resolved_launch_behavior.tool_param_sources,
+                )
             )
-        )
     except LaunchPolicyCompatibilityError as exc:
         raise LaunchPolicyResolutionError(
             requested_operator_prompt_mode=exc.requested_operator_prompt_mode,
@@ -348,7 +370,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
     args.extend(codex_cli_config_args)
     if request.backend == "kimi_web":
         args.extend(("web", "--no-open", "--host", "127.0.0.1", "--port", "0"))
-    elif request.backend == "kimi_acp":
+    elif request.backend in {"kimi_acp", "hermes_service"}:
         args.append("acp")
     else:
         args.extend(provider_model_selection_cli_args)
@@ -396,6 +418,17 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             args.append("--json")
             metadata["headless_output_format"] = "dsh-cli"
         env_var_names = sorted(env_values)
+    if tool == "hermes":
+        if request.intent == "provider_start":
+            try:
+                write_hermes_role(home_path, role_injection.prompt)
+            except (OSError, ValueError) as exc:
+                raise LaunchPlanError("Could not prepare the private Hermes role") from exc
+        metadata["native_system_prompt"] = {
+            "method": "native_home_system_prompt",
+            "path": str(home_path / "SOUL.md"),
+            "validation": "materialized",
+        }
     if tool == "kimi" and (
         owned_kimi_session or request.backend in {"local_interactive", "kimi_headless"}
     ):
@@ -524,6 +557,8 @@ def read_launch_environment(
         selected, selected_names = parse_allowlisted_env(source, allowlist)
     home_selector = _require_mapping(runtime, "launch_home_selector")
     protected = {*_credential_binding_names(manifest), _require_str(home_selector, "env_var")}
+    if tool == "hermes":
+        protected.update({HERMES_API_KEY_ENV, "HERMES_GATEWAY_LOCK_DIR"})
     if tool == "dsh":
         setup_path = Path(_require_str(home_selector, "value")) / MATERIALIZED_DSH_TOOL_PARAMS
         try:
@@ -1067,7 +1102,14 @@ def _native_role_injection_method(
         return "native_append_system_prompt"
     if backend == "local_interactive" and tool == "claude":
         return "native_append_system_prompt"
-    if backend in {"kimi_headless", "kimi_acp", "kimi_web"}:
+    if backend in {
+        "kimi_headless",
+        "kimi_acp",
+        "kimi_web",
+        "hermes_tui",
+        "hermes_service",
+        "hermes_headless",
+    }:
         return "native_home_system_prompt"
     if backend in {"dsh_headless", "dsh_acp", "dsh_web"}:
         return "native_system_prompt_section"
@@ -1085,6 +1127,10 @@ def _plan_legacy_role_injection(
 ) -> RoleInjectionPlan:
     """Create the pre-policy role-injection plan for direct helper callers."""
 
+    if backend in {"hermes_tui", "hermes_service", "hermes_headless"}:
+        return RoleInjectionPlan(
+            method="native_home_system_prompt", role_name=role_name, prompt=role_prompt
+        )
     if backend in {"dsh_headless", "dsh_acp", "dsh_web"}:
         return RoleInjectionPlan(
             method="native_system_prompt_section", role_name=role_name, prompt=role_prompt

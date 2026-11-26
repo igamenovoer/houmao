@@ -182,10 +182,12 @@ async def test_kimi_web_run_emits_only_its_matching_native_answer(replacement: b
 
 
 class _ConnectedRequest:
-    async def is_disconnected(self) -> bool:
-        """Keep the fake SSE stream attached until its terminal event."""
+    disconnected = False
 
-        return False
+    async def is_disconnected(self) -> bool:
+        """Report whether the test client still receives SSE events."""
+
+        return self.disconnected
 
 
 @pytest.mark.anyio
@@ -248,6 +250,71 @@ def _ready_service() -> ManagedControlObservationV1:
         native_session_id="native-session",
         service_incarnation="native-owner",
     )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("replacement", [None, "session", "admission", "disconnect"])
+async def test_hermes_tui_stream_tracks_its_queued_native_admission(
+    replacement: str | None,
+) -> None:
+    """A queued run stays open and settles only with evidence for its conversation."""
+
+    queued = {
+        "operation_id": "request-1",
+        "source": "tui_native",
+        "native_session_id": "native-session",
+        "native_turn_ids": ["admission-1"],
+        "outcome": "queued",
+    }
+    runtime = _Runtime(
+        target_family="native_tui",
+        status_payload=_status(
+            mode="tui",
+            backend="hermes_tui",
+            observation=_ready_service().model_copy(update={"source": "tui_native"}),
+        ),
+        observed_request=AgUiObservedRequestState(
+            request_id="request-1",
+            request_kind="submit_prompt",
+            state="observing",
+            accepted_at_utc="2026-06-08T01:00:00Z",
+            result=queued,
+        ),
+    )
+    service = AgUiRunService(runtime=runtime)  # type: ignore[arg-type]
+    admitted = service.admit_run(_run_input())
+    connection = _ConnectedRequest()
+    stream = service.stream_run_events(admitted_run=admitted, request=connection)
+    events = [await anext(stream), await anext(stream)]
+    assert [event.type.value for event in events] == ["RUN_STARTED", "ACTIVITY_SNAPSHOT"]
+    assert "queued" in events[1].model_dump_json()
+    if replacement == "disconnect":
+        connection.disconnected = True
+        assert [event async for event in stream] == []
+        assert runtime.observed_request is not None and runtime.observed_request.result == queued
+        return
+    assert runtime.observed_request is not None
+    runtime.observed_request = replace(
+        runtime.observed_request,
+        state="completed",
+        result={
+            **queued,
+            "native_session_id": "another-conversation"
+            if replacement == "session"
+            else "native-session",
+            "native_turn_ids": [
+                "another-admission" if replacement == "admission" else "admission-1"
+            ],
+            "outcome": "completed",
+            "assistant_text": "Receipt-bound text",
+        },
+    )
+    events.extend([event async for event in stream])
+    assert events[-1].type.value == ("RUN_FINISHED" if replacement is None else "RUN_ERROR")
+    assert any("Receipt-bound text" in event.model_dump_json() for event in events) is (
+        replacement is None
+    )
+    assert all("Uncorrelated human output" not in event.model_dump_json() for event in events)
 
 
 @pytest.mark.anyio

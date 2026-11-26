@@ -6,31 +6,35 @@ Define how Houmao builds, launches, controls, and observes managed Hermes agents
 
 ## ADDED Requirements
 
-### Requirement: Managed Hermes Launch Uses a Qualified Installed Tool
+### Requirement: Managed Hermes Launch Resolves the Command on PATH
 
-Houmao SHALL resolve `hermes` through its managed tool and profile selection. Launch preflight SHALL report the selected executable build, validate required capabilities and the selected execution context, and reject unsupported combinations before replacing a runtime or preparing its home.
+Houmao SHALL determine Hermes executable availability solely with `command -v hermes` in the selected execution context. A successful lookup SHALL allow launch of the requested supported mode using the resolved command. A failed lookup SHALL report that Hermes is missing from PATH before changing the managed home or existing runtime.
 
-#### Scenario: Hermes Is Selected
+#### Scenario: Hermes Is on PATH
 
-- **WHEN** an operator builds and launches a Hermes agent with a supported mode and a qualified local executable
-- **THEN** the manager records Hermes, that mode, its backend, and the verified build
-- **AND THEN** the normal manager and gateway controls address the same managed identity
+- **WHEN** an operator selects a supported Hermes mode and `command -v hermes` succeeds in the selected execution context
+- **THEN** Houmao attempts startup with the resolved command and its selected backend
+- **AND THEN** a successful startup publishes the same managed identity for manager and gateway controls
 
-#### Scenario: Hermes Is Absent or Incompatible
+#### Scenario: Hermes Is Missing From PATH
 
-- **WHEN** the executable is missing, the build is unqualified, or a required entrypoint or capability is unavailable
-- **THEN** launch fails with an actionable preflight diagnostic
-- **AND THEN** no installation, upgrade, existing agent replacement, or alternate-mode launch occurs
+- **WHEN** the selected execution context cannot find `hermes` on PATH
+- **THEN** Houmao reports the missing command and identifies the context where PATH must be corrected
+- **AND THEN** the managed home and any existing runtime remain intact
+
+#### Scenario: Hermes Startup Fails
+
+- **WHEN** the resolved command fails to start the selected mode or its native connection fails to initialize
+- **THEN** Houmao reports the startup failure for that mode using the available diagnostics
 
 ### Requirement: Hermes State and Configuration Belong to the Managed Agent
 
 Houmao SHALL bind the selected agent to an isolated Hermes home, gateway rendezvous scope, and explicit workspace. It SHALL project its role, selected skills, tool policy, model route, and privately referenced credentials into native configuration while keeping its existing managed identity.
 
-#### Scenario: Two Agents Share an Installation
+#### Scenario: Two Agents Have Separate Homes
 
-- **WHEN** two agents run the same installed Hermes executable under one OS user
-- **THEN** each binds a separate daemon, session store, workspace, and selected configuration
-- **AND THEN** an ambient profile, gateway, credential, or login cannot become either agent's authority
+- **WHEN** two Hermes agents launch under one OS user
+- **THEN** each binds a separate home, daemon, session store, workspace, and selected configuration and credential source
 - **AND THEN** their runtime inputs and histories remain separately addressable
 
 #### Scenario: A Managed Role and Skill Pack Are Selected
@@ -47,7 +51,7 @@ Houmao SHALL bind the selected agent to an isolated Hermes home, gateway rendezv
 
 ### Requirement: Hermes Lifecycle Verifies the Owned Native Authority
 
-Houmao SHALL bind execution to its verified Hermes daemon, home, logical session, and runtime generation. Managed stop and relaunch SHALL act on that exact authority. Gateway detach or client loss SHALL preserve existing accepted work. A replacement authority SHALL reconcile existing work using attributable evidence before reopening admission.
+Houmao SHALL bind managed execution to its recorded Hermes home and selected logical session. It SHALL record the daemon incarnation and runtime generation for lifecycle operations and turn evidence. Gateway detach or client loss SHALL preserve accepted work. After a daemon replacement, Houmao SHALL reconcile existing work using attributable evidence before reopening admission.
 
 #### Scenario: Houmao Gateway Reattaches During an Accepted Turn
 
@@ -64,15 +68,41 @@ Houmao SHALL bind execution to its verified Hermes daemon, home, logical session
 
 #### Scenario: Exact Relaunch Has No Matching Session
 
-- **WHEN** a caller requests a saved logical session that is missing or belongs to another home or workspace
+- **WHEN** the manager verifies a requested saved logical session before launch and finds that it is missing or belongs to another home or workspace
 - **THEN** the manager refuses exact continuation before submission
 - **AND THEN** it does not move the workspace, select a recent conversation, or create a replacement conversation
 
 #### Scenario: Operator Stops One of Two Managed Hermes Agents
 
-- **WHEN** stop targets the current verified owner of one Hermes agent
-- **THEN** Houmao stops its owned native processes and preserves the record needed for explicit relaunch
+- **WHEN** stop targets one Hermes agent whose daemon was started or adopted by Houmao
+- **THEN** Houmao verifies the targeted process identities, stops those processes, and preserves the record needed for explicit relaunch
 - **AND THEN** another agent's daemon, conversation, and terminal remain available
+
+### Requirement: Hermes Daemon Ownership Follows the Managed Launch Home
+
+Houmao SHALL manage the daemon launched for the exact standalone Hermes home it created and recorded. It SHALL start a daemon when needed and adopt any existing daemon launched for that home without seeking consent or notifying its starter. Independent use of the managed home has undefined behavior.
+
+#### Scenario: The Managed Home Has No Daemon
+
+- **WHEN** Houmao needs native execution and the managed home has no daemon
+- **THEN** Houmao starts one directly or through the native client's local startup and records its verified process identity
+
+#### Scenario: A Daemon Is Already Running in the Managed Home
+
+- **WHEN** Houmao finds a daemon whose launch home matches the recorded managed home, including one a user or native client started
+- **THEN** Houmao adopts its verified process identity regardless of its starter
+- **AND THEN** normal readiness still requires the protocol capabilities used by the selected mode
+
+#### Scenario: A Native Client Starts a Same-Home Replacement
+
+- **WHEN** a daemon exits during client attachment and native local startup brings up a replacement for the same managed home
+- **THEN** Houmao adopts the replacement and records its process identity
+- **AND THEN** previously admitted requests retain their original evidence and reconcile before new work is accepted
+
+#### Scenario: A Discovered Daemon Has a Different Launch Home
+
+- **WHEN** discovery finds a gateway launched for a different home, even if it serves the managed home as a secondary profile
+- **THEN** Houmao leaves that daemon outside managed control and reports native availability only after verifying a connection to a daemon launched for the recorded home
 
 ### Requirement: Hermes TUI Uses Native Structured Control
 
@@ -155,13 +185,19 @@ Hermes service mode SHALL own a persistent `hermes acp` client and its verified 
 
 ### Requirement: Hermes Headless Uses a Finite Structured CLI Client
 
-Every accepted Hermes headless turn SHALL use one finite `hermes chat` CLI client with literal input and structured JSONL output. Continuation SHALL use the verified logical session ID. Houmao SHALL retain raw turn artifacts and publish attributable semantic events separately.
+Every accepted Hermes headless turn SHALL use one finite `hermes chat` CLI client with literal input and structured JSONL output. Houmao SHALL verify the logical session ID and workspace before continuation and pass that ID unchanged to stock `--resume`, which uses Hermes's native lookup behavior. Houmao SHALL retain raw turn artifacts and publish attributable semantic events separately.
 
 #### Scenario: Two Headless Prompts Continue the Same Session
 
-- **WHEN** the second prompt explicitly continues the first native conversation
-- **THEN** a new CLI process sends the prompt to that exact logical session in the verified workspace
+- **WHEN** the second prompt explicitly continues the first native conversation and Hermes resolves the verified ID
+- **THEN** Houmao starts a new CLI process with `--resume <full-id>` in the verified workspace
 - **AND THEN** the model sees the earlier turn and the client accepts multiline input literally
+
+#### Scenario: The CLI Reports a Different Session After Verification
+
+- **WHEN** the verified ID disappears before the CLI looks it up and the native title fallback selects another conversation
+- **THEN** Houmao treats any result identifying the different logical session as insufficient to settle the requested turn
+- **AND THEN** the requested conversation remains the managed binding
 
 #### Scenario: Terminal JSONL Supplies Completion
 

@@ -18,6 +18,7 @@ from houmao.agents.realm_controller.gateway_models import GatewayWebControlState
 from houmao.agents.realm_controller.gateway_storage import web_attach_metadata_from_state
 from houmao.agents.realm_controller.headless_snapshots import latest_headless_turn
 from houmao.agents.realm_controller.managed_control import (
+    MANAGED_STRUCTURED_TUI_BACKENDS,
     ManagedControlCapabilitiesV1,
     ManagedControlObservationV1,
     managed_control_capabilities,
@@ -33,6 +34,7 @@ from houmao.agents.realm_controller.web_observation import (
 )
 from houmao.passive_server.compatibility import (
     mailbox_summary_from_registry_record,
+    managed_native_tui_detail_response,
     managed_runtime_headless_detail_response,
     managed_runtime_headless_state_from_observation,
     managed_service_detail_response,
@@ -47,6 +49,7 @@ from houmao.server.models import (
     HoumaoManagedAgentIdentity,
     HoumaoManagedAgentLastTurnView,
     HoumaoManagedAgentMailboxSummaryView,
+    HoumaoManagedAgentNativeTuiDetailView,
     HoumaoManagedAgentPublicationView,
     HoumaoManagedAgentServiceDetailView,
     HoumaoManagedAgentStateResponse,
@@ -121,6 +124,13 @@ def observe_selected_agent(
                     state=_observe_web(manifest_path, manifest, gateway_client),
                 )
                 detail = _detail(summary, HoumaoManagedAgentWebDetailView(state=summary.web))
+            elif live_candidate and manifest.backend in MANAGED_STRUCTURED_TUI_BACKENDS:
+                detail = managed_native_tui_detail_response(
+                    identity=identity,
+                    mailbox_summary=mailboxes,
+                    gateway_summary=gateway_summary,
+                    observation=_native_controller(manifest_path, manifest).observe_managed_tui(),
+                )
             elif live_candidate and manifest.mode == "tui":
                 detail = _tui_detail(
                     identity=identity,
@@ -201,7 +211,12 @@ def _unavailable_detail(
     """Preserve authorized publication when observation or manifest access is unavailable."""
 
     diagnostic = HoumaoErrorDetail(kind="managed_observation_unavailable", message=reason)
-    control = ManagedControlObservationV1(source="owner_registry", freshness="unknown")
+    native_tui = record.identity.backend in MANAGED_STRUCTURED_TUI_BACKENDS
+    control = ManagedControlObservationV1(
+        source="tui_native" if native_tui else "owner_registry",
+        freshness="unknown",
+        terminal_attachment="unverified" if native_tui else None,
+    )
     summary = HoumaoManagedAgentStateResponse(
         tracked_agent_id=identity.tracked_agent_id,
         identity=identity,
@@ -219,6 +234,8 @@ def _unavailable_detail(
         return _detail(summary, HoumaoManagedAgentServiceDetailView(state=control))
     if mode == "web":
         return _detail(summary, HoumaoManagedAgentWebDetailView(state=None))
+    if native_tui:
+        return _detail(summary, HoumaoManagedAgentNativeTuiDetailView(state=control))
     if mode == "tui":
         return _detail(
             summary,

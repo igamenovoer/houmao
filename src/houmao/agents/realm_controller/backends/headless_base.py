@@ -120,6 +120,7 @@ class HeadlessInteractiveSession:
             "kimi_headless",
             "dsh_acp",
             "dsh_headless",
+            "hermes_headless",
         }:
             raise BackendExecutionError(f"Invalid tmux-backed backend: {backend}")
 
@@ -153,10 +154,11 @@ class HeadlessInteractiveSession:
         self.m_tmux_binding: SessionManifestTmuxSectionV1 | None = None
         self.m_tmux_binding_repair: _TmuxBindingRepair | None = None
 
-        _ensure_required_executable(
-            executable=self._plan.executable,
-            flow=f"{self.backend} runtime execution",
-        )
+        if self.backend != "hermes_headless":
+            _ensure_required_executable(
+                executable=self._plan.executable,
+                flow=f"{self.backend} runtime execution",
+            )
         if not execution_is_read_only():
             self._ensure_tmux_container(requested_tmux_session_name=tmux_session_name)
 

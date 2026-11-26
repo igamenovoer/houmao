@@ -95,7 +95,7 @@ _POOL_ROUTING_FIELDS = (
 def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     """Add explicit API case, native metadata, and Houmao launch selection options."""
 
-    parser.add_argument("--client", choices=("claude", "codex", "kimi", "dsh"))
+    parser.add_argument("--client", choices=("claude", "codex", "kimi", "dsh", "hermes"))
     parser.add_argument("--case", choices=("self-hosted", "cloud-api"))
     parser.add_argument("--auth-method", choices=("api-key", "native-login"))
     parser.add_argument("--auth-bundle")
@@ -191,6 +191,8 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    peer = commands.add_parser("chat-peer", help="Serve a controlled local Chat Completions peer")
+    peer.add_argument("--state-dir", type=Path, required=True)
     discover = commands.add_parser("discover-auth", help="Read-only bounded native auth discovery")
     importer = commands.add_parser(
         "import-auth", help="Copy an explicitly selected native auth source"
@@ -332,6 +334,8 @@ def selected_configuration(
     if args.auth_method == "native-login":
         if args.client == "dsh":
             raise FixtureError("DSH fixtures support explicitly selected API credentials only")
+        if args.client == "hermes":
+            raise FixtureError("Hermes fixtures require explicitly selected API credentials")
         if args.case is not None or args.env_file is not None or args.base_url is not None:
             raise FixtureError("Native login selection is independent of API case/env routing")
         if not args.auth_bundle:
@@ -395,6 +399,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parse_arguments(argv)
     try:
+        if args.command == "chat-peer":
+            from fixturelib.chat_peer import serve_chat_peer
+
+            serve_chat_peer(args.state_dir)
+            return 0
         if args.command in {"discover-auth", "import-auth"}:
             if args.command == "import-auth" and args.source is not None:
                 if args.candidate is not None:

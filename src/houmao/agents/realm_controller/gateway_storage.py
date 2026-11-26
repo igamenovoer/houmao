@@ -602,6 +602,7 @@ def _preserve_existing_headless_managed_metadata(
         "codex_headless",
         "kimi_headless",
         "dsh_headless",
+        "hermes_headless",
     }:
         return attach_contract
     if not paths.attach_path.is_file():

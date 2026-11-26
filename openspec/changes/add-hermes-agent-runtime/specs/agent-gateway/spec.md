@@ -122,6 +122,12 @@ Malformed `chat_session` payloads, including missing `id` for `exact` or unexpec
 - **THEN** the gateway reports unsupported selection before starting the CLI
 - **AND THEN** explicit new, current, and exact selections use the verified Hermes home and workspace
 
+#### Scenario: Hermes Headless Continues a Verified Session
+
+- **WHEN** a caller selects `current` or `exact` for a Hermes headless prompt
+- **THEN** Houmao verifies the full logical session ID and workspace before starting the CLI
+- **AND THEN** Houmao passes the verified ID unchanged to stock `--resume`, whose lookup follows Hermes's native behavior
+
 ### Requirement: Gateway raw send-keys bypasses prompt-readiness and busy gating
 
 For a target with qualified raw control input through `POST /v1/control/send-keys`, the gateway SHALL forward the exact control-input request without first requiring that the addressed agent is idle, stable, or prompt-ready.

@@ -50,6 +50,9 @@
             "dsh_headless",
             "dsh_acp",
             "dsh_web",
+            "hermes_tui",
+            "hermes_headless",
+            "hermes_service",
             "kimi_web",
             "cao_rest",
             "houmao_server_rest"

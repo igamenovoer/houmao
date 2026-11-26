@@ -640,6 +640,49 @@ def test_raw_preparation_has_selected_settings_without_shared_credentials(
         assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == config.model
 
 
+def test_hermes_raw_tui_prepares_private_route_and_skills(
+    fixture_config: ModuleType,
+    fixture_prepare: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hermes uses the explicit case bindings and prepares isolated TUI inputs."""
+
+    executable = tmp_path / "hermes"
+    executable.write_text("#!/bin/sh\nexit 99\n", encoding="utf-8")
+    executable.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "ambient-home"))
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-ambient-key")
+    inputs = _env("self-hosted")
+    with pytest.raises(fixture_config.FixtureError, match="HOUMAO_TEST_SELF_HOSTED_API_KEY"):
+        fixture_config.resolve_config(case="self-hosted", client="hermes", process_env=inputs)
+    inputs["HOUMAO_TEST_SELF_HOSTED_API_KEY"] = "synthetic-explicit-hermes-key"
+    config = fixture_config.resolve_config(
+        case="self-hosted", client="hermes", mode="tui", surface="raw", process_env=inputs
+    )
+    run = fixture_prepare.prepare_run(config, run_root=tmp_path / "runs")
+    root = Path(run["run_dir"])
+    home = Path(run["home_path"])
+    assert run["executable"] == str(executable)
+    assert run["tmux_server_mode"] == "new" and run["backend"] == "hermes_tui"
+    assert home == root / "home"
+    assert (home / "SOUL.md").is_file()
+    assert (home / "skills/fixture-probe/SKILL.md").is_file()
+    env_file = root / "private-env.json"
+    env = json.loads(env_file.read_text(encoding="utf-8"))
+    assert env_file.stat().st_mode & 0o777 == 0o600
+    assert env["HERMES_HOME"] == str(home)
+    assert env["TMPDIR"] == str(root / "tui-tmp")
+    assert env["HERMES_NONINTERACTIVE"] == "1"
+    assert "OPENAI_API_KEY" not in env
+    native = yaml.safe_load((home / "config.yaml").read_text(encoding="utf-8"))
+    assert native["model"]["default"] == config.model
+    assert native["model"]["base_url"] == config.base_url
+    assert env[native["model"]["key_env"]] == inputs["HOUMAO_TEST_SELF_HOSTED_API_KEY"]
+    assert env[native["model"]["key_env"]] not in (root / "run.json").read_text(encoding="utf-8")
+
+
 @pytest.mark.parametrize("client", ["claude", "codex", "kimi"])
 def test_native_preparation_copies_auth_without_api_routing(
     fixture_config: ModuleType,

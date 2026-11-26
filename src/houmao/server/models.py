@@ -891,8 +891,16 @@ class HoumaoManagedAgentServiceDetailView(_HoumaoModel):
     state: ManagedControlObservationV1
 
 
+class HoumaoManagedAgentNativeTuiDetailView(_HoumaoModel):
+    """Native admission and attachment evidence for a structured terminal agent."""
+
+    transport: Literal["native_tui"] = "native_tui"
+    state: ManagedControlObservationV1
+
+
 ManagedAgentDetailPayload = Annotated[
     HoumaoManagedAgentTuiDetailView
+    | HoumaoManagedAgentNativeTuiDetailView
     | HoumaoManagedAgentHeadlessDetailView
     | HoumaoManagedAgentServiceDetailView
     | HoumaoManagedAgentWebDetailView,

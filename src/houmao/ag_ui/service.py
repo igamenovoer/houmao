@@ -124,6 +124,14 @@ class AgUiRunService:
         native_service_session_id = None
         service_incarnation = None
         native_web_identity = None
+        if target_transport_family == "native_tui":
+            observation = getattr(status, "observation", None)
+            if not isinstance(observation, ManagedControlObservationV1) or (
+                observation.can_accept_prompt_now is not True
+                or observation.native_session_id is None
+            ):
+                raise HTTPException(status_code=503, detail="The native TUI is unavailable")
+            native_service_session_id = observation.native_session_id
         if target_transport_family == "service":
             service = getattr(status, "service", None)
             if not isinstance(service, ManagedControlObservationV1) or (
@@ -216,6 +224,8 @@ class AgUiRunService:
         emitted_tui_initial = False
         emitted_web_state: str | None = None
         emitted_service_state: str | None = None
+        emitted_native_tui_state: str | None = None
+        native_tui_admission_id = admitted_run.accepted_request.native_prompt_id
         web_sequence = 0
         deadline = monotonic() + self.m_observation_timeout_seconds
         yield mapper.run_started_event(admitted_run.run_input)
@@ -256,6 +266,34 @@ class AgUiRunService:
                             for event in mapper.map_service_request(service_request):
                                 yield event
                             emitted_service_state = service_request.state
+                if (
+                    admitted_run.target_transport_family == "native_tui"
+                    and request_state is not None
+                    and isinstance(request_state.result, dict)
+                    and request_state.result.get("source") == "tui_native"
+                    and request_state.result.get("operation_id") == request_state.request_id
+                    and request_state.result.get("native_session_id")
+                    == admitted_run.native_service_session_id
+                ):
+                    native_turns = request_state.result.get("native_turn_ids")
+                    if (
+                        isinstance(native_turns, list)
+                        and len(native_turns) == 1
+                        and isinstance(native_turns[0], str)
+                        and native_turns[0]
+                    ):
+                        if native_tui_admission_id is None:
+                            native_tui_admission_id = native_turns[0]
+                        elif native_turns[0] != native_tui_admission_id:
+                            yield mapper.run_error_event(
+                                message="The owner returned evidence for a different native admission.",
+                                code="houmao_native_outcome_uncertain",
+                            )
+                            return
+                    native_state = request_state.result.get("outcome")
+                    if isinstance(native_state, str) and native_state != emitted_native_tui_state:
+                        yield mapper.map_native_tui_activity(native_state)
+                        emitted_native_tui_state = native_state
                 if admitted_run.target_transport_family == "headless":
                     emitted_headless_count, headless_events = self._headless_tail_events(
                         admitted_run=admitted_run,
@@ -318,7 +356,7 @@ class AgUiRunService:
                             yield event
 
                     if request_state.state == "uncertain" or (
-                        admitted_run.target_transport_family in {"service", "web"}
+                        admitted_run.target_transport_family in {"service", "web", "native_tui"}
                         and request_state.state == "completed"
                         and not _request_has_native_completion(request_state, admitted_run)
                     ):
@@ -344,6 +382,13 @@ class AgUiRunService:
                             assistant = request_state.result.get("assistant_text")
                             if isinstance(assistant, str):
                                 for event in mapper.map_web_assistant_text(assistant):
+                                    yield event
+                        if admitted_run.target_transport_family == "native_tui" and isinstance(
+                            request_state.result, dict
+                        ):
+                            assistant = request_state.result.get("assistant_text")
+                            if isinstance(assistant, str):
+                                for event in mapper.map_native_tui_output(assistant):
                                     yield event
                         yield mapper.run_finished_event(
                             result=_run_finished_result(admitted_run, request_state.state)
@@ -467,13 +512,17 @@ def _request_has_native_completion(state: AgUiObservedRequestState, run: AgUiAdm
             or session != run.native_web_identity.native_session_id
         ):
             return False
+    if run.target_transport_family == "native_tui" and (
+        receipt.get("source") != "tui_native" or session != run.native_service_session_id
+    ):
+        return False
         expected_prompt = run.accepted_request.native_prompt_id
-        if expected_prompt is not None and receipt.get("native_prompt_id") != expected_prompt:
+        if expected_prompt is not None and turns != [expected_prompt]:
             return False
     return (
         receipt.get("outcome") == "completed"
         and operation == state.request_id
-        and receipt.get("source") in ("web_native", "service_native")
+        and receipt.get("source") in ("web_native", "service_native", "tui_native")
         and isinstance(session, str)
         and bool(session)
         and isinstance(turns, list)

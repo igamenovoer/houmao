@@ -14,6 +14,18 @@ Kimi ACP uses the model bound at service launch and rejects per-prompt model ove
 
 Codex app-server binds one native thread and its launch-selected model. A native turn handle identifies admitted work before completion. Only a terminal notification for that thread and turn confirms the outcome. A lost connection can leave the request uncertain, including when a handle was already recorded.
 
+## Hermes TUI Admission
+
+`GET /v1/status` exposes Hermes's structured readiness as `observation.source=tui_native`. The terminal attachment is reported separately. A person can use the tmux pane while Houmao controls the verified conversation by native RPC.
+
+`POST /v1/control/prompt` uses `ready_only`. If a human turn starts after the final idle check and Hermes accepts the managed request into its own queue, the response returns `outcome=queued`, `sent=false`, an operation ID, and `native_prompt_id`. The receipt confirms native acceptance. `outcome=handed_off` indicates that the request reached native execution. The gateway observes accepted work with its original admission ID through settlement.
+
+AG-UI reports native queued activity and keeps the run open for its own terminal receipt. Human turns and other admissions have separate identities. If outcome evidence is lost, the stream can report uncertainty. An SSE disconnect leaves an accepted turn with Hermes.
+
+The plugin SDK treats a verified queue receipt as immediate handoff. A CCCC receiver settles the exact registered batch after that receipt, so it can end delivery retries even while the request is queued. An ambiguous receipt produces an uncertain dispatch outcome.
+
+Mail reminder dispatch revalidates the Inbox and original binding before native submission. The request record carries the native disposition and admission ID after handoff. The notifier uses that evidence to suppress overlapping reminders and resumes periodic checks after settlement. Native acceptance leaves mailbox read flags and placement to their normal operations.
+
 ## Mental Model
 
 The gateway contract has two layers.

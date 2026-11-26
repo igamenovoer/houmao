@@ -24,6 +24,11 @@ _TOOL_MODE_BACKENDS: Final[dict[str, dict[RunMode, BackendKind]]] = {
         "tui": "local_interactive",
     },
     "dsh": {"headless": "dsh_headless", "service": "dsh_acp", "web": "dsh_web"},
+    "hermes": {
+        "tui": "hermes_tui",
+        "service": "hermes_service",
+        "headless": "hermes_headless",
+    },
     "kimi": {
         "headless": "kimi_headless",
         "service": "kimi_acp",
@@ -111,6 +116,8 @@ def resolve_run_mode(
     if mode is None:
         if tool == "dsh":
             mode = "web"
+        elif tool == "hermes":
+            mode = "service"
         else:
             mode = "tui" if entrypoint == "project" else "headless"
     selected_backend = backend if backend is not None else tool_modes.get(mode)

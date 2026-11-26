@@ -174,6 +174,7 @@ def build_session_manifest_payload(request: SessionManifestRequest) -> dict[str,
         "claude_headless",
         "kimi_headless",
         "dsh_headless",
+        "hermes_headless",
     }:
         payload["headless"] = {
             "session_id": request.backend_state.get("session_id"),
@@ -269,7 +270,8 @@ def _build_manifest_native_surface(
                 "Web manifest requires a verified token-free native surface"
             ) from exc
     if (
-        request.launch_plan.backend in {"local_interactive", "cao_rest", "houmao_server_rest"}
+        request.launch_plan.backend
+        in {"local_interactive", "cao_rest", "houmao_server_rest", "hermes_tui"}
         and tmux_session_name is not None
     ):
         return TerminalNativeSurfaceV1(
@@ -371,17 +373,17 @@ def write_session_manifest(
             launch_plan = dict(proposed["launch_plan"])
             launch_plan["mailboxes"] = current["launch_plan"]["mailboxes"]
             proposed["launch_plan"] = launch_plan
-            _preserve_dsh_headless_conversation(current, proposed)
+            _preserve_headless_conversation(current, proposed)
             _preserve_headless_server_authority(current, proposed)
         return _write_session_manifest_locked(path, proposed)
 
 
-def _preserve_dsh_headless_conversation(current: dict[str, Any], proposed: dict[str, Any]) -> None:
+def _preserve_headless_conversation(current: dict[str, Any], proposed: dict[str, Any]) -> None:
     """Keep the completed conversation when a same-generation reader writes stale state."""
 
     if (
-        current.get("backend") != "dsh_headless"
-        or proposed.get("backend") != "dsh_headless"
+        current.get("backend") not in {"dsh_headless", "hermes_headless"}
+        or proposed.get("backend") != current.get("backend")
         or current.get("registry_generation_id") != proposed.get("registry_generation_id")
     ):
         return
@@ -392,8 +394,47 @@ def _preserve_dsh_headless_conversation(current: dict[str, Any], proposed: dict[
     proposed["headless"] = saved
     proposed["backend_state"] = {
         **proposed["backend_state"],
-        **{key: saved[key] for key in ("session_id", "turn_index", "resume_selection_kind")},
+        **{
+            key: saved[key]
+            for key in (
+                "session_id",
+                "turn_index",
+                "resume_selection_kind",
+                "resume_selection_value",
+            )
+        },
     }
+
+
+def commit_hermes_headless_completion(
+    path: Path, *, generation_id: str, session_id: str, turn_index: int
+) -> bool:
+    """Advance the exact generation's conversation before releasing its owner slot."""
+
+    with _session_manifest_lock(path):
+        current = load_session_manifest(path).payload
+        if (
+            current.get("backend") != "hermes_headless"
+            or current.get("registry_generation_id") != generation_id
+            or not isinstance(current.get("headless"), dict)
+        ):
+            return False
+        headless = current["headless"]
+        if headless["turn_index"] == turn_index:
+            saved_session_id = headless.get("session_id")
+            return isinstance(saved_session_id, str) and saved_session_id == session_id
+        if headless["turn_index"] + 1 != turn_index:
+            return False
+        cursor = {
+            "session_id": session_id,
+            "turn_index": turn_index,
+            "resume_selection_kind": "none",
+            "resume_selection_value": None,
+        }
+        headless.update(cursor)
+        current["backend_state"].update(cursor)
+        _write_session_manifest_locked(path, current)
+        return True
 
 
 def _preserve_headless_server_authority(current: dict[str, Any], proposed: dict[str, Any]) -> None:
@@ -408,6 +449,9 @@ def _preserve_headless_server_authority(current: dict[str, Any], proposed: dict[
         "dsh_acp",
         "kimi_acp",
         "dsh_web",
+        "hermes_tui",
+        "hermes_service",
+        "hermes_headless",
         "kimi_web",
     }:
         return
@@ -824,6 +868,9 @@ def _resolve_manifest_identity(
         "dsh_acp",
         "kimi_acp",
         "dsh_web",
+        "hermes_tui",
+        "hermes_service",
+        "hermes_headless",
         "kimi_web",
     }:
         if tmux_session_name is None:
@@ -950,6 +997,9 @@ def _build_manifest_interactive_section(
         "dsh_acp",
         "kimi_acp",
         "dsh_web",
+        "hermes_tui",
+        "hermes_service",
+        "hermes_headless",
         "kimi_web",
         "cao_rest",
         "houmao_server_rest",
@@ -970,6 +1020,9 @@ def _build_manifest_interactive_section(
                 "kimi_headless",
                 "dsh_headless",
                 "dsh_acp",
+                "hermes_tui",
+                "hermes_service",
+                "hermes_headless",
                 "kimi_acp",
             }
             else None
@@ -1027,6 +1080,9 @@ def _build_manifest_gateway_authority(
         "dsh_acp",
         "kimi_acp",
         "dsh_web",
+        "hermes_tui",
+        "hermes_service",
+        "hermes_headless",
         "kimi_web",
         "cao_rest",
         "houmao_server_rest",

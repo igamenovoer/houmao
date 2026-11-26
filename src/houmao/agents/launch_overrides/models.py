@@ -16,6 +16,9 @@ SupportedLaunchBackend: TypeAlias = Literal[
     "dsh_headless",
     "dsh_acp",
     "dsh_web",
+    "hermes_tui",
+    "hermes_service",
+    "hermes_headless",
     "kimi_web",
     "cao_rest",
 ]

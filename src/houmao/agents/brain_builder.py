@@ -39,6 +39,13 @@ from houmao.agents.definition_parser import (
     parse_tool_adapter,
     resolve_explicit_or_named_preset_path,
 )
+from houmao.agents.hermes_configuration import (
+    HERMES_API_KEY_ENV,
+    HERMES_HOME_ENV,
+    hermes_owned_environment_name,
+    prepare_hermes_home,
+    selected_hermes_key,
+)
 from houmao.agents.kimi_configuration import (
     KIMI_CONFIG_FILENAME,
     resolve_kimi_config,
@@ -88,6 +95,7 @@ from houmao.agents.tool_params import (
     resolve_tool_params,
     validate_tool_params,
 )
+from houmao.agents.tool_params.hermes import HermesToolParams
 from houmao.agents.launch_overrides.native import native_setup_permissions
 from houmao.agents.system_skills import (
     SystemSkillCatalog,
@@ -534,6 +542,7 @@ def _build_launch_helper(
     permission_params: Mapping[str, Any],
     dsh_credential_env_file: Path | None = None,
     kimi_credential_env_file: Path | None = None,
+    hermes_credential_env_file: Path | None = None,
 ) -> str:
     """Build one runtime launch helper script.
 
@@ -554,6 +563,8 @@ def _build_launch_helper(
         Private DSH bundle environment to read at execution time.
     kimi_credential_env_file:
         Private Kimi bundle environment to read at execution time.
+    hermes_credential_env_file:
+        Private Hermes bundle environment to read at execution time.
     """
 
     allowlist = _auth_env_names(adapter, None)
@@ -586,6 +597,7 @@ def _build_launch_helper(
         operator_prompt_mode == "unattended"
         or dsh_credential_env_file is not None
         or kimi_credential_env_file is not None
+        or hermes_credential_env_file is not None
         or permission_params
     ):
         script_lines.extend(
@@ -632,6 +644,13 @@ def _build_launch_helper(
             )
             launch_policy_args.extend(
                 f"--kimi-credential-env-name={shlex.quote(name)}" for name in allowlist
+            )
+        if hermes_credential_env_file is not None:
+            launch_policy_args.extend(
+                ["--hermes-credential-env-file", shlex.quote(str(hermes_credential_env_file))]
+            )
+            launch_policy_args.extend(
+                f"--hermes-env-name={shlex.quote(name)}" for name in sorted(env_exports)
             )
         if permission_params:
             launch_policy_args.extend(
@@ -701,6 +720,13 @@ def validate_brain_inputs(
     env_values = _parse_env_file(auth_env_file)
 
     try:
+        if request.tool == "hermes":
+            _validate_hermes_profile(
+                adapter,
+                setup_dir,
+                env_values,
+                (request.persistent_env_records or {}, launch_env_overrides or {}),
+            )
         kimi_config = None
         if request.tool == "kimi":
             reject_kimi_config_env(env_values, source="Kimi credential bundle")
@@ -782,6 +808,8 @@ def validate_brain_inputs(
             )
         )
         name = model.config.name if model.config is not None else None
+        if request.tool == "hermes" and not name:
+            raise ValueError("A managed Hermes launch requires explicit model.name.")
         if kimi_config is not None:
             select_kimi_model_alias(kimi_config, name)
         reasoning = model.config.reasoning if model.config is not None else None
@@ -846,6 +874,7 @@ def validate_brain_inputs(
         if (
             backend is not None
             and behavior is not None
+            and request.tool != "hermes"
             and check_policy_version
             and _resolved_operator_prompt_mode(request.operator_prompt_mode) == "unattended"
         ):
@@ -876,7 +905,39 @@ def _auth_env_names(adapter: ToolAdapter, dsh: DshEffectiveToolParams | None) ->
         return [name for name in (dsh.api_key_env, dsh.base_url_env) if name is not None]
     if adapter.tool == "kimi":
         return [name for name in adapter.auth_env_allowlist if name not in KIMI_CONFIG_ENV_NAMES]
+    if adapter.tool == "hermes":
+        return [HERMES_API_KEY_ENV]
     return adapter.auth_env_allowlist
+
+
+def _validate_hermes_profile(
+    adapter: ToolAdapter,
+    setup_dir: Path,
+    credential_environment: Mapping[str, str],
+    launch_environments: tuple[Mapping[str, str], ...],
+) -> None:
+    """Require selected API credentials and leave native state under managed control."""
+
+    if (
+        adapter.launch_executable != "hermes"
+        or adapter.home_selector_env_var != HERMES_HOME_ENV
+        or adapter.skills_destination != "skills"
+        or adapter.auth_file_mappings
+        or adapter.env_injection_mode != "export_from_env_file"
+        or HERMES_API_KEY_ENV not in adapter.auth_env_allowlist
+    ):
+        raise ValueError(
+            "Hermes requires the hermes command, HERMES_HOME, the native skills directory, "
+            "and an environment-only managed API credential."
+        )
+    if any(path.name not in {"README.md", "tool-params.yaml"} for path in setup_dir.iterdir()):
+        raise ValueError(
+            "Configure Hermes through tool-params.yaml and the managed launch settings."
+        )
+    selected_hermes_key(credential_environment)
+    for environment in launch_environments:
+        if any(hermes_owned_environment_name(name) for name in environment):
+            raise ValueError("Hermes provider and native environment controls are Houmao-owned.")
 
 
 def _kimi_model_argument(args: tuple[str, ...]) -> str | None:
@@ -961,6 +1022,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     homes_dir = runtime_root / "homes"
     manifests_dir = runtime_root / "manifests"
     home_path = homes_dir / home_id
+    if request.tool == "hermes" and home_path.is_symlink():
+        raise BuildError("A managed Hermes home requires its own directory.")
     existing_home_mode = request.effective_existing_home_mode()
     managed_agent_name, managed_identity = _resolve_brain_creation_identity(
         request=request,
@@ -980,7 +1043,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     home_path.mkdir(
         parents=True,
         exist_ok=existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE,
+        mode=0o700 if request.tool == "hermes" else 0o777,
     )
+    if request.tool == "hermes":
+        home_path.chmod(0o700)
 
     _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
     setup_destination = home_path / adapter.setup_destination
@@ -989,7 +1055,17 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         if inputs.kimi_config is not None and setup_destination == home_path
         else ()
     )
-    _copy_directory_contents(setup_dir, setup_destination, skip_names=skip_setup_names)
+    if request.tool == "hermes":
+        assert inputs.model.config is not None and inputs.model.config.name is not None
+        hermes_params = HermesToolParams.model_validate(inputs.tool_params)
+        prepare_hermes_home(
+            home_path,
+            base_url=hermes_params.base_url,
+            model_name=inputs.model.config.name,
+            role_prompt=request.role_prompt_override or "",
+        )
+    else:
+        _copy_directory_contents(setup_dir, setup_destination, skip_names=skip_setup_names)
 
     _validate_relative_path(adapter.skills_destination, field="skills_projection.destination")
     skill_destination_dir = home_path / adapter.skills_destination
@@ -1188,7 +1264,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         env_exports={
             **(
                 {key: env_values[key] for key in selected_env_names}
-                if dsh_config is None and request.tool != "kimi"
+                if dsh_config is None and request.tool not in {"kimi", "hermes"}
                 else {}
             ),
             **effective_launch_env_records,
@@ -1202,6 +1278,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         },
         dsh_credential_env_file=auth_env_file if dsh_config is not None else None,
         kimi_credential_env_file=auth_env_file if request.tool == "kimi" else None,
+        hermes_credential_env_file=auth_env_file if request.tool == "hermes" else None,
     )
 
     construction_provenance: dict[str, object] = {
@@ -1615,6 +1692,13 @@ def _project_model_name(
             "arg": "--model",
             "value": model_name,
             "cli_args": ["--model", model_name],
+        }
+    if tool == "hermes":
+        return {
+            "surface": "yaml",
+            "path": "config.yaml",
+            "key_path": ["model", "default"],
+            "value": model_name,
         }
     raise BuildError(f"Unsupported model projection tool `{tool}`.")
 

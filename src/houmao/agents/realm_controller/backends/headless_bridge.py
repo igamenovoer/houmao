@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 import ctypes
 import json
 import os
@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from typing import Callable, Sequence
 
 from houmao.agents.kimi_configuration import kimi_launch_diagnostic_secrets
+from houmao.agents.hermes_configuration import HERMES_API_KEY_ENV
 from houmao.agents.realm_controller.backends.dispatch_control import (
     _dispatch_origin_birth_token,
     headless_dispatch_permission_allowed,
@@ -44,6 +45,11 @@ from houmao.agents.realm_controller.backends.headless_runner import (
     _dsh_unverified_settlement,
     load_headless_process_metadata,
 )
+from houmao.agents.realm_controller.backends.hermes_headless_protocol import (
+    HERMES_HEADLESS_CLIENT_REFUSAL,
+    HERMES_HEADLESS_INPUT,
+    inspect_hermes_headless_result,
+)
 from houmao.agents.realm_controller.usage_support import persist_terminal_evidence, write_usage_json
 
 
@@ -57,6 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     provider: HeadlessProvider = args.provider
     native_dsh = provider == "dsh" and args.output_format == "dsh-cli"
+    native_hermes = provider == "hermes"
     secrets = (
         dsh_diagnostic_secrets(args.env, key_name=args.env.get("HOUMAO_DSH_DIAGNOSTIC_KEY_NAME"))
         if native_dsh
@@ -64,6 +71,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if provider == "kimi":
         secrets = kimi_launch_diagnostic_secrets(args.env)
+    if native_hermes:
+        secrets = tuple(value for value in (args.env.get(HERMES_API_KEY_ENV),) if value)
     turn_dir = args.turn_dir.resolve()
     turn_dir.mkdir(parents=True, exist_ok=True)
 
@@ -75,7 +84,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     started_monotonic = time.monotonic()
 
     for path in (stdout_path, stderr_path, canonical_path):
-        if native_dsh or provider == "kimi":
+        if native_dsh or provider in {"kimi", "hermes"}:
             os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
         else:
             path.write_text("", encoding="utf-8")
@@ -88,6 +97,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             returncode=125,
             message="Immediate dispatch permission expired or was revoked.",
             started_monotonic=started_monotonic,
+            hermes_prelaunch=native_hermes,
         )
         return 125
 
@@ -100,25 +110,34 @@ def main(argv: Sequence[str] | None = None) -> int:
             else os.environ.copy()
         )
         environment.update(args.env)
-        process = subprocess.Popen(
-            command,
-            cwd=str(args.cwd.resolve()),
-            env=environment,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="surrogateescape" if native_dsh else "strict",
-            bufsize=1,
-            start_new_session=native_dsh,
-        )
+        with ExitStack() as stack:
+            stdin = subprocess.DEVNULL
+            if native_hermes:
+                input_path = turn_dir / HERMES_HEADLESS_INPUT
+                descriptor = os.open(input_path, os.O_RDONLY | os.O_NOFOLLOW)
+                input_file = stack.enter_context(os.fdopen(descriptor, "rb"))
+                stdin = input_file.fileno()
+                input_path.unlink()
+            process = subprocess.Popen(
+                command,
+                cwd=str(args.cwd.resolve()),
+                env=environment,
+                stdin=stdin,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="surrogateescape" if native_dsh or native_hermes else "strict",
+                bufsize=1,
+                start_new_session=native_dsh,
+            )
     except (OSError, ValueError):
         _record_launch_failure(
             turn_dir=turn_dir,
             returncode=127,
             message="Headless client could not start.",
             started_monotonic=started_monotonic,
+            hermes_prelaunch=native_hermes,
         )
         return 127
 
@@ -166,6 +185,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             returncode=125,
             message="Immediate dispatch permission expired or was revoked.",
             started_monotonic=started_monotonic,
+            native_outcome_unknown=native_hermes,
         )
         return 125
 
@@ -224,11 +244,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     partial_stream = False
     if process.stdout is not None:
         with stdout_path.open(
-            "a", encoding="utf-8", errors="surrogateescape" if native_dsh else "strict"
+            "a",
+            encoding="utf-8",
+            errors="surrogateescape" if native_dsh or native_hermes else "strict",
         ) as stdout_handle:
             for raw_line in process.stdout:
                 stdout_handle.write(raw_line)
                 stdout_handle.flush()
+                if native_hermes:
+                    continue
                 if not streaming:
                     buffered_stdout.append(raw_line)
                     continue
@@ -315,13 +339,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.write("\n")
         sys.stdout.flush()
 
-    persist_terminal_evidence(
-        turn_dir,
-        returncode=returncode,
-        completed_at_utc=datetime.now(UTC).isoformat(),
-        wall_time_ms=(time.monotonic() - started_monotonic) * 1000,
-        interrupted=owner_interrupted or (provider == "dsh" and returncode == 130),
-    )
+    settle = True
+    if native_hermes:
+        native = inspect_hermes_headless_result(
+            turn_dir=turn_dir, returncode=returncode, secrets=secrets or ()
+        )
+        settle = native.status != "uncertain"
+        _persist_and_render_events(
+            canonical_path=canonical_path,
+            events=native.events,
+            style=resolve_headless_display_style(args.style),
+            detail=resolve_headless_display_detail(args.detail),
+            sink=_sink,
+        )
+    if settle:
+        persist_terminal_evidence(
+            turn_dir,
+            returncode=returncode,
+            completed_at_utc=datetime.now(UTC).isoformat(),
+            wall_time_ms=(time.monotonic() - started_monotonic) * 1000,
+            interrupted=owner_interrupted or (provider == "dsh" and returncode == 130),
+        )
     _publish_exit_status(status_path, returncode)
     return returncode
 
@@ -396,18 +434,27 @@ def _confirmed_worker_signal(path: Path, *, pid: int, birth_token: object) -> bo
 
 
 def _record_launch_failure(
-    *, turn_dir: Path, returncode: int, message: str, started_monotonic: float
+    *,
+    turn_dir: Path,
+    returncode: int,
+    message: str,
+    started_monotonic: float,
+    hermes_prelaunch: bool = False,
+    native_outcome_unknown: bool = False,
 ) -> None:
     """Publish safe terminal evidence even when the bridge cannot start its client."""
 
     (turn_dir / "stderr.log").write_text(message + "\n", encoding="utf-8")
-    persist_terminal_evidence(
-        turn_dir,
-        returncode=returncode,
-        completed_at_utc=datetime.now(UTC).isoformat(),
-        wall_time_ms=(time.monotonic() - started_monotonic) * 1000,
-        interrupted=False,
-    )
+    if hermes_prelaunch:
+        write_usage_json(turn_dir / HERMES_HEADLESS_CLIENT_REFUSAL, {"returncode": returncode})
+    if not native_outcome_unknown:
+        persist_terminal_evidence(
+            turn_dir,
+            returncode=returncode,
+            completed_at_utc=datetime.now(UTC).isoformat(),
+            wall_time_ms=(time.monotonic() - started_monotonic) * 1000,
+            interrupted=False,
+        )
     _publish_exit_status(turn_dir / "exitcode", returncode)
 
 
@@ -428,7 +475,7 @@ def _parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         required=True,
-        choices=("claude", "codex", "kimi", "dsh"),
+        choices=("claude", "codex", "kimi", "dsh", "hermes"),
     )
     parser.add_argument("--output-format", required=True)
     parser.add_argument("--turn-index", required=True, type=int)
@@ -501,6 +548,10 @@ def _consume_stderr(
         errors="surrogateescape" if diagnostic_secrets is not None else "strict",
     ) as stderr_handle:
         for raw_line in process.stderr:
+            if provider == "hermes":
+                stderr_handle.write(raw_line)
+                stderr_handle.flush()
+                continue
             stripped = raw_line.rstrip("\n")
             if diagnostic_secrets is not None:
                 stripped = sanitize_dsh_diagnostic(stripped, secret_values=diagnostic_secrets)

@@ -186,6 +186,8 @@ def _validate_gateway_backend_metadata_shape(
         "claude_headless",
         "kimi_headless",
         "dsh_headless",
+        "hermes_headless",
+        "hermes_tui",
     }:
         if not isinstance(backend_metadata, GatewayAttachBackendMetadataHeadlessV1):
             raise ValueError(

@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from houmao.agents.realm_controller.backends.tmux_runtime import tmux_session_exists
+from houmao.agents.realm_controller.managed_control import MANAGED_STRUCTURED_TUI_BACKENDS
 from houmao.agents.realm_controller.native_surface import (
     TerminalNativeSurfaceV1,
     WebNativeSurfaceV1,
@@ -733,6 +734,7 @@ class TuiObservationService:
             )
             for agent in current_agents
             if agent.record.mode == "tui"
+            and agent.record.identity.backend not in MANAGED_STRUCTURED_TUI_BACKENDS
             and isinstance(agent.record.native_surface, TerminalNativeSurfaceV1)
         }
         for agent_id in set(self.m_web_observers) - web_ids:

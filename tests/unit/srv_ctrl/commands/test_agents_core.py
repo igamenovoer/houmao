@@ -2629,3 +2629,73 @@ def test_codex_service_below_minimum_leaves_force_predecessor_intact(
             force_mode="clean",
         )
     assert (previous / "manifest.json").read_text(encoding="utf-8") == "predecessor manifest"
+
+
+@pytest.mark.parametrize(
+    ("mode", "error"),
+    [("service", "Hermes was not found on PATH in execution context"), ("web", "does not support")],
+)
+def test_hermes_launch_preflight_preserves_existing_runtime(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str, error: str
+) -> None:
+    """Refuse unsupported modes and a missing executable before touching the predecessor."""
+
+    from houmao.srv_ctrl.commands.agents import core
+
+    source = tmp_path / "source"
+    runtime = tmp_path / "runtime"
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    _install_basic_launch_patches(
+        monkeypatch,
+        runtime_root=runtime,
+        jobs_root=tmp_path / "jobs",
+        mailbox_root=tmp_path / "mail",
+        overlay_root=tmp_path / "overlay",
+        source_agent_def_dir=source,
+    )
+    resolve_target = core.resolve_native_launch_target
+
+    def hermes_target(**kwargs: object) -> SimpleNamespace:
+        """Select Hermes while relying on the normal launch-mode validation."""
+
+        target = resolve_target(**kwargs)
+        target.tool = target.preset.tool = "hermes"
+        return target
+
+    monkeypatch.setattr(core, "resolve_native_launch_target", hermes_target)
+    predecessor = runtime / "existing"
+    predecessor.mkdir(parents=True)
+    manifest = predecessor / "manifest.json"
+    manifest.write_text("existing manifest", encoding="utf-8")
+    probes = [Mock() for _ in range(3)]
+    for name, probe in zip(
+        ("_resolve_managed_predecessor_home_context", "build_brain_home", "start_runtime_session"),
+        probes,
+        strict=True,
+    ):
+        monkeypatch.setattr(core, name, probe)
+    with pytest.raises(click.ClickException, match=error) as raised:
+        launch_managed_agent_locally(
+            agents="researcher",
+            agent_name="worker-a",
+            agent_id=None,
+            agent_id_mode="name-hash",
+            auth=None,
+            session_name=None,
+            mode=mode,
+            provider="hermes",
+            working_directory=workdir,
+            source_agent_def_dir=source,
+            source_env={"PATH": str(tmp_path / "missing-path")},
+            headless_display_style=None,
+            headless_display_detail=None,
+            force_mode="clean",
+        )
+    if mode == "service":
+        assert f"in execution context {workdir}" in str(raised.value)
+        assert "command -v hermes" in str(raised.value)
+    assert manifest.read_text(encoding="utf-8") == "existing manifest"
+    assert list(runtime.iterdir()) == [predecessor]
+    for probe in probes:
+        probe.assert_not_called()

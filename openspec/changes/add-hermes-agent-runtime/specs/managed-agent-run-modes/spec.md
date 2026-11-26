@@ -26,6 +26,8 @@ Houmao SHALL identify a managed launch with exactly one run mode. Headless execu
 
 Every managed birth path SHALL resolve the direct selection, stored launch default, or documented entrypoint default to one qualified tool/mode/backend combination. Preflight SHALL reject unsupported combinations before modifying a home, taking over a predecessor, or publishing an agent.
 
+Hermes supports the registered TUI, service, and headless mode/backend combinations. Hermes executable availability is determined by the selected execution context's PATH lookup.
+
 #### Scenario: An operator selects a terminal for DSH
 
 - **WHEN** an operator explicitly requests DSH in tui mode on the supported reference build

@@ -12,6 +12,7 @@ from houmao.agents.realm_controller.agent_identity import (
     normalize_managed_agent_name,
 )
 from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.managed_control import MANAGED_STRUCTURED_TUI_BACKENDS
 from houmao.agents.realm_controller.manifest import load_registry_mode_authority
 from houmao.agents.realm_controller.native_surface import WebNativeSurfaceV1
 from houmao.agents.realm_controller.registry_models import (
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DiscoveredAgent:
-    """One validated, fresh, tmux-live agent in the index."""
+    """One fresh agent with validated publication and mode authority."""
 
     record: ManagedAgentRegistryRecordV3
     summary: DiscoveredAgentSummary
@@ -193,11 +194,9 @@ class RegistryDiscoveryService:
             self._stop_event.wait(timeout=self.m_config.discovery_poll_interval_seconds)
 
     def _run_scan(self) -> None:
-        """Scan the registry, verify tmux liveness, and rebuild the index."""
+        """Rebuild the index using each mode's discovery requirements."""
 
-        live_sessions_by_socket: dict[str | None, set[str] | None] = {
-            None: _get_live_tmux_session_names()
-        }
+        live_sessions_by_socket: dict[str | None, set[str] | None] = {}
 
         paths = global_registry_paths(env=self.m_config.registry_helper_env())
         if not paths.live_agents_dir.exists():
@@ -217,12 +216,13 @@ class RegistryDiscoveryService:
                 continue
             if not is_live_agent_record_fresh(record):
                 continue
-            socket_path = record.terminal.socket_path
-            if socket_path not in live_sessions_by_socket:
-                live_sessions_by_socket[socket_path] = _get_live_tmux_session_names(socket_path)
-            live_sessions = live_sessions_by_socket[socket_path]
-            if live_sessions is None or record.terminal.session_name not in live_sessions:
-                continue
+            if record.identity.backend not in MANAGED_STRUCTURED_TUI_BACKENDS:
+                socket_path = record.terminal.socket_path
+                if socket_path not in live_sessions_by_socket:
+                    live_sessions_by_socket[socket_path] = _get_live_tmux_session_names(socket_path)
+                live_sessions = live_sessions_by_socket[socket_path]
+                if live_sessions is None or record.terminal.session_name not in live_sessions:
+                    continue
             try:
                 manifest = load_registry_mode_authority(record)
             except SessionManifestError:

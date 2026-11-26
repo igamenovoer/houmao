@@ -23,12 +23,15 @@ from houmao.agents.realm_controller.run_modes import (
         ("codex", "project", "tui", "local_interactive", "terminal"),
         ("kimi", "project", "tui", "local_interactive", "terminal"),
         ("dsh", "project", "web", "dsh_web", "web"),
+        ("hermes", "project", "service", "hermes_service", None),
+        ("hermes", "runtime", "service", "hermes_service", None),
         ("codex", "runtime", "headless", "codex_headless", None),
         ("kimi", "runtime", "headless", "kimi_headless", None),
         ("claude", "passive_headless", "headless", "claude_headless", None),
         ("codex", "passive_headless", "headless", "codex_headless", None),
         ("kimi", "passive_headless", "headless", "kimi_headless", None),
         ("dsh", "passive_headless", "headless", "dsh_headless", None),
+        ("hermes", "passive_headless", "headless", "hermes_headless", None),
     ],
 )
 def test_resolve_launch_entrypoint_default(
@@ -51,6 +54,7 @@ def test_resolve_launch_entrypoint_default(
         ("dsh", "tui", "headless, service, web"),
         ("codex", "web", "headless, service, tui"),
         ("claude", "web", "headless, tui"),
+        ("hermes", "web", "tui, service, headless"),
     ],
 )
 def test_reject_unqualified_modes(tool: str, mode: RunMode, supported: str) -> None:
@@ -81,6 +85,17 @@ def test_explicit_backend_binds_to_its_tool_and_mode() -> None:
         resolve_run_mode("codex", mode="tui", backend="codex_headless")
     with pytest.raises(LaunchPlanError, match="backend 'kimi_headless' do not agree"):
         resolve_run_mode("codex", backend="kimi_headless")
+
+
+def test_hermes_explicit_mode_overrides_service_default() -> None:
+    """Resolve explicit Hermes modes and reject service on passive birth."""
+
+    tui = resolve_run_mode("hermes", mode="tui", entrypoint="project")
+    assert tui == RunModeSelection("hermes", "tui", "hermes_tui", "terminal")
+    assert resolve_run_mode("hermes", backend="hermes_tui") == tui
+    assert resolve_run_mode("hermes", mode="headless").backend == "hermes_headless"
+    with pytest.raises(LaunchPlanError, match="require mode 'headless'"):
+        resolve_run_mode("hermes", mode="service", entrypoint="passive_headless")
 
 
 def test_validate_persisted_mode_binding() -> None:

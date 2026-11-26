@@ -114,6 +114,7 @@ from houmao.agents.realm_controller.owner_admission import (
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession
 from houmao.agents.realm_controller.backends.dsh_web_client import DshWebError
+from houmao.agents.realm_controller.backends.hermes_tui import HermesTuiAdmission, HermesTuiSession
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
 from houmao.agents.realm_controller.backends.headless_runner import interrupt_owned_headless_attempt
 from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
@@ -603,7 +604,9 @@ class _GatewayReminderRecord:
     authority: GatewayGrant | None = None
 
 
-_GatewayPromptDispatchMode = Literal["tui", "local_headless", "server_headless", "web", "service"]
+_GatewayPromptDispatchMode = Literal[
+    "tui", "native_tui", "local_headless", "server_headless", "web", "service"
+]
 
 
 @dataclass(frozen=True)
@@ -616,6 +619,7 @@ class _GatewayTargetState:
     prompt_admission_open: bool
     web: GatewayWebControlStateV1 | None = None
     service: ManagedControlObservationV1 | None = None
+    native_tui: ManagedControlObservationV1 | None = None
 
 
 @dataclass(frozen=True)
@@ -1564,6 +1568,7 @@ class _LocalHeadlessGatewayAdapter:
             "codex_headless",
             "kimi_headless",
             "dsh_headless",
+            "hermes_headless",
         }:
             raise GatewayError(
                 "Local tmux gateway adapter only supports native tmux-backed backends, got "
@@ -1755,8 +1760,8 @@ class _LocalHeadlessGatewayAdapter:
     def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
         """Deliver raw control input through resumed local runtime control."""
 
-        if self.m_attach_contract.backend == "dsh_headless":
-            raise GatewayError("Raw control input is unsupported for DSH headless gateway targets.")
+        if self.m_attach_contract.backend in {"dsh_headless", "hermes_headless"}:
+            raise GatewayError("Raw control input is unsupported for this headless gateway target.")
         self._require_live_tmux_session()
         result = self._open_controller(read_only=False).send_input_ex(
             sequence,
@@ -1769,10 +1774,10 @@ class _LocalHeadlessGatewayAdapter:
     def describe_control_input_support(self) -> _GatewayControlInputSupport:
         """Return the raw control-input support summary for local tmux-backed targets."""
 
-        if self.m_attach_contract.backend == "dsh_headless":
+        if self.m_attach_contract.backend in {"dsh_headless", "hermes_headless"}:
             return _GatewayControlInputSupport(
                 supported=False,
-                detail="Raw control input is unsupported for DSH headless gateway targets.",
+                detail="Raw control input is unsupported for this headless gateway target.",
             )
         return _GatewayControlInputSupport(supported=True)
 
@@ -1826,6 +1831,7 @@ class _ServerManagedHeadlessGatewayAdapter:
             "codex_headless",
             "kimi_headless",
             "dsh_headless",
+            "hermes_headless",
         }:
             raise GatewayError(
                 "Server-managed headless gateway adapter only supports native headless backends, "
@@ -2265,6 +2271,162 @@ class _ManagedServiceGatewayAdapter:
         )
 
 
+class _HermesTuiGatewayAdapter:
+    """Use the managed Hermes conversation independently of its terminal viewer."""
+
+    def __init__(self, *, attach_contract: GatewayAttachContractV1) -> None:
+        """Bind the existing Houmao owner locator."""
+
+        if attach_contract.manifest_path is None:
+            raise GatewayError("Hermes TUI attachment requires a runtime manifest")
+        self.m_attach_contract = attach_contract
+        self.m_manifest_path = Path(attach_contract.manifest_path).resolve()
+
+    @property
+    def attach_contract(self) -> GatewayAttachContractV1:
+        """Return the recorded managed attachment."""
+
+        return self.m_attach_contract
+
+    def _owner(self) -> tuple[RuntimeSessionController, HermesTuiSession]:
+        """Resolve the exact active generation on each request."""
+
+        controller = resume_runtime_session(
+            session_manifest_path=self.m_manifest_path, read_only=True
+        )
+        manifest = controller.require_managed_control_owner()
+        backend = controller.backend_session
+        if manifest.backend != "hermes_tui" or not isinstance(backend, HermesTuiSession):
+            raise GatewayError("Hermes TUI owner authority changed")
+        return controller, backend
+
+    def observe(self) -> ManagedControlObservationV1:
+        """Project structured state even when the terminal viewer is unavailable."""
+
+        try:
+            controller, _ = self._owner()
+            return controller.observe_managed_tui()
+        except (RuntimeError, OSError, ValueError):
+            return ManagedControlObservationV1(
+                source="tui_native",
+                freshness="unknown",
+                connection_ready=False,
+                can_accept_prompt_now=False,
+                terminal_attachment="unverified",
+            )
+
+    def inspect_target(self) -> _GatewayTargetState:
+        """Report native connection and terminal attachment independently."""
+
+        observation = self.observe()
+        connected = observation.freshness == "current" and observation.connection_ready is True
+        return _GatewayTargetState(
+            instance_id=self.m_attach_contract.attach_identity,
+            connectivity="connected" if connected else "unavailable",
+            terminal_surface_eligibility="unknown",
+            prompt_admission_open=connected,
+            native_tui=observation,
+        )
+
+    def submit_prompt(
+        self,
+        *,
+        prompt: str,
+        turn_id: str | None = None,
+        session_selection: HeadlessTurnSessionSelection | None = None,
+        execution_model: ModelConfig | None = None,
+    ) -> None:
+        """Keep generic gateway callers behind the native prompt reservation."""
+
+        raise GatewayError("Hermes TUI input requires a native prompt reservation")
+
+    def submit_claimed_prompt(
+        self,
+        *,
+        claim: OwnerPromptClaim,
+        prompt: str,
+        authorize: Callable[[], None],
+    ) -> HermesTuiAdmission:
+        """Use the same native admission path as owner-CLI requests."""
+
+        controller, backend = self._owner()
+        with controller.execution_scope():
+            return backend.submit_native_prompt(
+                prompt, request_id=claim.request_id, authorize=authorize, owner_claim=claim
+            )
+
+    def read_admission(self, request_id: str) -> HermesTuiAdmission | None:
+        """Read evidence scoped to one submitted operation."""
+
+        controller, backend = self._owner()
+        with controller.execution_scope():
+            return backend.read_native_admission(request_id)
+
+    def reconcile_owner_attempt(self, attempt: OwnerPromptAttempt) -> bool:
+        """Settle only the attempt's own native admission."""
+
+        try:
+            controller, backend = self._owner()
+            with controller.execution_scope():
+                return backend.reconcile_owner_attempt(attempt)
+        except (RuntimeError, OSError, ValueError):
+            return False
+
+    def capture_plugin_execution_identity(self) -> tuple[str, ...]:
+        """Identify the current daemon, session, and managed generation."""
+
+        controller, _ = self._owner()
+        observed = controller.observe_managed_tui()
+        generation = controller.registry_generation_id
+        incarnation = observed.service_incarnation
+        session = observed.native_session_id
+        if not (generation and incarnation and session and observed.connection_ready is True):
+            raise GatewayError("Hermes native execution is unavailable")
+        return generation, incarnation, session
+
+    def submit_plugin_event(
+        self,
+        *,
+        prompt: str,
+        turn_id: str,
+        session_selection: HeadlessTurnSessionSelection | None,
+        control: HeadlessDispatchControl,
+    ) -> None:
+        """Require native receipt handling in the gateway's immediate path."""
+
+        raise GatewayError("Hermes TUI plugin input requires a verified native handoff")
+
+    def cancel_plugin_event(self, control: HeadlessDispatchControl) -> None:
+        """Revoke the authority for a pending attempt."""
+
+        control.cancel()
+
+    def interrupt(self, *, operation_id: str | None = None) -> None:
+        """Cancel the selected managed admission."""
+
+        controller, backend = self._owner()
+        with controller.execution_scope():
+            result = (
+                backend.interrupt_native_admission(operation_id)
+                if operation_id is not None
+                else backend.interrupt()
+            )
+        if result.status != "ok":
+            raise GatewayError(result.detail)
+
+    def send_control_input(self, *, sequence: str, escape_special_keys: bool = False) -> str:
+        """Refuse automated terminal key delivery."""
+
+        raise GatewayError("Raw control input is unsupported for Hermes TUI.")
+
+    def describe_control_input_support(self) -> _GatewayControlInputSupport:
+        """Report that Hermes input uses its structured transport."""
+
+        return _GatewayControlInputSupport(
+            supported=False, detail="Raw control input is unsupported for Hermes TUI."
+        )
+
+
 def _service_connected(observation: ManagedControlObservationV1) -> bool:
     """Require separately verified owner, connection, and native service identity."""
 
@@ -2304,6 +2466,21 @@ def _service_queue_result(
     return "failed", f"Native service request {outcome}", result
 
 
+def _hermes_admission_result(admission: HermesTuiAdmission) -> GatewayJsonObject:
+    """Project safe correlation evidence for one Hermes operation."""
+
+    return {
+        "operation_id": admission.request_id,
+        "source": "tui_native",
+        "outcome": admission.state,
+        "generation_id": admission.generation_id,
+        "service_incarnation": admission.daemon_instance_id,
+        "native_session_id": admission.native_session_id,
+        "native_turn_ids": [admission.native_admission_id] if admission.native_admission_id else [],
+        "assistant_text": admission.output_text if admission.state == "completed" else None,
+    }
+
+
 def _build_gateway_execution_adapter(
     *,
     attach_contract: GatewayAttachContractV1,
@@ -2316,12 +2493,15 @@ def _build_gateway_execution_adapter(
         return _NativeWebGatewayAdapter(attach_contract=attach_contract)
     if attach_contract.backend in MANAGED_SERVICE_BACKENDS:
         return _ManagedServiceGatewayAdapter(attach_contract=attach_contract)
+    if attach_contract.backend == "hermes_tui":
+        return _HermesTuiGatewayAdapter(attach_contract=attach_contract)
     if attach_contract.backend in {
         "local_interactive",
         "claude_headless",
         "codex_headless",
         "kimi_headless",
         "dsh_headless",
+        "hermes_headless",
     }:
         metadata = attach_contract.backend_metadata
         if (
@@ -2386,12 +2566,11 @@ class GatewayServiceRuntime:
             log_path=self.m_paths.diagnostic_log_path,
         )
         self.m_attach_contract = resolve_internal_gateway_attach_contract(self.m_paths)
-        if (
-            self.m_attach_contract.backend in MANAGED_WEB_BACKENDS
-            and tui_tracking_timings is not None
-            and tui_tracking_timings.model_dump(exclude_none=True)
-        ):
-            raise GatewayError("TUI tracking timings are unsupported for Web native surfaces")
+        if tui_tracking_timings is not None and tui_tracking_timings.model_dump(exclude_none=True):
+            if self.m_attach_contract.backend == "hermes_tui":
+                raise GatewayError("TUI tracking timings are unsupported for Hermes TUI")
+            if self.m_attach_contract.backend in MANAGED_WEB_BACKENDS:
+                raise GatewayError("TUI tracking timings are unsupported for Web native surfaces")
         manifest_value = self.m_attach_contract.manifest_path
         self.m_manifest_path: Path | None = (
             Path(manifest_value).resolve() if manifest_value else None
@@ -2687,6 +2866,8 @@ class GatewayServiceRuntime:
     def _reconcile_tui_prompt(self, attempt: OwnerPromptAttempt) -> bool:
         """Recognize an attributable usage result or a later settled terminal cycle."""
 
+        if isinstance(self.m_adapter, _HermesTuiGatewayAdapter):
+            return self.m_adapter.reconcile_owner_attempt(attempt)
         usage_service = getattr(self, "m_usage_service", None)
         if usage_service is not None:
             try:
@@ -3006,6 +3187,25 @@ class GatewayServiceRuntime:
             return grant is None or self._require_access_policy().revalidate(grant)
         except GatewayAccessError:
             return False
+
+    def _hermes_prompt_authorizer(
+        self, grant: GatewayGrant | None, *, operation_id: str
+    ) -> Callable[[], None]:
+        """Record one authorized effect and recheck authority during receipt recovery."""
+
+        fenced = False
+
+        def authorize() -> None:
+            """Bind the first submission and authorize any recovery of that same input."""
+
+            nonlocal fenced
+            if not fenced:
+                self.fence_access(grant, operation_id=operation_id)
+                fenced = True
+            elif not self._native_access_is_current(grant):
+                raise GatewayAccessError(409, "authorization_target_conflict")
+
+        return authorize
 
     def authorize_resolved_effects(
         self, request: Request, permissions: tuple[Permission, ...]
@@ -3590,6 +3790,7 @@ class GatewayServiceRuntime:
             "codex_headless",
             "kimi_headless",
             "dsh_headless",
+            "hermes_headless",
             *MANAGED_WEB_BACKENDS,
             *MANAGED_SERVICE_BACKENDS,
         }:
@@ -3619,6 +3820,8 @@ class GatewayServiceRuntime:
             except OwnerAdmissionError:
                 return "unknown"
             if manifest is not None:
+                if manifest.backend == "hermes_tui":
+                    return "native_tui"
                 return ag_ui_target_transport_family_for_mode(manifest.mode)
             return ag_ui_target_transport_family_for_backend(str(self.m_attach_contract.backend))
 
@@ -4063,6 +4266,7 @@ class GatewayServiceRuntime:
             "codex_headless",
             "kimi_headless",
             "dsh_headless",
+            "hermes_headless",
         }:
             raise HTTPException(
                 status_code=422,
@@ -4152,8 +4356,9 @@ class GatewayServiceRuntime:
             and (
                 manifest.mode == "headless"
                 and isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter)
-                or manifest.mode == "service"
-                and isinstance(self.m_adapter, _ManagedServiceGatewayAdapter)
+                or isinstance(
+                    self.m_adapter, (_ManagedServiceGatewayAdapter, _HermesTuiGatewayAdapter)
+                )
             )
         ):
             return self._create_owned_interrupt(manifest, authority=authority)
@@ -4186,7 +4391,13 @@ class GatewayServiceRuntime:
                 self._prompt_dispatch_mode_locked(admission_policy="ready_only")
             if (
                 self.m_attach_contract.backend
-                in {"claude_headless", "codex_headless", "kimi_headless", "dsh_headless"}
+                in {
+                    "claude_headless",
+                    "codex_headless",
+                    "kimi_headless",
+                    "dsh_headless",
+                    "hermes_headless",
+                }
                 and request_payload.kind == "submit_prompt"
                 and (
                     status.active_execution == "running"
@@ -4215,7 +4426,14 @@ class GatewayServiceRuntime:
                 )
                 if execution_rejection is not None:
                     raise HTTPException(status_code=422, detail=execution_rejection)
-                if ready_only or dispatch_mode == "service":
+                if dispatch_mode == "native_tui":
+                    self._validate_prompt_control_locked(
+                        status=status,
+                        admission_policy="ready_only",
+                        dispatch_mode=dispatch_mode,
+                        request_chat_session=submit_payload.chat_session,
+                    )
+                if ready_only or dispatch_mode in {"service", "native_tui"}:
                     self._require_prompt_ready_locked(
                         status=status, dispatch_mode=dispatch_mode, admission_policy="ready_only"
                     )
@@ -4234,7 +4452,7 @@ class GatewayServiceRuntime:
                         )
                     except OwnerAdmissionError as exc:
                         raise self._owner_http_error(exc) from None
-                    if dispatch_mode == "service" and claim is None:
+                    if dispatch_mode in {"service", "native_tui"} and claim is None:
                         raise HTTPException(
                             status_code=503, detail="Service owner authority is unavailable"
                         )
@@ -4326,8 +4544,9 @@ class GatewayServiceRuntime:
         except OwnerAdmissionError as exc:
             raise self._owner_http_error(exc) from None
         service = isinstance(self.m_adapter, _ManagedServiceGatewayAdapter)
-        if service and attempt is None:
-            raise HTTPException(status_code=409, detail="No managed service request is active")
+        native_tui = isinstance(self.m_adapter, _HermesTuiGatewayAdapter)
+        if (service or native_tui or manifest.backend == "hermes_headless") and attempt is None:
+            raise HTTPException(status_code=409, detail="No managed native request is active")
         request_id = generate_gateway_request_id()
         self.fence_access(authority, operation_id=request_id)
         accepted_at = now_utc_iso()
@@ -4353,8 +4572,12 @@ class GatewayServiceRuntime:
         if attempt is not None:
             try:
                 with self._owner_effect(manifest):
-                    if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
+                    if isinstance(
+                        self.m_adapter, (_ManagedServiceGatewayAdapter, _HermesTuiGatewayAdapter)
+                    ):
                         self.m_adapter.interrupt(operation_id=attempt.request_id)
+                    elif manifest.backend == "hermes_headless":
+                        self.m_adapter.interrupt()
                     else:
                         result = interrupt_owned_headless_attempt(attempt.turn_dir)
                         if result.status != "ok":
@@ -4375,7 +4598,11 @@ class GatewayServiceRuntime:
             error_detail=None,
             result_json={
                 "outcome": "handed_off" if attempt else "idle",
-                "source": "service_native" if service else "headless_artifacts",
+                "source": "service_native"
+                if service
+                else "tui_native"
+                if native_tui
+                else "headless_artifacts",
             },
         )
         return GatewayAcceptedRequestV1(
@@ -5208,6 +5435,8 @@ class GatewayServiceRuntime:
         selection: HeadlessTurnSessionSelection | None = None
         consume_override = False
         known_refusal = False
+        native: tuple[Literal["queued", "handed_off"], str] | None = None
+        hermes_tui = isinstance(adapter, _HermesTuiGatewayAdapter)
         kimi_web = isinstance(adapter, _NativeWebGatewayAdapter) and (
             self.m_attach_contract.backend == "kimi_web"
         )
@@ -5241,7 +5470,7 @@ class GatewayServiceRuntime:
                     "not_ready" if exc.code in {"not_ready", "uncertain"} else "body_unavailable",
                     self._owner_http_error(exc).status_code,
                 )
-            if claim is None and kimi_web:
+            if claim is None and (kimi_web or hermes_tui):
                 fail("dispatch_confirmation_unavailable")
             if mode in {"local_headless", "server_headless"}:
                 try:
@@ -5319,10 +5548,23 @@ class GatewayServiceRuntime:
             def execute() -> None:
                 """Execute the request once and retain no payload for a future attempt."""
 
-                nonlocal known_refusal
+                nonlocal known_refusal, native
                 outcome: Literal["interrupted"] | None = None
                 try:
                     control.require_allowed()
+                    if isinstance(adapter, _HermesTuiGatewayAdapter):
+                        assert claim is not None
+                        admission = adapter.submit_claimed_prompt(
+                            claim=claim, prompt=prompt, authorize=control.require_allowed
+                        )
+                        if admission.native_admission_id is None:
+                            raise GatewayError("Hermes native admission is unconfirmed")
+                        native = (
+                            "queued" if admission.state == "queued" else "handed_off",
+                            admission.native_admission_id,
+                        )
+                        control.confirm_durable_handoff()
+                        return
                     if claim is not None and claim.mode == "tui":
                         self._register_usage_prompt(turn_id=claim.request_id)
                     outcome = adapter.submit_plugin_event(
@@ -5333,6 +5575,9 @@ class GatewayServiceRuntime:
                     )
                     if claim is None and not confirmed.is_set():
                         control.confirm_handoff()
+                except OwnerAdmissionError as exc:
+                    known_refusal = hermes_tui and exc.code == "not_ready"
+                    failed.set()
                 except DshWebError as exc:
                     known_refusal = (
                         mode == "web"
@@ -5366,7 +5611,10 @@ class GatewayServiceRuntime:
                                 if not confirmed.is_set():
                                     claim.finish("uncertain", evidence="native_handoff_unavailable")
                             elif failed.is_set() or not confirmed.is_set():
-                                claim.finish("uncertain", evidence="native_handoff_unavailable")
+                                claim.finish(
+                                    "failed" if known_refusal else "uncertain",
+                                    evidence="native_handoff_unavailable",
+                                )
                             elif claim.mode == "headless":
                                 claim.finish(
                                     outcome or "completed",
@@ -5414,11 +5662,13 @@ class GatewayServiceRuntime:
                 fail("dispatch_failed")
 
         successful = False
-        native: tuple[Literal["queued", "handed_off"], str] | None = None
         try:
             while True:
                 if known_refusal:
                     fail("not_ready", 409)
+                if hermes_tui and confirmed.is_set() and native is not None:
+                    successful = True
+                    return native
                 if not allowed(require_claim=mode != "service"):
                     fail("body_lost_or_dispatch_expired", outcome="unknown")
                 if failed.is_set() and not (kimi_web and confirmed.is_set()):
@@ -5483,6 +5733,10 @@ class GatewayServiceRuntime:
     ) -> GatewayPromptControlResultV1:
         """Dispatch one prompt immediately when the addressed target is ready."""
 
+        if isinstance(self.m_adapter, _HermesTuiGatewayAdapter):
+            return self._control_hermes_prompt(
+                self.m_adapter, request_payload, expected_generation, authority
+            )
         dispatch_mode: _GatewayPromptDispatchMode
         consume_headless_override = False
         headless_session_selection: HeadlessTurnSessionSelection | None = None
@@ -5698,6 +5952,88 @@ class GatewayServiceRuntime:
             detail="Prompt dispatched.",
         )
 
+    def _control_hermes_prompt(
+        self,
+        adapter: _HermesTuiGatewayAdapter,
+        request: GatewayPromptControlRequestV1,
+        expected_generation: str | None,
+        authority: GatewayGrant | None,
+    ) -> GatewayPromptControlResultV1:
+        """Hand off one literal prompt and return its verified native admission."""
+
+        policy = request.admission_policy
+        try:
+            with self.m_lock:
+                status = self._refresh_status_snapshot(
+                    active_execution=self._active_execution_state()
+                )
+                self._require_qualified_command(
+                    request.prompt,
+                    dispatch_mode="native_tui",
+                    admission_policy=policy,
+                    has_native_overrides=request.chat_session is not None
+                    or request.execution is not None,
+                )
+                self._validate_prompt_control_locked(
+                    status=status,
+                    admission_policy=policy,
+                    dispatch_mode="native_tui",
+                    request_chat_session=request.chat_session,
+                )
+                if request.execution is not None:
+                    self._raise_prompt_control_http_error(
+                        status_code=422,
+                        admission_policy=policy,
+                        error_code="unsupported_control",
+                        detail="Hermes uses its launch-selected model for every turn.",
+                    )
+                self._require_prompt_ready_locked(
+                    status=status, dispatch_mode="native_tui", admission_policy=policy
+                )
+                claim = self._reserve_prompt(
+                    request_id=self._next_direct_headless_turn_id_locked(),
+                    origin="gateway_prompt",
+                    expected_generation=expected_generation,
+                )
+        except OwnerAdmissionError as exc:
+            raise self._owner_http_error(exc) from None
+        if claim is None:
+            raise HTTPException(status_code=503, detail="Hermes TUI owner is unavailable")
+
+        try:
+            admission = adapter.submit_claimed_prompt(
+                claim=claim,
+                prompt=request.prompt,
+                authorize=self._hermes_prompt_authorizer(authority, operation_id=claim.request_id),
+            )
+        except OwnerAdmissionError as exc:
+            raise self._owner_http_error(exc) from None
+        except (BackendExecutionError, GatewayError) as exc:
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                admission_policy=policy,
+                error_code="native_dispatch_failed",
+                detail=str(exc),
+            )
+        if admission.native_admission_id is None:
+            self._raise_prompt_control_http_error(
+                status_code=503,
+                admission_policy=policy,
+                error_code="handoff_unconfirmed",
+                detail="Hermes did not confirm native admission.",
+            )
+        queued = admission.state == "queued"
+        return GatewayPromptControlResultV1(
+            admission_policy=policy,
+            sent=not queued,
+            detail="Hermes accepted the prompt into its native queue."
+            if queued
+            else "Prompt dispatched.",
+            operation_id=claim.request_id,
+            outcome="queued" if queued else "handed_off",
+            native_prompt_id=admission.native_admission_id,
+        )
+
     def _submit_with_owner_prompt_claim(
         self,
         *,
@@ -5712,6 +6048,17 @@ class GatewayServiceRuntime:
 
         self.fence_access(authority)
         outcome = None
+        if isinstance(self.m_adapter, _HermesTuiGatewayAdapter):
+            if claim is None or session_selection is not None or execution_model is not None:
+                raise GatewayError("Hermes TUI requires the current owner and bound conversation")
+            receipt = self.m_adapter.submit_claimed_prompt(
+                claim=claim,
+                prompt=prompt,
+                authorize=lambda: self.fence_access(authority, operation_id=claim.request_id),
+            )
+            if receipt.native_admission_id is None:
+                raise GatewayError("Hermes native admission is unconfirmed")
+            return None
         if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
             if claim is None or claim.mode != "service":
                 raise GatewayError("Service prompt reservation is unavailable")
@@ -6217,6 +6564,13 @@ class GatewayServiceRuntime:
         if requested_mode == "new":
             return HeadlessTurnSessionSelection(mode="new"), False
         if requested_mode == "tool_last_or_new":
+            if self.m_attach_contract.backend == "hermes_headless":
+                self._raise_prompt_control_http_error(
+                    status_code=422,
+                    admission_policy=admission_policy,
+                    error_code="invalid_chat_session",
+                    detail="Hermes does not support latest-session selection.",
+                )
             return HeadlessTurnSessionSelection(mode="tool_last_or_new"), False
         if requested_mode == "exact":
             assert request_chat_session is not None and request_chat_session.id is not None
@@ -6267,6 +6621,8 @@ class GatewayServiceRuntime:
         backend = self.m_attach_contract.backend
         if backend in MANAGED_WEB_BACKENDS and isinstance(self.m_adapter, _NativeWebGatewayAdapter):
             return "web"
+        if backend == "hermes_tui":
+            return "native_tui"
         if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
             return "service"
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
@@ -6276,6 +6632,7 @@ class GatewayServiceRuntime:
             "codex_headless",
             "kimi_headless",
             "dsh_headless",
+            "hermes_headless",
         }:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
@@ -6321,6 +6678,15 @@ class GatewayServiceRuntime:
             )
         if dispatch_mode == "service":
             self._service_session_selection_locked(status, admission_policy, request_chat_session)
+            return
+        if dispatch_mode == "native_tui":
+            if admission_policy != "ready_only" or request_chat_session is not None:
+                self._raise_prompt_control_http_error(
+                    status_code=422,
+                    admission_policy=admission_policy,
+                    error_code="unsupported_control",
+                    detail="Hermes TUI uses ready_only and the bound conversation.",
+                )
             return
         if dispatch_mode == "web":
             if self.m_attach_contract.backend == "kimi_web":
@@ -6451,6 +6817,8 @@ class GatewayServiceRuntime:
 
         if request_execution is None:
             return None
+        if self.m_attach_contract.backend in {"hermes_tui", "hermes_service", "hermes_headless"}:
+            return "Hermes uses its launch-selected model for every turn."
         if self.m_attach_contract.backend == "kimi_acp":
             return "Kimi ACP uses the model bound to its current service conversation."
         if self.m_attach_contract.backend == "codex_app_server":
@@ -6491,6 +6859,16 @@ class GatewayServiceRuntime:
         if dispatch_mode == "tui":
             self._require_tui_prompt_ready_locked(admission_policy=admission_policy)
             self._require_tui_no_pending_locked(admission_policy=admission_policy)
+            return
+        if dispatch_mode == "native_tui":
+            observation = status.observation
+            if observation is None or observation.can_accept_prompt_now is not True:
+                self._raise_prompt_control_http_error(
+                    status_code=409,
+                    admission_policy=admission_policy,
+                    error_code="not_ready",
+                    detail="The Hermes conversation is busy or unavailable.",
+                )
             return
         if dispatch_mode == "web":
             if status.web is None or not status.web.can_accept_prompt_now:
@@ -6638,6 +7016,8 @@ class GatewayServiceRuntime:
         backend = self.m_attach_contract.backend
         if backend in MANAGED_WEB_BACKENDS:
             return "web"
+        if backend == "hermes_tui":
+            return "native_tui"
         if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
             return "service"
         if backend in {"cao_rest", "houmao_server_rest", "local_interactive"}:
@@ -6647,6 +7027,7 @@ class GatewayServiceRuntime:
             "codex_headless",
             "kimi_headless",
             "dsh_headless",
+            "hermes_headless",
         }:
             if isinstance(self.m_adapter, _ServerManagedHeadlessGatewayAdapter):
                 return "server_headless"
@@ -6677,6 +7058,10 @@ class GatewayServiceRuntime:
         if dispatch_mode == "service":
             if status.service is None or status.service.can_accept_prompt_now is not True:
                 return "mail notifier poll deferred because native service admission is closed"
+            return None
+        if dispatch_mode == "native_tui":
+            if status.observation is None or status.observation.can_accept_prompt_now is not True:
+                return "mail notifier poll deferred because Hermes native admission is closed"
             return None
         if dispatch_mode == "tui":
             try:
@@ -8349,6 +8734,10 @@ class GatewayServiceRuntime:
             state = self.m_adapter.observe()
             if not _service_connected(state) or state.can_accept_prompt_now is not True:
                 return None
+        if isinstance(self.m_adapter, _HermesTuiGatewayAdapter):
+            state = self.m_adapter.observe()
+            if state.can_accept_prompt_now is not True:
+                return None
         from houmao.mailbox.notifier_admission import admit_mail_reminder
 
         request_id = generate_gateway_request_id()
@@ -8959,6 +9348,8 @@ class GatewayServiceRuntime:
         """Process accepted requests serially until shutdown."""
 
         while not self.m_stop_event.is_set():
+            if isinstance(self.m_adapter, _HermesTuiGatewayAdapter):
+                self._refresh_hermes_queue_admissions(self.m_adapter)
             request_record = self._take_next_request()
             if request_record is None:
                 with self.m_lock:
@@ -9021,7 +9412,7 @@ class GatewayServiceRuntime:
                 reserved = getattr(self, "m_reserved_queue_prompts", {})
                 claim = reserved.get(record.request_id)
                 if record.request_kind != "interrupt" and claim is None:
-                    if status.mode == "tui":
+                    if status.mode == "tui" and self.m_attach_contract.backend != "hermes_tui":
                         try:
                             self._require_tui_prompt_ready_locked(admission_policy="ready_only")
                             self._require_tui_no_pending_locked(admission_policy="ready_only")
@@ -9430,7 +9821,7 @@ class GatewayServiceRuntime:
                                 payload.chat_session is not None or payload.execution is not None
                             ),
                         )
-                    if claim is not None and claim.mode == "tui":
+                    if claim is not None and claim.mode == "tui" and dispatch_mode == "tui":
                         self._require_tui_prompt_ready_locked(admission_policy="ready_only")
                         self._require_tui_no_pending_locked(admission_policy="ready_only")
                         self._require_hook_admission_locked(admission_policy="ready_only")
@@ -9498,6 +9889,19 @@ class GatewayServiceRuntime:
                             ),
                         )
                         return
+                    if isinstance(self.m_adapter, _HermesTuiGatewayAdapter):
+                        if claim is None:
+                            raise GatewayError("Hermes TUI prompt reservation is unavailable")
+                        dispatch_started = True
+                        admission = self.m_adapter.submit_claimed_prompt(
+                            claim=claim,
+                            prompt=payload.prompt,
+                            authorize=self._hermes_prompt_authorizer(
+                                request_record.authority, operation_id=request_id
+                            ),
+                        )
+                        self._record_hermes_queue_admission(request_id, admission)
+                        return
                     self.fence_access(request_record.authority, operation_id=request_id)
                     dispatch_started = True
                     if isinstance(self.m_adapter, _ManagedServiceGatewayAdapter):
@@ -9536,6 +9940,7 @@ class GatewayServiceRuntime:
                     if (
                         manifest is not None
                         and manifest.mode == "headless"
+                        and manifest.backend != "hermes_headless"
                         and isinstance(self.m_adapter, _LocalHeadlessGatewayAdapter)
                     ):
                         active_attempt = self._owner_prompt_attempt(manifest)
@@ -9556,7 +9961,15 @@ class GatewayServiceRuntime:
             UsageStoreError,
             ValidationError,
         ) as exc:
-            known_refusal = not dispatch_started or isinstance(exc, GatewayAccessError)
+            known_refusal = (
+                not dispatch_started
+                or isinstance(exc, GatewayAccessError)
+                or (
+                    isinstance(self.m_adapter, _HermesTuiGatewayAdapter)
+                    and isinstance(exc, OwnerAdmissionError)
+                    and exc.code == "not_ready"
+                )
+            )
             if request_record.owner_claim is not None and known_refusal:
                 request_record.owner_claim.finish(
                     "failed", evidence="request_refused_before_dispatch"
@@ -9600,6 +10013,71 @@ class GatewayServiceRuntime:
                 ),
             },
         )
+
+    def _refresh_hermes_queue_admissions(self, adapter: _HermesTuiGatewayAdapter) -> None:
+        """Resume receipt observation after gateway restart without replaying input."""
+
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            rows = connection.execute(
+                "SELECT request_id, state FROM gateway_requests "
+                "WHERE state IN ('observing', 'uncertain') "
+                "AND request_kind IN ('submit_prompt', 'mail_notifier_prompt')"
+            ).fetchall()
+        for request_id, state in rows:
+            try:
+                admission = adapter.read_admission(str(request_id))
+            except (RuntimeError, OSError, ValueError):
+                continue
+            if (
+                admission is not None
+                and admission.request_id == request_id
+                and admission.state != "submitting"
+                and (admission.state != "uncertain" or state != "uncertain")
+            ):
+                self._record_hermes_queue_admission(str(request_id), admission)
+
+    def _record_hermes_queue_admission(
+        self, request_id: str, admission: HermesTuiAdmission
+    ) -> None:
+        """Keep a native queued request nonterminal until its own receipt settles."""
+
+        result = _hermes_admission_result(admission)
+        if admission.terminal or admission.state == "uncertain":
+            state: _GatewayRequestTerminalState = (
+                "completed"
+                if admission.state == "completed"
+                else "uncertain"
+                if admission.state == "uncertain"
+                else "failed"
+            )
+            self._finish_request(
+                request_id=request_id,
+                state=state,
+                result_json=result,
+                error_detail=None if state == "completed" else f"Hermes request {admission.state}",
+            )
+            return
+        encoded = json.dumps(result, sort_keys=True)
+        with sqlite3.connect(self.m_paths.queue_path) as connection:
+            changed = connection.execute(
+                "UPDATE gateway_requests SET state='observing', error_detail=NULL, "
+                "finished_at_utc=NULL, result_json=?, started_at_utc=CASE "
+                "WHEN ?='queued' THEN NULL ELSE COALESCE(started_at_utc, ?) END "
+                "WHERE request_id=? AND state IN ('running', 'observing', 'uncertain') "
+                "AND (state!='observing' OR result_json IS NOT ?)",
+                (encoded, admission.state, now_utc_iso(), request_id, encoded),
+            ).rowcount
+        if changed and admission.native_admission_id is not None:
+            append_gateway_event(
+                self.m_paths,
+                {
+                    "kind": "native_admission",
+                    "request_id": request_id,
+                    "native_admission_id": admission.native_admission_id,
+                    "outcome": admission.state,
+                    "observed_at_utc": now_utc_iso(),
+                },
+            )
 
     def _finish_service_queue_request(
         self, request_id: str, snapshot: GatewayServiceRequestSnapshotV1 | None
@@ -9713,10 +10191,14 @@ class GatewayServiceRuntime:
                     finished_at_utc = ?,
                     error_detail = ?
                 WHERE state IN ('running', 'observing')
+                  AND NOT (state='observing' AND ? AND CASE WHEN json_valid(result_json)
+                      THEN COALESCE(json_extract(result_json, '$.source') = 'tui_native', 0)
+                      ELSE 0 END)
                 """,
                 (
                     now_utc_iso(),
                     "Gateway restarted before native completion could be established. Input was not replayed.",
+                    self.m_attach_contract.backend == "hermes_tui",
                 ),
             )
             connection.commit()
@@ -9806,7 +10288,11 @@ class GatewayServiceRuntime:
             admission = "blocked_reconciliation"
 
         if attempt is not None:
-            active_execution = "running"
+            if (
+                target_state.native_tui is None
+                or target_state.native_tui.native_admission_state != "queued"
+            ):
+                active_execution = "running"
             if attempt.state == "uncertain":
                 admission = "blocked_reconciliation"
         if target_state.service is not None and (
@@ -9814,7 +10300,17 @@ class GatewayServiceRuntime:
             or target_state.service.active_turn_id is not None
         ):
             active_execution = "running"
+        if (
+            target_state.native_tui is not None
+            and target_state.native_tui.active_turn_id is not None
+        ):
+            active_execution = "running"
         queue_depth = queue_depth_from_sqlite(self.m_paths.queue_path)
+        if (
+            target_state.native_tui is not None
+            and target_state.native_tui.native_admission_state == "queued"
+        ):
+            queue_depth += 1
         capabilities = self._owner_capabilities(manifest) if manifest is not None else None
         observation = self._owner_observation(
             manifest=manifest,
@@ -9908,6 +10404,14 @@ class GatewayServiceRuntime:
         if manifest is None or capabilities is None:
             return None
         connected = target.connectivity == "connected"
+        if manifest.backend == "hermes_tui" and target.native_tui is not None:
+            return target.native_tui.model_copy(
+                update={
+                    "can_accept_prompt_now": connected
+                    and ready
+                    and target.native_tui.can_accept_prompt_now is True,
+                }
+            )
         if manifest.mode == "service" and target.service is not None:
             service = target.service
             return service.model_copy(
@@ -10092,6 +10596,16 @@ class GatewayServiceRuntime:
     def _require_tui_tracking_locked(self) -> SingleSessionTrackingRuntime:
         """Require gateway-owned TUI tracking for the attached session."""
 
+        if self.m_attach_contract.backend == "hermes_tui":
+            raise HTTPException(
+                status_code=501,
+                detail={
+                    "error_code": "unsupported_capability",
+                    "surface_kind": "terminal",
+                    "detail": "Terminal parser state, history, and tracking are unsupported for Hermes TUI.",
+                    "supported_state_route": "/v1/status",
+                },
+            )
         if self.m_tui_tracking is None:
             if self.m_attach_contract.backend in MANAGED_WEB_BACKENDS:
                 raise HTTPException(

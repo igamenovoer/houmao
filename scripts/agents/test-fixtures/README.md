@@ -164,6 +164,31 @@ Browser and API clients can alternate work on that same native session. A browse
 
 Local managed fixtures and raw TUI or Web fixtures use the execution owner's shared Houmao tmux server by default. Run `fixture.py prepare --tmux-server new` to give a local fixture a private server. Automated tests that use tmux select an isolated server explicitly. Launch records the concrete socket, and follow-up ignores the caller's `TMUX` and `TMUX_PANE`. Cleanup stops only the run's captured agent or verified session. Raw headless calls run directly. Passive launches use the socket selected by the addressed passive server.
 
+## Hermes
+
+Hermes fixtures resolve the `hermes` command from PATH and use explicit OpenAI-compatible Chat Completions inputs. Select `--case self-hosted` or `--case cloud-api` and an explicit credential env file or model-pool key. Each run gets private workspace, role, skill, and native-home inputs. Choose `--mode service` for persistent ACP, `--mode headless` for one-shot JSONL, or `--mode tui` for Ink. Raw and managed runs have separate homes. Tmux-backed Hermes fixtures use isolated tmux servers.
+
+For a deterministic loopback provider, start the fixture peer in one terminal and keep it running:
+
+```bash
+pixi run python scripts/agents/test-fixtures/fixture.py chat-peer \
+  --state-dir tmp/hermes-qualification/peer
+```
+
+The peer writes the model, URL, and synthetic credential to the owner-private `peer.env`. It serves a fixed answer and retains private `requests.jsonl` evidence for the selected model, authentication, role, and conversation messages.
+
+```bash
+env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prepare \
+  --client hermes --case self-hosted --env-file tmp/hermes-qualification/peer/peer.env \
+  --mode headless --surface manager --run-root tmp/hermes-qualification/runs
+env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir RUN_DIR
+env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prompt --run-dir RUN_DIR --prompt 'First turn'
+env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prompt --run-dir RUN_DIR --prompt 'Second turn'
+env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py stop --run-dir RUN_DIR
+```
+
+Replace `RUN_DIR` with the returned `run_dir`. To exercise the stock client independently, prepare a raw run by replacing `--surface manager` with `--surface raw`. Raw headless takes its first prompt at launch with `--prompt`. Raw service launches stock ACP and records its private protocol stream. TUI waits for Ink to become ready and publishes its isolated pane. The `prompt` command submits input to that pane. Run `check --run-dir RUN_DIR --live` to verify live readiness. Compare the peer's private request history with the mode's native turn evidence. Record a provider or mode that cannot start as unavailable.
+
 ## Qualification
 
 Default automated tests use synthetic credentials and harmless clients. Live qualification is explicit and requires working credentials, installed clients, declared compatible protocols, and a qualified model. Reports include the selected case, model, protocol, mode, backend, and the native build version when the executable reports it. Interactive runs include the verified terminal or browser surface. Record completed and resumed prompts, direct human-interface interaction, and available public usage. Report rejected credentials or unavailable self-hosted/native prerequisites as gaps. Never label an unexecuted lane as passed. Historical captures and completed change-local wrappers retain their factual model names; maintained launch paths use this helper.

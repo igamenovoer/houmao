@@ -140,7 +140,16 @@ from .backends.headless_base import (
     headless_backend_state_payload,
 )
 from .backends.kimi_headless import KimiHeadlessSession
+from houmao.agents.hermes_configuration import (
+    hermes_owned_environment_name,
+    resolve_hermes_executable,
+)
 from houmao.agents.realm_controller.backends.dsh_headless import DshHeadlessSession
+from houmao.agents.realm_controller.backends.hermes_headless import HermesHeadlessSession
+from houmao.agents.realm_controller.backends.hermes_tui import (
+    HermesTuiSession,
+    HermesTuiSessionState,
+)
 from houmao.agents.realm_controller.backends.service_runtime import (
     ManagedServiceSession,
     ManagedServiceSessionState,
@@ -349,6 +358,9 @@ _TMUX_BACKED_BACKENDS: frozenset[BackendKind] = frozenset(
         "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "hermes_headless",
+        "hermes_service",
+        "hermes_tui",
         "kimi_web",
         "cao_rest",
     }
@@ -364,6 +376,9 @@ _GATEWAY_ATTACH_SUPPORTED_BACKENDS: tuple[BackendKind, ...] = (
     "dsh_headless",
     "dsh_acp",
     "dsh_web",
+    "hermes_headless",
+    "hermes_service",
+    "hermes_tui",
     "kimi_web",
     "cao_rest",
 )
@@ -378,6 +393,9 @@ _STOPPED_SESSION_RELAUNCH_BACKENDS: frozenset[BackendKind] = frozenset(
         "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "hermes_headless",
+        "hermes_service",
+        "hermes_tui",
         "kimi_web",
     }
 )
@@ -843,9 +861,11 @@ class RuntimeSessionController:
             if isinstance(window_name, str) and window_name.strip()
             else None,
             primary_window_id=_optional_non_empty_backend_value(
-                backend_state.get("tmux_window_id")
+                backend_state.get("tmux_window_id") or backend_state.get("window_id")
             ),
-            primary_pane_id=_optional_non_empty_backend_value(backend_state.get("tmux_pane_id")),
+            primary_pane_id=_optional_non_empty_backend_value(
+                backend_state.get("tmux_pane_id") or backend_state.get("pane_id")
+            ),
         )
         self.tmux_session_name = session_name
 
@@ -968,6 +988,17 @@ class RuntimeSessionController:
                 source="owner_registry", freshness="unknown", can_accept_prompt_now=False
             )
 
+    def observe_managed_tui(self) -> ManagedControlObservationV1:
+        """Read the native TUI independently of its attached terminal."""
+
+        with self.execution_scope():
+            self.require_managed_control_owner()
+            if not isinstance(self.backend_session, HermesTuiSession):
+                raise BackendExecutionError("Native TUI observation requires Hermes TUI")
+            observation = self.backend_session.observe_managed_control()
+            self.require_managed_control_owner()
+            return observation
+
     @_execution_bound_controller
     def _persist_web_binding_change(self) -> None:
         """Publish an intentional Web reset before its next native input handoff."""
@@ -1020,6 +1051,12 @@ class RuntimeSessionController:
         """Send a prompt and persist updated session state."""
 
         self._reset_operation_warnings()
+        if self.launch_plan.tool == "hermes" and execution_model is not None:
+            raise SessionManifestError("Hermes requests use the launch-selected model.")
+        if self.launch_plan.backend == "hermes_tui" and session_selection is not None:
+            raise SessionManifestError(
+                "Hermes TUI requests use the currently bound native session."
+            )
         if isinstance(self.backend_session, (DshWebSession, KimiWebSession)):
             return self.send_web_prompt(
                 prompt,
@@ -1908,31 +1945,36 @@ class RuntimeSessionController:
                 blueprint_gateway_defaults=blueprint_gateway_defaults,
             )
         )
-        stable_discovery_env = {
-            AGENT_MANIFEST_PATH_ENV_VAR: str(self.manifest_path.resolve()),
-        }
-        stable_discovery_env[AGENT_ID_ENV_VAR] = payload.agent_id
-        memory = _memory_from_manifest_payload(payload=payload)
-        if memory is not None:
-            stable_discovery_env.update(memory_env(memory))
-        set_tmux_session_environment_shared(
-            session_name=session_name,
-            env_vars=stable_discovery_env,
+        detached_hermes = (
+            isinstance(self.backend_session, HermesTuiSession)
+            and self.backend_session.terminal_attachment() == "detached"
         )
-        if tmux_session_exists_shared(session_name=session_name):
-            try:
-                unset_tmux_session_environment_shared(
-                    session_name=session_name,
-                    variable_names=(
-                        [
-                            AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
-                            AGENT_GATEWAY_ROOT_ENV_VAR,
-                        ]
-                        + sorted(_RETIRED_MEMORY_ENV_VARS)
-                    ),
-                )
-            except TmuxCommandError:
-                pass
+        if not detached_hermes:
+            stable_discovery_env = {
+                AGENT_MANIFEST_PATH_ENV_VAR: str(self.manifest_path.resolve()),
+            }
+            stable_discovery_env[AGENT_ID_ENV_VAR] = payload.agent_id
+            memory = _memory_from_manifest_payload(payload=payload)
+            if memory is not None:
+                stable_discovery_env.update(memory_env(memory))
+            set_tmux_session_environment_shared(
+                session_name=session_name,
+                env_vars=stable_discovery_env,
+            )
+            if tmux_session_exists_shared(session_name=session_name):
+                try:
+                    unset_tmux_session_environment_shared(
+                        session_name=session_name,
+                        variable_names=(
+                            [
+                                AGENT_GATEWAY_ATTACH_PATH_ENV_VAR,
+                                AGENT_GATEWAY_ROOT_ENV_VAR,
+                            ]
+                            + sorted(_RETIRED_MEMORY_ENV_VARS)
+                        ),
+                    )
+                except TmuxCommandError:
+                    pass
         self.gateway_root = paths.gateway_root
         self.gateway_attach_path = paths.attach_path
         self.refresh_shared_registry_record()
@@ -2262,6 +2304,15 @@ def start_runtime_session(
     manifest = load_brain_manifest(brain_manifest_path)
     tool = str(manifest.get("inputs", {}).get("tool", ""))
     selected_backend = resolve_run_mode(tool, mode=mode, backend=backend).backend
+    if tool == "hermes":
+        try:
+            resolve_hermes_executable(working_directory=working_directory)
+        except (OSError, ValueError) as exc:
+            raise LaunchPlanError(str(exc)) from exc
+        if any(hermes_owned_environment_name(name) for name in (launch_env_overrides or {})):
+            raise SessionManifestError(
+                "Hermes provider and native environment controls are Houmao-owned."
+            )
     if selected_backend == "kimi_web":
         executable = manifest.get("runtime", {}).get("launch_executable")
         if not isinstance(executable, str) or not executable.strip():
@@ -2292,7 +2343,9 @@ def start_runtime_session(
         effective_runtime_root = resolve_runtime_root(explicit_root=runtime_root)
     except ValueError as exc:
         raise SessionManifestError(str(exc)) from exc
-    if mode_for_backend(selected_backend) in {"web", "service"} and (
+    if (
+        mode_for_backend(selected_backend) in {"web", "service"} or selected_backend == "hermes_tui"
+    ) and (
         cao_parsing_mode is not None
         or headless_display_style is not None
         or headless_display_detail is not None
@@ -2304,6 +2357,11 @@ def start_runtime_session(
         if mode_for_backend(selected_backend) == "web":
             raise SessionManifestError(
                 "Web mode does not support terminal parser, display, or timing controls."
+            )
+        if selected_backend == "hermes_tui":
+            raise SessionManifestError(
+                "Hermes TUI uses native control and does not support terminal parser, display, "
+                "or timing controls."
             )
         raise SessionManifestError(
             "Managed service mode does not support terminal parser, display, or timing controls."
@@ -2582,6 +2640,8 @@ def start_runtime_session(
         resolved_tmux_session_name = backend_session.state.tmux_session_name
     elif isinstance(backend_session, ManagedServiceSession):
         resolved_tmux_session_name = backend_session.state.tmux_session_name
+    elif isinstance(backend_session, HermesTuiSession):
+        resolved_tmux_session_name = backend_session.state.session_name
 
     controller = RuntimeSessionController(
         launch_plan=launch_plan,
@@ -2608,10 +2668,20 @@ def start_runtime_session(
         registry_launch_authority=registry_launch_authority,
         agent_launch_authority=None,
     )
-    controller.persist_manifest(refresh_registry=False)
-    controller.ensure_gateway_capability(
-        blueprint_gateway_defaults=resolved_gateway_defaults,
-    )
+    try:
+        controller.persist_manifest(refresh_registry=False)
+        controller.ensure_gateway_capability(
+            blueprint_gateway_defaults=resolved_gateway_defaults,
+        )
+    except Exception:
+        if launch_plan.tool == "hermes":
+            try:
+                rollback = backend_session.terminate()
+                if rollback.status != "ok":
+                    _LOGGER.warning("Hermes startup cleanup failed: %s", rollback.detail)
+            except Exception:
+                _LOGGER.exception("Hermes startup cleanup failed")
+        raise
     if gateway_auto_attach:
         attach_result = controller.attach_gateway(
             host_override=gateway_host,
@@ -2933,6 +3003,24 @@ def _create_backend_session(
 ) -> InteractiveSession:
     """Create a concrete backend session for start/resume flows."""
 
+    if launch_plan.backend == "hermes_tui":
+        return cast(
+            InteractiveSession,
+            HermesTuiSession.from_launch_plan(
+                launch_plan,
+                session_manifest_path=_require_session_manifest_path(
+                    session_manifest_path, backend=launch_plan.backend
+                ),
+                state=(
+                    HermesTuiSessionState.from_payload(resume_state.backend_state)
+                    if resume_state is not None
+                    else None
+                ),
+                tmux_session_name=agent_identity,
+                provider_start=resume_state is None,
+            ),
+        )
+
     if launch_plan.backend == "dsh_web":
         web_state = (
             DshWebSessionState.from_payload(resume_state.backend_state)
@@ -3057,7 +3145,7 @@ def _create_backend_session(
             ),
         )
 
-    if launch_plan.backend == "dsh_headless":
+    if launch_plan.backend in {"dsh_headless", "hermes_headless"}:
         state = _resume_headless_state(
             resume_state, launch_plan=launch_plan, stopped_revival=stopped_revival
         )
@@ -3065,10 +3153,16 @@ def _create_backend_session(
             state is not None
             and Path(state.working_directory).resolve() != launch_plan.working_directory
         ):
-            raise SessionManifestError("DSH resume requires the recorded working directory")
+            tool_label = "DSH" if launch_plan.backend == "dsh_headless" else "Hermes"
+            raise SessionManifestError(
+                f"{tool_label} resume requires the recorded working directory"
+            )
+        backend_class = (
+            DshHeadlessSession if launch_plan.backend == "dsh_headless" else HermesHeadlessSession
+        )
         return cast(
             InteractiveSession,
-            DshHeadlessSession(
+            backend_class(
                 launch_plan=launch_plan,
                 role_name=role_name,
                 session_manifest_path=_require_session_manifest_path(
@@ -3695,7 +3789,8 @@ def _relaunch_backend_session(
             backend_session.update_launch_plan(previous_plan)
         return result
     if not isinstance(
-        backend_session, (LocalInteractiveSession, HeadlessInteractiveSession, CaoRestSession)
+        backend_session,
+        (LocalInteractiveSession, HeadlessInteractiveSession, CaoRestSession, HermesTuiSession),
     ):
         return SessionControlResult(
             status="error",
@@ -3961,7 +4056,7 @@ def _backend_state_for_session(session: InteractiveSession) -> GatewayJsonObject
         capability artifacts.
     """
 
-    if isinstance(session, (DshWebSession, KimiWebSession)):
+    if isinstance(session, (DshWebSession, KimiWebSession, HermesTuiSession)):
         return cast(GatewayJsonObject, session.state.to_payload())
     if isinstance(session, ManagedServiceSession):
         return cast(GatewayJsonObject, session.runtime_state_payload())
@@ -4248,6 +4343,9 @@ def _backend_requires_provider_start_relaunch(backend: BackendKind) -> bool:
         "dsh_headless",
         "dsh_acp",
         "dsh_web",
+        "hermes_headless",
+        "hermes_service",
+        "hermes_tui",
         "kimi_web",
     }
 
@@ -5330,14 +5428,21 @@ def _attach_gateway_for_controller(
 
     paths = _require_gateway_paths_for_controller(controller)
     if (
-        mode_for_backend(controller.launch_plan.backend) == "web"
+        (
+            mode_for_backend(controller.launch_plan.backend) == "web"
+            or controller.launch_plan.backend == "hermes_tui"
+        )
         and tui_tracking_timing_overrides is not None
         and tui_tracking_timing_overrides.has_values()
     ):
         return GatewayControlResult(
             status="error",
             action="gateway_attach",
-            detail="DSH Web does not support terminal tracking timing controls.",
+            detail=(
+                "Hermes TUI does not support terminal tracking timing controls."
+                if controller.launch_plan.backend == "hermes_tui"
+                else "DSH Web does not support terminal tracking timing controls."
+            ),
             gateway_root=str(paths.gateway_root),
         )
     attach_contract = resolve_internal_gateway_attach_contract(paths)
@@ -6062,6 +6167,7 @@ def _launch_same_session_gateway_window(
         tui_tracking_timings=(
             None
             if mode_for_backend(controller.launch_plan.backend) == "web"
+            or controller.launch_plan.backend == "hermes_tui"
             else tui_tracking_timings
         ),
     )
@@ -6337,6 +6443,7 @@ def _start_gateway_process(
             *(
                 _gateway_tui_tracking_timing_cli_args(tui_tracking_timings)
                 if mode_for_backend(controller.launch_plan.backend) != "web"
+                and controller.launch_plan.backend != "hermes_tui"
                 else ()
             ),
         ],

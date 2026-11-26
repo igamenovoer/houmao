@@ -28,7 +28,7 @@ from .common import overwrite_confirm_option
 from .output import emit
 from .project_common import _resolve_profile_posture_mapping, _tool_params_or_click
 
-_SUPPORTED_NATIVE_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi", "dsh")
+_SUPPORTED_NATIVE_TOOLS: tuple[str, ...] = ("claude", "codex", "kimi", "dsh", "hermes")
 
 
 @dataclass(frozen=True)

@@ -17,7 +17,7 @@ from houmao.agents.dsh_configuration import DshEffectiveToolParams
 from houmao.agents.realm_controller.errors import LaunchPlanError
 from houmao.agents.realm_controller.run_modes import RunMode, RunModeSelection, resolve_run_mode
 
-Client = Literal["claude", "codex", "kimi", "dsh"]
+Client = Literal["claude", "codex", "kimi", "dsh", "hermes"]
 Surface = Literal["raw", "manager", "passive-server"]
 Protocol = Literal["anthropic_messages", "openai_responses", "openai_chat", "google_generative_ai"]
 DshProtocol = Literal[
@@ -40,12 +40,14 @@ CLIENT_PROTOCOL: dict[Client, Protocol] = {
     "codex": "openai_responses",
     "kimi": "openai_chat",
     "dsh": "anthropic_messages",
+    "hermes": "openai_chat",
 }
 HOME_VARIABLE = {
     "claude": "CLAUDE_CONFIG_DIR",
     "codex": "CODEX_HOME",
     "kimi": "KIMI_CODE_HOME",
     "dsh": "DSH_HOME",
+    "hermes": "HERMES_HOME",
 }
 _ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
@@ -268,12 +270,12 @@ def fixture_run_mode(client: Client, mode: RunMode | None, surface: Surface) -> 
         raise FixtureError(
             "Passive-server birth supports headless mode; use manager for other modes"
         )
-    if surface == "raw" and mode == "service":
+    if surface == "raw" and mode == "service" and client != "hermes":
         raise FixtureError("Persistent service fixtures require the manager surface")
     if surface == "raw" and client == "kimi" and mode == "web":
         raise FixtureError("Kimi Web fixtures require the manager surface")
     if mode is None and surface != "passive-server":
-        mode = "web" if client == "dsh" else "headless"
+        mode = {"dsh": "web", "hermes": "service"}.get(client, "headless")
     try:
         return resolve_run_mode(
             client,
@@ -378,15 +380,22 @@ def resolve_config(
     )
     if descriptor.case != case:
         raise FixtureError("Descriptor case does not match the selected case")
-    # DSH never discovers ambient credentials. Explicit synthetic process inputs
-    # remain available to hermetic callers; other clients retain their precedence.
+    # DSH and Hermes select credentials explicitly. Hermetic callers can
+    # provide synthetic process inputs.
     inherited = (
         {}
-        if client == "dsh" and process_env is None
+        if client in {"dsh", "hermes"} and process_env is None
         else dict(os.environ if process_env is None else process_env)
     )
     if client == "dsh" and env_file is not None and env_file.resolve().is_relative_to(REPO_ROOT):
         raise FixtureError("DSH credential env files must remain outside the checkout")
+    if client == "hermes" and env_file is not None:
+        resolved_env = env_file.resolve()
+        if resolved_env.is_relative_to(REPO_ROOT) and (
+            not resolved_env.is_relative_to(REPO_ROOT / "tmp")
+            or resolved_env.stat().st_mode & 0o077
+        ):
+            raise FixtureError("Select an external or owner-private ignored fixture env file")
     env = {**read_env_file(env_file), **inherited}
     selected_model = model if model is not None else env.get(descriptor.model_env)
     if not selected_model or not selected_model.strip():
@@ -414,7 +423,9 @@ def resolve_config(
         and dsh_route.protocol == "openai-completions"
         and not key.strip()
     )
-    if not key.strip() and (case == "cloud-api" or (dsh_route is not None and not endpoint_only)):
+    if not key.strip() and (
+        client == "hermes" or case == "cloud-api" or (dsh_route is not None and not endpoint_only)
+    ):
         raise FixtureError(f"Supply nonempty {descriptor.api_key_env}")
     if any(char in key for char in ("\n", "\r", "\x00")):
         raise FixtureError(f"Credential reference {descriptor.api_key_env} must be single-line")
