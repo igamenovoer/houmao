@@ -3,7 +3,7 @@ name: houmao-admin-welcome
 description: Use when a human operator explicitly invokes $houmao-admin-welcome for first-use orientation, route comparison, reorientation, command learning, or a guided tour; never select it implicitly.
 license: MIT
 metadata:
-  houmao_version: "3.0.0"
+  houmao_version: "3.1.0"
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
     SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is

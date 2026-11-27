@@ -3,7 +3,7 @@ name: houmao-shared-routines
 description: Use when a Houmao user explicitly requests a shared routine or an actor entrypoint delegates project, credential, definition, mailbox, messaging, gateway, access policy, versioned files, memory, workspace, inspection, lifecycle, graphing, or AG-UI work.
 license: MIT
 metadata:
-  houmao_version: "3.0.0"
+  houmao_version: "3.1.0"
   skill_invocation_notation: >
     Top-level skill entrypoints use SKILL.md. Parent-scoped subskill entrypoints use
     SKILL-MAIN.md and are loaded explicitly through their parent; nested SKILL.md is
