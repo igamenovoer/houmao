@@ -73,7 +73,7 @@ cp "$RUN_TUI/workdir/tui-note.txt" "$CASE_EVIDENCE/tui-note.txt"
 ```bash
 pixi run python "$LAB" manager --run-dir "$RUN_TUI" --allow-error -- gateway tui history \
   > "$CASE_EVIDENCE/negative-parser-history.json"
-pixi run python "$LAB" manager --run-dir "$RUN_TUI" --allow-error -- gateway send-keys --text "hello" \
+pixi run python "$LAB" manager --run-dir "$RUN_TUI" --allow-error -- gateway send-keys --sequence "hello" \
   > "$CASE_EVIDENCE/negative-send-keys.json"
 pixi run python "$LAB" state --run-dir "$RUN_TUI" > "$CASE_EVIDENCE/state-after-parser-negatives.json"
 ```

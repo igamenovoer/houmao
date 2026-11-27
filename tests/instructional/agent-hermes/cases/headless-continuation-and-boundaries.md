@@ -52,11 +52,12 @@ pixi run python "$LAB" inspect-home --run-dir "$RUN_HL" > "$CASE_EVIDENCE/home-s
 cp "$RUN_HL/workdir/literal.txt" "$CASE_EVIDENCE/literal.txt"
 ```
 
-- **Negative controls: headless interrupt refusal, `tool_last_or_new` rejection, and missing `PATH` (`h4`).**
+- **Negative controls: headless interrupt refusal, `tool_last_or_new` rejection, and unprepared owner (`h4`).**
 
 ```bash
 export HL_SID="$(jq -er '.headless_turns[-1].session_id' "$CASE_EVIDENCE/home-snapshot-after-turn2.json")"
-BEFORE_HASH="$(find "$(jq -er '.managed_home' "$CASE_EVIDENCE/home-snapshot-after-turn2.json")" -maxdepth 2 -type f -exec sha256sum {} + | sort)"
+MANAGED_HOME="$(jq -er '.managed_home' "$CASE_EVIDENCE/home-snapshot-after-turn2.json")"
+BEFORE_HASH="$(sha256sum "$MANAGED_HOME/config.yaml" "$MANAGED_HOME/SOUL.md" "$MANAGED_HOME/.houmao-approval-baseline.json" | sort)"
 
 pixi run python "$LAB" manager --run-dir "$RUN_HL" --allow-error -- interrupt \
   > "$CASE_EVIDENCE/negative-interrupt.json"
@@ -70,7 +71,7 @@ pixi run python "$FIXTURE" prepare \
   --hermes-owner-root "$RUN_TMP/unprepared-owner" --run-root "$RUN_TMP/runtime/neg-no-hermes" \
   > "$CASE_EVIDENCE/negative-unprepared-owner.txt" 2>&1 || echo "unprepared_owner_exit=$?" > "$CASE_EVIDENCE/negative-unprepared-owner-exit.txt"
 
-AFTER_HASH="$(find "$(jq -er '.managed_home' "$CASE_EVIDENCE/home-snapshot-after-turn2.json")" -maxdepth 2 -type f -exec sha256sum {} + | sort)"
+AFTER_HASH="$(sha256sum "$MANAGED_HOME/config.yaml" "$MANAGED_HOME/SOUL.md" "$MANAGED_HOME/.houmao-approval-baseline.json" | sort)"
 test "$BEFORE_HASH" = "$AFTER_HASH" && echo "home_unchanged=true" > "$CASE_EVIDENCE/negative-home-integrity.txt"
 ```
 

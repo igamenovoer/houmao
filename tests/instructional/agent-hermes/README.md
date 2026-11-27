@@ -1,6 +1,6 @@
 # Instructional Managed Hermes Agent Suite
 
-Status: draft
+Status: proven
 
 Agent-driven live verification for Houmao-managed Hermes agents running against a real self-hosted Qwen 3.8 OpenAI-compatible Chat Completions endpoint with `xhigh` thinking. The suite covers Service, Headless, and TUI, reasoning and role projection, isolated named profiles on a shared gateway, and offline and Stalwart mailbox round trips.
 

@@ -62,7 +62,7 @@ pixi run python "$FIXTURE" launch --run-dir "$RUN_JMAP_A" > "$CASE_EVIDENCE/a-la
 pixi run python "$FIXTURE" launch --run-dir "$RUN_JMAP_B" > "$CASE_EVIDENCE/b-launch.json"
 printf 'station-code=amber-44\n' > "$RUN_JMAP_B/workdir/station.txt"
 
-export DUAL_OFFLINE_ROOT="$RUN_TMP/runtime/mailbox-dual"
+export DUAL_OFFLINE_ROOT="${OFFLINE_ROOT:-$RUN_TMP/runtime/mailbox}"
 pixi run python "$LAB" offline-setup \
   --mailbox-root "$DUAL_OFFLINE_ROOT" \
   --binding "$RUN_JMAP_A=dual-a-${MAIL_PREFIX}@houmao.localhost" \
@@ -166,6 +166,7 @@ pixi run python "$LAB" stop --run-dir "$RUN_JMAP_A" --run-dir "$RUN_JMAP_B" \
 ## Gotchas
 
 - A native approval wait fails this unattended case. Capture the outstanding admission and check both mailboxes before scoped cleanup.
+- When running after `mail-local-fs-round-trip` under the same `HOUMAO_TEST_HERMES_OWNER_ROOT`, keep `DUAL_OFFLINE_ROOT` pointed at the shared owner registry's initialized offline store (`$RUN_TMP/runtime/mailbox`); selecting a different directory against the same registry fails intentionally.
 - Never start, stop, reset, or reconfigure the shared Stalwart deployment. If the Stalwart server advertises an alternate origin (for example `http://mail.houmao.localhost:10080`), list that exact origin in `trusted_jmap_origins` inside `service.json`.
 - If setup fails after `stalwart-provision` and before `stop`, run `hermes_lab.py stalwart-deprovision --mail-config "$MAIL_CONFIG"` to remove the run-owned principals.
 
