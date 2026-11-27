@@ -19,6 +19,10 @@ houmao-mgr project agents launch --profile hermes-dev --reasoning-level 5
 
 Houmao writes the selected value to `agent.reasoning_effort` in the private `$HERMES_HOME/config.yaml` and records its source in launch provenance. If both inputs are absent, Hermes uses its native default. Level `0` or the exact label `none` explicitly requests disabled reasoning.
 
+## Startup Permissions
+
+Unattended Hermes uses the native approval mode `off` and selects `approve` for finite query and unattended interactions. Houmao applies these settings to its private home and verifies the effective settings on the current daemon before accepting managed prompts. Native hard denials and execution-owner limits still apply. Select `as_is` to use Hermes's native approval behavior and custom settings.
+
 ## Daemon and Home
 
 The agent's recorded Hermes launch home defines daemon ownership. Houmao starts a daemon when the home has none, or silently adopts the existing daemon regardless of who started it. Independent use of the managed home has undefined behavior. A daemon serving the managed home as a secondary profile belongs to its own launch home.
@@ -31,7 +35,7 @@ Tools running under the verified daemon for a current service or TUI generation 
 
 ## Service
 
-Service mode runs `hermes acp` over private stdio. The persistent client negotiates ACP and binds the selected logical conversation before publishing readiness. History replay during binding stays out of the current prompt's results. The unattended adapter selects an advertised one-time rejection when Hermes requests approval. An unsupported interaction receives a refusal.
+Service mode runs `hermes acp` over private stdio. The persistent client negotiates ACP and binds the selected logical conversation before publishing readiness. History replay during binding stays out of the current prompt's results. Unattended service verifies the native `dont_ask` mode for the bound conversation. If a currently authorized prompt receives a supported tool permission request for that session, the client can grant the advertised one-time option. Unsupported, stale, or other interactions fail closed.
 
 Service interruption addresses the current ACP request. The matching result determines whether it completed or was cancelled. Loss of the ACP connection can leave work executing in the daemon. The owner retains the uncertain outcome and exact relaunch verifies the saved conversation. Stop closes the client and stops the daemon launched for the managed home.
 
@@ -40,6 +44,8 @@ Service interruption addresses the current ACP request. The matching result dete
 TUI mode creates or resolves the managed conversation before opening Hermes Ink in the tmux pane. An `unattended` launch skips Hermes setup prompts. Attach to the pane for direct interaction. Houmao continues to address the saved conversation if the operator switches Ink to a different conversation. Closing Ink leaves the daemon available to finish admitted work.
 
 Use `houmao-mgr agents single --agent-id <id> state` or passive `/houmao/agents/<id>/state/detail` to inspect native readiness and the terminal attachment. An unavailable native connection makes prompt readiness unavailable. Tracker history, parser controls, automated key delivery, and prompt-time session selectors are unsupported for Hermes TUI.
+
+When Hermes reports a current approval wait, the manager and passive server expose the boolean `control.approval_pending`. Gateway status exposes `observation.approval_pending`. A value of `null` means Houmao lacks verified approval state. A pending approval closes ordinary managed prompt admission until Hermes settles the interaction. This state describes the managed conversation even when Ink is detached or displaying a different conversation.
 
 Houmao refuses a new managed prompt if the selected conversation is already busy. If human input starts after the native idle check, Hermes can accept the managed prompt into its queue. The receipt confirms acceptance. The matching admission reports execution and completion as they happen. An interrupt addresses that admission specifically.
 

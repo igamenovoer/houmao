@@ -488,6 +488,11 @@ def test_dsh_launch_plan_is_native_and_restore_is_read_only(
     assert set(plan.env).isdisjoint({"OPENAI_API_KEY", "OPENAI_BASE_URL"})
     assert "synthetic-selected-private" not in json.dumps(plan.metadata)
     assert plan.metadata["dsh"]["setup_path"] == str(built.home_path / "houmao-tool-params.yaml")
+    assert plan.metadata["dsh"]["permissions"] == {
+        "sandbox": "danger-full-access",
+        "approval": "never",
+    }
+    assert plan.launch_policy_provenance.detected_tool_version == "0.2.2-rc.3"
     role_path = Path(plan.metadata["dsh"]["role_path"])
     patch_path = Path(plan.metadata["dsh"]["patch_path"])
     role_path.write_text("newer-role")
@@ -496,6 +501,16 @@ def test_dsh_launch_plan_is_native_and_restore_is_read_only(
     assert restored.metadata["dsh"]["patch_path"] == str(patch_path)
     assert patch_path.read_text() == "newer-profile"
     assert role_path.read_text() == "newer-role"
+    refreshed = build_launch_plan(plan_request)
+    assert refreshed.metadata["dsh"]["permissions"] == plan.metadata["dsh"]["permissions"]
+    assert patch_path.read_text() != "newer-profile"
+    assert role_path.read_text() != "newer-role"
+    contract = built.manifest["runtime"]["launch_contract"]["tool_params"]
+    contract["layers"]["direct"] = {"permissions": {"approval": "ask"}}
+    patch_path.write_text("current-owner-policy")
+    with pytest.raises(LaunchPlanError, match=r"permissions.approval=never.*direct.*as_is"):
+        build_launch_plan(plan_request)
+    assert patch_path.read_text() == "current-owner-policy"
 
 
 @pytest.mark.parametrize("backend", ["dsh_acp", "dsh_headless", "dsh_web"])
@@ -545,6 +560,7 @@ def test_dsh_provider_start_pins_resolved_permission_over_materialized_state(
 
     request = replace(
         _seed(tmp_path),
+        operator_prompt_mode="as_is",
         preset_tool_params={"permissions": {"sandbox": "workspace-write", "approval": "ask"}},
         direct_tool_params={"permissions": {"approval": "never"}},
     )

@@ -693,6 +693,11 @@ def test_hermes_raw_tui_prepares_private_route_and_skills(
     assert native["model"]["default"] == config.model
     assert native["model"]["base_url"] == config.base_url
     assert native["agent"]["reasoning_effort"] == "xhigh"
+    assert native["approvals"] == {
+        "mode": "off",
+        "single_query_mode": "approve",
+        "unattended_mode": "approve",
+    }
     assert env[native["model"]["key_env"]] == inputs["HOUMAO_TEST_SELF_HOSTED_API_KEY"]
     assert env[native["model"]["key_env"]] not in (root / "run.json").read_text(encoding="utf-8")
 

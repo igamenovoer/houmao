@@ -42,6 +42,7 @@ from houmao.agents.dsh_credentials import require_dsh_credential_roles
 from houmao.agents.hermes_configuration import (
     HERMES_API_KEY_ENV,
     hermes_runtime_environment,
+    project_hermes_approval_policy,
     resolve_hermes_executable,
     write_hermes_role,
 )
@@ -58,6 +59,10 @@ from houmao.agents.launch_policy import (
     detect_tool_version,
     packaged_tool_version_requirement,
     validate_packaged_tool_version,
+)
+from houmao.agents.launch_policy.engine import (
+    validate_configured_unattended_permissions,
+    resolve_launch_policy,
 )
 from houmao.agents.launch_policy.models import (
     LaunchPolicyApplicationKind,
@@ -227,10 +232,12 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         "env_source_file": str(env_source),
         "selected_env_vars": selected_env_names,
     }
+    requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
     resolved_launch_behavior = _resolve_launch_behavior_from_contract(
         tool=tool,
         backend=launch_surface_for_backend(request.backend),
         launch_contract=launch_contract,
+        unattended=requested_operator_prompt_mode == "unattended",
     )
     metadata["launch_overrides"] = resolved_launch_behavior.to_payload(
         adapter_defaults=_parse_adapter_defaults(launch_contract),
@@ -289,39 +296,37 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         metadata["headless_display_style"] = "plain"
         metadata["headless_display_detail"] = "concise"
 
-    requested_operator_prompt_mode = _requested_operator_prompt_mode(manifest)
     policy_backend = launch_surface_for_backend(request.backend)
     policy_env = dict(env_values)
     override_strategy = os.environ.get(_LAUNCH_POLICY_OVERRIDE_ENV_VAR, "").strip()
     if override_strategy:
         policy_env[_LAUNCH_POLICY_OVERRIDE_ENV_VAR] = override_strategy
 
-    if request.intent == "provider_start":
-        _strip_kimi_observer_block_before_policy_synthesis(
-            tool=tool,
-            backend=request.backend,
-            home_path=home_path,
-        )
-
     try:
         if tool == "hermes":
             launch_policy_result = LaunchPolicyResult(executable, tuple(args), None, None)
         else:
-            launch_policy_result = apply_launch_policy(
-                LaunchPolicyRequest(
-                    tool=tool,
-                    backend=policy_backend,
-                    executable=executable,
-                    base_args=tuple(args),
-                    requested_operator_prompt_mode=requested_operator_prompt_mode,
-                    working_directory=request.working_directory.resolve(),
-                    home_path=home_path,
-                    env=policy_env,
-                    application_kind=request.intent,
-                    tool_params=resolved_launch_behavior.tool_params,
-                    tool_param_sources=resolved_launch_behavior.tool_param_sources,
-                )
+            policy_request = LaunchPolicyRequest(
+                tool=tool,
+                backend=policy_backend,
+                executable=executable,
+                base_args=tuple(args),
+                requested_operator_prompt_mode=requested_operator_prompt_mode,
+                working_directory=request.working_directory.resolve(),
+                home_path=home_path,
+                env=policy_env,
+                application_kind=request.intent,
+                tool_params=resolved_launch_behavior.tool_params,
+                tool_param_sources=resolved_launch_behavior.tool_param_sources,
             )
+            decision = resolve_launch_policy(policy_request)
+            if request.intent == "provider_start":
+                _strip_kimi_observer_block_before_policy_synthesis(
+                    tool=tool,
+                    backend=request.backend,
+                    home_path=home_path,
+                )
+            launch_policy_result = apply_launch_policy(policy_request, resolved=decision)
     except LaunchPolicyCompatibilityError as exc:
         raise LaunchPolicyResolutionError(
             requested_operator_prompt_mode=exc.requested_operator_prompt_mode,
@@ -420,6 +425,14 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         env_var_names = sorted(env_values)
     if tool == "hermes":
         if request.intent == "provider_start":
+            try:
+                metadata["hermes_approval_policy"] = project_hermes_approval_policy(
+                    home_path, requested_operator_prompt_mode or "unattended"
+                )
+            except (OSError, ValueError) as exc:
+                raise LaunchPlanError(
+                    "Could not prepare the private Hermes approval policy"
+                ) from exc
             try:
                 write_hermes_role(home_path, role_injection.prompt)
             except (OSError, ValueError) as exc:
@@ -1758,11 +1771,38 @@ def _parse_requested_launch_overrides(
         raise LaunchPlanError(str(exc)) from exc
 
 
+def preflight_launch_permissions(manifest: dict[str, Any], *, backend: BackendKind) -> None:
+    """Validate authored unattended permissions without touching the runtime home."""
+
+    _validate_manifest_schema_version(manifest)
+    tool = _require_str(_require_mapping(manifest, "inputs"), "tool")
+    if tool == "hermes" or _requested_operator_prompt_mode(manifest) == "as_is":
+        return
+    policy_backend = launch_surface_for_backend(backend)
+    launch_contract = _require_mapping(_require_mapping(manifest, "runtime"), "launch_contract")
+    behavior = _resolve_launch_behavior_from_contract(
+        tool=tool,
+        backend=policy_backend,
+        launch_contract=launch_contract,
+        unattended=True,
+    )
+    try:
+        validate_configured_unattended_permissions(
+            tool=tool,
+            backend=policy_backend,
+            authored=behavior.tool_params,
+            sources=behavior.tool_param_sources,
+        )
+    except LaunchPolicyError as exc:
+        raise LaunchPlanError(str(exc)) from exc
+
+
 def _resolve_launch_behavior_from_contract(
     *,
     tool: str,
     backend: SupportedLaunchBackend,
     launch_contract: dict[str, Any],
+    unattended: bool = False,
 ) -> ResolvedLaunchBehavior:
     """Resolve backend-aware launch behavior from the manifest contract."""
 
@@ -1796,6 +1836,7 @@ def _resolve_launch_behavior_from_contract(
                 layer="direct",
             ),
             tool_params=effective,
+            unattended=unattended,
             tool_param_layers=(
                 tuple(
                     (name, layers.get(name, {}))

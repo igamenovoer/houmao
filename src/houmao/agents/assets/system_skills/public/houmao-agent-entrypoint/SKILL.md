@@ -35,6 +35,8 @@ When this skill is invoked, execute the following steps in order.
 7. **Delegate with the Sibling Handoff Frame** (`actor_kind`, `entrypoint_name`, `verified_self_identity`, `requested_target`, `selected_route`, `selected_operation`) to `$houmao-shared-routines`, `$houmao-agent-loop-pro`, or `$houmao-agent-loop-lite`.
 8. **Return the routed outcome** leading with status (`completed`, `unchanged`, `blocked`, or `failed`), verified identity, target, and material evidence.
 
+For a Hermes mailbox route, call `skill_view(name="houmao-shared-routines")` at the delegation step. Pass the intact actor frame and carry the supplied gateway URL, channel, and expected binding ID into the selected route. The shared sibling loads the protected child.
+
 If the user's task does not map cleanly to these steps, use the native planning tool to build a step-by-step plan from the eligible subcommands, identity gate, target rules, and user request, then execute the plan.
 
 ## Subcommands

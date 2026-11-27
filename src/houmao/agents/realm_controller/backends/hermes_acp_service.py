@@ -5,12 +5,14 @@ from __future__ import annotations
 from concurrent.futures import Future
 from contextlib import suppress
 from dataclasses import dataclass, field
+import hashlib
+import json
 import os
 import threading
 import time
 from typing import Any, TextIO
 
-from houmao.agents.hermes_configuration import HERMES_API_KEY_ENV
+from houmao.agents.hermes_configuration import HERMES_API_KEY_ENV, hermes_unattended_launch
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dsh_acp_connection import (
     DshAcpConnection,
@@ -18,6 +20,7 @@ from houmao.agents.realm_controller.backends.dsh_acp_connection import (
     DshAcpRequestError,
 )
 from houmao.agents.realm_controller.backends.hermes_native import (
+    HermesApprovalCompatibilityError,
     HermesDaemon,
     HermesDaemonIdentity,
     hermes_daemon_environment,
@@ -28,6 +31,7 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     ServiceOwnerConfig,
     ServicePromptResult,
     ServiceProvider,
+    read_service_record,
     write_service_record,
 )
 from houmao.agents.realm_controller.errors import (
@@ -43,6 +47,8 @@ _PROMPT_TIMEOUT = 300.0
 _CANCEL_TIMEOUT = 20.0
 _OUTPUT_LIMIT = 1024 * 1024
 _TOOL_EVENT_LIMIT = 256
+_MAX_EDIT_MODE = "dont_ask"
+_EDIT_POLICIES = {"default": "ask", "accept_edits": "workspace_session", _MAX_EDIT_MODE: "session"}
 _TOOL_KINDS = frozenset(
     {
         "read",
@@ -95,6 +101,7 @@ class HermesAcpServiceProvider:
         self.m_lock: threading.Lock = threading.Lock()
         self.m_turn_index: int = 0
         self.m_api_key: str | None = config.environment.get(HERMES_API_KEY_ENV)
+        self.m_unattended: bool = hermes_unattended_launch(config.metadata)
 
     def start(self) -> None:
         """Open ACP and verify the native workspace before publishing readiness."""
@@ -103,9 +110,13 @@ class HermesAcpServiceProvider:
         if config.arguments != ["acp"]:
             raise BackendExecutionError("Hermes service requires the native ACP command")
         try:
-            self.m_daemon_identity = self.m_daemon.ensure()
+            self.m_daemon_identity = self.m_daemon.ensure(unattended=self.m_unattended)
             if config.session_id is not None:
                 self.m_daemon.resolve_session(config.session_id)
+        except HermesApprovalCompatibilityError as exc:
+            raise ServiceStartupCompatibilityError(
+                ServiceStartupCheck.HERMES_APPROVAL_POLICY
+            ) from exc
         except (BackendExecutionError, OSError, ValueError) as exc:
             raise ServiceStartupCompatibilityError(ServiceStartupCheck.HERMES_DAEMON) from exc
 
@@ -167,8 +178,16 @@ class HermesAcpServiceProvider:
             raise ServiceStartupCompatibilityError(ServiceStartupCheck.HERMES_SESSION) from exc
         if adopted is None:
             raise ServiceStartupCompatibilityError(ServiceStartupCheck.HERMES_DAEMON)
+        if self.m_unattended and adopted != self.m_daemon_identity:
+            try:
+                self.m_daemon.require_unattended_approval_policy(adopted)
+            except HermesApprovalCompatibilityError as exc:
+                raise ServiceStartupCompatibilityError(
+                    ServiceStartupCheck.HERMES_APPROVAL_POLICY
+                ) from exc
         self.m_daemon_identity = adopted
         self.m_session_id = actual
+        self._establish_edit_mode(selected)
         write_service_record(
             config.root / "hermes-acp-binding.json",
             {
@@ -181,6 +200,75 @@ class HermesAcpServiceProvider:
             },
         )
         self.m_ready = True
+
+    def _establish_edit_mode(self, selected: dict[str, Any]) -> None:
+        """Apply or restore a recorded, exact-session native edit permission."""
+
+        check = ServiceStartupCheck.HERMES_EDIT_MODE
+        fingerprint = hashlib.sha256(self.m_session_id.encode()).hexdigest()
+        root = self.m_config.manifest_path.parent / "hermes-acp-edit-modes"
+        record_path = root / f"{fingerprint}.json"
+        try:
+            try:
+                record = json.loads(read_service_record(record_path))
+            except FileNotFoundError:
+                record = None
+            previous_mode = None
+            if record is not None:
+                if not isinstance(record, dict) or record.get("sessionId") != self.m_session_id:
+                    raise ServiceStartupCompatibilityError(check)
+                previous_mode = record.get("modeId")
+                if not isinstance(previous_mode, str) or previous_mode not in {
+                    "default",
+                    "accept_edits",
+                }:
+                    raise ServiceStartupCompatibilityError(check)
+            if not self.m_unattended and previous_mode is None:
+                return
+
+            modes = selected.get("modes")
+            if not isinstance(modes, dict):
+                raise ServiceStartupCompatibilityError(check)
+            current = modes.get("currentModeId")
+            if not isinstance(current, str) or current not in _EDIT_POLICIES:
+                raise ServiceStartupCompatibilityError(check)
+            target = current
+            if self.m_unattended:
+                target = _MAX_EDIT_MODE
+            elif previous_mode is not None and current == _MAX_EDIT_MODE:
+                target = previous_mode
+            available = modes.get("availableModes")
+            if (
+                not isinstance(available, list)
+                or sum(isinstance(mode, dict) and mode.get("id") == target for mode in available)
+                != 1
+            ):
+                raise ServiceStartupCompatibilityError(check)
+            if target != current:
+                if self.m_unattended:
+                    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+                    write_service_record(
+                        record_path, {"sessionId": self.m_session_id, "modeId": current}
+                    )
+                self._startup_request(
+                    "session/set_mode",
+                    {"sessionId": self.m_session_id, "modeId": target},
+                    check,
+                )
+            snapshot = self.m_daemon.resolve_session(self.m_session_id)
+            info = snapshot.payload.get("info")
+            if (
+                not isinstance(info, dict)
+                or info.get("edit_approval_policy") != _EDIT_POLICIES[target]
+                or self.m_daemon.discover() != self.m_daemon_identity
+            ):
+                raise ServiceStartupCompatibilityError(check)
+            if not self.m_unattended:
+                record_path.unlink(missing_ok=True)
+        except ServiceStartupCompatibilityError:
+            raise
+        except (BackendExecutionError, OSError, ValueError) as exc:
+            raise ServiceStartupCompatibilityError(check) from exc
 
     @property
     def native_session_id(self) -> str:
@@ -433,7 +521,7 @@ class HermesAcpServiceProvider:
         )
 
     def _handle_request(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        """Decline only using a rejection option advertised for the current session."""
+        """Answer only an attributable, qualified reverse tool-permission request."""
 
         if method != "session/request_permission":
             raise NotImplementedError
@@ -444,14 +532,17 @@ class HermesAcpServiceProvider:
                 active is not None
                 and active.response is not None
                 and not active.response.done()
+                and active.cancel_deadline is None
                 and params.get("sessionId") == self.m_session_id
                 and isinstance(options, list)
             ):
-                for option in options:
-                    if isinstance(option, dict) and option.get("kind") == "reject_once":
-                        option_id = option.get("optionId")
-                        if isinstance(option_id, str) and option_id:
-                            return {"outcome": {"outcome": "selected", "optionId": option_id}}
+                option_id = _permission_option_id(options, "reject_once")
+                if self.m_unattended and _is_tool_permission(params.get("toolCall")):
+                    once = _permission_option_id(options, "allow_once")
+                    if once is not None and self.connection_ready:
+                        option_id = once
+                if option_id is not None:
+                    return {"outcome": {"outcome": "selected", "optionId": option_id}}
         return {"outcome": {"outcome": "cancelled"}}
 
     def _connection(self) -> DshAcpConnection:
@@ -466,6 +557,67 @@ class HermesAcpServiceProvider:
 
         if self.m_log is not None:
             self.m_log.write(line)
+
+
+def _permission_option_id(options: list[Any], kind: str) -> str | None:
+    """Choose an unambiguous ID advertised for the exact ACP permission kind."""
+
+    candidates = [
+        option.get("optionId")
+        for option in options
+        if isinstance(option, dict) and option.get("kind") == kind
+    ]
+    if (
+        len(candidates) != 1
+        or not isinstance(candidate := candidates[0], str)
+        or not candidate.strip()
+    ):
+        return None
+    if (
+        sum(isinstance(option, dict) and option.get("optionId") == candidate for option in options)
+        != 1
+    ):
+        return None
+    return candidate
+
+
+def _is_tool_permission(tool_call: object) -> bool:
+    """Recognize stock Hermes execute and structured edit permission requests."""
+
+    if (
+        not isinstance(tool_call, dict)
+        or tool_call.get("status") != "pending"
+        or not isinstance(call_id := tool_call.get("toolCallId"), str)
+        or not call_id.strip()
+        or not isinstance(raw := tool_call.get("rawInput"), dict)
+    ):
+        return False
+    if tool_call.get("kind") == "execute":
+        return isinstance(raw.get("command"), str) and isinstance(raw.get("description"), str)
+    if tool_call.get("kind") != "edit" or not isinstance(arguments := raw.get("arguments"), dict):
+        return False
+    content = tool_call.get("content")
+    if (
+        not isinstance(content, list)
+        or len(content) != 1
+        or not isinstance(diff := content[0], dict)
+        or diff.get("type") != "diff"
+        or not isinstance(path := diff.get("path"), str)
+        or not path.strip()
+    ):
+        return False
+    tool = raw.get("tool")
+    if tool == "write_file":
+        return isinstance(arguments.get("path"), str) and isinstance(arguments.get("content"), str)
+    if tool == "patch" and arguments.get("mode", "replace") == "replace":
+        return all(
+            isinstance(arguments.get(key), str) for key in ("path", "old_string", "new_string")
+        )
+    return (
+        tool == "patch"
+        and arguments.get("mode") == "patch"
+        and isinstance(arguments.get("patch"), str)
+    )
 
 
 def create_hermes_service_provider(config: ServiceOwnerConfig) -> ServiceProvider:

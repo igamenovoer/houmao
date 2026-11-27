@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -10,12 +11,20 @@ import tempfile
 
 import yaml
 
+from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.tool_params.hermes import HermesReasoningEffort
 
 HERMES_HOME_ENV = "HERMES_HOME"
 HERMES_LOCK_DIR_ENV = "HERMES_GATEWAY_LOCK_DIR"
 HERMES_API_KEY_ENV = "HERMES_MANAGED_API_KEY"
 HERMES_CONFIG_FILENAME = "config.yaml"
+_APPROVAL_BASELINE_FILENAME = ".houmao-approval-baseline.json"
+_APPROVAL_BASELINE = {"mode": "manual", "single_query_mode": "deny", "unattended_mode": "deny"}
+_UNATTENDED_APPROVALS = {
+    "mode": "off",
+    "single_query_mode": "approve",
+    "unattended_mode": "approve",
+}
 _NATIVE_ENV_PREFIXES = ("HERMES_", "OPENAI_", "OPENROUTER_", "ANTHROPIC_", "DEEPSEEK_")
 
 
@@ -87,6 +96,7 @@ def prepare_hermes_home(
     base_url: str,
     model_name: str,
     role_prompt: str,
+    operator_prompt_mode: OperatorPromptMode = "unattended",
     reasoning_effort: HermesReasoningEffort | None = None,
 ) -> None:
     """Project the custom Chat Completions route, effort, and native role file."""
@@ -105,14 +115,76 @@ def prepare_hermes_home(
         "fallback_providers": [],
         "agent": agent,
         "security": {"allow_lazy_installs": False},
-        "approvals": {
-            "mode": "manual",
-            "single_query_mode": "deny",
-            "unattended_mode": "deny",
-        },
+        "approvals": dict(_APPROVAL_BASELINE),
     }
     _write_private_text(home_path / HERMES_CONFIG_FILENAME, yaml.safe_dump(config, sort_keys=False))
+    project_hermes_approval_policy(home_path, operator_prompt_mode)
     write_hermes_role(home_path, role_prompt)
+
+
+def hermes_unattended_approval_policy() -> dict[str, str]:
+    """Return the qualified native values required for unattended startup."""
+
+    return dict(_UNATTENDED_APPROVALS)
+
+
+def hermes_unattended_launch(metadata: Mapping[str, object]) -> bool:
+    """Read an explicit resolved unattended mode from launch metadata."""
+
+    request = metadata.get("launch_policy_request")
+    return isinstance(request, dict) and request.get("operator_prompt_mode") == "unattended"
+
+
+def project_hermes_approval_policy(
+    home_path: Path, operator_prompt_mode: OperatorPromptMode
+) -> dict[str, str | bool]:
+    """Apply the managed approval keys and retain the selected native baseline."""
+
+    from houmao.agents.launch_policy.provider_hooks import provider_state_mutation_lock
+
+    config_path = home_path / HERMES_CONFIG_FILENAME
+    baseline_path = home_path / _APPROVAL_BASELINE_FILENAME
+    with provider_state_mutation_lock(home_path):
+        try:
+            config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+            saved = (
+                json.loads(baseline_path.read_text(encoding="utf-8"))
+                if baseline_path.exists()
+                else {}
+            )
+        except (ValueError, yaml.YAMLError):
+            raise ValueError(
+                "The private Hermes approval configuration could not be read."
+            ) from None
+        native = config.get("approvals", {}) if isinstance(config, dict) else None
+        if not isinstance(native, dict) or not isinstance(saved, dict):
+            raise ValueError("The private Hermes approval configuration must use a mapping.")
+        baseline: dict[str, str | bool] = {}
+        for key, default in _APPROVAL_BASELINE.items():
+            current = native.get(key, default)
+            value = saved.get(key, current) if current == _UNATTENDED_APPROVALS[key] else current
+            allowed = (
+                {"manual", "smart", "off"}
+                if key == "mode"
+                else {"deny", "approve", "off", "allow", "yes"}
+            )
+            if not (
+                (key == "mode" and isinstance(value, bool))
+                or (isinstance(value, str) and value.strip().lower() in allowed)
+            ):
+                raise ValueError("The private Hermes approval configuration has an invalid value.")
+            baseline[key] = value
+        effective: dict[str, str | bool] = (
+            dict(_UNATTENDED_APPROVALS) if operator_prompt_mode == "unattended" else baseline
+        )
+        if operator_prompt_mode == "unattended" and saved != baseline:
+            _write_private_text(baseline_path, json.dumps(baseline))
+        if any(native.get(key) != value for key, value in effective.items()):
+            config["approvals"] = {**native, **effective}
+            _write_private_text(config_path, yaml.safe_dump(config, sort_keys=False))
+        if operator_prompt_mode == "as_is":
+            baseline_path.unlink(missing_ok=True)
+        return effective
 
 
 def write_hermes_role(home_path: Path, role_prompt: str) -> None:

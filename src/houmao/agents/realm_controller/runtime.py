@@ -261,6 +261,7 @@ from .hook_observation_launch import (
 from .launch_plan import (
     LaunchPlanRequest,
     build_launch_plan,
+    preflight_launch_permissions,
     _bootstrap_message,
     configured_cao_parsing_mode,
     resolve_cao_parsing_mode,
@@ -1645,7 +1646,6 @@ class RuntimeSessionController:
                 SessionManifestError,
                 ValueError,
             ) as exc:
-                self.persist_manifest()
                 return SessionControlResult(
                     status="error",
                     action="relaunch",
@@ -2295,6 +2295,7 @@ def start_runtime_session(
         if not isinstance(executable, str) or not executable.strip():
             raise LaunchPlanError("Kimi Web brain manifest is missing runtime.launch_executable.")
         validate_kimi_web_launch_version(executable=executable)
+    preflight_launch_permissions(manifest, backend=selected_backend)
     resolved_gateway_defaults = blueprint_gateway_defaults or _gateway_defaults_from_brain_manifest(
         manifest,
         source=str(brain_manifest_path),
@@ -2840,6 +2841,8 @@ def _resume_runtime_session_controller(
             "Stopped-session revival is only supported for local tmux-backed backends "
             f"({sorted(_STOPPED_SESSION_RELAUNCH_BACKENDS)}), got {backend!r}."
         )
+    if stopped_revival:
+        preflight_launch_permissions(load_brain_manifest(brain_manifest_path), backend=backend)
     agent_def_dir = _launch_definition_path(manifest_payload, agent_def_dir)
     memory = _memory_from_manifest_payload(payload=manifest_payload)
     if memory is not None and not read_only and not existing_only:

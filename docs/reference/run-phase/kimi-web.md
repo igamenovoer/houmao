@@ -26,7 +26,7 @@ The gateway verifies the Kimi listener, host, and exact conversation before hand
 
 The manager and gateway share one managed prompt reservation. The owner checks Kimi's live active prompt and pending queue immediately before sending. If it sees active or pending work, it refuses the ordinary prompt before sending. The browser can still start a turn after the check. In that case, Houmao reports the same prompt as queued if Kimi queues it. A lost response is reconciled using the original prompt identity.
 
-Select the model and any explicit `tool_params.permission_mode` (`auto`, `yolo`, or `manual`) at launch. Unattended startup fills an omitted mode with `auto`. `as_is` with an omitted field uses Kimi's native settings. Houmao applies the resolved mode to the exact native browser session before publishing it on fresh launch and explicit relaunch. Browser changes to the live permission mode persist through observation and gateway reattachment.
+Select the model and permission posture at launch. Unattended startup requires `auto`. With `as_is`, choose `auto`, `yolo`, or `manual` in `tool_params.permission_mode`, or omit the field to use Kimi's native settings. Houmao applies the resolved mode to the exact native browser session before publishing it on fresh launch and explicit relaunch. Browser changes to the live permission mode persist through observation and gateway reattachment.
 
 ## Host Lifetime
 

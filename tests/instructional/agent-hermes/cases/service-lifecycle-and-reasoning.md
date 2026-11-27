@@ -58,7 +58,7 @@ pixi run python "$LAB" inspect-home --run-dir "$RUN_SVC" > "$CASE_EVIDENCE/home-
 printf 'item,count\ncedar,14\nbirch,27\nmaple,9\n' > "$RUN_SVC/workdir/inventory.csv"
 
 pixi run python "$FIXTURE" prompt --run-dir "$RUN_SVC" \
-  --prompt "Read inventory.csv in the workspace, remember the codename copper-harbor, write the total item count and highest-count item to summary.txt, and confirm the managed fixture-probe skill is visible to you." \
+  --prompt "Read inventory.csv in the workspace and remember the codename copper-harbor. Use Hermes's native write_file tool to put the total item count and highest-count item in summary.txt. Confirm the managed fixture-probe skill is visible to you." \
   > "$CASE_EVIDENCE/prompt-turn1.json"
 pixi run python "$LAB" inspect-home --run-dir "$RUN_SVC" > "$CASE_EVIDENCE/home-snapshot-turn1.json"
 
@@ -126,7 +126,7 @@ pixi run python "$LAB" stop --run-dir "$RUN_SVC" --evidence-root "$EVIDENCE" \
   - `prepare.json` resolves `backend == "hermes_service"` and `configuration.mode == "service"` when `--mode` is omitted.
   - `doctor.json` exits `0` with `healthy == true`; `home-snapshot-before.json` confirms the **actual managed launch home** `config_yaml.agent.reasoning_effort == "xhigh"`, `config_yaml.agent.disabled_toolsets == ["browser", "computer_use"]`, `config_yaml.security.allow_lazy_installs == false`, `soul_md_present == true`, `"fixture-probe"` in `projected_skills`, and `reasoning_provenance.native_value == "xhigh"`.
   - `home-snapshot-turn1.json` and `home-snapshot-turn2.json` report the exact same `daemons[-1].pid`, `daemons[-1].instance_id`, and `acp_bindings[-1].native_session_id`.
-  - Independent workspace artifact `summary-after-turn2.txt` exists, contains total `50`, highest item `birch`, and `copper-harbor`.
+  - Independent workspace artifact `summary-after-turn2.txt` exists, contains total `50`, highest item `birch`, and `copper-harbor`. The bound native session records a successful `write_file` call for `summary.txt` during turn 1.
   - `negative-stale-relaunch.json` reports failure/refusal without altering `native_session_id` or `summary.txt`; `relaunch-exact.json` succeeds and `home-snapshot-relaunch.json` preserves `native_session_id == "$NATIVE_SID"` with `binding_method == "session/load"`.
   - `interrupt-receipt.json` succeeds and `state-after-interrupt.json` returns to idle/available without hanging past the cancel timeout.
   - `redaction-audit.json` exits `0` with `leak_count == 0`.

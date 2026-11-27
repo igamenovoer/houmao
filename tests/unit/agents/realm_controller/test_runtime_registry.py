@@ -499,6 +499,38 @@ def test_start_resume_send_prompt_and_stop_refresh_registry(
         runtime_module.require_active_managed_control_manifest(
             retained_manifest, generation_id=before_relaunch
         )
+
+    authored_snapshot = brain_manifest_path.read_bytes()
+    conflicting_brain = runtime_module.load_brain_manifest(brain_manifest_path)
+    conflicting_brain["runtime"]["launch_contract"]["tool_params"] = {
+        "layers": {"direct": {"permission_mode": "plan"}},
+        "effective": {"permission_mode": "plan"},
+    }
+    brain_manifest_path.write_text(json.dumps(conflicting_brain), encoding="utf-8")
+    provider_settings = controller.launch_plan.home_path / "settings.json"
+    before_conflict = (
+        controller.manifest_path.read_bytes(),
+        provider_settings.read_bytes(),
+        controller.backend_session.state.tmux_session_name,
+    )
+    rejected = controller.relaunch()
+    assert rejected.status == "error"
+    assert "permission_mode=bypassPermissions" in rejected.detail
+    assert "direct" in rejected.detail and "as_is" in rejected.detail
+    assert controller.registry_generation_id == before_relaunch
+    assert not controller.backend_session.m_relaunch_chat_sessions
+    assert before_conflict == (
+        controller.manifest_path.read_bytes(),
+        provider_settings.read_bytes(),
+        controller.backend_session.state.tmux_session_name,
+    )
+    with execution_read_only_scope():
+        observed = resume_runtime_session(
+            session_manifest_path=controller.manifest_path, read_only=True
+        )
+        assert observed.launch_plan.args == controller.launch_plan.args
+    brain_manifest_path.write_bytes(authored_snapshot)
+
     assert controller.relaunch().status == "ok"
     assert controller.registry_generation_id != before_relaunch
     assert "Updated role for next launch" in controller.launch_plan.role_injection.prompt

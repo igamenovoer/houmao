@@ -452,8 +452,8 @@ def prepare_dsh_home(
     native_profile:
         Select the native profile that receives the managed model defaults.
     permissions:
-        Permission fields resolved for this startup. Standalone preparation
-        without a versioned policy uses the supported DSH profile defaults.
+        Permission fields resolved for this startup. Omission uses the selected
+        setup subject to the requested launch policy.
 
     Returns
     -------
@@ -468,6 +468,18 @@ def prepare_dsh_home(
 
     if operator_prompt_mode not in {"unattended", "as_is"}:
         raise DshConfigurationError("DSH operator prompt mode must be unattended or as_is")
+    if permissions is None:
+        permissions = setup.permissions
+    if operator_prompt_mode == "unattended":
+        posture = _NATIVE_PERMISSION_PRESETS["danger-full-access"]
+        for field, value in permissions.model_dump(mode="json", exclude_none=True).items():
+            if value != posture[field]:
+                raise DshConfigurationError(
+                    f"Unattended DSH requires `permissions.{field}={posture[field]}`, "
+                    f"but DSH preparation received `permissions.{field}={value}`. "
+                    "Select `as_is` to use supported custom permissions."
+                )
+        permissions = DshPermissionParams.model_validate(posture)
     if native_profile == "headless":
         DshToolParamsAdapter().prepare_launch(setup, backend="dsh_headless")
     model, effort = setup.select_model(selected_model, reasoning_level)
@@ -534,13 +546,6 @@ def prepare_dsh_home(
     ]
     if native_profile == "headless":
         patch.append({"id": "session-title-llm", "disabled": True})
-    if permissions is None:
-        permissions = setup.permissions
-        if operator_prompt_mode == "unattended":
-            permissions = DshPermissionParams(
-                sandbox=permissions.sandbox or "danger-full-access",
-                approval=permissions.approval or "never",
-            )
     permission_rows, preset = _dsh_permission_configuration(permissions)
     patch.extend(permission_rows)
     if setup.adapter == "deepseek":

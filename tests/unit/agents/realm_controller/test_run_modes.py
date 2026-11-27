@@ -85,7 +85,17 @@ def test_runtime_launch_checks_only_explicit_timings(
     monkeypatch.setattr(
         runtime,
         "load_brain_manifest",
-        lambda _: {"inputs": {"tool": tool}, "runtime": {"launch_executable": tool}},
+        lambda _: {
+            "schema_version": 3,
+            "inputs": {"tool": tool},
+            "runtime": {
+                "launch_executable": tool,
+                "launch_contract": {
+                    "adapter_defaults": {"args": []},
+                    "requested_overrides": {"preset": None, "direct": None},
+                },
+            },
+        },
     )
     monkeypatch.setattr(runtime, "resolve_hermes_executable", lambda **_: tmp_path / "hermes")
     monkeypatch.setattr(runtime, "validate_dsh_launch_version", lambda **_: None)

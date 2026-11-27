@@ -37,6 +37,105 @@ from houmao.agents.realm_controller.loaders import (
 )
 from houmao.agents.realm_controller.runtime import _launch_plan_with_transient_env_overrides
 from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.models import BackendKind
+
+
+@pytest.mark.parametrize(
+    ("tool", "backend", "version", "home_variable", "required", "conflict"),
+    [
+        (
+            "claude",
+            "local_interactive",
+            "2.1.296",
+            "CLAUDE_CONFIG_DIR",
+            "bypassPermissions",
+            "plan",
+        ),
+        ("claude", "claude_headless", "2.1.296", "CLAUDE_CONFIG_DIR", "bypassPermissions", "plan"),
+        ("codex", "local_interactive", "0.169.0", "CODEX_HOME", "danger-full-access", "read-only"),
+        ("codex", "codex_headless", "0.169.0", "CODEX_HOME", "danger-full-access", "read-only"),
+        ("codex", "codex_app_server", "0.169.0", "CODEX_HOME", "danger-full-access", "read-only"),
+        ("kimi", "local_interactive", "2.1.1", "KIMI_CODE_HOME", "auto", "manual"),
+        ("kimi", "kimi_headless", "2.1.1", "KIMI_CODE_HOME", "auto", "manual"),
+        ("kimi", "kimi_acp", "2.6.0", "KIMI_CODE_HOME", "auto", "manual"),
+        ("kimi", "kimi_web", "2.7.2", "KIMI_CODE_HOME", "auto", "manual"),
+    ],
+)
+def test_provider_start_requires_qualified_unattended_permissions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    backend: BackendKind,
+    version: str,
+    home_variable: str,
+    required: str,
+    conflict: str,
+) -> None:
+    """Omissions and matches converge while a conflicting new start leaves the home intact."""
+
+    _stub_tool_version(monkeypatch, version)
+    executable = tmp_path / tool
+    _write(executable, "#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    env_file = tmp_path / "vars.env"
+    _write(env_file, "ANTHROPIC_API_KEY=synthetic-test-only\n")
+    _write(tmp_path / "roles/r/system-prompt.md", "Qualified launch\n")
+    home = tmp_path / "provider-home"
+    if tool == "kimi":
+        _write(
+            home / "config.toml",
+            'default_model = "test-model"\n'
+            '[providers.test]\ntype = "moonshot"\n'
+            '[models.test-model]\nprovider = "test"\nmodel = "test-model"\n',
+        )
+    manifest = _manifest(
+        tool=tool,
+        executable=str(executable),
+        home_env_var=home_variable,
+        home_path=home,
+        env_file=env_file,
+        allowlisted_env_vars=["ANTHROPIC_API_KEY"] if tool == "claude" else [],
+    )
+    manifest.pop("launch_policy")
+    request = LaunchPlanRequest(
+        brain_manifest=manifest,
+        role_package=load_role_package(tmp_path, "r"),
+        backend=backend,
+        working_directory=tmp_path,
+    )
+    field = "sandbox_mode" if tool == "codex" else "permission_mode"
+    effective = {field: required}
+    if tool == "codex":
+        effective["approval_policy"] = "never"
+    initial = build_launch_plan(request)
+    assert initial.launch_policy_provenance is not None
+    assert initial.launch_policy_provenance.detected_tool_version == version
+    assert initial.metadata["launch_permissions"]["effective"] == effective
+    contract = manifest["runtime"]["launch_contract"]
+    contract["tool_params"] = {"layers": {"direct": {field: required}}}
+    relaunch = build_launch_plan(request)
+    assert relaunch.metadata["launch_permissions"] == initial.metadata["launch_permissions"]
+    assert relaunch.args == initial.args
+    if tool == "claude":
+        assert "--dangerously-skip-permissions" in relaunch.args
+    if tool == "codex" and backend != "codex_app_server":
+        assert '--config=approval_policy="never"' in relaunch.args
+        assert '--config=sandbox_mode="danger-full-access"' in relaunch.args
+    if tool == "kimi" and backend == "local_interactive":
+        assert relaunch.args.count("--auto") == 1
+    if backend == "kimi_headless":
+        assert "--auto" not in relaunch.args
+
+    before = {
+        path.relative_to(home): path.read_bytes() for path in home.rglob("*") if path.is_file()
+    }
+    contract["tool_params"] = {"layers": {"direct": {field: conflict}}}
+    with pytest.raises(LaunchPlanError, match=rf"{field}={required}.*direct.*{conflict}.*as_is"):
+        build_launch_plan(request)
+    after = {
+        path.relative_to(home): path.read_bytes() for path in home.rglob("*") if path.is_file()
+    }
+    assert after == before
 
 
 def _write(path: Path, text: str) -> None:
@@ -1057,7 +1156,7 @@ def test_build_launch_plan_local_interactive_kimi_projects_tui_model_and_env(
     ("policy", "authored", "permission", "permission_args"),
     [
         ("unattended", {}, "auto", ["--auto"]),
-        ("unattended", {"permission_mode": "yolo"}, "yolo", ["--yolo"]),
+        ("as_is", {"permission_mode": "yolo"}, "yolo", ["--yolo"]),
         ("as_is", {"permission_mode": "manual"}, "manual", []),
     ],
 )
@@ -1192,7 +1291,12 @@ def test_kimi_headless_rejects_incompatible_permission_before_start(
         "layers": {"direct": {"permission_mode": "manual"}},
         "effective": {"permission_mode": "manual"},
     }
-    with pytest.raises(LaunchPlanError, match=r"permission_mode=manual.*kimi_headless"):
+    expected = (
+        r"kimi_headless.*permission_mode=auto.*permission_mode=manual.*as_is"
+        if policy == "unattended"
+        else r"permission_mode=manual.*kimi_headless"
+    )
+    with pytest.raises(LaunchPlanError, match=expected):
         build_launch_plan(
             LaunchPlanRequest(
                 brain_manifest=manifest,
@@ -1348,7 +1452,7 @@ def test_build_launch_plan_kimi_as_is_does_not_preseed_workspace_trust(
 
 @pytest.mark.parametrize(
     ("policy", "authored_mode", "expected_mode"),
-    [("as_is", None, None), ("unattended", None, "auto"), ("unattended", "manual", "manual")],
+    [("as_is", None, None), ("unattended", None, "auto"), ("as_is", "manual", "manual")],
 )
 @pytest.mark.parametrize("version", ["2.6.0", "2.7.2"])
 @pytest.mark.parametrize(

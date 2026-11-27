@@ -249,7 +249,7 @@ When a local interactive relaunch resumes an existing provider chat, the runtime
 
 For Kimi Code 2.1.1 or later, resumed TUI startup accepts native `--auto` or `--yolo` with `--continue` or `--session <session_id>`. Houmao preserves the selected continuation and model, validates prompt precedence, and repairs `$KIMI_CODE_HOME/SYSTEM.md` when needed. Explicit `manual` mode uses the private home default on fresh startup and requires `--chat-session-mode new` for TUI relaunch.
 
-The Kimi TUI unattended default is `auto` when the permission mode is omitted. An `as_is` relaunch with omitted permission mode restores the native session's permission settings. Houmao sets policy through startup options before sending any managed input.
+The Kimi TUI unattended posture requires `auto`. An `as_is` relaunch with omitted permission mode restores the native session's permission settings. Houmao sets policy through startup options before sending any managed input.
 
 ## Degraded and stale recovery
 

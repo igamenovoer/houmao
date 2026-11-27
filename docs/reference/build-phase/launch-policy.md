@@ -9,20 +9,21 @@ The `OperatorPromptMode` determines how the agent interacts with the operator du
 | Mode | Description |
 |---|---|
 | `as_is` | Applies supported authored values and uses the native baseline for omitted settings. |
-| `unattended` | Supplies the most permissive supported native permission defaults with routine approvals disabled for omitted settings. |
+| `unattended` | Requires the most permissive supported native permission posture and disables routine approval prompts. |
 
-An explicit supported value takes precedence in either mode and can require operator approval. Native administrative rules and the selected execution owner still bound the agent's authority.
+Houmao accepts an explicit permission setting in `unattended` when it resolves to the required value. A conflict fails before launch or before replacing an existing agent on relaunch. Select `as_is` for custom permission settings or native approvals. Native administrative rules, hard denials, and the selected execution owner still bound the agent's authority.
 
-| Tool | Native Fields in `tool_params` | Omitted Unattended Defaults |
+| Tool | Native Permission Fields | Required Unattended Values |
 |---|---|---|
 | Claude | `permission_mode` | `bypassPermissions` |
 | Codex | `approval_policy`, `sandbox_mode` | `never`, `danger-full-access` |
 | Kimi | `permission_mode` | `auto` |
 | DSH | `permissions.sandbox`, `permissions.approval` | `danger-full-access`, `never` |
+| Hermes | `approvals.mode`, `approvals.single_query_mode`, and `approvals.unattended_mode` in private native config | `off`, `approve`, and `approve`. Service also requires the native ACP session mode `dont_ask`. |
 
 Use the [launch override layers](launch-overrides.md) for configurable values. Machine-readable output, native session identity, private service endpoints, and DSH's `hmr` activation boundary belong to Houmao. A supplied value for a reserved setting causes a validation error, even if it is identical to the value Houmao derives.
 
-To retain DSH's previous workspace restriction, set the following in a specialist or launch profile. Under unattended mode, the omitted approval field still resolves to `never`. The same settings apply to headless, ACP service, and Web.
+To restrict DSH to the workspace, select `as_is` and set the following in a specialist or launch profile. DSH uses its native baseline for an omitted approval field. The same settings apply to headless, ACP service, and Web.
 
 ```yaml
 tool_params:
@@ -41,7 +42,7 @@ A `LaunchPolicyStrategy` is the core unit of the policy engine. Each strategy co
 - **minimal_inputs**: Contract requirements — acceptable credential forms, whether user-prepared state is needed.
 - **system_prompt**: Explicit provider-native prompt method, owned surface, precedence conflicts, required engine environment, and source evidence.
 - **owned_paths**: Files and keys used for startup projection and reserved runtime state.
-- **permission_defaults**: Native defaults for permission fields omitted by the author.
+- **permission_defaults**: Native values required by the strategy's unattended posture.
 - **actions**: Ordered list of mutations to apply to the launch environment.
 
 ## Policy Resolution
@@ -53,7 +54,7 @@ Strategies are resolved from the versioned registry with this precedence:
 | 1 | `HOUMAO_LAUNCH_POLICY_OVERRIDE_STRATEGY` | Environment variable. Must name a strategy_id that matches the requested mode and backend. |
 | 2 | Registry documents | Tool-specific YAML files in `agents/launch_policy/registry/`. Filtered by mode, backend, and detected tool version. Must produce exactly one match. |
 
-Unattended resolution matches the detected tool version against each strategy's `supported_versions` specifier. It fills gaps after resolving authored layers. The launch diagnostics record the effective permission values and their sources. When reusing a home, Houmao distinguishes its prior permission projections from the native baseline.
+Unattended resolution matches the detected tool version against each strategy's `supported_versions` specifier. It checks the normalized winning authored values and supplies the required values for omissions. The launch diagnostics record the effective permission values and their sources. When reusing a home, Houmao distinguishes its prior permission projections from the native baseline.
 
 ### Executable Minimums
 

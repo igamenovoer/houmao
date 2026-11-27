@@ -13,6 +13,7 @@ import pytest
 
 from houmao.agents.realm_controller.backends import hermes_native
 from houmao.agents.realm_controller.backends.hermes_native import (
+    HermesApprovalCompatibilityError,
     HermesClient,
     HermesDaemon,
     HermesDeadlineExpired,
@@ -68,6 +69,49 @@ def test_daemon_adopts_only_its_launch_home(
     with pytest.raises(HermesNativeError, match="different launch home"):
         daemon.ensure()
     assert not started
+
+
+@pytest.mark.parametrize("observed_mode", ["off", "manual", None])
+def test_adopted_daemon_must_confirm_unattended_policy(
+    native_setup: tuple[HermesDaemon, Path, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+    observed_mode: str | None,
+) -> None:
+    """Qualify command posture on the exact already-running native authority."""
+
+    daemon, root, payload = native_setup
+    monkeypatch.setattr(hermes_native, "_dispatch_origin_birth_token", lambda _pid: "proc:10")
+    monkeypatch.setattr(hermes_native, "_control_query", lambda *_: (payload, payload["pid"]))
+    start = Mock()
+    monkeypatch.setattr(daemon, "_start", start)
+    identity = daemon.discover()
+    rpc = Mock(
+        side_effect=[
+            {"value": observed_mode},
+            {
+                "config": {
+                    "approvals": {
+                        "mode": "off",
+                        "single_query_mode": "approve",
+                        "unattended_mode": "approve",
+                    }
+                }
+            },
+        ]
+    )
+
+    @contextmanager
+    def client():
+        yield SimpleNamespace(identity=identity, rpc=rpc)
+
+    monkeypatch.setattr(daemon, "client", client)
+    if observed_mode == "off":
+        assert daemon.ensure(unattended=True) == identity
+    else:
+        with pytest.raises(HermesApprovalCompatibilityError, match="unattended command approval"):
+            daemon.ensure(unattended=True)
+        assert not (root / "hermes-daemon.json").exists()
+    start.assert_not_called()
 
 
 def test_daemon_starts_once_and_waits_for_exact_home(

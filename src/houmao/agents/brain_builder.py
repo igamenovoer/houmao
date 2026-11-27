@@ -55,8 +55,15 @@ from houmao.agents.kimi_configuration import (
 )
 from houmao.agents.kimi_launch_env import KIMI_CONFIG_ENV_NAMES, reject_kimi_config_env
 from houmao.agents.launch_env import validate_persistent_env_records
-from houmao.agents.launch_policy.engine import detect_tool_version, resolve_strategy
-from houmao.agents.launch_policy.models import LaunchPolicyRequest, OperatorPromptMode
+from houmao.agents.launch_policy.engine import (
+    validate_configured_unattended_permissions,
+    resolve_launch_policy,
+)
+from houmao.agents.launch_policy.models import (
+    LaunchPolicyError,
+    LaunchPolicyRequest,
+    OperatorPromptMode,
+)
 from houmao.agents.launch_overrides import (
     LaunchOverrides,
     parse_launch_overrides,
@@ -100,6 +107,7 @@ from houmao.agents.tool_params import (
     resolve_tool_params,
     validate_tool_params,
 )
+from houmao.agents.tool_params.dsh import DshPermissionParams
 from houmao.agents.tool_params.hermes import HermesReasoningEffort, HermesToolParams
 from houmao.agents.launch_overrides.native import native_setup_permissions
 from houmao.agents.system_skills import (
@@ -747,6 +755,7 @@ def validate_brain_inputs(
             validate_kimi_config_credentials(
                 kimi_config, env_values, _auth_env_names(adapter, None)
             )
+        policy_mode = _resolved_operator_prompt_mode(request.operator_prompt_mode)
         setup_path = setup_dir / "tool-params.yaml"
         preset_path = request.effective_preset_path()
         preset_params = request.preset_tool_params
@@ -771,7 +780,12 @@ def validate_brain_inputs(
             layers["setup"] = merge_partial_tool_params(
                 request.tool,
                 (
-                    (str(setup_dir), native_setup_permissions(request.tool, setup_dir)),
+                    (
+                        str(setup_dir),
+                        native_setup_permissions(
+                            request.tool, setup_dir, unattended=policy_mode == "unattended"
+                        ),
+                    ),
                     (str(setup_path), layers["setup"]),
                 ),
             )
@@ -779,16 +793,50 @@ def validate_brain_inputs(
         dsh_config = (
             DshEffectiveToolParams.from_mapping(effective) if request.tool == "dsh" else None
         )
-        behavior = None
-        if backend is not None or kimi_config is not None:
-            behavior = resolve_launch_behavior(
+        policy_backend = backend or "raw_launch"
+        behavior = resolve_launch_behavior(
+            tool=request.tool,
+            backend=policy_backend,
+            adapter_defaults=adapter.launch_defaults,
+            recipe_overrides=request.effective_preset_launch_overrides(),
+            direct_overrides=request.launch_overrides,
+            tool_param_layers=tuple(
+                (
+                    name,
+                    {
+                        key: value
+                        for key, value in payload.items()
+                        if key != "include_partial_messages"
+                    }
+                    if backend is None
+                    else payload,
+                )
+                for name, payload in layers.items()
+            ),
+            unattended=policy_mode == "unattended",
+        )
+        if request.tool != "hermes" and policy_mode == "unattended":
+            validate_configured_unattended_permissions(
                 tool=request.tool,
-                backend=backend or "raw_launch",
-                adapter_defaults=adapter.launch_defaults,
-                recipe_overrides=request.effective_preset_launch_overrides(),
-                direct_overrides=request.launch_overrides,
-                tool_param_layers=tuple(layers.items()),
+                backend=policy_backend,
+                authored=behavior.tool_params,
+                sources=behavior.tool_param_sources,
             )
+            if check_policy_version:
+                resolve_launch_policy(
+                    LaunchPolicyRequest(
+                        tool=request.tool,
+                        backend=policy_backend,
+                        executable=adapter.launch_executable,
+                        base_args=behavior.args_before_policy,
+                        requested_operator_prompt_mode=policy_mode,
+                        working_directory=agent_def_dir,
+                        home_path=setup_dir,
+                        env=os.environ,
+                        tool_params=behavior.tool_params,
+                        tool_param_sources=behavior.tool_param_sources,
+                    )
+                )
         baseline = _extract_native_model_config_baseline(
             tool=request.tool,
             home_path=setup_dir,
@@ -796,7 +844,7 @@ def validate_brain_inputs(
             dsh_tool_params=dsh_config,
             kimi_config=kimi_config,
         )
-        if kimi_config is not None and behavior is not None:
+        if kimi_config is not None:
             argument_alias = _kimi_model_argument(behavior.args_before_policy)
             if argument_alias is not None:
                 if backend in {"kimi_acp", "kimi_web"}:
@@ -892,27 +940,7 @@ def validate_brain_inputs(
             auth_env_allowlist=protected_env_names,
             source="One-shot launch environment",
         )
-        if (
-            backend is not None
-            and behavior is not None
-            and request.tool != "hermes"
-            and check_policy_version
-            and _resolved_operator_prompt_mode(request.operator_prompt_mode) == "unattended"
-        ):
-            resolve_strategy(
-                request=LaunchPolicyRequest(
-                    tool=request.tool,
-                    backend=backend,
-                    executable=adapter.launch_executable,
-                    base_args=behavior.args_before_policy,
-                    requested_operator_prompt_mode="unattended",
-                    working_directory=agent_def_dir,
-                    home_path=setup_dir,
-                    env=os.environ,
-                ),
-                detected_version=detect_tool_version(executable=adapter.launch_executable),
-            )
-    except (OSError, ValueError) as exc:
+    except (LaunchPolicyError, OSError, ValueError) as exc:
         raise BuildError(str(exc)) from exc
     return ValidatedBrainInputs(
         adapter,
@@ -1011,6 +1039,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             adapter_defaults=adapter.launch_defaults,
             recipe_overrides=resolved_preset_launch_overrides,
             direct_overrides=request.launch_overrides,
+            unattended=_resolved_operator_prompt_mode(request.operator_prompt_mode) == "unattended",
             tool_param_layers=tuple(
                 (
                     name,
@@ -1093,6 +1122,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             base_url=hermes_params.base_url,
             model_name=inputs.model.config.name,
             role_prompt=request.role_prompt_override or "",
+            operator_prompt_mode=_resolved_operator_prompt_mode(request.operator_prompt_mode),
             reasoning_effort=(
                 cast(HermesReasoningEffort, reasoning_projection["native_value"])
                 if reasoning_projection is not None
@@ -1261,7 +1291,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 ),
                 skill_roots=(skill_destination_dir,),
                 operator_prompt_mode=_resolved_operator_prompt_mode(request.operator_prompt_mode),
-                permissions=dsh_config.permissions,
+                permissions=DshPermissionParams.model_validate(
+                    helper_behavior.tool_params.get("permissions", {})
+                ),
             )
         except DshConfigurationError as exc:
             raise BuildError(str(exc)) from exc

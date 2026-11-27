@@ -18,10 +18,12 @@ from houmao.agents.hermes_configuration import (
     HERMES_HOME_ENV,
     HERMES_LOCK_DIR_ENV,
     hermes_runtime_environment,
+    project_hermes_approval_policy,
     resolve_hermes_executable,
     write_hermes_role,
 )
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
+from houmao.agents.launch_policy import cli as launch_policy_cli
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
 from houmao.agents.realm_controller.models import BackendKind, LaunchPlan, RoleInjectionPlan
@@ -95,6 +97,11 @@ def test_hermes_build_projects_native_route_roles_and_skills(build_request: Buil
     selection = result.manifest["runtime"]["launch_contract"]["model_selection"]
     assert selection["native_projection"]["reasoning"] is None
     assert config["security"]["allow_lazy_installs"] is False
+    assert config["approvals"] == {
+        "mode": "off",
+        "single_query_mode": "approve",
+        "unattended_mode": "approve",
+    }
     assert role_path.read_text(encoding="utf-8") == build_request.role_prompt_override
     assert stat.S_IMODE(result.home_path.stat().st_mode) == 0o700
     assert stat.S_IMODE(config_path.stat().st_mode) == 0o600
@@ -107,6 +114,82 @@ def test_hermes_build_projects_native_route_roles_and_skills(build_request: Buil
         assert "synthetic-secret" not in path.read_text(encoding="utf-8")
     assert not (result.home_path / ".env").exists()
     assert HERMES_API_KEY_ENV in result.manifest["credentials"]["env_contract"]["selected_env_vars"]
+
+
+def test_hermes_approval_projection_restores_authored_baseline(tmp_path: Path) -> None:
+    """A repeated unattended projection must leave the prior as-is values recoverable."""
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "approvals:\n  mode: smart\n  timeout: 10\nsecurity:\n  allow_lazy_installs: false\n"
+    )
+    project_hermes_approval_policy(tmp_path, "unattended")
+    project_hermes_approval_policy(tmp_path, "unattended")
+    text = config_path.read_text()
+    assert "mode: 'off'" in text
+    assert yaml.safe_load(text)["approvals"] == {
+        "mode": "off",
+        "single_query_mode": "approve",
+        "unattended_mode": "approve",
+        "timeout": 10,
+    }
+    project_hermes_approval_policy(tmp_path, "as_is")
+    assert yaml.safe_load(config_path.read_text()) == {
+        "approvals": {
+            "mode": "smart",
+            "single_query_mode": "deny",
+            "unattended_mode": "deny",
+            "timeout": 10,
+        },
+        "security": {"allow_lazy_installs": False},
+    }
+
+
+def test_hermes_launch_helper_applies_resolved_approval_policy(
+    build_request: BuildRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The generated helper's CLI path projects policy before handing off to Hermes."""
+
+    brain = build_brain_home(replace(build_request, operator_prompt_mode="as_is"))
+    executable = tmp_path / "hermes"
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    env_file = brain.home_path / "test-selected.env"
+    env_file.write_text(f"{HERMES_API_KEY_ENV}=synthetic-secret\n")
+
+    def exec_native(command: str, args: list[str], env: dict[str, str]) -> None:
+        assert command == str(executable)
+        assert args == [str(executable), "--tui"]
+        assert env["HERMES_NONINTERACTIVE"] == "1"
+        assert (
+            yaml.safe_load((brain.home_path / "config.yaml").read_text())["approvals"]["mode"]
+            == "off"
+        )
+        raise RuntimeError("native exec reached")
+
+    monkeypatch.setattr(launch_policy_cli.os, "execve", exec_native)
+    with pytest.raises(RuntimeError, match="native exec reached"):
+        launch_policy_cli.main(
+            [
+                "--tool",
+                "hermes",
+                "--backend",
+                "raw_launch",
+                "--executable",
+                "hermes",
+                "--working-directory",
+                str(tmp_path),
+                "--home-path",
+                str(brain.home_path),
+                "--requested-operator-prompt-mode",
+                "unattended",
+                "--hermes-credential-env-file",
+                str(env_file),
+                "--",
+                "--tui",
+            ]
+        )
 
 
 @pytest.mark.parametrize(

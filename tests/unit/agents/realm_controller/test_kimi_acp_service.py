@@ -2,7 +2,9 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 from pathlib import Path
+import shutil
 import sys
 import threading
 
@@ -16,12 +18,17 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     ServiceOperationContext,
     ServiceOwnerConfig,
 )
+from houmao.agents.realm_controller.backends.tmux_runtime import create_tmux_session
 from houmao.agents.realm_controller.errors import (
     BackendExecutionError,
     ServiceStartupCheck,
     ServiceStartupCompatibilityError,
 )
 from houmao.hook_observation.kimi_journal import kimi_native_workspace_path
+from houmao.agents.realm_controller.registry_storage import load_managed_agent_record_by_agent_id
+from houmao.agents.realm_controller.runtime import start_runtime_session
+from houmao.execution.tmux import TmuxServer, tmux_server_scope
+from houmao.execution.tmux_selection import ResolvedTmuxServer
 
 
 _PEER = """
@@ -30,8 +37,12 @@ import os
 from pathlib import Path
 import sys
 
+if sys.argv[1:] == ["--version"]:
+    print(os.environ.get("HOUMAO_PEER_VERSION", "2.6.0"))
+    sys.exit(0)
 os.umask(0o077)
 root = Path(os.environ["HOUMAO_PEER_ROOT"])
+(root / "peer.pid").write_text(str(os.getpid()))
 session = "session-1"
 wire = Path(os.environ["HOUMAO_PEER_WIRE"])
 ordinal = 0
@@ -379,6 +390,95 @@ def test_permission_mismatch_blocks_readiness(peer_config: ServiceOwnerConfig) -
         create_kimi_service_provider(config)
     assert exc_info.value.check is ServiceStartupCheck.KIMI_PERMISSION_MODE
     assert not (config.root / "kimi-acp-binding.json").exists()
+
+
+def test_kimi_native_permission_failure_rolls_back_runtime(
+    peer_config: ServiceOwnerConfig, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reject the exact provider's mismatched posture and withdraw only the failed birth."""
+
+    if shutil.which("tmux") is None:
+        pytest.skip("tmux is unavailable")
+    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.delenv("TMUX_PANE", raising=False)
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    Path(peer_config.executable).write_text(
+        f"#!{sys.executable}\n{_PEER.replace('HOUMAO_PEER_', 'TEST_KIMI_PEER_')}"
+    )
+    definitions = tmp_path / "definitions"
+    role = definitions / "roles/r/system-prompt.md"
+    role.parent.mkdir(parents=True)
+    role.write_text("Synthetic permission verification")
+    (peer_config.home_path / "config.toml").write_text(
+        'default_model = "local-qwen"\n'
+        '[providers.test]\ntype = "moonshot"\n'
+        '[models.local-qwen]\nprovider = "test"\nmodel = "local-qwen"\n'
+    )
+    credentials = tmp_path / "vars.env"
+    credentials.touch()
+    manifest = tmp_path / "brain.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "inputs": {"tool": "kimi"},
+                "runtime": {
+                    "launch_executable": peer_config.executable,
+                    "launch_home_selector": {
+                        "env_var": "KIMI_CODE_HOME",
+                        "value": str(peer_config.home_path),
+                    },
+                    "launch_contract": {
+                        "adapter_defaults": {"args": []},
+                        "requested_overrides": {"preset": None, "direct": None},
+                        "env_records": {
+                            **{
+                                name.replace("HOUMAO_PEER_", "TEST_KIMI_PEER_"): value
+                                for name, value in peer_config.environment.items()
+                                if name.startswith("HOUMAO_PEER_")
+                            },
+                            "TEST_KIMI_PEER_ECHO_MODE": "yolo",
+                        },
+                    },
+                },
+                "credentials": {
+                    "env_contract": {"source_file": str(credentials), "allowlisted_env_vars": []}
+                },
+            }
+        )
+    )
+    socket = str(tmp_path / "t.sock")
+    runtime_root = tmp_path / "runtime"
+    with tmux_server_scope(socket):
+        server = TmuxServer()
+        create_tmux_session(
+            session_name="sentinel", working_directory=peer_config.working_directory
+        )
+        try:
+            with pytest.raises(ServiceStartupCompatibilityError) as error:
+                start_runtime_session(
+                    agent_def_dir=definitions,
+                    brain_manifest_path=manifest,
+                    role_name="r",
+                    runtime_root=runtime_root,
+                    mode="service",
+                    working_directory=peer_config.working_directory,
+                    agent_name="policy-check",
+                    agent_id="policy-check",
+                    tmux_session_name="policy-check",
+                    resolved_tmux_server=ResolvedTmuxServer(socket, True),
+                )
+            assert error.value.check is ServiceStartupCheck.KIMI_PERMISSION_MODE
+            assert server.list_sessions() == {"sentinel"}
+        finally:
+            server.command(["kill-server"], no_start=True)
+
+    native_pid = int((peer_config.root / "peer.pid").read_text())
+    with pytest.raises(ProcessLookupError):
+        os.kill(native_pid, 0)
+    assert load_managed_agent_record_by_agent_id("policy-check") is None
+    assert not list(runtime_root.rglob("manifest.json"))
 
 
 @pytest.mark.parametrize(

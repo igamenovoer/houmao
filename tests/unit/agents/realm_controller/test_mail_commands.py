@@ -44,9 +44,11 @@ from houmao.mailbox import (
 )
 
 
-def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> LaunchPlan:
+def _build_launch_plan(
+    tmp_path: Path, *, bootstrap_mailbox: bool = True, tool: str = "claude"
+) -> LaunchPlan:
     home_path = tmp_path / "home"
-    install_runtime_mailbox_system_skills_for_tool(tool="claude", home_path=home_path)
+    install_runtime_mailbox_system_skills_for_tool(tool=tool, home_path=home_path)
     mailbox_root = tmp_path / "mailbox"
     principal_id = "HOUMAO-research"
     address = "HOUMAO-research@agents.localhost"
@@ -70,12 +72,12 @@ def _build_launch_plan(tmp_path: Path, *, bootstrap_mailbox: bool = True) -> Lau
         bindings_version="2026-03-12T05:00:00.000001Z",
     )
     return LaunchPlan(
-        backend="claude_headless",
-        tool="claude",
-        executable="claude",
-        args=["-p"],
+        backend="hermes_headless" if tool == "hermes" else "claude_headless",
+        tool=tool,
+        executable=tool,
+        args=[] if tool == "hermes" else ["-p"],
         working_directory=tmp_path,
-        home_env_var="CLAUDE_CONFIG_DIR",
+        home_env_var="HERMES_HOME" if tool == "hermes" else "CLAUDE_CONFIG_DIR",
         home_path=home_path,
         env=mailbox_env_bindings(mailbox) if bootstrap_mailbox else {},
         env_var_names=sorted(mailbox_env_bindings(mailbox).keys()) if bootstrap_mailbox else [],
@@ -126,6 +128,29 @@ def test_prepare_mail_prompt_references_runtime_skill_and_contract(tmp_path: Pat
     assert '"operation": "list"' in prompt_request.prompt
 
 
+def test_hermes_ordinary_mail_prompt_uses_public_skill_lookup(tmp_path: Path) -> None:
+    """Give Hermes the ordinary mailbox route with its already scoped operation."""
+
+    launch_plan = _build_launch_plan(tmp_path, tool="hermes")
+    mailbox = launch_plan.mailboxes.offline.binding
+    assert mailbox is not None
+    request = prepare_mail_prompt(
+        channel="offline",
+        expected_binding_id=mailbox.binding_id,
+        launch_plan=launch_plan,
+        operation="list",
+        args={"read_state": "unread", "limit": 5},
+        prefer_live_gateway=True,
+    )
+
+    assert 'skill_view(name="houmao-agent-entrypoint")' in request.prompt
+    assert "select the `agent-email-comms` route" in request.prompt
+    assert f"channel='offline' and expected_binding_id={mailbox.binding_id!r}" in request.prompt
+    assert "delegate to the `houmao-shared-routines` sibling" in request.prompt
+    assert "$houmao-agent-entrypoint" not in request.prompt
+    assert "SKILL-MAIN.md" not in request.prompt
+
+
 def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) -> None:
     launch_plan = _build_launch_plan(tmp_path)
     mailbox = launch_plan.mailboxes.offline.binding
@@ -154,13 +179,15 @@ def test_parse_mail_result_rejects_multiple_sentinel_payloads(tmp_path: Path) ->
 
 
 @pytest.mark.parametrize("missing_skill", ["houmao-agent-entrypoint", "houmao-shared-routines"])
+@pytest.mark.parametrize("tool", ["claude", "hermes"])
 def test_prepare_mail_prompt_falls_back_when_one_required_skill_is_missing(
     tmp_path: Path,
     missing_skill: str,
+    tool: str,
 ) -> None:
     """The generated prompt requires both static sibling roots."""
 
-    launch_plan = _build_launch_plan(tmp_path)
+    launch_plan = _build_launch_plan(tmp_path, tool=tool)
     (launch_plan.home_path / "skills" / missing_skill / "SKILL.md").unlink()
 
     prompt_request = prepare_mail_prompt(
@@ -175,6 +202,7 @@ def test_prepare_mail_prompt_falls_back_when_one_required_skill_is_missing(
     assert "Houmao mailbox skills are not installed for this session." in prompt_request.prompt
     assert "Use the resolver and the supported mailbox contract directly" in prompt_request.prompt
     assert "Static sibling routing is installed" not in prompt_request.prompt
+    assert "skill_view" not in prompt_request.prompt
 
 
 def test_parse_mail_result_accepts_cao_only_done_event_payload(tmp_path: Path) -> None:

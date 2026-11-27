@@ -8,12 +8,15 @@ import os
 from pathlib import Path
 from typing import cast
 
+from houmao.agents.launch_overrides.native import split_permission_args
 from houmao.agents.launch_policy.engine import apply_launch_policy
 from houmao.agents.launch_policy.models import (
+    LaunchPolicyError,
     LaunchPolicyRequest,
     LaunchSurface,
     OperatorPromptMode,
 )
+from houmao.agents.tool_params import merge_partial_tool_params
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -64,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
             env_file=namespace.hermes_credential_env_file,
             env_names=namespace.hermes_env_name,
             args=[*namespace.launch_args, *passthrough],
+            operator_prompt_mode=requested_operator_prompt_mode or "unattended",
         )
     if namespace.dsh_credential_env_file is not None:
         if namespace.tool != "dsh":
@@ -78,19 +82,60 @@ def main(argv: list[str] | None = None) -> int:
             namespace.kimi_credential_env_name,
             environment,
         )
-    result = apply_launch_policy(
-        LaunchPolicyRequest(
-            tool=str(namespace.tool),
-            backend=backend,
-            executable=str(namespace.executable),
-            base_args=tuple(str(item) for item in namespace.launch_args),
-            requested_operator_prompt_mode=requested_operator_prompt_mode,
-            working_directory=Path(str(namespace.working_directory)).resolve(),
-            home_path=home,
-            env=environment,
-            tool_params=namespace.permission_params,
+    tool = str(namespace.tool)
+    permission_params = namespace.permission_params
+    permission_sources: dict[str, str] = {}
+    try:
+        if requested_operator_prompt_mode != "as_is":
+            remaining, late_permissions = split_permission_args(
+                tool,
+                tuple(passthrough),
+                source="trailing launch args",
+                backend=backend,
+                unattended=True,
+            )
+            passthrough = list(remaining)
+            if tool == "dsh":
+                for argument in passthrough:
+                    option = argument.partition("=")[0]
+                    if option == "--":
+                        break
+                    if option in {"--profile", "--patch"}:
+                        parser.error(
+                            f"Unattended DSH launch owns the native {option} selection. "
+                            "Select `as_is` to use a custom native launch profile or overlay."
+                        )
+            if late_permissions:
+                permission_params = merge_partial_tool_params(
+                    tool,
+                    (
+                        ("generated launch helper", permission_params),
+                        ("trailing launch args", late_permissions),
+                    ),
+                )
+                for field, value in late_permissions.items():
+                    if isinstance(value, dict):
+                        permission_sources.update(
+                            {f"{field}.{key}": "trailing launch args" for key in value}
+                        )
+                    else:
+                        permission_sources[field] = "trailing launch args"
+        result = apply_launch_policy(
+            LaunchPolicyRequest(
+                tool=tool,
+                backend=backend,
+                executable=str(namespace.executable),
+                base_args=tuple(str(item) for item in namespace.launch_args),
+                requested_operator_prompt_mode=requested_operator_prompt_mode,
+                working_directory=Path(str(namespace.working_directory)).resolve(),
+                home_path=home,
+                env=environment,
+                tool_params=permission_params,
+                tool_param_sources=permission_sources,
+            )
         )
-    )
+    except (LaunchPolicyError, ValueError) as exc:
+        parser.error(str(exc))
     if namespace.dsh_credential_env_file is not None:
         from houmao.agents.dsh_configuration import project_dsh_home_permissions
         from houmao.agents.tool_params.dsh import DshPermissionParams
@@ -111,12 +156,14 @@ def _exec_hermes(
     env_file: Path,
     env_names: list[str],
     args: list[str],
+    operator_prompt_mode: OperatorPromptMode,
 ) -> None:
     """Launch the selected native tool using only the explicit credential source."""
 
     from houmao.agents.hermes_configuration import (
         HERMES_API_KEY_ENV,
         hermes_runtime_environment,
+        project_hermes_approval_policy,
         resolve_hermes_executable,
     )
     from houmao.agents.launch_env import owner_launch_baseline
@@ -134,6 +181,9 @@ def _exec_hermes(
         executable = resolve_hermes_executable(
             environment=native_environment, working_directory=workspace
         )
+        project_hermes_approval_policy(home, operator_prompt_mode)
+        if operator_prompt_mode == "unattended" and ("--tui" in args or "tui" in args[:1]):
+            native_environment["HERMES_NONINTERACTIVE"] = "1"
         os.execve(executable, [executable, *args], native_environment)
     except (OSError, LaunchPlanError, ValueError) as exc:
         raise SystemExit(str(exc)) from None

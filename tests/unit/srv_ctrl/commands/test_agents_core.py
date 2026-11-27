@@ -2452,12 +2452,17 @@ def test_launch_managed_agent_locally_reports_post_takeover_build_failure(
 
 @pytest.mark.parametrize("force_mode", ["keep-stale", "clean"])
 @pytest.mark.parametrize(
-    ("tool_params", "error"),
+    ("tool_params", "claude_version", "error"),
     [
-        ({"include_partial_messages": True}, "include_partial_messages.*unsupported"),
-        ({"output_format": "stream-json"}, "output_format.*reserved"),
-        ({"session_id": None}, "session_id.*reserved.*relaunch"),
-        ({"permission_mode": "plan"}, "No compatible unattended launch strategy"),
+        ({"include_partial_messages": True}, "0.1.0", "include_partial_messages.*unsupported"),
+        ({"output_format": "stream-json"}, "0.1.0", "output_format.*reserved"),
+        ({"session_id": None}, "0.1.0", "session_id.*reserved.*relaunch"),
+        ({}, "0.1.0", "No compatible unattended launch strategy"),
+        (
+            {"permission_mode": "plan"},
+            "2.1.296",
+            "permission_mode=bypassPermissions.*direct.*as_is",
+        ),
     ],
 )
 def test_invalid_merged_tool_params_leave_force_predecessor_intact(
@@ -2465,6 +2470,7 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
     tmp_path: Path,
     force_mode: str,
     tool_params: dict[str, object],
+    claude_version: str,
     error: str,
 ) -> None:
     """Reject reserved values and unsupported backend settings before takeover."""
@@ -2483,8 +2489,8 @@ def test_invalid_merged_tool_params_leave_force_predecessor_intact(
     from houmao.agents.launch_policy.models import ToolVersion
 
     monkeypatch.setattr(
-        "houmao.agents.brain_builder.detect_tool_version",
-        lambda **kwargs: ToolVersion.parse("0.1.0"),
+        "houmao.agents.launch_policy.engine.detect_tool_version",
+        lambda **kwargs: ToolVersion.parse(claude_version),
     )
 
     claude = source / "tools" / "claude"

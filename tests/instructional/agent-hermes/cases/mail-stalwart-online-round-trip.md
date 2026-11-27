@@ -84,7 +84,7 @@ pixi run python "$LAB" doctor --run-dir "$RUN_JMAP_A" --run-dir "$RUN_JMAP_B" \
 export TAG1="jetty-$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 pixi run python "$LAB" notifier --run-dir "$RUN_JMAP_B" --channel online --action enable \
   --interval-seconds 20 --mode unread_only \
-  --appendix-text "New mail arrived in your online inbox. Read it, reply concisely with the requested result, and archive it after the reply is accepted. Do not reply twice to the same message." \
+  --appendix-text "Use the signed houmao-mgr agents self mail commands for this online inbox round. Pass --channel online and the supplied expected binding ID. Read the message, reply once with the requested result, and archive the message after the reply is accepted." \
   > "$CASE_EVIDENCE/b-notifier-enabled.json"
 
 pixi run python "$LAB" stalwart-peer-send --mail-config "$MAIL_CONFIG" \
@@ -114,11 +114,11 @@ pixi run python "$LAB" notifier --run-dir "$RUN_JMAP_A" --channel offline --acti
 
 pixi run python "$LAB" notifier --run-dir "$RUN_JMAP_A" --channel online --action enable \
   --interval-seconds 20 --mode unread_only --mailbox-root "$DUAL_OFFLINE_ROOT" \
-  --appendix-text "If the online inbox message is a reply or confirmation with no new request, archive it without replying." \
+  --appendix-text "Use the signed houmao-mgr agents self mail commands with --channel online and the supplied expected binding ID. Archive replies and confirmations that contain no new request." \
   > "$CASE_EVIDENCE/a-online-notifier-enabled.json"
 
 pixi run python "$FIXTURE" prompt --run-dir "$RUN_JMAP_A" \
-  --prompt "Use your Houmao mailbox skill to send an online email to $ONLINE_ADDR_B with subject 'Station check $TAG2' asking the recipient to read station.txt and reply with the station-code value. Stop after the send succeeds." \
+  --prompt "Use your Houmao mailbox skill and the signed houmao-mgr agents self mail send command to send an online email to $ONLINE_ADDR_B with subject 'Station check $TAG2'. Ask the recipient to read station.txt and reply with the station-code value. Stop after the send succeeds." \
   > "$CASE_EVIDENCE/a-send-prompt.json"
 
 pixi run python "$LAB" stalwart-wait --mail-config "$MAIL_CONFIG" --role b --box archive \
@@ -157,6 +157,7 @@ pixi run python "$LAB" stop --run-dir "$RUN_JMAP_A" --run-dir "$RUN_JMAP_B" \
   - `provision.json` creates two uniquely prefixed accounts; `doctor.json` exits `0` with both Stalwart JMAP accounts authenticated and both Hermes agents healthy with `agent.reasoning_effort == "xhigh"`.
   - For `TAG1`: `a-inbox-reply.json` contains `count == 1` reply from `$ONLINE_ADDR_B` with `inReplyTo` / `references` matching the original `messageId` from `peer-send.json`; `b-inbox-after.json` reports `count == 0`; `b-archive.json` reports `count == 1` with `read == true` and `archived == true`.
   - For `TAG2`: `a-archive-final.json` and `b-archive-final.json` confirm both request and reply are archived (`read == true`, `archived == true`), `a-inbox-cleared.json` confirms `count == 0`, and exactly `1` reply exists from `$ONLINE_ADDR_B` with matching `inReplyTo`/`references` (zero reply-loop duplicates).
+  - Agent B's retained gateway authorization records show two `mail.reply` handoffs for the selected online binding. Each handoff identifies verified self for the current managed generation.
   - `a-offline-notifier-after.json` still reports `enabled == true`, `interval_seconds == 45`, `mode == "any_inbox"`, and `appendix_text == "offline-sentinel-appendix"` after disabling the `online` notifier.
   - Both redaction audits report `leak_count == 0`; `stop.json` records `surviving_daemon_pids == []` and `stalwart_cleanup.verified_absent == true`.
 - **Qualitative checks:**
@@ -164,7 +165,7 @@ pixi run python "$LAB" stop --run-dir "$RUN_JMAP_A" --run-dir "$RUN_JMAP_B" \
 
 ## Gotchas
 
-- If Hermes blocks a terminal tool call on native approval, capture the outstanding admission and use `hermes_lab.py manager --run-dir "$RUN_JMAP_B" -- interrupt` for that agent. Check both mailboxes before repeating any reply. A notifier may retry the unread request after interruption.
+- A native approval wait fails this unattended case. Capture the outstanding admission and check both mailboxes before scoped cleanup.
 - Never start, stop, reset, or reconfigure the shared Stalwart deployment. If the Stalwart server advertises an alternate origin (for example `http://mail.houmao.localhost:10080`), list that exact origin in `trusted_jmap_origins` inside `service.json`.
 - If setup fails after `stalwart-provision` and before `stop`, run `hermes_lab.py stalwart-deprovision --mail-config "$MAIL_CONFIG"` to remove the run-owned principals.
 

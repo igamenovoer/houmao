@@ -16,7 +16,7 @@ Codex app-server binds one native thread and its launch-selected model. A native
 
 ## Hermes TUI Admission
 
-`GET /v1/status` exposes Hermes's structured readiness as `observation.source=tui_native`. The terminal attachment is reported separately. A person can use the tmux pane while Houmao controls the verified conversation by native RPC.
+`GET /v1/status` exposes Hermes's structured readiness as `observation.source=tui_native`. The terminal attachment is reported separately. A person can use the tmux pane while Houmao controls the verified conversation by native RPC. A current native approval makes `observation.approval_pending` true and closes ordinary prompt admission. The value is false when the current snapshot has no pending approval and null when evidence is unavailable.
 
 `POST /v1/control/prompt` uses `ready_only`. If a human turn starts after the final idle check and Hermes accepts the managed request into its own queue, the response returns `outcome=queued`, `sent=false`, an operation ID, and `native_prompt_id`. The receipt confirms native acceptance. `outcome=handed_off` indicates that the request reached native execution. The gateway observes accepted work with its original admission ID through settlement.
 
@@ -865,6 +865,8 @@ Representative response:
 ### `POST /v1/mail/{channel}/list`
 
 Select `offline` or `online` explicitly in `{channel}`. This shared listing path works through local filesystem, remote registry, or online provider access. It returns finite metadata pages with no bodies. The default limit is 50 and the maximum is 200; null/unbounded limits and the removed `include_body` field fail validation. Use `peek` or `read` for selected content.
+
+For an admitted request, HTTP 422 reports declared field paths such as `["body", "read_state"]`. An unsupported body key reports `["body"]` and a `hint` with `accepted_fields` and an `example` using `{"read_state": "unread"}`. The response omits submitted keys that the schema does not recognize and all submitted values.
 
 Representative request:
 

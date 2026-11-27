@@ -567,8 +567,8 @@ def test_as_is_preserves_native_permissions_while_unattended_is_explicit(tmp_pat
 @pytest.mark.parametrize(
     "operator_prompt_mode,authored,expected",
     [
-        ("unattended", {"sandbox": "workspace-write"}, ("workspace-write", "never")),
-        ("unattended", {"approval": "ask"}, ("danger-full-access", "ask")),
+        ("unattended", {"sandbox": "danger-full-access"}, ("danger-full-access", "never")),
+        ("unattended", {"approval": "never"}, ("danger-full-access", "never")),
         ("as_is", {"sandbox": "read-only"}, ("read-only", "ask")),
         ("as_is", {"approval": "never"}, ("workspace-write", "never")),
     ],

@@ -29,6 +29,6 @@ If the native child or service owner disappears, state exposes unavailable or un
 
 The service reads role text, provider configuration, and the configured skill loader when it starts. It binds qualified typed MCP declarations when it creates or resumes the ACP session. `refresh --check` reports these boundaries for the current service. Apply edited startup resources with an explicit relaunch. Use the exact session option when preserving the conversation. [Native home and refresh](native-refresh.md).
 
-Unattended launch fills omitted permissions with `danger-full-access` and `never`. Explicit sandbox and approval values apply independently. With `as_is`, omissions use the native baseline. The native session binding verifies the selected permission preset on startup and exact relaunch. [DSH permission fields](dsh-headless.md#startup-permissions-and-prompt-provenance).
+Unattended launch requires `danger-full-access` and `never`. Use `as_is` to select a custom sandbox or approval policy. Omitted `as_is` fields use the native baseline. The native session binding verifies the selected permission preset on startup and exact relaunch. [DSH permission fields](dsh-headless.md#startup-permissions-and-prompt-provenance)
 
 A supported request-scoped model or reasoning override is temporary. The owner verifies that it restored the prior setting before admitting conflicting work.

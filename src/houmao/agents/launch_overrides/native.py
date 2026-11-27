@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 
-def native_setup_permissions(tool: str, setup: Path) -> dict[str, Any]:
+def native_setup_permissions(tool: str, setup: Path, *, unattended: bool = False) -> dict[str, Any]:
     """Read supported permission keys from the selected setup baseline."""
 
     if tool == "claude":
@@ -36,9 +36,14 @@ def native_setup_permissions(tool: str, setup: Path) -> dict[str, Any]:
                     if "default_permission_mode" in config
                     else {}
                 )
-            return {
+            permissions = {
                 key: config[key] for key in ("approval_policy", "sandbox_mode") if key in config
             }
+            if unattended and "default_permissions" in config:
+                permissions["sandbox_mode"] = _codex_builtin_sandbox(
+                    config["default_permissions"], source=str(path)
+                )
+            return permissions
     return {}
 
 
@@ -53,6 +58,11 @@ _FLAGS_WITH_VALUE: Mapping[str, Mapping[str, str]] = {
     "dsh": {"--approval-policy": "approval", "--permission-mode": "preset"},
 }
 _DSH_PRESET_APPROVAL = {"workspace-write": "ask", "danger-full-access": "never"}
+_CODEX_BUILTIN_SANDBOX_PROFILES = {
+    ":read-only": "read-only",
+    ":workspace": "workspace-write",
+    ":danger-full-access": "danger-full-access",
+}
 _PERMISSION_SWITCHES: Mapping[str, Mapping[str, Mapping[str, str]]] = {
     "claude": {
         "--dangerously-skip-permissions": {"permission_mode": "bypassPermissions"},
@@ -75,7 +85,12 @@ _PERMISSION_SWITCHES: Mapping[str, Mapping[str, Mapping[str, str]]] = {
 
 
 def split_permission_args(
-    tool: str, args: tuple[str, ...], *, source: str, backend: str | None = None
+    tool: str,
+    args: tuple[str, ...],
+    *,
+    source: str,
+    backend: str | None = None,
+    unattended: bool = False,
 ) -> tuple[tuple[str, ...], dict[str, Any]]:
     """Lift recognized permission options while preserving other argument groups."""
 
@@ -109,6 +124,10 @@ def split_permission_args(
                     )
                 if assignment and key in {"approval_policy", "sandbox_mode"}:
                     permissions[key] = _codex_config_value(raw)
+                elif assignment and key == "default_permissions" and unattended:
+                    permissions["sandbox_mode"] = _codex_builtin_sandbox(
+                        _codex_config_value(raw), source=source
+                    )
                 else:
                     remaining.extend(args[index : index + width])
             elif tool == "dsh":
@@ -135,6 +154,17 @@ def split_permission_args(
             remaining.append(argument)
         index += 1
     return tuple(remaining), permissions
+
+
+def _codex_builtin_sandbox(value: object, *, source: str) -> str:
+    """Translate a built-in Codex permission profile into its sandbox posture."""
+
+    if isinstance(value, str) and value in _CODEX_BUILTIN_SANDBOX_PROFILES:
+        return _CODEX_BUILTIN_SANDBOX_PROFILES[value]
+    raise ValueError(
+        f"{source} supplies a Codex `default_permissions` profile that Houmao cannot qualify "
+        "for unattended launch. Select `as_is` to use custom permission profiles."
+    )
 
 
 def _codex_config_value(raw: str) -> Any:

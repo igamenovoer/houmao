@@ -102,7 +102,7 @@ The provider receives explicitly referenced credentials and selected sampling an
 
 ### Kimi TUI unattended launch ownership
 
-For Kimi Code 2.1.1 or later, `build_launch_plan()` records the resolved TUI permission mode and produces the native `--auto` or `--yolo` flag when applicable. Unattended launch fills an omitted mode with `auto`. An explicit `manual` setting uses the native home configuration on fresh TUI startup. `as_is` with an omitted field keeps native approval behavior. Policy takes effect before managed conversation starts.
+For Kimi Code 2.1.1 or later, `build_launch_plan()` records the resolved TUI permission mode and produces the native `--auto` or `--yolo` flag when applicable. Unattended launch requires `auto`. With `as_is`, an explicit `manual` setting uses the native home configuration on fresh TUI startup. An omitted field uses the native approval behavior. Policy takes effect before managed conversation starts.
 
 For both `kimi_headless` and Kimi `local_interactive`, provider-start planning verifies `$KIMI_CODE_HOME/SYSTEM.md` immediately before launch and repairs drift to the canonical `${base_prompt}` plus complete effective-prompt form. `metadata.native_system_prompt` records the method, relative path, projection state, effective and rendered hashes, built-in-prompt preservation, engine requirement, detected provider version, and validation result. The final environment always contains `KIMI_CODE_LEGACY_FLAG=0`; a later truthy runtime override fails before process start.
 

@@ -390,6 +390,8 @@ class DshWebSession:
         setup = DshEffectiveToolParams.from_file(Path(setup_metadata["setup_path"]))
         DshToolParamsAdapter().prepare_launch(setup, backend="dsh_web")
         permissions = setup_metadata.get("permissions")
+        if not isinstance(permissions, dict):
+            raise BackendExecutionError("DSH Web requires resolved launch permissions")
         mcp_environment = (
             read_dsh_mcp_environment(setup, self.plan.metadata.get("env_source_file"))
             if setup.managed_web_mcp
@@ -405,9 +407,7 @@ class DshWebSession:
             reasoning_level=setup_metadata.get("reasoning_level"),
             skill_roots=(self.plan.home_path / "skills",),
             operator_prompt_mode=setup_metadata.get("operator_prompt_mode", "unattended"),
-            permissions=(
-                DshPermissionParams.model_validate(permissions) if permissions is not None else None
-            ),
+            permissions=DshPermissionParams.model_validate(permissions),
         )
         environment = {**(self.plan.public_env or {}), **prepared.environment}
         secret_values = (

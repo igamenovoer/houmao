@@ -93,6 +93,7 @@ from houmao.agents.realm_controller.gateway_storage import (
     AGENT_GATEWAY_PROTOCOL_VERSION_ENV_VAR,
     AGENT_GATEWAY_STATE_PATH_ENV_VAR,
     GatewayCapabilityPublication,
+    GatewayMailNotifierRecord,
     GatewayPaths,
     build_gateway_manifest,
     ensure_gateway_capability,
@@ -6211,6 +6212,70 @@ def test_gateway_diagnostics_capture_http_validation_without_raw_body(
     assert "input" not in json.dumps(validation_entries[-1], sort_keys=True)
 
 
+@pytest.mark.parametrize("channel", ["offline", "online"])
+def test_gateway_mail_list_validation_reports_only_schema_fields(
+    tmp_path: Path, channel: str
+) -> None:
+    """Give clients concrete guidance without reflecting request data or log hints."""
+
+    gateway_root = _seed_cao_gateway_root(tmp_path)
+    paths = gateway_paths_from_session_root(session_root=gateway_root.parent)
+    _enable_gateway_diagnostics(paths, max_bytes=32768)
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root, host="127.0.0.1", port=43123
+    )
+    client = gateway_fixture_client(runtime)
+    url = f"/v1/mail/{channel}/list"
+    details = {"schema_version": 3, "expected_binding_id": "private-list-binding"}
+    unsupported = {"type": "extra_forbidden", "loc": ["body"]}
+
+    for field in ("unread_only", "private-arbitrary-list-key"):
+        response = client.post(url, json={**details, field: "private-listed-value"})
+        assert response.status_code == 422
+        assert response.json() == {
+            "detail": [unsupported],
+            "hint": {
+                "accepted_fields": list(GatewayMailListRequestV1.model_fields),
+                "example": {"read_state": "unread"},
+            },
+        }
+
+    known = client.post(url, json={**details, "read_state": "private-invalid-state"})
+    assert known.status_code == 422
+    assert known.json() == {"detail": [{"type": "literal_error", "loc": ["body", "read_state"]}]}
+
+    invalid_json = client.post(
+        url, content=b'{"private-malformed-list-key":', headers={"Content-Type": "application/json"}
+    )
+    assert invalid_json.status_code == 422
+    assert invalid_json.json() == {"detail": {"error_code": "invalid_operation"}}
+
+    entries = [
+        entry
+        for entry in _gateway_diagnostic_entries(paths)
+        if entry["event"] == "gateway.http_validation_failed"
+    ]
+    assert len(entries) == 3
+    assert (
+        entries[0]["validation_errors"]
+        == entries[1]["validation_errors"]
+        == [{"type": "extra_forbidden", "loc": []}]
+    )
+    assert entries[0]["dedup_key"] == entries[1]["dedup_key"]
+    assert entries[2]["validation_errors"] == known.json()["detail"]
+    log_text = paths.diagnostic_log_path.read_text(encoding="utf-8")
+    assert "accepted_fields" not in log_text
+    for value in (
+        "unread_only",
+        "private-arbitrary-list-key",
+        "private-listed-value",
+        "private-list-binding",
+        "private-invalid-state",
+        "private-malformed-list-key",
+    ):
+        assert value not in log_text + known.text + invalid_json.text
+
+
 def test_gateway_diagnostics_capture_mailbox_success_failure_and_repair_hint(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -8456,6 +8521,85 @@ def test_gateway_mail_notifier_falls_back_when_required_skill_is_missing(
         assert "houmao-agent-entrypoint" not in prompt
     finally:
         runtime.shutdown()
+
+
+@pytest.mark.parametrize(
+    ("tool", "channel", "missing_root"),
+    [
+        ("hermes", channel, missing_root)
+        for channel in ("offline", "online")
+        for missing_root in (None, "houmao-agent-entrypoint", "houmao-shared-routines")
+    ]
+    + [("dsh", "offline", None)],
+)
+def test_notifier_routes_through_installed_public_skills(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    channel: str,
+    missing_root: str | None,
+) -> None:
+    """Render a binding-scoped notifier round with or without both public roots."""
+
+    if channel == "online":
+        gateway_root = _seed_cao_gateway_root_with_stalwart_mailbox(tmp_path)
+    else:
+        gateway_root = _seed_cao_gateway_root(tmp_path, mailbox_enabled=True)
+    runtime = GatewayServiceRuntime.from_gateway_root(
+        gateway_root=gateway_root, host="127.0.0.1", port=43123
+    )
+    payload = runtime._load_manifest_payload_for_mailbox_support()
+    target = payload.model_copy(
+        update={"launch_plan": payload.launch_plan.model_copy(update={"tool": tool})}
+    )
+    monkeypatch.setattr(runtime, "_load_manifest_payload_for_mailbox_support", lambda: target)
+
+    home = tmp_path / "home"
+    install_runtime_mailbox_system_skills_for_tool(tool=tool, home_path=home)
+    if missing_root is not None:
+        (home / "skills" / missing_root / "SKILL.md").unlink()
+    record = GatewayMailNotifierRecord(
+        enabled=True,
+        interval_seconds=10,
+        mode="unread_only",
+        appendix_text="",
+        context_error_policy="resume",
+        pre_notification_context_action="none",
+        last_poll_at_utc=None,
+        last_notification_at_utc=None,
+        last_notified_digest=None,
+        compacted_eligible_message_refs=(),
+        last_error=None,
+    )
+    prompt, _ = runtime._build_mail_notifier_prompt(
+        mode=record.mode,
+        appendix_text=record.appendix_text,
+        unread_messages=[],
+        record=record,
+        channel=channel,
+        placement_writable=channel == "offline",
+    )
+
+    binding_id = _test_binding_id(tmp_path, channel)
+    assert f"Mail channel: {channel}. Expected binding ID: {binding_id}." in prompt
+    assert f"POST /v1/mail/{channel}/list|peek|read" in prompt
+    assert "SKILL-MAIN.md" not in prompt
+    assert "skill_manage" not in prompt
+    if tool == "dsh":
+        assert "Use `houmao-agent-entrypoint process-emails-via-gateway`" in prompt
+        assert "skill_view" not in prompt
+    elif missing_root is None:
+        assert 'skill_view(name="houmao-agent-entrypoint")' in prompt
+        assert "select the `process-emails-via-gateway` route" in prompt
+        assert (
+            f"http://127.0.0.1:43123 channel={channel} expected_binding_id={binding_id}" in prompt
+        )
+        assert "delegate to the `houmao-shared-routines` sibling" in prompt
+        assert "select `agent-email-comms` on the same public entrypoint" in prompt
+    else:
+        assert "Use the mailbox API below directly for this round." in prompt
+        assert "skill_view" not in prompt
+        assert "houmao-agent-entrypoint" not in prompt
 
 
 @pytest.mark.parametrize("placement_writable", [True, False], ids=["writable", "protected"])

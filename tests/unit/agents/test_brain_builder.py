@@ -1046,6 +1046,7 @@ def test_generated_helper_preserves_explicit_permission_precedence(tmp_path: Pat
             setup="default",
             auth="personal-a",
             home_id="helper-permissions",
+            operator_prompt_mode="as_is",
             direct_tool_params={"permission_mode": "plan"},
             launch_overrides=LaunchOverrides(
                 LaunchArgsSection("append", ("--permission-mode=auto",))
@@ -1065,6 +1066,68 @@ def test_generated_helper_preserves_explicit_permission_precedence(tmp_path: Pat
     private_settings = json.loads((result.home_path / "settings.json").read_text())
     assert private_settings["permissions"] == {"defaultMode": "plan", "deny": ["Read(.env)"]}
     assert settings.read_text(encoding="utf-8") == authored
+
+
+def test_generated_unattended_helper_checks_trailing_native_permissions(tmp_path: Path) -> None:
+    """Validate late and saved authored permission inputs before touching the provider home."""
+
+    agent_def_dir = tmp_path / "repo"
+    agent_def_dir.mkdir()
+    _seed_claude_repo(agent_def_dir)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    executable = bin_dir / "claude"
+    executable.write_text(
+        '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "2.1.296\\n"; '
+        'else printf "%s\\n" "$@"; fi\n',
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    request = BuildRequest(
+        agent_def_dir=agent_def_dir,
+        runtime_root=tmp_path / "runtime",
+        tool="claude",
+        skills=[],
+        setup="default",
+        auth="personal-a",
+        home_id="helper-permissions",
+        direct_tool_params={"permission_mode": "bypassPermissions"},
+    )
+    with pytest.raises(BuildError, match=r"permission_mode=bypassPermissions.*direct.*plan.*as_is"):
+        build_brain_home(replace(request, direct_tool_params={"permission_mode": "plan"}))
+    assert not request.runtime_root.exists()
+
+    result = build_brain_home(request)
+    config = result.home_path / "settings.json"
+    before = config.read_bytes() if config.is_file() else None
+    helper = result.home_path / "launch.sh"
+    environment = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
+    rejected = subprocess.run(
+        [str(helper), "--permission-mode=plan"],
+        check=False,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=environment,
+        timeout=30,
+    )
+    assert rejected.returncode != 0
+    assert "trailing launch args supplies `permission_mode=plan`" in rejected.stderr
+    assert "as_is" in rejected.stderr
+    assert rejected.stdout == ""
+    assert (config.read_bytes() if config.is_file() else None) == before
+    assert not (result.home_path / ".houmao-launch-policy.lock").exists()
+
+    matched = subprocess.run(
+        [str(helper), "--permission-mode=bypassPermissions", "--manual-extra"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=environment,
+        timeout=30,
+    )
+    assert matched.stdout.splitlines() == ["--dangerously-skip-permissions", "--manual-extra"]
 
 
 def test_build_brain_home_projects_kimi_oauth_files_and_skills(tmp_path: Path) -> None:

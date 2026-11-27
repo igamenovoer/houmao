@@ -11,6 +11,7 @@ import subprocess
 import time
 import uuid
 
+from houmao.agents.hermes_configuration import hermes_unattended_launch
 from houmao.agents.model_selection import ModelConfig
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.headless_base import (
@@ -68,7 +69,7 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
         )
         fresh = state is None and not execution_is_read_only()
         if fresh:
-            self.m_daemon.ensure()
+            self.m_daemon.ensure(unattended=hermes_unattended_launch(launch_plan.metadata))
         try:
             super().__init__(
                 backend="hermes_headless",
@@ -263,7 +264,7 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
                 raise BackendExecutionError(
                     "Hermes headless native latest selection is unsupported"
                 )
-            self.m_daemon.ensure()
+            self.m_daemon.ensure(unattended=hermes_unattended_launch(self._plan.metadata))
             if chat_session is not None and chat_session.session_id is not None:
                 self.m_daemon.resolve_session(chat_session.session_id)
         except (BackendExecutionError, OSError) as exc:

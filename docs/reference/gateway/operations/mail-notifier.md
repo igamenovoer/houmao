@@ -175,9 +175,9 @@ Additional runtime guidance:
 
 Current source behavior:
 
-- when the managed `agent` pack is installed, the prompt invokes `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url> channel=<channel> expected_binding_id=<binding-id>`,
+- when the managed `agent` pack is installed, the prompt uses the provider's native lookup. Codex receives `$houmao-agent-entrypoint process-emails-via-gateway <gateway-url> channel=<channel> expected_binding_id=<binding-id>`. Hermes receives `skill_view(name="houmao-agent-entrypoint")` and selects the `process-emails-via-gateway` route with the supplied gateway URL, channel, and expected binding ID.
 - the prompt requires both the installed agent entrypoint and shared-routines sibling, then leaves parent-scoped `SKILL-MAIN.md` selection to sibling routing,
-- ordinary mailbox details remain available through the `agent-email-comms` child in shared routines,
+- the entrypoint verifies self and hands off the actor frame and mailbox context to `houmao-shared-routines`. On Hermes, the sibling loads the selected child through its own parent-relative `skill_view` lookup. Ordinary mail uses the `agent-email-comms` route on the public entrypoint.
 - when required static skill siblings are unavailable, the prompt supplies the selected-channel API contract directly. Late binding does not require native skill hot-reload or a body restart.
 - missing URL/channel/binding context or a binding mismatch ends the round. Canonical identity does not supply replacement routing.
 

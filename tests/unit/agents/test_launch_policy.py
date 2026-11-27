@@ -215,6 +215,11 @@ def test_codex_projects_resolved_permission_settings_above_project_config(
         encoding="utf-8",
     )
 
+    approval, sandbox = (
+        ("never", "danger-full-access")
+        if prompt_mode == "unattended"
+        else ("on-request", "read-only")
+    )
     result = apply_launch_policy(
         LaunchPolicyRequest(
             tool="codex",
@@ -225,19 +230,19 @@ def test_codex_projects_resolved_permission_settings_above_project_config(
             working_directory=workspace,
             home_path=home,
             env={},
-            tool_params={"approval_policy": "on-request", "sandbox_mode": "read-only"},
+            tool_params={"approval_policy": approval, "sandbox_mode": sandbox},
         )
     )
 
     effective = _load_toml(config_path)
-    assert effective["sandbox_mode"] == "read-only"
-    assert effective["approval_policy"] == "on-request"
+    assert effective["sandbox_mode"] == sandbox
+    assert effective["approval_policy"] == approval
     assert effective["model"] == "gpt-5.4-mini"
     assert effective["model_provider"] == "test"
     assert effective["model_providers"] == {"test": {"name": "Test"}}
     assert effective["hooks"] == {"SessionStart": [{"matcher": "resume"}]}
-    assert '--config=approval_policy="on-request"' in result.args
-    assert '--config=sandbox_mode="read-only"' in result.args
+    assert f'--config=approval_policy="{approval}"' in result.args
+    assert f'--config=sandbox_mode="{sandbox}"' in result.args
     assert project_config.read_text(encoding="utf-8") == project_content
     assert ("notice" in effective) == (prompt_mode == "unattended")
 
@@ -265,9 +270,9 @@ def test_codex_unattended_strategy_resolves_authored_permission_aliases(
                 "workspace-write",
                 "--sandbox=read-only",
                 "-c",
-                'approval_policy="on-request"',
+                'approval_policy="never"',
                 "--config",
-                'sandbox_mode="workspace-write"',
+                'sandbox_mode="danger-full-access"',
                 "--config=notice.hide_full_access_warning=false",
                 "--config=tui.show_tooltips=true",
                 "-c",
@@ -291,14 +296,14 @@ def test_codex_unattended_strategy_resolves_authored_permission_aliases(
         "gpt-5.2",
         "--config",
         'model_provider="yunwu-openai"',
-        '--config=approval_policy="on-request"',
-        '--config=sandbox_mode="workspace-write"',
+        '--config=approval_policy="never"',
+        '--config=sandbox_mode="danger-full-access"',
         "--config=notice.hide_full_access_warning=true",
         "--config=tui.show_tooltips=false",
     )
     assert result.permission_sources == {
-        "approval_policy": "launch args",
-        "sandbox_mode": "launch args",
+        "approval_policy": "strategy:codex-unattended-0.162-plus",
+        "sandbox_mode": "strategy:codex-unattended-0.162-plus",
     }
 
 
@@ -323,17 +328,22 @@ def test_reused_codex_home_restores_native_permission_baseline(
         working_directory=tmp_path,
         home_path=home,
         env={},
-        tool_params={"sandbox_mode": "workspace-write"},
+        tool_params={"sandbox_mode": "danger-full-access"},
         tool_param_sources={"sandbox_mode": "direct"},
     )
     first = apply_launch_policy(request)
-    assert first.permissions == {"sandbox_mode": "workspace-write", "approval_policy": "never"}
-    assert first.permission_sources["sandbox_mode"] == "direct"
+    assert first.permissions == {"sandbox_mode": "danger-full-access", "approval_policy": "never"}
+    assert first.permission_sources["sandbox_mode"].startswith("strategy:")
     assert first.permission_sources["approval_policy"].startswith("strategy:")
     assert apply_launch_policy(request).permissions == first.permissions
 
     observed = apply_launch_policy(
-        replace(request, application_kind="resume_control", requested_operator_prompt_mode="as_is")
+        replace(
+            request,
+            application_kind="resume_control",
+            requested_operator_prompt_mode="as_is",
+            tool_params={"sandbox_mode": "workspace-write"},
+        )
     )
     assert observed.permissions == {"sandbox_mode": "workspace-write"}
     assert _load_toml(config)["approval_policy"] == "never"
@@ -443,6 +453,7 @@ def test_claude_projects_authored_permission_mode_without_bypass_warning_overrid
         json.dumps({"permissions": {"defaultMode": "acceptEdits", "deny": ["Bash(curl *)"]}}),
         encoding="utf-8",
     )
+    expected_mode = "bypassPermissions" if prompt_mode == "unattended" else "dontAsk"
     result = apply_launch_policy(
         LaunchPolicyRequest(
             tool="claude",
@@ -453,14 +464,18 @@ def test_claude_projects_authored_permission_mode_without_bypass_warning_overrid
             working_directory=tmp_path / "workspace",
             home_path=home,
             env={"ANTHROPIC_API_KEY": "sk-test"},
-            tool_params={"permission_mode": "dontAsk"},
+            tool_params={"permission_mode": expected_mode},
         )
     )
 
-    assert result.args == ("-p", "--include-partial-messages", "--permission-mode", "dontAsk")
-    assert json.loads(settings_path.read_text(encoding="utf-8")) == {
-        "permissions": {"defaultMode": "dontAsk", "deny": ["Bash(curl *)"]}
-    }
+    permission_args = (
+        ("--dangerously-skip-permissions",)
+        if prompt_mode == "unattended"
+        else ("--permission-mode", "dontAsk")
+    )
+    assert result.args == ("-p", "--include-partial-messages", *permission_args)
+    settings = json.loads(settings_path.read_text(encoding="utf-8"))
+    assert settings["permissions"] == {"defaultMode": expected_mode, "deny": ["Bash(curl *)"]}
     assert (home / ".claude.json").exists() == (prompt_mode == "unattended")
 
 
@@ -864,7 +879,7 @@ enabled = false
                 "--temperature",
                 "0",
             ),
-            requested_operator_prompt_mode="unattended",
+            requested_operator_prompt_mode="unattended" if authored_mode is None else "as_is",
             working_directory=tmp_path / "workspace",
             home_path=home,
             env={"KIMI_CODE_LEGACY_FLAG": "0"},
@@ -881,14 +896,8 @@ enabled = false
         "0",
         *expected_flags,
     )
-    assert result.provenance is not None
-    assert result.provenance.selected_strategy_id == "kimi-tui-unattended-2.1-plus"
-    assert result.strategy is not None
-    assert result.strategy.backends == ("raw_launch",)
-    assert result.strategy.owned_paths[0].path == "config.toml"
-    assert result.strategy.owned_paths[0].keys == ("default_permission_mode",)
-    assert result.strategy.owned_paths[1].path == ".skip-migration-from-kimi-cli"
-    assert (home / ".skip-migration-from-kimi-cli").is_file()
+    assert (result.provenance is None) == (authored_mode is not None)
+    assert (home / ".skip-migration-from-kimi-cli").is_file() == (authored_mode is None)
     assert payload["default_permission_mode"] == expected_mode
     assert payload["default_model"] == "kimi-code/kimi-for-coding"
     assert payload["extra_skill_dirs"] == ["/opt/project-skills"]
@@ -1210,7 +1219,7 @@ def test_codex_canonicalization_preserves_hook_config_overrides(
                 "--config",
                 hooks_override,
                 "-c",
-                'approval_policy="on-request"',
+                'approval_policy="never"',
             ),
             requested_operator_prompt_mode="unattended",
             working_directory=tmp_path / "workspace",
@@ -1221,9 +1230,41 @@ def test_codex_canonicalization_preserves_hook_config_overrides(
 
     assert state_override in result.args
     assert hooks_override in result.args
-    assert '--config=approval_policy="on-request"' in result.args
-    assert 'approval_policy="on-request"' not in result.args
+    assert '--config=approval_policy="never"' in result.args
+    assert 'approval_policy="never"' not in result.args
     assert "--dangerously-bypass-hook-trust" not in result.args
+
+
+@pytest.mark.parametrize(
+    ("profile", "expected_error"),
+    [
+        (":read-only", "sandbox_mode=danger-full-access.*launch args.*sandbox_mode=read-only"),
+        ("custom", "default_permissions.*cannot qualify"),
+    ],
+)
+def test_codex_unattended_validates_native_permission_profiles(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, profile: str, expected_error: str
+) -> None:
+    """A native profile selector cannot replace the qualified sandbox."""
+
+    _stub_version(monkeypatch, output="codex-cli 0.172.0")
+    home = tmp_path / "home"
+    request = LaunchPolicyRequest(
+        tool="codex",
+        backend="raw_launch",
+        executable="codex",
+        base_args=(f'--config=default_permissions="{profile}"',),
+        requested_operator_prompt_mode=None,
+        working_directory=tmp_path,
+        home_path=home,
+        env={},
+    )
+    with pytest.raises(LaunchPolicyError, match=expected_error + ".*as_is"):
+        apply_launch_policy(request)
+    assert not home.exists()
+
+    custom = apply_launch_policy(replace(request, requested_operator_prompt_mode="as_is"))
+    assert custom.args == request.base_args
 
 
 def test_codex_registry_documents_hook_observation_owned_surfaces() -> None:

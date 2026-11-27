@@ -94,6 +94,8 @@ def _agent_state_fields(
                 ("can_accept_prompt_now", _pv(control.get("can_accept_prompt_now"))),
             )
         )
+        if control.get("approval_pending") is True:
+            fields.append(("interaction", "Awaiting native approval"))
     turn = data.get("turn")
     if isinstance(turn, dict):
         fields.append(("turn_phase", _pv(turn.get("phase"))))

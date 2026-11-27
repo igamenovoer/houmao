@@ -626,3 +626,30 @@ def test_install_result_agent_entrypoint_and_shared_are_top_level_siblings(tmp_p
     assert not (
         tmp_path / "skills" / SYSTEM_SKILL_AGENT_ENTRYPOINT / "subskills/houmao-shared-routines"
     ).exists()
+
+
+def test_installed_hermes_mail_routes_preserve_actor_frame_and_parent_lookup(
+    tmp_path: Path,
+) -> None:
+    """Hermes finds public roots and loads only the routed protected child."""
+
+    install_system_skill_packs_for_home(
+        tool="hermes", home_path=tmp_path, pack_ids=(SYSTEM_SKILL_PACK_AGENT,)
+    )
+    skills = tmp_path / "skills"
+    entrypoint = (skills / SYSTEM_SKILL_AGENT_ENTRYPOINT / "SKILL.md").read_text()
+    shared = skills / SYSTEM_SKILL_SHARED_ROUTINES
+    shared_prompt = (shared / "SKILL.md").read_text()
+    assert entrypoint.index("Verify fresh managed self") < entrypoint.index(
+        'skill_view(name="houmao-shared-routines")'
+    )
+    assert "Pass the intact actor frame" in entrypoint
+    assert "supplied gateway URL, channel, and expected binding ID" in entrypoint
+    assert "After the actor and target checks" in shared_prompt
+    assert 'with `name="houmao-shared-routines"`' in shared_prompt
+    assert "selected route's linked child path as `file_path`" in shared_prompt
+    for child in ("houmao-process-emails-via-gateway", "houmao-agent-email-comms"):
+        relative_child = f"subskills/{child}/SKILL-MAIN.md"
+        assert relative_child in shared_prompt
+        assert (shared / relative_child).is_file()
+        assert not (skills / child).exists()

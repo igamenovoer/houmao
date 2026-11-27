@@ -324,7 +324,11 @@ def test_dsh_publishes_before_starting_private_supervisor(
                 "runtime_session_id": "runtime",
                 "generation": "generation",
             },
-            "dsh": {"setup_path": str(setup)},
+            "dsh": {
+                "setup_path": str(setup),
+                "operator_prompt_mode": "unattended",
+                "permissions": {"sandbox": "danger-full-access", "approval": "never"},
+            },
         },
     )
     calls: list[str] = []

@@ -20,6 +20,7 @@ from houmao.agents.mailbox_runtime_models import (
     RemoteRegistryMailboxResolvedConfig,
 )
 from houmao.agents.mailbox_runtime_support import (
+    hermes_mailbox_entrypoint_instruction,
     mailbox_gateway_route_name,
     mailbox_gateway_skill_name,
     mailbox_skill_name,
@@ -334,11 +335,15 @@ def _mail_prompt_instruction_lines(
     )
     installed_skill_lines: list[str]
     if gateway_skill_path.is_file() and shared_skill_path.is_file():
-        installed_skill_lines = [
-            (
+        if launch_plan.tool == "hermes":
+            invocation = hermes_mailbox_entrypoint_instruction(gateway_route_name)
+        else:
+            invocation = (
                 f"Use the installed public entrypoint `${gateway_skill_name} "
                 f"{gateway_route_name}` for this mailbox operation."
-            ),
+            )
+        installed_skill_lines = [
+            invocation,
             (
                 "Use the installed runtime-owned Houmao mailbox skills directly from the "
                 "tool's native skill surface. Do not inspect the current project, repository, "

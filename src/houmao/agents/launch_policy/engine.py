@@ -99,16 +99,17 @@ _PERMISSION_KEYS = {
 }
 
 
-def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
-    """Resolve and apply launch policy for one launch request."""
+def resolve_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
+    """Resolve the qualified startup settings without changing provider state."""
 
     strategy = None
     provenance = None
-    mode = request.requested_operator_prompt_mode
+    mode = request.requested_operator_prompt_mode or "unattended"
     if mode == "unattended":
         detected_version = detect_tool_version(executable=request.executable)
         strategy, selection_source = resolve_strategy(
-            request=request, detected_version=detected_version
+            request=replace(request, requested_operator_prompt_mode=mode),
+            detected_version=detected_version,
         )
         provenance = LaunchPolicyProvenance(
             requested_operator_prompt_mode=mode,
@@ -117,28 +118,53 @@ def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
             selection_source=selection_source,
             override_env_var_name=_OVERRIDE_ENV_VAR if selection_source == "env_override" else None,
         )
-    elif mode not in {None, "as_is"}:
+    elif mode != "as_is":
         raise LaunchPolicyError(f"Unsupported operator_prompt_mode `{mode}`.")
     permission_keys = _PERMISSION_KEYS.get(request.tool, ())
     try:
         native_args, aliases = split_permission_args(
-            request.tool, request.base_args, source="launch args"
+            request.tool, request.base_args, source="launch args", unattended=mode == "unattended"
         )
         if aliases:
             aliases = validate_tool_params(request.tool, aliases, source="launch args")
+        typed_permissions = {
+            key: value
+            for key, value in request.tool_params.items()
+            if key in permission_keys and value is not None
+        }
+        if typed_permissions:
+            typed_permissions = validate_tool_params(
+                request.tool, typed_permissions, source="effective tool_params"
+            )
     except ValueError as exc:
         raise LaunchPolicyError(str(exc)) from exc
-    authored = {
-        key: value
-        for key, value in {**aliases, **request.tool_params}.items()
-        if key in permission_keys and value is not None
-    }
-    defaults = strategy.permission_defaults if strategy is not None else {}
-    permissions = {**defaults, **authored}
+    authored = {**aliases, **typed_permissions}
     if request.tool == "dsh":
-        permissions["permissions"] = {
-            **defaults.get("permissions", {}),
-            **authored.get("permissions", {}),
+        authored["permissions"] = {
+            **aliases.get("permissions", {}),
+            **typed_permissions.get("permissions", {}),
+        }
+    authored_fields = _permission_fields(authored)
+    typed_fields = _permission_fields(typed_permissions)
+    authored_sources = {
+        name: request.tool_param_sources.get(name, "tool_params")
+        if name in typed_fields
+        else "launch args"
+        for name in authored_fields
+    }
+    permissions = authored
+    sources = authored_sources
+    if strategy is not None:
+        _require_matching_permissions(
+            tool=request.tool,
+            backend=request.backend,
+            defaults=strategy.permission_defaults,
+            authored=authored,
+            sources=authored_sources,
+        )
+        permissions = dict(strategy.permission_defaults)
+        sources = {
+            field: f"strategy:{strategy.strategy_id}" for field in _permission_fields(permissions)
         }
     if request.tool == "kimi" and permissions:
         adapter = get_tool_params_adapter(request.tool)
@@ -149,19 +175,30 @@ def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
             )
         except ValueError as exc:
             raise LaunchPolicyError(str(exc)) from exc
-    authored_fields = _permission_fields(authored)
-    sources = {
-        field: request.tool_param_sources.get(
-            field, "launch args" if field in aliases else "tool_params"
-        )
-        if field in authored_fields
-        else f"strategy:{strategy.strategy_id}"
-        if strategy is not None
-        else "native baseline"
-        for field in _permission_fields(permissions)
-    }
-    request = replace(request, tool_params={**request.tool_params, **permissions})
-    args = list(native_args)
+    return LaunchPolicyResult(
+        executable=request.executable,
+        args=native_args,
+        provenance=provenance,
+        strategy=strategy,
+        permissions=permissions,
+        permission_sources=sources,
+    )
+
+
+def apply_launch_policy(
+    request: LaunchPolicyRequest, *, resolved: LaunchPolicyResult | None = None
+) -> LaunchPolicyResult:
+    """Project the resolved launch policy into the native home and arguments."""
+
+    decision = resolved if resolved is not None else resolve_launch_policy(request)
+    permissions = decision.permissions
+    strategy = decision.strategy
+    request = replace(
+        request,
+        requested_operator_prompt_mode=request.requested_operator_prompt_mode or "unattended",
+        tool_params={**request.tool_params, **permissions},
+    )
+    args = list(decision.args)
     actions = strategy.actions if strategy is not None else _as_is_actions(request, permissions)
     project_home_permissions = (
         request.application_kind == "provider_start"
@@ -185,23 +222,70 @@ def apply_launch_policy(request: LaunchPolicyRequest) -> LaunchPolicyResult:
     ):
         for action in actions:
             _apply_action(action=action, request=request, args=args)
-    return LaunchPolicyResult(
-        executable=request.executable,
-        args=tuple(args),
-        provenance=provenance,
-        strategy=strategy,
-        permissions=permissions,
-        permission_sources=sources,
+    return replace(decision, args=tuple(args))
+
+
+def validate_configured_unattended_permissions(
+    *,
+    tool: str,
+    backend: LaunchSurface,
+    authored: Mapping[str, Any],
+    sources: Mapping[str, str],
+) -> None:
+    """Check the shared posture of packaged strategies before home creation."""
+
+    strategies = [
+        strategy
+        for document in load_registry_documents(tool=tool)
+        for strategy in document.strategies
+        if backend in strategy.backends and strategy.operator_prompt_mode == "unattended"
+    ]
+    if not strategies:
+        return
+    defaults = strategies[0].permission_defaults
+    if any(strategy.permission_defaults != defaults for strategy in strategies[1:]):
+        raise LaunchPolicyError(
+            f"Unattended permission posture for tool={tool!r}, backend={backend!r} "
+            "requires an executable-specific decision before provider start."
+        )
+    _require_matching_permissions(
+        tool=tool, backend=backend, defaults=defaults, authored=authored, sources=sources
     )
 
 
-def _permission_fields(permissions: Mapping[str, Any]) -> set[str]:
-    """Describe permission values by their user-facing paths."""
+def _require_matching_permissions(
+    *,
+    tool: str,
+    backend: LaunchSurface,
+    defaults: Mapping[str, Any],
+    authored: Mapping[str, Any],
+    sources: Mapping[str, str],
+) -> None:
+    """Reject a winning authored value that differs from the unattended posture."""
+
+    authored_fields = _permission_fields(authored)
+    for field, required in _permission_fields(defaults).items():
+        value = authored_fields.get(field)
+        if value is not None and value != required:
+            source = sources.get(field, "tool_params")
+            raise LaunchPolicyError(
+                f"Unattended launch for tool={tool!r}, backend={backend!r} requires "
+                f"`{field}={required}`, but {source} supplies `{field}={value}`. "
+                "Select `as_is` to use supported custom permissions."
+            )
+
+
+def _permission_fields(permissions: Mapping[str, Any]) -> dict[str, Any]:
+    """Index permission values by their user-facing paths."""
 
     return {
-        field
+        field: setting
         for key, value in permissions.items()
-        for field in ((f"{key}.{child}" for child in value) if isinstance(value, dict) else (key,))
+        for field, setting in (
+            ((f"{key}.{child}", setting) for child, setting in value.items())
+            if isinstance(value, dict)
+            else ((key, value),)
+        )
     }
 
 

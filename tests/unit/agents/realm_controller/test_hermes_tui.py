@@ -42,6 +42,10 @@ from houmao.server.models import HoumaoManagedAgentIdentity
 from houmao.srv_ctrl.commands import managed_agents
 from houmao.srv_ctrl.commands.agents import core as agent_commands
 from houmao.srv_ctrl.commands.main import cli
+from houmao.srv_ctrl.commands.renderers.agents import (
+    render_agent_state_fancy,
+    render_agent_state_plain,
+)
 
 
 class FakeOwnerClaim:
@@ -939,3 +943,59 @@ def test_terminal_hint_tracks_switch_and_exit_without_changing_managed_session(t
     assert tui.terminal_attachment() == "unverified"
     pane = replace(pane, pane_dead=True)
     assert tui.terminal_attachment() == "detached"
+
+
+@pytest.mark.parametrize("attachment", ("attached", "detached", "other_session"))
+def test_current_native_approval_is_safe_and_independent_of_terminal(
+    tui, monkeypatch, capsys, attachment
+):
+    """Project the current logical session's approval without exposing its contents."""
+
+    prompt = {
+        "kind": "approval",
+        "prompt_id": "private-prompt-id",
+        "execution_generation": 4,
+        "command": "private-command",
+        "options": ["private-option"],
+    }
+    payload = {
+        "running": True,
+        "execution_generation": 4,
+        "pending": [],
+        "prompts": [prompt],
+        "open_requests": [],
+        "pending_connection": None,
+    }
+    monkeypatch.setattr(hermes_tui, "observe_owner_prompt", lambda *args, **kwargs: None)
+    monkeypatch.setattr(tui, "terminal_attachment", lambda: attachment)
+
+    def resolve_session(session_id):
+        assert session_id == tui.state.native_session_id
+        return HermesSessionSnapshot(session_id, payload, "verified-daemon")
+
+    monkeypatch.setattr(tui.daemon, "resolve_session", resolve_session)
+    observation = tui.observe_managed_control()
+    assert observation.approval_pending is True
+    assert observation.terminal_attachment == attachment
+    assert observation.active_request_id is None
+    assert observation.can_accept_prompt_now is False
+    assert "private-" not in observation.model_dump_json()
+    for render in (render_agent_state_plain, render_agent_state_fancy):
+        render({"control": observation.model_dump()})
+        assert "Awaiting native approval" in capsys.readouterr().out
+
+    payload["execution_generation"] = 5
+    assert tui.observe_managed_control().approval_pending is False
+    payload["execution_generation"] = 3
+    assert tui.observe_managed_control().approval_pending is None
+    payload["execution_generation"] = 5
+    payload["prompts"] = [{"kind": "approval", "execution_generation": "5"}]
+    unknown = tui.observe_managed_control()
+    assert unknown.approval_pending is None
+    assert unknown.can_accept_prompt_now is False
+    payload["prompts"] = [{"kind": "clarify"}]
+    assert tui.observe_managed_control().approval_pending is False
+    payload.update(running=False, prompts=[])
+    settled = tui.observe_managed_control()
+    assert settled.approval_pending is False
+    assert settled.can_accept_prompt_now is True

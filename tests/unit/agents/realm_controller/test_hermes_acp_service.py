@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 import sys
 import time
 
 import pytest
 
-from houmao.agents.realm_controller.backends.hermes_acp_service import HermesAcpServiceProvider
+from houmao.agents.realm_controller.backends.hermes_acp_service import (
+    HermesAcpServiceProvider,
+    _AcpPrompt,
+)
 from houmao.agents.realm_controller.backends.hermes_native import (
     HermesDaemon,
     HermesDaemonIdentity,
@@ -19,11 +22,15 @@ from houmao.agents.realm_controller.backends.service_runtime import (
     ServiceOperationContext,
     ServiceOwnerConfig,
 )
+from houmao.agents.realm_controller.errors import ServiceStartupCompatibilityError
 
 
 _PEER = """
 import json
+from pathlib import Path
 import sys
+
+mode_path = Path("native-edit-mode")
 
 def send(frame):
     print(json.dumps({"jsonrpc": "2.0", **frame}), flush=True)
@@ -50,6 +57,11 @@ while line := sys.stdin.readline():
     elif method == "session/load":
         assert params["sessionId"] == "local-exact"
         update("earlier transcript")
+        result = {"modes": {"currentModeId": mode_path.read_text() if mode_path.exists() else "default",
+                            "availableModes": [{"id": "default"}, {"id": "accept_edits"}, {"id": "dont_ask"}]}}
+    elif method == "session/set_mode":
+        assert params["sessionId"] == "local-exact"
+        mode_path.write_text(params["modeId"])
         result = {}
     elif method == "session/prompt":
         assert params["sessionId"] == "local-exact"
@@ -111,7 +123,7 @@ class _Daemon:
         )
         self.m_stopped = False
 
-    def ensure(self) -> HermesDaemonIdentity:
+    def ensure(self, *, unattended: bool = False) -> HermesDaemonIdentity:
         """Return the already managed native authority."""
 
         return self.m_identity
@@ -125,9 +137,20 @@ class _Daemon:
         """Supply exact native workspace and empty admission evidence."""
 
         assert session_id == "local-exact"
+        mode_path = self.m_identity.home / "native-edit-mode"
+        edit_mode = mode_path.read_text() if mode_path.exists() else "default"
+        policy = {"default": "ask", "accept_edits": "workspace_session", "dont_ask": "session"}[
+            edit_mode
+        ]
         return HermesSessionSnapshot(
             session_id,
-            {"pending": [], "prompts": [], "open_requests": [], "running": False},
+            {
+                "pending": [],
+                "prompts": [],
+                "open_requests": [],
+                "running": False,
+                "info": {"edit_approval_policy": policy},
+            },
             self.m_identity.instance_id,
         )
 
@@ -138,7 +161,7 @@ class _Daemon:
 
 
 @pytest.fixture
-def provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request):
     """Start a real private protocol child behind a stable fake daemon."""
 
     executable = tmp_path / "hermes"
@@ -154,7 +177,11 @@ def provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             working_directory=tmp_path,
             home_path=tmp_path,
             environment={},
-            metadata={},
+            metadata={
+                "launch_policy_request": {
+                    "operator_prompt_mode": getattr(request, "param", "as_is")
+                }
+            },
             root=tmp_path,
             manifest_path=tmp_path / "manifest.json",
             agent_id="managed",
@@ -182,6 +209,96 @@ def _operation(tmp_path: Path, name: str, events: list[str]) -> ServiceOperation
         lambda _native: events.append("handed_off"),
         lambda _event: None,
     )
+
+
+@pytest.mark.parametrize("provider", ["unattended", "as_is"], indirect=True)
+def test_acp_tool_grants_require_unattended_and_exact_current_permission(provider, tmp_path):
+    """Accept only current structured tool requests with a one-time option."""
+
+    backend, _daemon = provider
+    unattended = backend.m_unattended
+    mode_path = tmp_path / "native-edit-mode"
+    assert mode_path.exists() == unattended
+    if unattended:
+        assert mode_path.read_text() == "dont_ask"
+    edit = {
+        "kind": "edit",
+        "status": "pending",
+        "toolCallId": "edit-approval-1",
+        "rawInput": {
+            "tool": "write_file",
+            "arguments": {"path": "/other/file", "content": "hello"},
+        },
+        "content": [{"type": "diff", "path": "/other/file", "newText": "hello"}],
+    }
+    execute = {
+        "kind": "execute",
+        "status": "pending",
+        "toolCallId": "perm-check-2",
+        "rawInput": {"command": "./task", "description": "approval required"},
+    }
+    options = [
+        {"kind": "allow_once", "optionId": "single"},
+        {"kind": "allow_always", "optionId": "persistent"},
+        {"kind": "reject_once", "optionId": "no"},
+    ]
+    request = {"sessionId": "local-exact", "toolCall": edit, "options": options}
+    method = "session/request_permission"
+    response = Future()
+    backend.m_active = _AcpPrompt("request", response=response)
+    allow = {"outcome": {"outcome": "selected", "optionId": "single"}}
+    deny = {"outcome": {"outcome": "selected", "optionId": "no"}}
+    cancelled = {"outcome": {"outcome": "cancelled"}}
+
+    assert backend._handle_request(method, request) == (allow if unattended else deny)
+    assert backend._handle_request(method, {**request, "toolCall": execute}) == (
+        allow if unattended else deny
+    )
+    for raw in ({"question": "pick an answer", "choices": ["A"]}, {"model": "replacement"}):
+        other = {**edit, "kind": "other", "rawInput": raw}
+        assert backend._handle_request(method, {**request, "toolCall": other}) == deny
+    assert backend._handle_request(method, {**request, "sessionId": "someone-else"}) == cancelled
+    assert backend._handle_request(method, {**request, "options": options[1:]}) == deny
+    assert backend._handle_request(method, {**request, "options": [*options, options[0]]}) == deny
+    backend.m_active.cancel_deadline = time.monotonic()
+    assert backend._handle_request(method, request) == cancelled
+    backend.m_active.cancel_deadline = None
+    response.set_result({})
+    assert backend._handle_request(method, request) == cancelled
+    backend.m_active = None
+
+
+@pytest.mark.parametrize("problem", ["unadvertised", "readback"])
+@pytest.mark.parametrize("provider", ["unattended"], indirect=True)
+def test_acp_edit_mode_requires_advertisement_and_native_readback(provider, tmp_path, problem):
+    """Reject an unsupported maximum and an ACP success with stale native policy."""
+
+    backend, _daemon = provider
+    modes = {"currentModeId": "dont_ask", "availableModes": [{"id": "dont_ask"}]}
+    if problem == "unadvertised":
+        modes["availableModes"] = [{"id": "default"}]
+    else:
+        (tmp_path / "native-edit-mode").write_text("default")
+    with pytest.raises(ServiceStartupCompatibilityError, match="native edit approval mode"):
+        backend._establish_edit_mode({"modes": modes})
+
+
+@pytest.mark.parametrize("provider", ["unattended"], indirect=True)
+def test_as_is_restores_the_edit_mode_saved_by_the_previous_projection(provider, tmp_path):
+    """The existing owned conversation can return to its earlier edit policy."""
+
+    backend, _daemon = provider
+    backend.m_unattended = False
+    backend._establish_edit_mode(
+        {
+            "modes": {
+                "currentModeId": "dont_ask",
+                "availableModes": [{"id": "default"}, {"id": "dont_ask"}],
+            }
+        }
+    )
+    assert (tmp_path / "native-edit-mode").read_text() == "default"
+    assert not list((tmp_path / "hermes-acp-edit-modes").glob("*.json"))
 
 
 def test_acp_two_prompts_ignore_replayed_transcript_and_refuse_permissions(provider, tmp_path):

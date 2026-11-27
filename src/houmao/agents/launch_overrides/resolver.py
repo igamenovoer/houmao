@@ -205,6 +205,7 @@ def resolve_launch_behavior(
     direct_overrides: LaunchOverrides | None,
     tool_params: Mapping[str, Any] | None = None,
     tool_param_layers: Sequence[tuple[str, Mapping[str, Any]]] | None = None,
+    unattended: bool = False,
 ) -> ResolvedLaunchBehavior:
     """Resolve effective launch behavior for one backend."""
 
@@ -221,11 +222,12 @@ def resolve_launch_behavior(
             recipe_overrides=recipe_overrides,
             direct_overrides=direct_overrides,
             typed_layers=tool_param_layers,
+            unattended=unattended,
         )
         tool_params = resolve_tool_params(tool, layers)
     else:
         native_args, aliases = split_permission_args(
-            tool, merged.args, source="launch args", backend=backend
+            tool, merged.args, source="launch args", backend=backend, unattended=unattended
         )
         _validate_reserved_args(tool, backend, native_args, source="launch args")
         layers = [("launch args", aliases), ("effective tool_params", tool_params or {})]
@@ -258,7 +260,7 @@ def resolve_launch_behavior(
         )
 
     translated_args: tuple[str, ...] = ()
-    if adapter is not None and effective is not None:
+    if adapter is not None and effective is not None and not (tool == "kimi" and unattended):
         translated_args = adapter.prepare_launch(effective, backend=backend)
 
     args_before_policy = (*native_args, *translated_args)
@@ -291,6 +293,7 @@ def _resolve_parameter_layers(
     recipe_overrides: LaunchOverrides | None,
     direct_overrides: LaunchOverrides | None,
     typed_layers: Sequence[tuple[str, Mapping[str, Any]]],
+    unattended: bool,
 ) -> tuple[tuple[str, ...], list[tuple[str, Mapping[str, Any]]]]:
     """Validate raw inputs and normalize the selected arguments at their own layer."""
 
@@ -305,7 +308,11 @@ def _resolve_parameter_layers(
         ("direct", direct.values if direct else (), direct is not None),
     ):
         remaining, aliases = split_permission_args(
-            tool, original, source=f"{source} launch args", backend=backend
+            tool,
+            original,
+            source=f"{source} launch args",
+            backend=backend,
+            unattended=unattended,
         )
         _validate_reserved_args(tool, backend, remaining, source=f"{source} launch args")
         if use:

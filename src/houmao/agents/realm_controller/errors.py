@@ -112,6 +112,8 @@ class ServiceStartupCheck(Enum):
     HERMES_PROCESS = "Hermes ACP could not start its native process. See its private diagnostics."
     HERMES_INITIALIZE = "Hermes ACP did not negotiate the required protocol version 1."
     HERMES_SESSION = "Hermes ACP did not bind the requested native session and workspace."
+    HERMES_APPROVAL_POLICY = "Hermes did not confirm its native unattended command approval policy."
+    HERMES_EDIT_MODE = "Hermes ACP did not confirm the required native edit approval mode."
 
 
 class ServiceStartupCompatibilityError(BackendExecutionError):

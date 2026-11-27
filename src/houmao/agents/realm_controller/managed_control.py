@@ -102,6 +102,7 @@ class ManagedControlObservationV1(BaseModel):
     last_outcome: ManagedControlOutcome | None = None
     native_admission_id: str | None = None
     native_admission_state: str | None = None
+    approval_pending: bool | None = None
     terminal_attachment: Literal["attached", "detached", "unverified", "other_session"] | None = (
         None
     )
@@ -134,6 +135,7 @@ class ManagedControlObservationV1(BaseModel):
             or self.connection_ready is False
             or self.active_request_id is not None
             or self.active_turn_id is not None
+            or self.approval_pending is True
         ):
             raise ValueError("Ready observations require current, available and idle evidence")
         return self

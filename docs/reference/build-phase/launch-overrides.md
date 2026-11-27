@@ -23,7 +23,7 @@ The setup file contains the mapping itself. Preset and launch-profile YAML store
 
 Recognized permission settings in the selected native setup count as setup values. Within each argument layer, Houmao lifts supported native aliases such as Codex `--sandbox` into the corresponding permission fields. Typed values win within the same layer. Raw argument-section selection still controls which argument aliases participate.
 
-For example, a Codex setup `config.toml` may supply `sandbox_mode = "workspace-write"`. An unattended launch inherits that sandbox and supplies `never` for omitted approval. Use `--tool-params '{"sandbox_mode":"read-only"}'` to select a different sandbox for one launch. The setup file retains its original value.
+A Codex setup with `sandbox_mode = "workspace-write"` requires `as_is`. For a project profile, set that posture with `houmao-mgr project profile set --name <profile> --prompt-mode as_is`. Use `--tool-params '{"sandbox_mode":"read-only"}'` on a launch from that profile to select a different sandbox for that launch.
 
 For example, a Claude headless profile can request partial messages by storing:
 

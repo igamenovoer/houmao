@@ -114,9 +114,9 @@ The launch command requires a qualified DSH executable and a model server at the
 
 ### Startup Permissions and Prompt Provenance
 
-The `unattended` posture fills omitted fields with sandbox mode `danger-full-access` and approval policy `never`. An explicit value takes precedence for its field. Native hard denies and the selected execution user's operating-system permissions still apply. The specialist's `--no-unattended` option selects `as_is`, which uses the native baseline for omitted fields. Later workers read the materialized native permissions.
+The `unattended` posture requires sandbox mode `danger-full-access` and approval policy `never`. Supplied permission values must match those settings. Native hard denials and the selected execution user's operating-system permissions still apply. The specialist's `--no-unattended` option selects `as_is`, which uses the native baseline for omitted fields. Later workers read the materialized native permissions.
 
-To keep the previous workspace boundary, add this to the selected setup's `tool-params.yaml`. In a specialist or launch profile, place the same mapping under `tool_params`.
+To keep a workspace boundary, select `as_is` and add this to the selected setup's `tool-params.yaml`. In a specialist or launch profile, place the same mapping under `tool_params`.
 
 ```yaml
 permissions:
@@ -124,7 +124,7 @@ permissions:
   approval: never
 ```
 
-In an unattended launch, omitting `approval` also selects `never`. Use an explicit `ask` to request the native approval behavior. The headless profile has no interactive answerer and fails closed when a native request needs one. [DSH Web](dsh-web.md) can present approval requests in the browser.
+Use `as_is` with an explicit `ask` to select native approvals. Headless fails closed when a native request needs an interactive answerer. DSH Web can present approval requests in the browser. [DSH Web](dsh-web.md)
 
 Remove any authored `hmr` entry, including `hmr: false`. Houmao reserves HMR to control when native settings take effect. Run a supported home refresh or relaunch to activate changes.
 

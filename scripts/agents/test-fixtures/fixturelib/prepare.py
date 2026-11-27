@@ -820,6 +820,7 @@ def prepare_run(
                 base_url=config.base_url,
                 model_name=config.model,
                 role_prompt=prompt.read_text(encoding="utf-8"),
+                operator_prompt_mode=config.operator_prompt_mode,
                 reasoning_effort=hermes_effort,
             )
             _copy_files(assets / "skills", home / "skills")

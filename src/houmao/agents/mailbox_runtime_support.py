@@ -1208,6 +1208,14 @@ def mailbox_processing_route_name() -> str:
     return MAILBOX_PROCESSING_ROUTE_NAME
 
 
+def hermes_mailbox_entrypoint_instruction(route: str) -> str:
+    """Direct Hermes to the public mailbox entrypoint and selected route."""
+
+    return (
+        f'Load `skill_view(name="{MAILBOX_AGENT_ENTRYPOINT_NAME}")` and select the `{route}` route.'
+    )
+
+
 def mailbox_skill_document_path(
     config: MailboxResolvedConfig,
     *,

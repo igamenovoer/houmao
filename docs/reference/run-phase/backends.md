@@ -83,7 +83,7 @@ Kimi local interactive support starts the interactive `kimi` TUI under backend `
 - **Model selection:** launch-owned Kimi model selection is projected as `--model <alias>` for fresh and resumed Kimi TUI startup.
 - **Update suppression:** managed Kimi TUI launches set `KIMI_CODE_NO_AUTO_UPDATE=1` so startup does not stop on the interactive update preflight.
 - **Managed skills:** Houmao does not add managed `--skills-dir` arguments to Kimi TUI launches. The maintained `--skills-dir <KIMI_CODE_HOME>/skills` projection remains Kimi headless prompt-mode behavior.
-- **Permission mode:** Configure `tool_params.permission_mode` as `auto`, `yolo`, or `manual`. Unattended startup supplies `auto` when the field is omitted and pre-seeds the Kimi workspace-trust record. `as_is` uses the native permission settings for omissions. The private `config.toml` records the resolved mode, with native `--auto` or `--yolo` flags when applicable.
+- **Permission mode**. Unattended startup requires Kimi's native `auto` and pre-seeds the workspace-trust record. With `as_is`, set `tool_params.permission_mode` to `auto`, `yolo`, or `manual` where the selected run mode supports it, or omit the field to use the native setting. The private `config.toml` records the resolved mode. Houmao passes native `--auto` or `--yolo` flags where applicable.
 - **Relaunch continuation:** `tool_last_or_new` maps to `kimi --continue`; `exact` maps to `kimi --session <session_id>`. The runtime never uses bare `kimi --session` for managed relaunch because that opens Kimi's interactive picker.
 - **Resume behavior:** Kimi Code 2.1.1 or later accepts `--auto` or `--yolo` with `--continue` or `--session <session_id>`. Houmao verifies `SYSTEM.md` before startup and preserves the exact session and configured model. An explicit `manual` mode requires a fresh TUI chat because Kimi restores saved permission on continuation and exposes no manual CLI switch.
 
@@ -96,7 +96,7 @@ Runs Claude Code CLI in headless mode (`claude -p --verbose`). Output is capture
 - **Session class:** `ClaudeHeadlessSession` (extends `HeadlessInteractiveSession`)
 - **Resume:** `--continue` resumes the provider's latest stored conversation; `--resume <session_id>` resumes an exact provider session.
 - **Role injection:** when the role prompt is non-empty, Houmao passes `--append-system-prompt <prompt>` and sends one bootstrap message on the first turn. Empty prompts skip both startup inputs.
-- **Startup permissions:** `tool_params.permission_mode` selects `default`, `acceptEdits`, `plan`, `dontAsk`, `auto`, or `bypassPermissions`. Houmao projects the effective value into `settings.json` and the native startup options. Omission uses `bypassPermissions` in `unattended` and the native baseline in `as_is`. Claude's managed policy and explicit permission rules still apply. [Claude permission modes](https://code.claude.com/docs/en/permissions#permission-modes).
+- **Startup permissions**. Unattended mode requires `bypassPermissions`. With `as_is`, `tool_params.permission_mode` selects `default`, `acceptEdits`, `plan`, `dontAsk`, `auto`, or `bypassPermissions`. An omission uses the native baseline. Houmao applies the resolved value through `settings.json` and the native startup options. Claude's managed policy and explicit permission rules still apply. [Claude permission modes](https://code.claude.com/docs/en/permissions#permission-modes)
 - **Use case:** automated pipelines, batch processing, and non-interactive agent orchestration.
 
 ### codex_headless

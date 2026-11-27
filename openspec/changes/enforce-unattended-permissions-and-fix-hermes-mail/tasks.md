@@ -1,0 +1,32 @@
+# Tasks
+
+## 1. Shared Unattended Launch Policy
+
+- [x] 1.1 Resolve typed permission fields and native aliases through the existing authored precedence. Validate the winning values against the qualified unattended posture, including when prompt mode is omitted. Accept omitted and matching fields. Reject a conflict with its source, required value, and `as_is` guidance before home or lifecycle effects. Cover restrictive settings, matching aliases, and supported custom `as_is` settings.
+- [x] 1.2 Carry the qualified settings through managed start, explicit relaunch, and generated launch helper invocation. Cover late native arguments, the Easy delegation path, DSH setup and Web owner preparation, and the final provider arguments or settings. Verify that a previous Houmao projection does not become authored policy and that read-only state or attach leaves a running owner intact.
+- [x] 1.3 Cover the 12 supported Claude, Codex, DSH, and Kimi provider and run-mode combinations at the normal launch boundaries. Verify the version-qualified posture, conflict handling, capability failure diagnostics, and scoped rollback when a native start cannot establish its posture. Check fresh start and explicit relaunch, including a conflicting saved setting with a live predecessor.
+- [x] 1.4 Update the launch-policy, CLI, Kimi, and DSH references for maximum permissions and the `as_is` migration. Check the documented conflict and custom-permission examples against the maintained launch commands.
+
+## 2. Hermes Native Permissions and State
+
+- [x] 2.1 Project the resolved command approval policy into the private Hermes home for TUI, service, and headless. Apply it on fresh start and explicit relaunch, including existing homes and verified same-home daemon use. Preserve exact native headless continuation and native hard denials. Test quoted YAML policy values, posture changes, incompatible startup, and the managed fixture and generated helper paths.
+- [x] 2.2 Negotiate and verify the broadest qualified ACP edit mode on the exact bound session. Choose the advertised one-time grant for an attributable tool-permission request under unattended operation. Test structured edits, one-time option validation, stale or cancelled requests, unsupported mode or readback, clarification and model-change refusal, and the `as_is` policy.
+- [x] 2.3 Project verified pending approval as `control.approval_pending` in Hermes TUI state and show the wait in manager output. Cover direct, gateway, and passive state. Verify matching and stale execution generations, detached or switched Ink, unsupported evidence, settlement, and closed prompt admission while approval is pending. Assert that the response exposes only the safe indicator. Update the Hermes reference for launch posture, ACP permission decisions, and manual approval state.
+
+## 3. Mail Validation and Skill Routing
+
+- [x] 3.1 Build schema-based 422 guidance for admitted offline and online mail-list requests. Test recognized field paths, the fixed `read_state` hint, arbitrary key and value redaction, malformed JSON, and proof rejection. Verify diagnostic log redaction and deduplication. Update the mail-list request reference to explain the validation hint.
+- [x] 3.2 Give Hermes explicit public `skill_view` guidance for notifier rounds and ordinary mailbox operations. Update installed parent instructions and the fixture role. Verify the actor frame, selected parent-relative child, exact channel and binding context, and API fallback when either public root is missing. Check both channels and existing supported provider prompt rendering, and update the notifier reference.
+
+## 4. Integrated Qualification
+- [x] 4.1 Qualify a benign approval-gated command in all three managed Hermes modes using explicit run fixtures. Verify exact headless continuation, and use the Service Lifecycle case to confirm that native `write_file` performed the expected edit. Verify a manual TUI wait and its clearance through native settlement. Use isolated tmux sockets and record actual provider versions and any unavailable live prerequisites.
+- [x] 4.2 Re-run the live Stalwart case through `o1`–`o3` without operator intervention. Verify signed replies, archive placement, notifier channel isolation, public skill lookup, and scoped cleanup against the run-owned accounts. Run the offline mailbox regression and record its outcome separately.
+- [x] 4.3 Run the focused launch-policy, provider, Hermes, gateway, mailbox, skill packaging, and fixture tests. Run `pixi run lint`, `pixi run typecheck`, `pixi run test`, and strict OpenSpec validation. Record the 15-mode automated results and distinguish missing live prerequisites from passing live checks.
+
+## Verification
+
+- Stock Hermes v0.23.4 at `8fc037444731` ran against the explicitly selected `Qwen/Qwen3.8-27B-FP8` fixture. Native tool results confirmed successful execution of an approval-gated inline command in Service, TUI, and Headless. Two finite Headless turns reused the exact native conversation. Service recorded a verified native `write_file` call for `summary.txt` with the expected inventory total and highest-count item.
+- In manual TUI, the manager and gateway reported a pending approval with prompt admission closed. An exact interrupt settled the request and both reported the approval cleared. The fixture used isolated tmux sockets and confirmed its managed daemons stopped. Its redaction audits found zero leaks.
+- The live Stalwart case passed `o1` through `o3` without operator intervention. Its retained authorization records confirmed two signed replies from the exact managed self generation. Native traces showed both public skill roots and parent-relative route lookup. Stalwart confirmed one correctly threaded reply per round and Archive placement. The offline notifier kept its original settings, and cleanup verified that both run-owned accounts were absent.
+- The offline regression passed separately. A detached Hermes TUI processed the first message, and the two-agent exchange produced the expected threaded reply in Archive. Both mail cases passed their redaction audits and stopped their scoped daemons.
+- Automated launch coverage passed for all 15 combinations across Claude, Codex, DSH, Kimi, and Hermes. The focused suite passed 820 tests. The full `pixi run test` suite passed 6,077 tests with 15 skipped. Lint, strict typecheck, formatting checks for changed Python files, and strict OpenSpec validation passed. All live fixtures required by this change were available.

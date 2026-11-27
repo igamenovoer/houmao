@@ -76,6 +76,7 @@ See [references/actor-frame.md](references/actor-frame.md) for the immutable six
 ## Selective Routing, Alias, and Sibling Rules
 
 - **Selective child loading**: after eligibility and target checks, read only `subskills/<logical-id>/SKILL-MAIN.md` and the pages required by its selected operation; never scan sibling subskills.
+- **Hermes mailbox routing**. After the actor and target checks, pass the selected route's linked child path as `file_path` to `skill_view` with `name="houmao-shared-routines"`. Resolve supporting links relative to that child within the same parent. Keep the inherited frame and supplied mailbox context throughout.
 - **Compatibility alias (`specialist-mgr`)**: state that `houmao-agent-definition` is canonical, reject in `agent` posture, and forward `specialists`, `profiles`, `create-agent-fast-forward` (`ready-profile`), `launch-agent`, and `stop-agent` to `houmao-agent-definition`.
 - **Loop sibling handoff**: pass the immutable frame to `$houmao-agent-loop-pro` or `$houmao-agent-loop-lite`; if missing, report the installation dependency without emulating loop trees.
 

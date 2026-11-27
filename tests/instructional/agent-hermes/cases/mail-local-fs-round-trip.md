@@ -10,7 +10,7 @@ Two managed Hermes agents (`agent-a` in `service` mode and `agent-b` in `tui` mo
 
 ## How to get to it (user POV)
 
-- The operator launches `agent-a` (`service`) and `agent-b` (`tui`) with the `hermes-worker.md` role (default system skills enabled so `houmao-process-emails-via-gateway` is projected into `$HERMES_HOME/skills/`).
+- The operator launches `agent-a` (`service`) and `agent-b` (`tui`) with the `hermes-worker.md` role and default system skills. Hermes opens `houmao-agent-entrypoint`, which delegates to `houmao-shared-routines` for the protected `process-emails-via-gateway` route.
 - Before joining `offline`, the operator verifies the negative unconfigured-notifier check, then initializes `$RUN_TMP/runtime/mailbox` via `hermes_lab.py offline-setup`, drives operator and agent-to-agent offline mail, and cross-checks both the `houmao-mgr mailbox messages list` projection and the recipient-local SQLite thread summary.
 
 ## Driving it with hermes_lab

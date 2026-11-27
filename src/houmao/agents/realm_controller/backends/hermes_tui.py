@@ -17,6 +17,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
+from houmao.agents.hermes_configuration import hermes_unattended_launch
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.hermes_native import (
     HermesClient,
@@ -228,8 +229,7 @@ class HermesTuiSession:
     def _unattended(self) -> bool:
         """Check whether launch should skip native bootstrap prompts."""
 
-        policy = self.plan.metadata.get("launch_policy_request")
-        return not isinstance(policy, dict) or policy.get("operator_prompt_mode") != "as_is"
+        return hermes_unattended_launch(self.plan.metadata)
 
     def set_binding_changed_callback(self, callback: Callable[[], None]) -> None:
         """Set the controller hook that persists a changed native binding."""
@@ -246,7 +246,7 @@ class HermesTuiSession:
     def _start_view(self, name: str | None, *, native_session_id: str | None = None) -> None:
         """Verify the native destination before starting the Ink process."""
 
-        self.daemon.ensure()
+        self.daemon.ensure(unattended=self._unattended())
         launch_id = uuid4().hex
         if native_session_id is None:
             snapshot = self.daemon.create_session(source="tui", request_id=launch_id)
@@ -780,6 +780,7 @@ class HermesTuiSession:
                 active_turn_id=active_turn,
                 native_admission_id=None if admission is None else admission.native_admission_id,
                 native_admission_state=None if admission is None else admission.status,
+                approval_pending=snapshot.approval_pending,
                 terminal_attachment=attachment,
             )
         except (OSError, ValueError, OwnerAdmissionError, BackendExecutionError):

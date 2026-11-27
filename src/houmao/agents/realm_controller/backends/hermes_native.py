@@ -28,6 +28,7 @@ from websockets.sync.client import connect
 from websockets.sync.connection import Connection
 from websockets.typing import Subprotocol
 
+from houmao.agents.hermes_configuration import hermes_unattended_approval_policy
 from houmao.agents.launch_env import owner_launch_baseline
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
 from houmao.agents.realm_controller.backends.headless_runner import (
@@ -56,6 +57,10 @@ _STOP_TIMEOUT = 15.0
 
 class HermesNativeError(BackendExecutionError):
     """Report an unavailable or mismatched native Hermes authority."""
+
+
+class HermesApprovalCompatibilityError(HermesNativeError):
+    """Report an unqualified native command-approval posture at startup."""
 
 
 class HermesDeadlineExpired(HermesNativeError):
@@ -110,6 +115,39 @@ class HermesSessionSnapshot:
     session_id: str
     payload: dict[str, Any] = field(repr=False)
     daemon_instance_id: str | None = None
+
+    @property
+    def approval_pending(self) -> bool | None:
+        """Read only approvals attributable to the snapshot's current execution."""
+
+        prompts = self.payload.get("prompts")
+        running = self.payload.get("running")
+        if not isinstance(prompts, list) or type(running) is not bool:
+            return None
+        generation = self.payload.get("execution_generation")
+        pending = False
+        for prompt in prompts:
+            if not isinstance(prompt, dict) or not isinstance(prompt.get("kind"), str):
+                return None
+            if prompt["kind"] != "approval":
+                continue
+            prompt_generation = prompt.get("execution_generation")
+            prompt_id = prompt.get("prompt_id")
+            if (
+                type(generation) is not int
+                or generation < 0
+                or type(prompt_generation) is not int
+                or prompt_generation < 1
+                or prompt_generation > generation
+                or not isinstance(prompt_id, str)
+                or not prompt_id.strip()
+            ):
+                return None
+            if prompt_generation == generation:
+                if not running:
+                    return None
+                pending = True
+        return pending
 
     @property
     def ready(self) -> bool:
@@ -308,7 +346,7 @@ class HermesDaemon:
             websocket_url=_websocket_url(answer.get("api_origin")),
         )
 
-    def ensure(self) -> HermesDaemonIdentity:
+    def ensure(self, *, unattended: bool = False) -> HermesDaemonIdentity:
         """Start a vacant home or adopt its existing daemon through native discovery."""
 
         with _lifecycle_lock(self.m_root):
@@ -318,6 +356,8 @@ class HermesDaemon:
                 while time.monotonic() < deadline:
                     identity = self.discover()
                     if identity is not None:
+                        if unattended:
+                            self.require_unattended_approval_policy(identity)
                         self._record(identity)
                         return identity
                     if launched and self.m_child is not None and self.m_child.poll() is not None:
@@ -343,6 +383,27 @@ class HermesDaemon:
                         with suppress(subprocess.TimeoutExpired):
                             self.m_child.wait(timeout=2)
                 raise
+
+    def require_unattended_approval_policy(self, identity: HermesDaemonIdentity) -> None:
+        """Confirm the authenticated launch home's effective command approval keys."""
+
+        error = "Hermes did not confirm its native unattended command approval policy."
+        try:
+            with self.client() as native:
+                if native.identity != identity:
+                    raise HermesApprovalCompatibilityError(error)
+                mode = native.rpc("config.get", key="approvals.mode")
+                settings = native.rpc("config.get", key="full").get("config")
+        except (HermesNativeError, OSError, ValueError) as exc:
+            raise HermesApprovalCompatibilityError(error) from exc
+        expected = hermes_unattended_approval_policy()
+        approvals = settings.get("approvals") if isinstance(settings, dict) else None
+        if (
+            mode.get("value") != expected["mode"]
+            or not isinstance(approvals, dict)
+            or any(approvals.get(key) != value for key, value in expected.items())
+        ):
+            raise HermesApprovalCompatibilityError(error)
 
     def _start(self) -> None:
         """Start the foreground daemon with private stderr and stdout."""

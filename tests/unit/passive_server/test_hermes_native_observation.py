@@ -125,6 +125,21 @@ def test_hermes_aliases_present_native_state_and_keep_pane_handoff(
         assert client.get(f"{base}/{route}").status_code == 501
     assert client.post(f"{base}/gateway/tui/note-prompt", json={"prompt": "hi"}).status_code == 501
 
+    native = native.model_copy(
+        update={
+            "approval_pending": True,
+            "native_admission_id": None,
+            "native_admission_state": None,
+        }
+    )
+    for route in ("state", "managed-state"):
+        summary = client.get(f"{base}/{route}").json()
+        assert summary["control"]["approval_pending"] is True
+        assert summary["control"]["can_accept_prompt_now"] is False
+        assert summary["turn"]["phase"] == "active"
+    pending = client.get(f"{base}/state/detail").json()
+    assert pending["detail"]["state"] == native.model_dump()
+
     manifest.registry_generation_id = "unexpected-generation"
     unavailable = client.get(f"{base}/state/detail").json()
     assert unavailable["summary_state"]["availability"] == "unavailable"
@@ -132,5 +147,6 @@ def test_hermes_aliases_present_native_state_and_keep_pane_handoff(
     assert unavailable["identity"]["native_surface"]["pane_id"] == "%2"
     state = unavailable["detail"]["state"]
     assert state["native_admission_id"] is None
+    assert state["approval_pending"] is None
     assert state["terminal_attachment"] == "unverified"
     assert state["can_accept_prompt_now"] is False

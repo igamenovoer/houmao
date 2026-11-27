@@ -8,9 +8,10 @@ from dataclasses import replace
 from pathlib import Path
 import sqlite3
 import threading
+from types import SimpleNamespace
 from unittest.mock import Mock
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 import pytest
 
@@ -20,6 +21,7 @@ import houmao.agents.realm_controller.gateway_plugin_host as gateway_plugin_host
 import houmao.agents.realm_controller.gateway_service as gateway_service
 from houmao.agents.realm_controller.gateway_models import GatewayMemorySummaryV1, GatewayStatusV1
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime, create_app
+from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.usage_models import UsagePage
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
@@ -59,6 +61,47 @@ def _runtime(
     return GatewayServiceRuntime.from_gateway_root(
         gateway_root=_seed_headless_gateway_root(tmp_path, tool="claude"), host=host, port=43123
     )
+
+
+def test_hermes_human_approval_wait_closes_gateway_prompt_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Project a native approval even when there is no Houmao-owned request."""
+
+    runtime = _runtime(tmp_path)
+    contract = runtime.m_attach_contract.model_copy(update={"backend": "hermes_tui"})
+    adapter = gateway_service._HermesTuiGatewayAdapter(attach_contract=contract)
+    monkeypatch.setattr(runtime, "m_attach_contract", contract)
+    monkeypatch.setattr(runtime, "m_adapter", adapter)
+    manifest = SimpleNamespace(tool="hermes", mode="tui", backend="hermes_tui", native_surface=None)
+    monkeypatch.setattr(runtime, "_verified_owner_manifest", lambda: manifest)
+    monkeypatch.setattr(runtime, "_owner_prompt_attempt", lambda _: None)
+    native = ManagedControlObservationV1(
+        source="tui_native",
+        freshness="current",
+        owner_available=True,
+        connection_ready=True,
+        can_accept_prompt_now=False,
+        native_session_id="native-conversation",
+        approval_pending=True,
+        terminal_attachment="detached",
+    )
+    owner = SimpleNamespace(observe_managed_tui=lambda: native)
+    monkeypatch.setattr(adapter, "_owner", lambda: (owner, None))
+
+    status = runtime._refresh_status_snapshot(active_execution="idle", persist=False)
+    assert status.active_execution == "running"
+    assert status.observation == native
+    with pytest.raises(HTTPException, match="awaiting native approval") as refusal:
+        runtime._require_prompt_ready_locked(
+            status=status, dispatch_mode="native_tui", admission_policy="ready_only"
+        )
+    assert refusal.value.status_code == 409
+
+    native = native.model_copy(update={"approval_pending": False, "can_accept_prompt_now": True})
+    settled = runtime._refresh_status_snapshot(active_execution="idle", persist=False)
+    assert settled.active_execution == "idle"
+    assert settled.observation == native
 
 
 def test_default_group_http_gate(tmp_path: Path) -> None:
@@ -193,6 +236,33 @@ def test_route_admission_and_live_enrollment(
     assert client.get("/v1/endpoint").json()["proof_protocol"] == "sshsig-v2"
     assert client.post("/v1/requests", content=b"{malformed").status_code == 422
     assert client.get("/v1/status").status_code == 200
+
+
+@pytest.mark.parametrize("channel", ["offline", "online"])
+def test_mail_list_refuses_invalid_proof_before_validation(tmp_path: Path, channel: str) -> None:
+    """An invalid proof never receives guidance for a malformed mail-list body."""
+
+    runtime = _runtime(tmp_path)
+    client = TestClient(create_app(runtime=runtime), base_url=runtime.owner_connect_url)
+    path = f"/v1/mail/{channel}/list"
+    payload = {"expected_binding_id": "test-binding", "unread_only": True}
+
+    refused = client.post(path, json=payload, headers={SIGNATURE_HEADER: "invalid-proof"})
+    assert refused.status_code == 401
+    assert refused.json()["detail"]["error_code"] == "invalid_proof"
+    assert "WWW-Authenticate" in refused.headers
+    assert "hint" not in refused.json()
+
+    admitted = client.post(path, json=payload)
+    assert admitted.status_code == 422
+    assert admitted.json()["hint"]["example"] == {"read_state": "unread"}
+
+    admin, signer = fixture_admin_key(tmp_path, "mail-list-admin")
+    enroll_fixture_admin(client, admin, signer)
+    missing = client.post(path, json=payload)
+    assert missing.status_code == 401
+    assert "WWW-Authenticate" in missing.headers
+    assert "hint" not in missing.json()
 
 
 def test_gateway_startup_requires_matching_private_registration(

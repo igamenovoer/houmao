@@ -72,6 +72,7 @@ from houmao.agents.agent_workspace import (
     write_memory_page,
 )
 from houmao.agents.mailbox_runtime_support import (
+    hermes_mailbox_entrypoint_instruction,
     mailbox_gateway_route_name,
     mailbox_processing_skill_name,
     mailbox_processing_route_name,
@@ -6826,6 +6827,13 @@ class GatewayServiceRuntime:
         """Require prompt-ready posture for ready-only direct prompt control."""
 
         self._require_no_native_refresh_locked()
+        if status.observation is not None and status.observation.approval_pending is True:
+            self._raise_prompt_control_http_error(
+                status_code=409,
+                admission_policy=admission_policy,
+                error_code="not_ready",
+                detail="Gateway prompt rejected because Hermes is awaiting native approval.",
+            )
         if status.active_execution != "idle" or (status.queue_depth > 0 and not queued_handoff):
             reasons: list[str] = []
             if status.active_execution != "idle":
@@ -8063,7 +8071,9 @@ class GatewayServiceRuntime:
         self.m_manifest_path = handle.path.resolve()
         return payload
 
-    def _mail_notifier_skill_usage_block(self, *, mailbox: MailboxResolvedConfig) -> str:
+    def _mail_notifier_skill_usage_block(
+        self, *, mailbox: MailboxResolvedConfig, channel: MailChannel
+    ) -> str:
         """Return prompt guidance about installed Houmao mailbox skills for this session."""
 
         payload = self._load_manifest_payload_for_mailbox_support()
@@ -8091,7 +8101,6 @@ class GatewayServiceRuntime:
 
         lines: list[str] = []
         processing_route = mailbox_processing_route_name()
-        channel = "online" if mailbox.transport == "stalwart" else "offline"
         round_arguments = (
             f"{gateway_base_url} channel={channel} expected_binding_id={mailbox.binding_id}"
         )
@@ -8106,6 +8115,11 @@ class GatewayServiceRuntime:
                 [
                     f"${mailbox_processing_skill_name()} {processing_route} {round_arguments}",
                 ]
+            )
+        elif tool == "hermes":
+            lines.append(
+                f"{hermes_mailbox_entrypoint_instruction(processing_route)} "
+                f"Use `{round_arguments}` for this notifier round."
             )
         elif tool == "kimi":
             lines.append(
@@ -8122,10 +8136,16 @@ class GatewayServiceRuntime:
             "to the `houmao-shared-routines` sibling, which loads only the selected "
             "parent-scoped child."
         )
-        lines.append(
-            f"Ordinary mailbox details: `{mailbox_gateway_skill_name()} "
-            f"{mailbox_gateway_route_name()}`."
-        )
+        if tool == "hermes":
+            lines.append(
+                f"For ordinary mail outside a notifier round, select `{mailbox_gateway_route_name()}` "
+                "on the same public entrypoint."
+            )
+        else:
+            lines.append(
+                f"Ordinary mailbox details: `{mailbox_gateway_skill_name()} "
+                f"{mailbox_gateway_route_name()}`."
+            )
         return "\n".join(lines)
 
     def _mailbox_adapter_locked(
@@ -8683,7 +8703,9 @@ class GatewayServiceRuntime:
         )
 
         replacements = {
-            "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(mailbox=mailbox),
+            "{{SKILL_USAGE_BLOCK}}": self._mail_notifier_skill_usage_block(
+                mailbox=mailbox, channel=channel
+            ),
             "{{NOTIFIER_MODE}}": mode,
             "{{MODE_GUIDANCE}}": mode_guidance,
             "{{GATEWAY_BASE_URL}}": base_url,
@@ -10286,9 +10308,9 @@ class GatewayServiceRuntime:
             or target_state.service.active_turn_id is not None
         ):
             active_execution = "running"
-        if (
-            target_state.native_tui is not None
-            and target_state.native_tui.active_turn_id is not None
+        if target_state.native_tui is not None and (
+            target_state.native_tui.active_turn_id is not None
+            or target_state.native_tui.approval_pending is True
         ):
             active_execution = "running"
         queue_depth = queue_depth_from_sqlite(self.m_paths.queue_path)
@@ -10823,7 +10845,9 @@ def _diagnostic_http_level(status_code: int) -> GatewayDiagnosticLevel:
     return "info"
 
 
-def _diagnostic_validation_errors(errors: Sequence[object]) -> list[dict[str, object]]:
+def _diagnostic_validation_errors(
+    errors: Sequence[object], *, mail_list: bool = False
+) -> list[dict[str, object]]:
     """Return validation error summaries without raw request input values."""
 
     summaries: list[dict[str, object]] = []
@@ -10837,6 +10861,11 @@ def _diagnostic_validation_errors(errors: Sequence[object]) -> list[dict[str, ob
             if isinstance(raw_loc, Sequence) and not isinstance(raw_loc, str | bytes)
             else []
         )
+        if mail_list and loc != ["path", "channel"]:
+            if loc[:1] != ["body"]:
+                loc = []
+            elif len(loc) == 2 and loc[1] not in GatewayMailListRequestV1.model_fields:
+                loc = ["body"]
         summaries.append(
             {
                 "type": str(error.get("type", "unknown")),
@@ -11125,8 +11154,9 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     ) -> JSONResponse:
         """Record request validation failures without raw request bodies."""
 
-        validation_errors = _diagnostic_validation_errors(exc.errors())
         path = _diagnostic_operation(request)
+        mail_list = request.method == "POST" and path == "/v1/mail/{channel}/list"
+        validation_errors = _diagnostic_validation_errors(exc.errors(), mail_list=mail_list)
         runtime.emit_diagnostic(
             level="warning",
             event="gateway.http_validation_failed",
@@ -11143,10 +11173,17 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
                 f"{json.dumps(validation_errors, sort_keys=True, separators=(',', ':'))}"
             ),
         )
-        return JSONResponse(
-            status_code=422,
-            content={"detail": validation_errors},
-        )
+        content: dict[str, object] = {"detail": validation_errors}
+        if mail_list and any(error["type"] == "extra_forbidden" for error in validation_errors):
+            content["detail"] = [
+                {**error, "loc": ["body"]} if error["type"] == "extra_forbidden" else error
+                for error in validation_errors
+            ]
+            content["hint"] = {
+                "accepted_fields": list(GatewayMailListRequestV1.model_fields),
+                "example": {"read_state": "unread"},
+            }
+        return JSONResponse(status_code=422, content=content)
 
     @app.exception_handler(GatewayAccessError)
     async def _access_error(request: Request, error: GatewayAccessError) -> JSONResponse:

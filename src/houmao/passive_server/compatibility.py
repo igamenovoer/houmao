@@ -206,6 +206,7 @@ def managed_native_tui_detail_response(
         if (
             observation.active_turn_id is not None
             or observation.native_admission_state == "running"
+            or observation.approval_pending is True
         ):
             phase = "active"
         elif observation.can_accept_prompt_now is True:
