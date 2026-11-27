@@ -24,12 +24,14 @@ from houmao.agents.realm_controller.backends.kimi_web import (
 )
 from houmao.agents.realm_controller.backends.kimi_web_client import KimiWebClient
 from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.gateway_models import GatewayAttachBackendMetadataWebV1
 from houmao.agents.realm_controller.models import (
     LaunchPlan,
     RelaunchChatSessionSelection,
     RoleInjectionPlan,
     SessionControlResult,
 )
+from houmao.agents.realm_controller.web_observation import WebObservation
 from houmao.hook_observation.kimi_journal import kimi_native_workspace_path
 
 
@@ -44,9 +46,11 @@ class _Native:
         self.m_busy: bool = False
         self.m_lose_response: bool = False
         self.m_refuse_preflight: bool = False
+        self.m_abort_result: bool | DshWebError = True
         self.m_refuse_session_create: bool = False
         self.m_wrap_profile: bool = False
         self.m_activity_override: str | None = None
+        self.m_pending_interaction: str = "none"
         self.m_calls: list[tuple[str, str]] = []
         self.m_permission: str = "manual"
         self.m_reported_permission: str | None = None
@@ -99,7 +103,7 @@ class _Native:
             session = {
                 "id": "session_selected",
                 "archived": False,
-                "pending_interaction": "none",
+                "pending_interaction": self.m_pending_interaction,
             }
             if self.m_wrap_profile:
                 current_activity = "turn" if self.m_busy else "idle"
@@ -136,14 +140,22 @@ class _Native:
             return {"prompt_id": prompt_id, "status": "queued"}
         if method == "POST" and path.endswith(":abort"):
             assert body == {}
-            return {"aborted": True}
+            if isinstance(self.m_abort_result, DshWebError):
+                raise self.m_abort_result
+            return {"aborted": self.m_abort_result}
         pytest.fail(f"Unexpected native request {method} {path}")
 
     def write_turn(self, prompt_id: str, turn: int, text: str) -> None:
         """Record one native start, assistant output, and two matching terminal facts."""
 
+        self.append({"type": "turn.prompt", "promptId": prompt_id, "turnId": turn})
+        self.finish_turn(prompt_id, turn, text)
+
+    def finish_turn(self, prompt_id: str, turn: int, text: str) -> None:
+        """Complete an existing turn and return the synthetic session to idle."""
+
+        self.m_busy = False
         self.append(
-            {"type": "turn.prompt", "promptId": prompt_id, "turnId": turn},
             {
                 "type": "context.append_loop_event",
                 "event": {
@@ -154,6 +166,19 @@ class _Native:
             },
             {"type": "turn.ended", "turnId": turn, "reason": "completed"},
             {"type": "prompt.completed", "promptId": prompt_id, "reason": "completed"},
+        )
+
+    def start_task_notification(self, prompt_id: str, turn: int) -> None:
+        """Open a task-origin turn with the identity Kimi assigns to its notification."""
+
+        self.m_busy = True
+        self.append(
+            {
+                "type": "turn.prompt",
+                "turnId": turn,
+                "promptId": prompt_id,
+                "origin": {"kind": "task", "notificationId": prompt_id},
+            }
         )
 
 
@@ -566,6 +591,121 @@ def test_newer_web_background_activity_blocks_input(web: tuple[KimiWebSession, _
     assert native.m_calls == [("GET", "/sessions/session_selected")] * 2
 
 
+def test_native_task_history_preserves_prompt_ids_and_journal_offsets(
+    web: tuple[KimiWebSession, _Native],
+) -> None:
+    """Read the task start and settlement in order from both incremental and initial cursors."""
+
+    adapter, native = web
+    native.write_turn("houmao_managed", 1, "managed result")
+    baseline = adapter.observe_web_state()["sequence"]
+    assert baseline == native.m_journal.stat().st_size
+    task_id = "task:bash-example:completed"
+    native.start_task_notification(task_id, 2)
+    start = native.m_journal.stat().st_size
+    assert adapter.observe_web_state()["active_turn"] == {"turn": 2, "start_sequence": start}
+    native.append({"type": "turn.ended", "turnId": 2, "reason": "completed"})
+    end = native.m_journal.stat().st_size
+    native.append({"type": "prompt.completed", "promptId": task_id, "reason": "completed"})
+    settled = native.m_journal.stat().st_size
+    native.m_busy = False
+    state = adapter.observe_web_state()
+    assert state["active_turn"] is None
+    assert state["last_turn"] == {"turn": 2, "end_sequence": end, "result": "completed"}
+    assert state["sequence"] == settled
+
+    for after in (-1, baseline, baseline):
+        page = adapter.observe_web_history(after_sequence=after)
+        assert page["previous_sequence"] == after
+        assert not page["truncated"]
+        transitions = [
+            (row["sequence"], row["event"], row.get("message_id"))
+            for row in page["entries"]
+            if row["sequence"] > baseline
+        ]
+        assert transitions == [
+            (start, "turn/started", task_id),
+            (end, "turn/ended", None),
+            (settled, "inbox/settled", task_id),
+        ]
+    assert native.m_calls == [("GET", "/sessions/session_selected")] * 3
+
+
+def test_gateway_observes_native_task_readiness_and_closes_on_lost_authority(
+    web: tuple[KimiWebSession, _Native],
+) -> None:
+    """A verified active notification stays visible until native work and interactions clear."""
+
+    adapter, native = web
+    observer = WebObservation(
+        metadata=GatewayAttachBackendMetadataWebV1.model_validate(
+            {
+                "tool": "kimi",
+                "origin": native.origin,
+                "browser_url": native.origin,
+                "identity": adapter.state.web_identity,
+            }
+        ),
+        state=adapter.observe_web_state,
+        history=adapter.observe_web_history,
+        source="gateway",
+        sparse_history=True,
+    )
+    task_id = "task:bash-example:completed"
+    native.start_task_notification(task_id, 2)
+    active = observer.refresh()
+    assert active.availability == "available" and not active.can_accept_prompt_now
+    assert active.active_turn and active.active_turn.turn == 2
+    native.finish_turn(task_id, 2, "background task output")
+    native.m_pending_interaction = "approval"
+    waiting = observer.refresh()
+    assert waiting.active_turn is None
+    assert waiting.interaction_waits == ["approval"] and not waiting.can_accept_prompt_now
+    native.m_pending_interaction = "none"
+    assert observer.refresh().can_accept_prompt_now
+    assert [row.metadata.get("message_id") for row in observer.history().entries] == [
+        task_id,
+        None,
+        task_id,
+    ]
+
+    adapter.manifest_path.unlink()
+    unavailable = observer.refresh()
+    assert unavailable.availability == "unavailable" and not unavailable.can_accept_prompt_now
+    assert native.m_calls == [("GET", "/sessions/session_selected")] * 3
+
+
+def test_native_task_cannot_settle_an_unrelated_managed_attempt(
+    web: tuple[KimiWebSession, _Native], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reconcile a lost submission only when the journal contains its exact result."""
+
+    adapter, native = web
+    native.m_lose_response = True
+    with monkeypatch.context() as pending:
+        pending.setattr(native, "write_turn", lambda *_args: None)
+        with pytest.raises(DshWebError, match="outcome_uncertain"):
+            adapter.send_web_prompt("managed work", turn_artifact_dir_name="lost")
+
+    task_id = "task:bash-example:completed"
+    native.start_task_notification(task_id, 1)
+    native.finish_turn(task_id, 1, "unrelated task output")
+    directory = adapter.manifest_path.parent / "manifest.turn-artifacts/lost"
+    attempt = json.loads((directory / "web-attempt.json").read_text())
+    result = directory / "web-result.json"
+    adapter.recover_web_prompt_result("lost")
+    assert not result.exists()
+
+    native.write_turn(attempt["message_id"], 2, "managed output")
+    adapter.recover_web_prompt_result("lost")
+    terminal = json.loads(result.read_text())
+    assert terminal["assistant_text"] == "managed output"
+    assert terminal["receipt"]["turns"] == [2]
+    assert [call for call in native.m_calls if call[0] == "POST"] == [
+        ("POST", "/sessions/session_selected/prompts")
+    ]
+
+
 def test_final_native_readiness_follows_dispatch_authorization(
     web: tuple[KimiWebSession, _Native],
 ) -> None:
@@ -612,21 +752,29 @@ def test_lost_http_response_recovers_exact_journal_without_repeat(
     ]
 
 
-@pytest.mark.parametrize("current_activity_shape", [False, True])
+@pytest.mark.parametrize(
+    ("current_activity_shape", "prompt_id", "encoded_id"),
+    [
+        (False, "active_prompt", "active_prompt"),
+        (True, "active_prompt", "active_prompt"),
+        (True, "task:bash-example:completed", "task%3Abash-example%3Acompleted"),
+        (True, "notes/step%2F1?q#2", "notes%2Fstep%252F1%3Fq%232"),
+    ],
+)
 def test_interrupt_uses_captured_native_prompt(
-    web: tuple[KimiWebSession, _Native], current_activity_shape: bool
+    web: tuple[KimiWebSession, _Native],
+    current_activity_shape: bool,
+    prompt_id: str,
+    encoded_id: str,
 ) -> None:
-    """Refuse stale capture and abort the exact active native prompt on valid capture."""
+    """Encode the exact active prompt as one route segment, including literal percent sequences."""
 
     adapter, native = web
     native.m_wrap_profile = current_activity_shape
     native.m_busy = True
-    native.append({"type": "turn.prompt", "promptId": "active_prompt", "turnId": 2})
+    native.append({"type": "turn.prompt", "promptId": prompt_id, "turnId": 2})
     captured = adapter.observe_web_state()["active_turn"]
     assert captured and captured["turn"] == 2
-    assert (
-        adapter.interrupt_web_turn(adapter.state.web_identity, turn_start_seq=0).status == "error"
-    )
     assert (
         adapter.interrupt_web_turn(
             adapter.state.web_identity,
@@ -634,6 +782,57 @@ def test_interrupt_uses_captured_native_prompt(
         ).status
         == "ok"
     )
+    posts = [path for method, path in native.m_calls if method == "POST"]
+    assert posts == [f"/sessions/session_selected/prompts/{encoded_id}:abort"]
+    wire_segment = urlsplit(posts[0]).path.rsplit("/", 1)[1].removesuffix(":abort")
+    assert unquote(wire_segment) == prompt_id
+
+
+def test_interrupt_refuses_unrelated_targets_before_abort(
+    web: tuple[KimiWebSession, _Native],
+) -> None:
+    """Refuse the wrong session, host, completed managed operation, and superseded turn."""
+
+    adapter, native = web
+    adapter.send_web_prompt("managed work", turn_artifact_dir_name="prior")
+    native.m_calls.clear()
+    native.m_busy = True
+    identity = adapter.state.web_identity
+    native.append({"type": "turn.prompt", "promptId": "active_prompt", "turnId": 2})
+    captured = adapter.observe_web_state()["active_turn"]["start_sequence"]
+    for field in ("native_session_id", "host_incarnation"):
+        wrong_identity = {**identity, field: "another"}
+        result = adapter.interrupt_web_turn(wrong_identity, turn_start_seq=captured)
+        assert result.status == "error"
+    result = adapter.interrupt_web_turn(identity, turn_start_seq=captured, operation_id="prior")
+    assert result.status == "error"
+
+    native.append(
+        {"type": "turn.ended", "turnId": 2, "reason": "completed"},
+        {"type": "prompt.completed", "promptId": "active_prompt", "reason": "completed"},
+        {"type": "turn.prompt", "promptId": "later_prompt", "turnId": 3},
+    )
+    assert adapter.interrupt_web_turn(identity, turn_start_seq=captured).status == "error"
+    assert all(method == "GET" for method, _ in native.m_calls)
+
+
+@pytest.mark.parametrize(
+    "abort_result",
+    [False, DshWebError("invalid_request", "Kimi no longer has this prompt")],
+    ids=["negative-receipt", "native-error"],
+)
+def test_interrupt_returns_native_refusal_without_retargeting(
+    web: tuple[KimiWebSession, _Native], abort_result: bool | DshWebError
+) -> None:
+    """Surface an abort refusal from Kimi after one attempt on the captured prompt."""
+
+    adapter, native = web
+    native.m_busy = True
+    native.m_abort_result = abort_result
+    native.append({"type": "turn.prompt", "promptId": "active_prompt", "turnId": 2})
+    captured = adapter.observe_web_state()["active_turn"]["start_sequence"]
+    result = adapter.interrupt_web_turn(adapter.state.web_identity, turn_start_seq=captured)
+    assert result.status == "error"
     assert [item for item in native.m_calls if item[0] == "POST"] == [
         ("POST", "/sessions/session_selected/prompts/active_prompt:abort")
     ]

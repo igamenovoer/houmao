@@ -13,6 +13,7 @@ import shlex
 import sys
 import time
 from typing import Any, cast
+from urllib.parse import quote
 from uuid import uuid4
 import webbrowser
 
@@ -32,6 +33,7 @@ from houmao.agents.realm_controller.backends.kimi_web_client import (
     KimiWebClient,
     KimiWebJournalWindow,
     native_id,
+    native_prompt_id,
     observed_at,
 )
 from houmao.agents.realm_controller.backends.service_runtime import write_service_record
@@ -789,7 +791,7 @@ class KimiWebSession:
             if type(turn) is int:
                 item["turn"] = turn
             if isinstance(row.get("promptId"), str):
-                item["message_id"] = native_id(row["promptId"])
+                item["message_id"] = native_prompt_id(row["promptId"])
             if kind == "turn.ended":
                 reason = row.get("reason")
                 item["result"] = (
@@ -1162,7 +1164,7 @@ class KimiWebSession:
             if current is None or current["start_sequence"] != turn_start_seq:
                 raise DshWebError("stale_identity", "Captured Kimi Web turn already changed")
             target = next(
-                native_id(row["promptId"])
+                native_prompt_id(row["promptId"])
                 for _, end, row in self._journal().records
                 if end == turn_start_seq and row.get("type") == "turn.prompt"
             )
@@ -1176,7 +1178,7 @@ class KimiWebSession:
                     )
             receipt = self._client().request(
                 "POST",
-                f"{self.session_route}/prompts/{target}:abort",
+                f"{self.session_route}/prompts/{quote(target, safe='')}:abort",
                 {},
                 before_send=self._require_current,
             )

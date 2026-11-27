@@ -26,10 +26,18 @@ _KIMI_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 def native_id(value: object) -> str:
-    """Validate a native session or prompt path component."""
+    """Validate a host, session, or locally issued managed prompt identifier."""
 
     if not isinstance(value, str) or _KIMI_ID.fullmatch(value) is None:
         raise DshWebError("identity_mismatch", "Kimi returned an invalid native identity")
+    return value
+
+
+def native_prompt_id(value: object) -> str:
+    """Read a provider-issued prompt identifier verbatim for exact correlation."""
+
+    if not isinstance(value, str) or not value:
+        raise DshWebError("identity_mismatch", "Kimi returned an invalid native prompt identity")
     return value
 
 
