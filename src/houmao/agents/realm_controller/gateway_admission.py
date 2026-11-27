@@ -7,10 +7,10 @@ from typing import Protocol
 
 from fastapi import FastAPI, Request
 from starlette.concurrency import run_in_threadpool
-from starlette.datastructures import MutableHeaders
+from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
-from starlette.routing import Match, Route
+from starlette.routing import Match, Route, WebSocketRoute
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from houmao.agents.realm_controller.errors import GatewayError
@@ -31,8 +31,13 @@ from houmao.gateway.access import (
 )
 from houmao.gateway.authorization_models import Permission
 from houmao.gateway.file_edits.contracts import MAX_FILE_REQUEST_BYTES
-from houmao.gateway.operations import CORE_OPERATIONS, GatewayOperation
+from houmao.gateway.operations import CORE_OPERATIONS, CORE_TERMINAL_WEBSOCKETS, GatewayOperation
 from houmao.gateway.owner_authority import BACKING_HEADER, RELAY_HEADER
+from houmao.gateway.terminal_entry_contracts import (
+    TERMINAL_INTERACT_TICKET_PATH,
+    TERMINAL_VIEW_TICKET_PATH,
+    is_terminal_entry_path,
+)
 
 PUBLIC_INPUT_LIMIT = 64 * 1024
 CHALLENGE_INPUT_LIMIT = 16 * 1024
@@ -59,11 +64,22 @@ class GatewayAdmission(Protocol):
 
 def _classified_routes(
     routes: list[object], *, plugin_routes: bool
-) -> list[tuple[Route, dict[str, GatewayOperation]]]:
-    """Validate every published HTTP operation before the application can listen."""
+) -> tuple[
+    list[tuple[Route, dict[str, GatewayOperation]]], dict[str, tuple[WebSocketRoute, Permission]]
+]:
+    """Validate HTTP operations and the fixed terminal WebSockets before listening."""
 
-    result: list[tuple[Route, dict[str, GatewayOperation]]] = []
+    http_routes: list[tuple[Route, dict[str, GatewayOperation]]] = []
+    terminal_websockets: dict[str, tuple[WebSocketRoute, Permission]] = {}
     for route in routes:
+        if isinstance(route, WebSocketRoute):
+            permission = CORE_TERMINAL_WEBSOCKETS.get(route.path)
+            if permission is None or route.path in terminal_websockets:
+                raise GatewayError(
+                    "Gateway contains an unsupported or unclassified WebSocket route."
+                )
+            terminal_websockets[route.path] = (route, permission)
+            continue
         if not isinstance(route, Route) or not route.methods:
             raise GatewayError("Gateway contains an unsupported or unclassified route.")
         operations: dict[str, GatewayOperation] = {}
@@ -79,8 +95,8 @@ def _classified_routes(
                 action = declared_plugin_action(route)
                 operation = GatewayOperation(route.path, None, selector=action)
             operations[method] = operation
-        result.append((route, operations))
-    return result
+        http_routes.append((route, operations))
+    return http_routes, terminal_websockets
 
 
 def validate_core_gateway_routes(routes: list[object]) -> None:
@@ -112,7 +128,9 @@ class GatewayAdmissionMiddleware:
 
         self.m_app: ASGIApp = app
         self.m_plugin_host: GatewayPluginHost = plugin_host
-        self.m_routes = _classified_routes(list(gateway.routes), plugin_routes=True)
+        self.m_routes, self.m_terminal_websockets = _classified_routes(
+            list(gateway.routes), plugin_routes=True
+        )
         self.m_admit: GatewayAdmission = admit
         self.m_reserve_public_input: Callable[[], None] = reserve_public_input
         self.m_log_denial: Callable[[GatewayOperation, int], None] = log_denial
@@ -148,14 +166,21 @@ class GatewayAdmissionMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Check the access rule, replaying bounded raw bytes only after admission."""
 
+        if scope["type"] == "websocket":
+            await self._terminal_websocket(scope, receive, send)
+            return
         if scope["type"] != "http":
             await self.m_app(scope, receive, send)
             return
-        if is_web_entry_path(scope["path"]):
+        operation = self._operation(scope)
+        terminal_path = is_terminal_entry_path(scope["path"]) or (
+            operation is not None and is_terminal_entry_path(operation.path)
+        )
+        if terminal_path or is_web_entry_path(scope["path"]):
             downstream = send
 
             async def send_web_response(message: Message) -> None:
-                """Protect both admission denials and Web handler responses."""
+                """Protect browser entry responses and admission denials."""
 
                 if message["type"] == "http.response.start":
                     headers = MutableHeaders(scope=message)
@@ -164,7 +189,6 @@ class GatewayAdmissionMiddleware:
                 await downstream(message)
 
             send = send_web_response
-        operation = self._operation(scope)
         if operation is None:
             await self.m_app(scope, receive, send)
             return
@@ -174,10 +198,18 @@ class GatewayAdmissionMiddleware:
         headers = {name: request.headers.getlist(name) for name in _PROOF_HEADERS}
         signed = any(headers.values())
         try:
-            if operation.direct_web_entry and (headers[RELAY_HEADER] or headers[BACKING_HEADER]):
-                raise GatewayAccessError(403, "direct_admin_required")
-            if operation.transport_public and is_web_entry_path(operation.path) and signed:
-                raise GatewayAccessError(403, "interactive_web_proof_required")
+            if (terminal_path or operation.direct_web_entry) and (
+                headers[RELAY_HEADER] or headers[BACKING_HEADER]
+            ):
+                code = (
+                    "direct_terminal_access_required" if terminal_path else "direct_admin_required"
+                )
+                raise GatewayAccessError(403, code)
+            if operation.transport_public and signed:
+                if terminal_path:
+                    raise GatewayAccessError(403, "terminal_browser_ticket_required")
+                if is_web_entry_path(operation.path):
+                    raise GatewayAccessError(403, "interactive_web_proof_required")
             if headers[BACKING_HEADER] or any(len(values) > 1 for values in headers.values()):
                 raise GatewayAccessError(401, "invalid_proof")
             if operation.path in _PUBLIC_INPUT_PATHS:
@@ -218,6 +250,24 @@ class GatewayAdmissionMiddleware:
             ]
         await self.m_app(scope, receive, send)
 
+    async def _terminal_websocket(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Pass only classified terminals to the handler that authorizes the stream."""
+
+        path = scope["path"]
+        classified = self.m_terminal_websockets.get(path)
+        headers = Headers(scope=scope)
+        if (
+            classified is None
+            or scope.get("raw_path", path.encode("utf-8")) != path.encode("utf-8")
+            or classified[0].matches(scope)[0] is not Match.FULL
+            or RELAY_HEADER in headers
+            or BACKING_HEADER in headers
+        ):
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        scope.setdefault("state", {})["gateway_terminal_permission"] = classified[1]
+        await self.m_app(scope, receive, send)
+
     @staticmethod
     def _body_limit(operation: GatewayOperation, *, signed: bool) -> int | None:
         """Select the request envelope ceiling before reading any bytes."""
@@ -229,6 +279,8 @@ class GatewayAdmissionMiddleware:
             return CHALLENGE_INPUT_LIMIT
         if path == WEB_TICKET_PATH:
             return 4096 if signed else None
+        if path in {TERMINAL_VIEW_TICKET_PATH, TERMINAL_INTERACT_TICKET_PATH}:
+            return 0
         if operation.selector == "files-resolved":
             return MAX_FILE_REQUEST_BYTES
         return _SIGNED_BODY_LIMIT if signed or operation.selector is not None else None
@@ -283,7 +335,7 @@ def gateway_access_error_response(
 
     detail: dict[str, object] = {"error_code": error.code}
     headers = {"Cache-Control": "no-store"}
-    if error.code == "owner_local_web_entry_required":
+    if error.code in {"owner_local_web_entry_required", "direct_terminal_access_required"}:
         detail["message"] = "Use the owner-local gateway directly or through a private TCP forward."
     if error.status_code == 401:
         challenge_path = "/v1/auth/challenge"

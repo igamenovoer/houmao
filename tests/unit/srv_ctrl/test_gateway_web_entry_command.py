@@ -1,4 +1,4 @@
-"""Exercise open and signed Web entry through the scoped manager command."""
+"""Exercise native Web and terminal browser entry through scoped manager commands."""
 
 from __future__ import annotations
 
@@ -16,10 +16,17 @@ from houmao.agents.realm_controller.gateway_models import (
 )
 from houmao.gateway.access import GatewayClientBinding, GatewayOwner, GatewayTarget
 from houmao.gateway.deployment import GatewayEndpointDescriptor
+from houmao.gateway.terminal_entry_contracts import (
+    GatewayTerminalEntryMode,
+    GatewayTerminalEntryTicketV1,
+    TERMINAL_INTERACT_PATH,
+    TERMINAL_VIEW_PATH,
+)
 from houmao.srv_ctrl.commands import managed_agents
 from houmao.srv_ctrl.commands.main import cli
 
 _COMMAND = ["agents", "single", "--agent-id", "agent-123", "gateway", "web-entry"]
+_TERMINAL_COMMAND = [*_COMMAND[:-1], "terminal-entry"]
 _OWNER_URL = "http://127.0.0.1:43123"
 _GENERATION = "web-generation"
 _TICKET = GatewayWebEntryTicketV1(
@@ -68,12 +75,15 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         detached=False,
         descriptor_unavailable=False,
         proof_error=None,
+        selector=(owner.agent_id, None),
+        terminal_modes=[],
+        replace_after_issue=False,
     )
 
     def resolve_record(*, agent_id: str | None, agent_name: str | None) -> SimpleNamespace | None:
         """Resolve the exact fixture selector to the authoritative record."""
 
-        assert (agent_id, agent_name) == (owner.agent_id, None)
+        assert (agent_id, agent_name) == target.selector
         return target.record
 
     def load_current(path: Path) -> SimpleNamespace:
@@ -115,6 +125,20 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
             )
         return _TICKET
 
+    def fake_terminal_request(*, mode: GatewayTerminalEntryMode) -> GatewayTerminalEntryTicketV1:
+        """Return one browser terminal ticket for the exact requested mode."""
+
+        target.terminal_modes.append(mode)
+        if target.proof_error is not None:
+            raise GatewayHttpError(
+                method="POST", url=_OWNER_URL, detail=target.proof_error, status_code=403
+            )
+        if target.replace_after_issue:
+            target.descriptor = target.descriptor.model_copy(
+                update={"presence_id": "replacement-gateway"}
+            )
+        return _terminal_ticket(mode)
+
     def fake_client(**kwargs: object) -> SimpleNamespace:
         """Capture the transport settings for the probe and ticket requests."""
 
@@ -122,6 +146,7 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         return SimpleNamespace(
             describe_endpoint=describe_endpoint,
             issue_web_entry_ticket=fake_request,
+            issue_terminal_entry_ticket=fake_terminal_request,
         )
 
     def unexpected(*args: object, **kwargs: object) -> None:
@@ -132,6 +157,7 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
     monkeypatch.setattr(managed_agents, "resolve_executor_locator", lambda **_: target.locator)
     monkeypatch.setattr(managed_agents, "_resolve_local_managed_agent_record", resolve_record)
     monkeypatch.setattr(managed_agents, "require_registry_mode_authority", lambda _: None)
+    monkeypatch.setattr(managed_agents, "validate_execution_owner", lambda _: None)
     monkeypatch.setattr(
         managed_agents,
         "gateway_paths_from_manifest_path",
@@ -144,6 +170,17 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
     monkeypatch.setattr(managed_agents, "_execute_executor_operation", unexpected)
     monkeypatch.setattr(managed_agents, "resume_runtime_session", unexpected)
     return target
+
+
+def _terminal_ticket(mode: GatewayTerminalEntryMode) -> GatewayTerminalEntryTicketV1:
+    """Build a synthetic browser ticket for an exact local mode path."""
+
+    path = TERMINAL_INTERACT_PATH if mode == "interact" else TERMINAL_VIEW_PATH
+    return GatewayTerminalEntryTicketV1(
+        url=f"{_OWNER_URL}{path}#ticket={'b' * 43}",
+        mode=mode,
+        expires_at_utc=_TICKET.expires_at_utc,
+    )
 
 
 @pytest.mark.parametrize("style", ["plain", "json"])
@@ -316,3 +353,108 @@ def test_web_entry_help_is_scoped_and_calls_out_bearer_handling() -> None:
     self_result = runner.invoke(cli, ["agents", "self", "gateway", "--help"])
     assert self_result.exit_code == 0
     assert "web-entry" not in self_result.output
+
+
+@pytest.mark.parametrize("style", ["plain", "json"])
+@pytest.mark.parametrize("roster", ["keyed", "open", "unavailable"])
+def test_terminal_entry_views_anonymously_in_every_roster(
+    web_target: SimpleNamespace, style: str, roster: str
+) -> None:
+    """Keep view requests unsigned and expose only the validated viewer ticket."""
+
+    web_target.record.mode = "headless"
+    web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": roster})
+    web_target.selector = (None, "worker")
+    args = ["agents", "single", "--agent-name", "worker", "gateway", "terminal-entry"]
+    result = CliRunner().invoke(cli, [f"--print-{style}", *args])
+    assert result.exit_code == 0, result.output
+    actual = (
+        json.loads(result.output)
+        if style == "json"
+        else dict(line.split() for line in result.output.splitlines())
+    )
+    assert actual == _terminal_ticket("view").model_dump(mode="json")
+    assert web_target.describe_calls == 2
+    assert web_target.signer_calls == []
+    assert web_target.terminal_modes == ["view"]
+    assert web_target.client_settings == [{"base_url": _OWNER_URL, "respect_proxy_env": False}]
+
+
+@pytest.mark.parametrize("explicit_signer", [False, True])
+def test_terminal_entry_interaction_binds_the_admin_signer(
+    web_target: SimpleNamespace, tmp_path: Path, explicit_signer: bool
+) -> None:
+    """Use a configured or explicit signer only for the requested interactive ticket."""
+
+    args = ["--print-json", *_TERMINAL_COMMAND, "--interact"]
+    signer = tmp_path / "experimental-signer"
+    if explicit_signer:
+        args.extend(["--signer", str(signer)])
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == _terminal_ticket("interact").model_dump(mode="json")
+    assert web_target.signer_calls == ([] if explicit_signer else [(43123, False)])
+    assert web_target.terminal_modes == ["interact"]
+    selected_settings = web_target.client_settings[-1]
+    assert selected_settings["target_incarnation"] == _GENERATION
+    assert selected_settings["target_presence_id"] == web_target.descriptor.presence_id
+    expected_signer = str(signer) if explicit_signer else web_target.binding.private_key_path
+    assert selected_settings["binding"].private_key_path == expected_signer
+
+
+@pytest.mark.parametrize("state", ["open", "missing-signer", "revoked", "signed-view"])
+def test_terminal_entry_refuses_unauthorized_interaction_without_downgrade(
+    web_target: SimpleNamespace, state: str
+) -> None:
+    """Deny unqualified admin requests or a signer option submitted for unsigned viewing."""
+
+    args = [*_TERMINAL_COMMAND, "--interact"]
+    if state == "open":
+        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
+    elif state == "missing-signer":
+        web_target.binding = None
+    elif state == "revoked":
+        web_target.proof_error = "Terminal interaction was refused."
+    else:
+        args = [*_TERMINAL_COMMAND, "--signer", web_target.binding.private_key_path]
+    result = CliRunner().invoke(cli, args)
+    assert result.exit_code == 1, result.output
+    assert web_target.terminal_modes == (["interact"] if state == "revoked" else [])
+    assert "#ticket=" not in result.output
+    assert web_target.issue_calls == 0
+
+
+@pytest.mark.parametrize("state", ["detached", "replaced", "replaced-after-issue"])
+def test_terminal_entry_uses_the_existing_verified_gateway(
+    web_target: SimpleNamespace, state: str
+) -> None:
+    """Reject absent or changed gateways before disclosing a browser ticket."""
+
+    if state == "detached":
+        web_target.detached = True
+    elif state == "replaced":
+        web_target.descriptor = web_target.descriptor.model_copy(
+            update={"presence_id": "replacement-gateway"}
+        )
+    else:
+        web_target.replace_after_issue = True
+    result = CliRunner().invoke(cli, _TERMINAL_COMMAND)
+    assert result.exit_code == 1, result.output
+    expected = "attach it explicitly" if state == "detached" else "execution changed"
+    assert expected in result.output
+    assert "#ticket=" not in result.output
+    assert web_target.terminal_modes == (["view"] if state == "replaced-after-issue" else [])
+
+
+def test_terminal_entry_help_announces_unsigned_view_and_bearer_secret() -> None:
+    """Register the command only for selected agents and document the options."""
+
+    runner = CliRunner()
+    result = runner.invoke(cli, [*_TERMINAL_COMMAND, "--help"])
+    assert result.exit_code == 0
+    help_text = " ".join(result.output.split())
+    for detail in ("bearer secret", "unsigned owner-local", "--interact", "--signer"):
+        assert detail in help_text
+    result = runner.invoke(cli, ["agents", "self", "gateway", "--help"])
+    assert result.exit_code == 0
+    assert "terminal-entry" not in result.output

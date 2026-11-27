@@ -41,6 +41,11 @@ from houmao.gateway.authorization_models import Permission, seed_snapshot
 from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.gateway.file_edits.contracts import FileReadRequest, FileReadResponse
 from houmao.gateway.operations import WEB_ENTRY, mailbox_resource
+from houmao.gateway.terminal_entry_contracts import (
+    GatewayTerminalEntryMode,
+    TERMINAL_INTERACT_PATH,
+    TERMINAL_VIEW_PATH,
+)
 from tests.fixtures.gateway_access import fixture_admin_key
 
 _PROXY_ENV_KEYS = (
@@ -555,6 +560,132 @@ def test_web_entry_client_refuses_a_delegated_proof_source() -> None:
     )
     with pytest.raises(ValueError, match="direct gateway caller"):
         client.issue_web_entry_ticket()
+
+
+@pytest.mark.parametrize("outcome", ["ticket", "redirect", "wrong-mode", "wrong-origin", "refused"])
+@pytest.mark.parametrize("mode", ["view", "interact"])
+def test_terminal_entry_client_requests_the_exact_owner_local_ticket(
+    tmp_path: Path, outcome: str, mode: GatewayTerminalEntryMode
+) -> None:
+    """Exercise unsigned viewing and signed interaction against a keyed live endpoint."""
+
+    admin, signer = fixture_admin_key(tmp_path, "terminal-entry-admin")
+    owner = GatewayOwner(agent_id="terminal-agent", context_id="terminal-owner")
+    target = GatewayTarget(owner=owner, incarnation="terminal-generation")
+    store = AuthorizationStore(tmp_path / "access", owner)
+    store.initialize(seed_snapshot(owner, GatewayLaunchSeed(admin_keys=(admin,))))
+    policy = GatewayAccessPolicy(
+        store=store, target=lambda: target, current_self=lambda: None, listener_id="terminal"
+    )
+    interactive = mode == "interact"
+    entry_path = TERMINAL_INTERACT_PATH if interactive else TERMINAL_VIEW_PATH
+    ticket_path = f"{entry_path}/ticket"
+    calls: list[tuple[str, str]] = []
+    expiry = "2026-11-20T12:00:00.012345Z"
+
+    class EntryHandler(_HealthHandler):
+        """Verify the empty-body terminal request using a real proof verifier."""
+
+        def do_GET(self) -> None:
+            """Record any follow or fallback from the ticket request."""
+
+            calls.append(("GET", self.path))
+            self.send_error(404)
+
+        def do_POST(self) -> None:
+            """Check the route and caller before returning the configured response."""
+
+            calls.append(("POST", self.path))
+            body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+            expected = GatewayRequestBinding.from_request("POST", ticket_path, "", b"")
+            if self.path == "/v1/auth/challenge":
+                assert interactive
+                request = GatewayChallengeRequest.model_validate_json(body)
+                assert request.purpose == "caller"
+                assert request.key_id == admin.key_id
+                assert request.request == expected
+                challenge = policy.issue(base, request)
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(challenge.model_dump_json().encode())
+                return
+
+            assert self.path == ticket_path
+            assert body == b""
+            caller = policy.authenticate(
+                issuer=base,
+                request=expected,
+                challenge_id=self.headers.get(CHALLENGE_HEADER),
+                signature=self.headers.get(SIGNATURE_HEADER),
+            )
+            assert caller.kind == ("credential" if interactive else "anonymous")
+            assert caller.key_id == (admin.key_id if interactive else None)
+            if outcome == "redirect":
+                self.send_response(302)
+                self.send_header("Location", issued_url)
+                self.end_headers()
+                return
+            if outcome == "refused":
+                self.send_response(403)
+                self.end_headers()
+                self.wfile.write(b'{"detail":"private-terminal-marker"}')
+                return
+            document = {"url": issued_url, "expires_at_utc": expiry, "mode": mode}
+            if outcome == "wrong-mode":
+                document["mode"] = "view" if interactive else "interact"
+            if outcome == "wrong-origin":
+                document["url"] = (
+                    f"http://localhost:{server.server_port}{entry_path}#ticket={'b' * 43}"
+                )
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(json.dumps(document).encode())
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), EntryHandler) as server:
+        base = f"http://127.0.0.1:{server.server_port}"
+        issued_url = f"{base}{entry_path}#ticket={'b' * 43}"
+        binding = (
+            GatewayClientBinding(
+                base_url=base, owner=owner, purpose="caller", private_key_path=str(signer)
+            )
+            if interactive
+            else None
+        )
+        client = GatewayClient(
+            base_url=base,
+            binding=binding,
+            target_incarnation=target.incarnation,
+            target_presence_id="terminal",
+            respect_proxy_env=False,
+        )
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        try:
+            if outcome == "ticket":
+                ticket = client.issue_terminal_entry_ticket(mode=mode)
+                assert ticket.model_dump(mode="json") == {
+                    "url": issued_url,
+                    "expires_at_utc": expiry,
+                    "mode": mode,
+                }
+            else:
+                with pytest.raises(GatewayHttpError) as denied:
+                    client.issue_terminal_entry_ticket(mode=mode)
+                assert "#ticket=" not in str(denied.value)
+                assert "private-terminal-marker" not in str(denied.value)
+            challenge_calls = [("POST", "/v1/auth/challenge")] if interactive else []
+            assert calls == [*challenge_calls, ("POST", ticket_path)]
+        finally:
+            server.shutdown()
+            worker.join(timeout=2)
+
+
+def test_terminal_entry_client_refuses_unsigned_interaction() -> None:
+    """Require a caller key before any interactive request can be sent."""
+
+    client = GatewayClient(base_url="http://127.0.0.1:43123", respect_proxy_env=False)
+    with pytest.raises(ValueError, match="enrolled administrator signer"):
+        client.issue_terminal_entry_ticket(mode="interact")
 
 
 class _ProxyHealthHandler(BaseHTTPRequestHandler):

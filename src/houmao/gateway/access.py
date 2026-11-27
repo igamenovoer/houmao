@@ -12,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from houmao.gateway._access_sshsig import (
     MAX_SIGNATURE_HEADER as MAX_SIGNATURE_HEADER,
     SSHSIG_NAMESPACE as SSHSIG_NAMESPACE,
+    TERMINAL_LOGIN_NAMESPACE,
     WEB_LOGIN_NAMESPACE,
     public_key_text as public_key_text,
     sign_sshsig as sign_sshsig,
@@ -68,6 +69,8 @@ from houmao.gateway.operations import (
     CORE_PERMISSIONS,
     MANAGED_SELF_CHANGE,
     PUBLIC_INPUT_PERMISSIONS,
+    TERMINAL_INTERACT,
+    TERMINAL_VIEW,
     WEB_ENTRY,
     supports_mail_permission,
 )
@@ -111,7 +114,7 @@ class GatewayAccessPolicy:
                 if catalog is not None
                 else CORE_PERMISSIONS
             ),
-            public_permissions=PUBLIC_INPUT_PERMISSIONS,
+            public_permissions=PUBLIC_INPUT_PERMISSIONS | {TERMINAL_VIEW},
             self_permissions=CORE_PERMISSIONS,
             supports=(
                 (lambda permission: supports_mail_permission(permission) or supports(permission))
@@ -238,6 +241,37 @@ class GatewayAccessPolicy:
     def verify_web_login(self, challenge: bytes, proofs: tuple[str, ...]) -> GatewayGrant:
         """Select a current enrolled signer that has Web entry permission."""
 
+        return self._verify_browser_login(
+            challenge, proofs, namespace=WEB_LOGIN_NAMESPACE, permission=WEB_ENTRY
+        )
+
+    def verify_terminal_login(self, challenge: bytes, proofs: tuple[str, ...]) -> GatewayGrant:
+        """Select an exact current administrator signing for terminal interaction."""
+
+        return self._verify_browser_login(
+            challenge,
+            proofs,
+            namespace=TERMINAL_LOGIN_NAMESPACE,
+            permission=TERMINAL_INTERACT,
+            enrolled_admin=True,
+        )
+
+    def require_terminal_admin(self, grant: GatewayGrant) -> None:
+        """Check the original administrator's current qualification for terminal input."""
+
+        self._require_admin(self.m_store.snapshot(), grant, TERMINAL_INTERACT)
+
+    def _verify_browser_login(
+        self,
+        challenge: bytes,
+        proofs: tuple[str, ...],
+        *,
+        namespace: str,
+        permission: Permission,
+        enrolled_admin: bool = False,
+    ) -> GatewayGrant:
+        """Find a candidate that proves the named operation and meets its current policy."""
+
         state = self.m_store.snapshot()
         verified = False
         for proof in proofs:
@@ -247,12 +281,15 @@ class GatewayAccessPolicy:
                 continue
             key = state.find_credential(key_id)
             if key is None or not verify_sshsig(
-                key.public_key, challenge, proof, namespace=WEB_LOGIN_NAMESPACE
+                key.public_key, challenge, proof, namespace=namespace
             ):
                 continue
             verified = True
             try:
-                return self.authorize(AuthorizationActor.from_credential(key), (WEB_ENTRY,))
+                grant = self.authorize(AuthorizationActor.from_credential(key), (permission,))
+                if enrolled_admin:
+                    self.require_terminal_admin(grant)
+                return grant
             except GatewayAccessError as error:
                 if error.status_code not in {401, 403}:
                     raise

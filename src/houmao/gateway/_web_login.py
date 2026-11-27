@@ -8,6 +8,7 @@ from importlib.resources import files
 from string import Template
 
 from houmao.gateway._access_sshsig import (
+    TERMINAL_LOGIN_NAMESPACE as TERMINAL_LOGIN_NAMESPACE,
     WEB_LOGIN_NAMESPACE as WEB_LOGIN_NAMESPACE,
     sshsig_header,
 )
@@ -18,6 +19,7 @@ from houmao.gateway.access import (
     GatewayGrant,
 )
 from houmao.gateway.access_models import MAX_ADMIN_KEYS
+from houmao.gateway.terminal_entry_contracts import TERMINAL_INTERACT_PATH, TERMINAL_LOGIN_PATH
 
 WEB_LOGIN_PROOF_MAX_BYTES = MAX_ACCESS_DOCUMENT
 _ARMOR_END = b"-----END SSH SIGNATURE-----"
@@ -37,11 +39,56 @@ def _load_page() -> tuple[Template, str]:
 def render_web_login_page(nonce: str, *, agent_id: str = "") -> str:
     """Serve the login controls with an escaped agent name and CSP nonce."""
 
+    return _render_login_page(
+        nonce,
+        agent_id=agent_id,
+        title="Houmao Web Login",
+        namespace=WEB_LOGIN_NAMESPACE,
+        login_path="/v1/web/login",
+        entry_path="/v1/web/enter",
+        claim_header="X-Houmao-Web-Claim",
+        ticket_location="query",
+    )
+
+
+def render_terminal_login_page(nonce: str, *, agent_id: str = "") -> str:
+    """Serve the same browser login controls for terminal administrator entry."""
+
+    return _render_login_page(
+        nonce,
+        agent_id=agent_id,
+        title="Houmao Terminal Admin Login",
+        namespace=TERMINAL_LOGIN_NAMESPACE,
+        login_path=TERMINAL_LOGIN_PATH,
+        entry_path=TERMINAL_INTERACT_PATH,
+        claim_header="X-Houmao-Terminal-Claim",
+        ticket_location="fragment",
+    )
+
+
+def _render_login_page(
+    nonce: str,
+    *,
+    agent_id: str,
+    title: str,
+    namespace: str,
+    login_path: str,
+    entry_path: str,
+    claim_header: str,
+    ticket_location: str,
+) -> str:
+    """Bind the browser login script to one server-selected set of routes."""
+
     page, script = _load_page()
     return page.substitute(
         nonce=escape(nonce),
         agent_id=escape(agent_id),
-        namespace=WEB_LOGIN_NAMESPACE,
+        title=escape(title),
+        namespace=escape(namespace),
+        login_path=escape(login_path),
+        entry_path=escape(entry_path),
+        claim_header=escape(claim_header),
+        ticket_location=escape(ticket_location),
         proof_limit=WEB_LOGIN_PROOF_MAX_BYTES,
         signature_limit=MAX_ADMIN_KEYS,
         script=script,
@@ -50,6 +97,20 @@ def render_web_login_page(nonce: str, *, agent_id: str = "") -> str:
 
 def verify_web_login(policy: GatewayAccessPolicy, proofs: bytes, challenge: bytes) -> GatewayGrant:
     """Verify a signer with Web entry permission from a bounded batch of SSHSIG blocks."""
+
+    return policy.verify_web_login(challenge, _proof_candidates(proofs))
+
+
+def verify_terminal_login(
+    policy: GatewayAccessPolicy, proofs: bytes, challenge: bytes
+) -> GatewayGrant:
+    """Verify a currently enrolled administrator using terminal-specific signatures."""
+
+    return policy.verify_terminal_login(challenge, _proof_candidates(proofs))
+
+
+def _proof_candidates(proofs: bytes) -> tuple[str, ...]:
+    """Parse a bounded envelope of independently verifiable OpenSSH armor blocks."""
 
     if len(proofs) > WEB_LOGIN_PROOF_MAX_BYTES:
         raise GatewayAccessError(413, "proof_too_large")
@@ -62,4 +123,4 @@ def verify_web_login(policy: GatewayAccessPolicy, proofs: bytes, challenge: byte
             candidates.append(sshsig_header(block.lstrip() + _ARMOR_END))
         except ValueError:
             continue
-    return policy.verify_web_login(challenge, tuple(candidates))
+    return tuple(candidates)

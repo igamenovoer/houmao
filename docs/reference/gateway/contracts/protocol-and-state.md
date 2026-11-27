@@ -232,6 +232,22 @@ Tickets last 60 seconds. The gateway consumes a ticket before rechecking its iss
 
 Every Web entry and login response sets `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. The gateway exposes native authentication parameters in the successful browser redirect only. The provider creates and controls the browser session. Public state, logs, and error responses omit the proof, claim secret, tickets, and native credentials.
 
+### Browser Tmux Terminal
+
+Both terminal modes use the running gateway's exact owner-local origin and port. Private TCP forwarding can preserve that address. The gateway verifies the recorded live tmux binding independently of native mode and structured prompt readiness. Browser WebSockets must present the gateway's exact `Origin` and a direct loopback connection.
+
+| Operation | Authority and result |
+| --- | --- |
+| `GET /v1/terminal/view` | Anonymous owner-local access serves the read-only viewer on open and keyed gateways. |
+| `POST /v1/terminal/view/ticket` | An empty unsigned request for the anonymous `terminal.view` effect returns `url`, `expires_at_utc`, and `mode: view`. |
+| `GET /v1/admin/terminal/attach` | Serves the interactive page and the link to administrator sign-in. |
+| `POST /v1/admin/terminal/attach/ticket` | An empty request with current enrolled-administrator SSHSIG proof for `admin.terminal.interact` returns a one-time link and `mode: interact`. |
+| `GET /v1/admin/terminal/attach/login` | Serves the administrator login page. The same path accepts the browser's login start POST. `POST .../login/{attempt_id}/prove` verifies terminal approval and `POST .../login/{attempt_id}/claim` returns the one-time link to the initiating browser. |
+| `WS /v1/terminal/view/stream` | Redeems a view grant and streams live terminal output. Input and resize requests are refused. |
+| `WS /v1/admin/terminal/attach/stream` | Redeems an interactive grant and forwards terminal input, output, and bounded resize requests while the exact administrator grant remains current. |
+
+The owner-local viewer's public read effect is independent of the administrator roster, scoped grants, and default permission group. Interaction requires the exact enrolled administrator key and follows its revocation. Each connection grant expires after 60 seconds and can be used once for its mode, listener, and tmux binding. The link stores the bearer in the URL fragment. The page removes the fragment and sends the bearer as its first WebSocket message. Terminal HTTP responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. Gateway logs and discovery omit terminal data and grant secrets. [Open a Managed Tmux Terminal](../operations/access.md#open-a-managed-tmux-terminal)
+
 ### Plugin Status and Custom Routes
 
 `GET /v1/plugins` returns sanitized host snapshots for the complete configured set. `GET /v1/plugins/{instance_id}/_status` reads one snapshot without calling a service. A failed instance's custom routes return `503`; core and unrelated plugin routes remain available. See [Gateway Plugins](../plugins.md) for public status fields and route admission.

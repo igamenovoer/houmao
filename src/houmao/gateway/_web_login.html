@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Houmao Web Login</title>
+  <title>$title</title>
   <style nonce="$nonce">
     :root { color-scheme: light dark; font: 100%/1.5 system-ui, sans-serif; }
     main { max-width: 42rem; margin: 8vh auto; padding: 0 1rem; }
@@ -15,8 +15,9 @@
   </style>
 </head>
 <body>
-  <main id="web-login" data-namespace="$namespace" data-proof-limit="$proof_limit" data-signature-limit="$signature_limit">
-    <h1>Houmao Web Login</h1>
+  <main id="web-login" data-namespace="$namespace" data-proof-limit="$proof_limit" data-signature-limit="$signature_limit"
+      data-login-path="$login_path" data-entry-path="$entry_path" data-claim-header="$claim_header" data-ticket-location="$ticket_location">
+    <h1>$title</h1>
     <p id="login-target">$agent_id</p>
     <p id="gateway-address"></p>
     <label for="key-path">Private key file path (optional)</label>

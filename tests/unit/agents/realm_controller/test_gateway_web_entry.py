@@ -137,6 +137,7 @@ def dashboard_entry(entry, monkeypatch: pytest.MonkeyPatch):
         mode="web",
         backend="dsh_web",
         working_directory="/private/example",
+        tmux=None,
     )
     monkeypatch.setattr(runtime, "_verified_owner_manifest", Mock(return_value=manifest))
     monkeypatch.setattr(runtime, "status", Mock(side_effect=AssertionError("Status refresh ran")))

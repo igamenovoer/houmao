@@ -9,7 +9,15 @@ from houmao.agents.realm_controller.gateway_access_runtime import (
     owner_gateway_client_binding,
 )
 from houmao.gateway.access import GatewayAccessError, GatewayClientBinding
-from houmao.gateway.deployment import owner_gateway_base_url, validate_gateway_access_config_path
+from houmao.gateway.deployment import (
+    GatewayEndpointDescriptor,
+    owner_gateway_base_url,
+    validate_gateway_access_config_path,
+)
+from houmao.gateway.terminal_entry_contracts import (
+    GatewayTerminalEntryMode,
+    GatewayTerminalEntryTicketV1,
+)
 
 from houmao.mailbox.online_models import (
     OnlineAttachRequest,
@@ -3583,52 +3591,65 @@ def gateway_status(target: ManagedAgentTarget) -> GatewayStatusV1:
     return _gateway_status_for_controller(authority)
 
 
-def gateway_web_entry(
-    *, agent_id: str | None, agent_name: str | None, signer: Path | None = None
-) -> GatewayWebEntryTicketV1:
-    """Request a ticket using the live owner-local gateway's access policy."""
+@dataclass(frozen=True)
+class _OwnerLocalBrowserEntry:
+    """An existing gateway verified against one current owner and generation."""
 
+    manifest_path: Path
+    port: int
+    base_url: str
+    client: GatewayClient
+    descriptor: GatewayEndpointDescriptor
+
+
+def _verify_owner_local_browser_gateway(
+    *, agent_id: str | None, agent_name: str | None, surface: Literal["Web", "terminal"]
+) -> _OwnerLocalBrowserEntry:
+    """Select one existing direct listener and verify its retained identity."""
+
+    entry = f"{surface.capitalize()} entry"
+    changed = f"The managed {surface} execution changed. Select its live gateway and retry."
     agent_id, agent_name = resolve_managed_agent_selector(agent_id=agent_id, agent_name=agent_name)
     try:
         locator = resolve_executor_locator(agent_id=agent_id, agent_name=agent_name)
     except (ExecutorLocatorError, OSError):
         raise click.ClickException(
-            "Web entry could not verify the selected execution owner."
+            f"{entry} could not verify the selected execution owner."
         ) from None
     if locator is not None:
         raise click.ClickException(
-            "Web entry requires running the command in the owner's execution context."
+            f"{entry} requires running the command in the owner's execution context."
         )
 
     record = _resolve_local_managed_agent_record(agent_id=agent_id, agent_name=agent_name)
     if record is None:
         raise click.ClickException(
-            "Web entry requires a local managed agent. Run this command in the owner's execution context."
+            f"{entry} requires a local managed agent. Run this command in the owner's execution context."
         )
-    if record.mode != "web":
+    if surface == "Web" and record.mode != "web":
         raise click.ClickException("Web entry requires a live managed agent in Web mode.")
 
     manifest_path = Path(record.runtime.manifest_path)
     try:
+        if surface == "terminal":
+            validate_execution_owner(record.execution_binding)
         require_registry_mode_authority(record)
-    except (OSError, SessionManifestError):
-        raise click.ClickException(
-            "The managed Web execution changed. Select its live gateway and retry."
-        ) from None
+    except (OSError, SessionManifestError, ValueError):
+        raise click.ClickException(changed) from None
     try:
         paths = gateway_paths_from_manifest_path(manifest_path)
         current = load_gateway_current_instance(paths.current_instance_path) if paths else None
     except (OSError, SessionManifestError):
         current = None
     if current is None:
+        agent_description = "this Web agent" if surface == "Web" else "this managed agent"
         raise click.ClickException(
-            "No live gateway is attached to this Web agent. "
+            f"No live gateway is attached to {agent_description}. "
             "Use `houmao-mgr agents single --agent-id <id> gateway attach` to attach it explicitly."
         )
 
     execution = record.execution_binding
     retained = current.endpoint_descriptor
-    changed = "The managed Web execution changed. Select its live gateway and retry."
     if execution is None or retained is None:
         raise click.ClickException(changed)
     try:
@@ -3637,7 +3658,7 @@ def gateway_web_entry(
         descriptor = client.describe_endpoint()
     except (GatewayHttpError, ValueError):
         raise click.ClickException(
-            "Web entry could not verify the live owner-local gateway."
+            f"{entry} could not verify the live owner-local gateway."
         ) from None
     if (
         descriptor.target.owner.agent_id != record.agent_id
@@ -3648,51 +3669,126 @@ def gateway_web_entry(
         or descriptor.proof_protocol != retained.proof_protocol
     ):
         raise click.ClickException(changed)
+    return _OwnerLocalBrowserEntry(manifest_path, current.port, base_url, client, descriptor)
 
-    if descriptor.admin_mode == "unavailable":
+
+def _signed_browser_gateway_client(
+    entry: _OwnerLocalBrowserEntry,
+    *,
+    signer: Path | None,
+    surface: Literal["Web", "terminal"],
+) -> GatewayClient:
+    """Bind a configured or explicit caller signer to the verified listener."""
+
+    descriptor = entry.descriptor
+    requirement = (
+        "Web entry requires a signer with `web.enter` permission."
+        if surface == "Web"
+        else "Terminal interaction requires a currently enrolled admin signer."
+    )
+    try:
+        if signer is None:
+            binding, generation = owner_gateway_client_binding(
+                entry.manifest_path, port=entry.port, private=False
+            )
+        else:
+            binding = GatewayClientBinding(
+                base_url=entry.base_url,
+                owner=descriptor.target.owner,
+                purpose="caller",
+                private_key_path=str(signer),
+            )
+            generation = descriptor.target.incarnation
+    except (GatewayAccessError, SessionManifestError, ValueError):
+        diagnostic = (
+            "Web entry requires a usable signer with `web.enter` permission."
+            if surface == "Web"
+            else requirement
+        )
+        raise click.ClickException(diagnostic) from None
+    if (
+        binding is None
+        or binding.purpose != "caller"
+        or (surface == "terminal" and binding.private_key_path is None)
+    ):
+        raise click.ClickException(f"{requirement} Pass `--signer` or set `admin_signer_path`.")
+    if (
+        generation != descriptor.target.incarnation
+        or binding.owner != descriptor.target.owner
+        or binding.base_url != entry.base_url
+    ):
+        raise click.ClickException(
+            f"The managed {surface} execution changed. Select its live gateway and retry."
+        )
+    return GatewayClient(
+        base_url=entry.base_url,
+        binding=binding,
+        target_incarnation=generation,
+        target_presence_id=descriptor.presence_id,
+        respect_proxy_env=False,
+    )
+
+
+def gateway_web_entry(
+    *, agent_id: str | None, agent_name: str | None, signer: Path | None = None
+) -> GatewayWebEntryTicketV1:
+    """Request a ticket using the live owner-local gateway's access policy."""
+
+    entry = _verify_owner_local_browser_gateway(
+        agent_id=agent_id, agent_name=agent_name, surface="Web"
+    )
+    if entry.descriptor.admin_mode == "unavailable":
         raise click.ClickException(
             "Web entry access policy is unavailable. Check the live owner-local gateway."
         )
-    if signer is not None or descriptor.admin_mode == "keyed":
-        try:
-            if signer is None:
-                binding, generation = owner_gateway_client_binding(
-                    manifest_path, port=current.port, private=False
-                )
-            else:
-                binding = GatewayClientBinding(
-                    base_url=base_url,
-                    owner=descriptor.target.owner,
-                    purpose="caller",
-                    private_key_path=str(signer),
-                )
-                generation = descriptor.target.incarnation
-        except (GatewayAccessError, SessionManifestError, ValueError):
-            raise click.ClickException(
-                "Web entry requires a usable signer with `web.enter` permission."
-            ) from None
-        if binding is None or binding.purpose != "caller":
-            raise click.ClickException(
-                "Web entry requires a signer with `web.enter` permission. Pass `--signer` or set `admin_signer_path`."
-            )
-        if (
-            generation != descriptor.target.incarnation
-            or binding.owner != descriptor.target.owner
-            or binding.base_url != base_url
-        ):
-            raise click.ClickException(changed)
-        client = GatewayClient(
-            base_url=base_url,
-            binding=binding,
-            target_incarnation=generation,
-            target_presence_id=descriptor.presence_id,
-            respect_proxy_env=False,
-        )
-
+    client = entry.client
+    if signer is not None or entry.descriptor.admin_mode == "keyed":
+        client = _signed_browser_gateway_client(entry, signer=signer, surface="Web")
     try:
         return client.issue_web_entry_ticket()
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from None
+
+
+def gateway_terminal_entry(
+    *, agent_id: str | None, agent_name: str | None, interact: bool, signer: Path | None = None
+) -> GatewayTerminalEntryTicketV1:
+    """Request a browser terminal ticket from the already-running owner gateway."""
+
+    if signer is not None and not interact:
+        raise click.ClickException(
+            "`--signer` requires `--interact`. Terminal viewing is unsigned."
+        )
+    entry = _verify_owner_local_browser_gateway(
+        agent_id=agent_id, agent_name=agent_name, surface="terminal"
+    )
+    mode: GatewayTerminalEntryMode = "interact" if interact else "view"
+    client = entry.client
+    if interact:
+        if entry.descriptor.admin_mode != "keyed":
+            raise click.ClickException(
+                "Terminal interaction requires a gateway with a verified enrolled administrator."
+            )
+        client = _signed_browser_gateway_client(entry, signer=signer, surface="terminal")
+    try:
+        ticket = client.issue_terminal_entry_ticket(mode=mode)
+    except GatewayHttpError as exc:
+        raise click.ClickException(exc.detail) from None
+    if not interact:
+        # An unsigned request has no challenge binding, so check the same listener again.
+        changed = "The managed terminal execution changed. Select its live gateway and retry."
+        try:
+            current = client.describe_endpoint()
+        except (GatewayHttpError, ValueError):
+            raise click.ClickException(changed) from None
+        if (
+            current.target != entry.descriptor.target
+            or current.presence_id != entry.descriptor.presence_id
+            or current.protocol != entry.descriptor.protocol
+            or current.proof_protocol != entry.descriptor.proof_protocol
+        ):
+            raise click.ClickException(changed)
+    return ticket
 
 
 def attach_gateway(

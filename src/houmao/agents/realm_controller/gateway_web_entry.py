@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
-import hmac
 import ipaddress
-import json
 import re
 import secrets
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TypeVar
 
@@ -25,6 +22,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayWebEntryTicketV1,
     GatewayWebExecutionIdentityV1,
 )
+from houmao.gateway._browser_login_attempts import BrowserLoginStore
 from houmao.gateway._web_login import (
     WEB_LOGIN_NAMESPACE,
     WEB_LOGIN_PROOF_MAX_BYTES,
@@ -47,9 +45,7 @@ WEB_PROVE_PATH = WEB_LOGIN_PATH + "/{attempt_id}/prove"
 WEB_CLAIM_PATH = WEB_LOGIN_PATH + "/{attempt_id}/claim"
 WEB_RESPONSE_HEADERS = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
 _TICKET_LIFETIME = 60
-_LOGIN_LIFETIME = 120
 _CAPACITY = 128
-_BEARER = re.compile(r"[A-Za-z0-9_-]{43}")
 _TICKET_QUERY = re.compile(rb"ticket=([A-Za-z0-9_-]{43})")
 _CLAIM_HEADER = "X-Houmao-Web-Claim"
 _ENTRY_ENDED = "Web entry expired or is unavailable. Start again from the owner-local entry URL."
@@ -111,17 +107,6 @@ class _Ticket:
     deadline: float
 
 
-@dataclass(frozen=True)
-class _Login:
-    """Track a tab's claim digest separately from its terminal challenge."""
-
-    binding: WebEntryBinding
-    challenge: bytes = field(repr=False)
-    claim_digest: bytes = field(repr=False)
-    deadline: float
-    approval: GatewayGrant | None = None
-
-
 def _bearer_digest(value: str) -> bytes:
     """Hash an opaque bearer for in-memory comparison."""
 
@@ -135,14 +120,13 @@ def _utc_expiry(lifetime: int) -> str:
 
 
 class _WebEntryStore:
-    """Serialize grant transitions for one gateway listener."""
+    """Serialize native Web redirect tickets for one gateway listener."""
 
     def __init__(self) -> None:
-        """Initialize bounded, ephemeral collections."""
+        """Initialize the bounded, ephemeral ticket collection."""
 
         self.m_lock: threading.Lock = threading.Lock()
         self.m_tickets: dict[bytes, _Ticket] = {}
-        self.m_logins: dict[str, _Login] = {}
 
     def _mint_locked(
         self, issuer: str, binding: WebEntryBinding, grant: GatewayGrant, *, now: float
@@ -176,109 +160,44 @@ class _WebEntryStore:
             ticket = self.m_tickets.pop(_bearer_digest(bearer), None)
             return ticket if ticket is not None and ticket.deadline > time.monotonic() else None
 
-    def start(self, issuer: str, listener: str, binding: WebEntryBinding) -> dict[str, str]:
-        """Create a browser claim and the canonical challenge for its terminal."""
 
-        with self.m_lock:
-            now = time.monotonic()
-            self.m_logins = {
-                key: login for key, login in self.m_logins.items() if login.deadline > now
-            }
-            if len(self.m_logins) >= _CAPACITY:
-                raise HTTPException(429, "Web login capacity reached. Try again shortly.")
-            attempt_id = secrets.token_urlsafe(32)
-            secret = secrets.token_urlsafe(32)
-            expires_at = _utc_expiry(_LOGIN_LIFETIME)
-            challenge = json.dumps(
-                {
-                    "purpose": WEB_LOGIN_NAMESPACE,
-                    "nonce": secrets.token_urlsafe(32),
-                    "issuer": issuer,
-                    "listener": listener,
-                    "method": "POST",
-                    "path": WEB_PROVE_PATH.format(attempt_id=attempt_id),
-                    "expires_at_utc": expires_at,
-                    "target": binding.target.model_dump(mode="json"),
-                    "execution": binding.execution.model_dump(mode="json"),
-                    "native_origin": binding.origin,
-                },
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("ascii")
-            self.m_logins[attempt_id] = _Login(
-                binding, challenge, _bearer_digest(secret), now + _LOGIN_LIFETIME
-            )
-            return {
-                "attempt_id": attempt_id,
-                "challenge": base64.urlsafe_b64encode(challenge).decode("ascii").rstrip("="),
-                "claim_secret": secret,
-                "expires_at_utc": expires_at,
-            }
-
-    def get(self, attempt_id: str) -> _Login:
-        """Read the current snapshot without completing either login transition."""
-
-        with self.m_lock:
-            login = self.m_logins.get(attempt_id)
-            if login is None or login.deadline <= time.monotonic():
-                raise HTTPException(410, _ENTRY_ENDED)
-            return login
-
-    def approve(self, attempt_id: str, login: _Login, grant: GatewayGrant) -> None:
-        """Record at most one terminal approval of the verified challenge."""
-
-        with self.m_lock:
-            if self.m_logins.get(attempt_id) is not login or login.deadline <= time.monotonic():
-                raise HTTPException(410, _ENTRY_ENDED)
-            self.m_logins[attempt_id] = replace(login, approval=grant)
-
-    def claim(
-        self, issuer: str, attempt_id: str, login: _Login, grant: GatewayGrant
-    ) -> GatewayWebEntryTicketV1:
-        """Mint the ticket and consume its approval in a single transition."""
-
-        with self.m_lock:
-            now = time.monotonic()
-            if self.m_logins.get(attempt_id) is not login or login.deadline <= now:
-                raise HTTPException(410, _ENTRY_ENDED)
-            ticket = self._mint_locked(issuer, login.binding, grant, now=now)
-            del self.m_logins[attempt_id]
-            return ticket
-
-
-async def _bounded_request(request: Request, limit: int) -> bytes:
+async def _bounded_request(
+    request: Request, limit: int, *, subject: str = "Web entry", login: str = "Web login"
+) -> bytes:
     """Read a request without buffering beyond the operation's allowed body."""
 
     data = bytearray()
     async for chunk in request.stream():
         if len(chunk) > limit - len(data):
             if not limit:
-                raise HTTPException(422, "Web entry requests must have an empty body.")
-            raise HTTPException(413, "Web login proof exceeds the size limit.")
+                raise HTTPException(422, f"{subject} requests must have an empty body.")
+            raise HTTPException(413, f"{login} proof exceeds the size limit.")
         data.extend(chunk)
     return bytes(data)
 
 
-async def _within_deadline(deadline: float, operation: Callable[[], _Result]) -> _Result:
+async def _within_deadline(
+    deadline: float, operation: Callable[[], _Result], *, expired_detail: str = _ENTRY_ENDED
+) -> _Result:
     """Bound native or proof I/O by the grant's original monotonic deadline."""
 
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        raise HTTPException(410, _ENTRY_ENDED)
+        raise HTTPException(410, expired_detail)
     try:
         result = await asyncio.wait_for(run_in_threadpool(operation), timeout=remaining)
     except TimeoutError:
-        raise HTTPException(410, _ENTRY_ENDED) from None
+        raise HTTPException(410, expired_detail) from None
     if time.monotonic() >= deadline:
-        raise HTTPException(410, _ENTRY_ENDED)
+        raise HTTPException(410, expired_detail)
     return result
 
 
-def _require_no_query(request: Request) -> None:
+def _require_no_query(request: Request, *, login: str = "Web login") -> None:
     """Reject caller-supplied options before handling the operation."""
 
     if request.scope["query_string"]:
-        raise HTTPException(422, "Web login requests do not accept query parameters.")
+        raise HTTPException(422, f"{login} requests do not accept query parameters.")
 
 
 def _retry_page() -> HTMLResponse:
@@ -305,6 +224,12 @@ def register_web_entry_routes(
     """Publish both ways to enter the verified native Web application."""
 
     store = _WebEntryStore()
+    logins = BrowserLoginStore[WebEntryBinding](
+        clock=lambda: time.monotonic(),
+        capacity=lambda: _CAPACITY,
+        expired_detail=_ENTRY_ENDED,
+        capacity_detail="Web login capacity reached. Try again shortly.",
+    )
 
     def require_current_grant(grant: GatewayGrant, target: GatewayTarget, *, status: int) -> None:
         """Recheck Web permission and the exact admitted authority."""
@@ -419,7 +344,18 @@ def register_web_entry_routes(
         _require_no_query(request)
         await _bounded_request(request, 0)
         binding, _ = await run_in_threadpool(resolve, None)
-        return store.start(base, listener(), binding)
+        return logins.start(
+            binding,
+            issuer=base,
+            listener=listener(),
+            namespace=WEB_LOGIN_NAMESPACE,
+            prove_path=WEB_PROVE_PATH,
+            evidence={
+                "target": binding.target.model_dump(mode="json"),
+                "execution": binding.execution.model_dump(mode="json"),
+                "native_origin": binding.origin,
+            },
+        )
 
     @app.post(WEB_PROVE_PATH)
     async def _prove(request: Request, attempt_id: str) -> dict[str, str]:
@@ -427,7 +363,7 @@ def register_web_entry_routes(
 
         require_web_entry_origin(request, issuer())
         _require_no_query(request)
-        login = store.get(attempt_id)
+        login = logins.get(attempt_id)
         if login.approval is not None:
             raise HTTPException(410, _ENTRY_ENDED)
 
@@ -443,7 +379,7 @@ def register_web_entry_routes(
 
         proofs = await _bounded_request(request, WEB_LOGIN_PROOF_MAX_BYTES)
         grant = await _within_deadline(login.deadline, lambda: approve(proofs))
-        store.approve(attempt_id, login, grant)
+        logins.approve(attempt_id, login, grant)
         return {"status": "approved"}
 
     @app.post(WEB_CLAIM_PATH)
@@ -454,17 +390,14 @@ def register_web_entry_routes(
         require_web_entry_origin(request, base, browser_post=True)
         _require_no_query(request)
         await _bounded_request(request, 0)
-        login = store.get(attempt_id)
-        claims = request.headers.getlist(_CLAIM_HEADER)
-        if (
-            len(claims) != 1
-            or not _BEARER.fullmatch(claims[0])
-            or not hmac.compare_digest(login.claim_digest, _bearer_digest(claims[0]))
-        ):
+        login = logins.get(attempt_id)
+        if not login.matches_claim(request.headers.getlist(_CLAIM_HEADER)):
             raise HTTPException(403, "Web login belongs to another browser tab.")
         grant = login.approval
         if grant is None:
             return JSONResponse({"status": "pending"}, status_code=202)
         await _within_deadline(login.deadline, lambda: resolve_authorized(grant, login.binding))
-        ticket = store.claim(base, attempt_id, login, grant)
+        ticket = logins.claim(
+            attempt_id, login, lambda binding, grant: store.mint(base, binding, grant)
+        )
         return JSONResponse(ticket.model_dump(mode="json"))

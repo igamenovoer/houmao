@@ -92,6 +92,7 @@ from ..managed_agents import (
     gateway_prompt,
     gateway_send_keys,
     gateway_status,
+    gateway_terminal_entry,
     gateway_tui_history,
     gateway_tui_note_prompt,
     gateway_tui_state,
@@ -382,6 +383,35 @@ def web_entry_gateway_command(pair_port: int | None, signer: Path | None) -> Non
             "Web entry requires an explicit local agent selection in the owner's execution context."
         )
     emit(gateway_web_entry(agent_id=scope.agent_id, agent_name=scope.agent_name, signer=signer))
+
+
+@click.command(name="terminal-entry")
+@click.option(
+    "--interact",
+    is_flag=True,
+    help="Request an interactive terminal link as a currently enrolled gateway administrator.",
+)
+@click.option(
+    "--signer",
+    type=click.Path(dir_okay=False, path_type=Path),
+    help="Absolute private key path for --interact. Defaults to the configured admin signer.",
+)
+def terminal_entry_gateway_command(interact: bool, signer: Path | None) -> None:
+    """Print a one-time browser terminal URL, expiry, and mode.
+
+    Read-only viewing uses unsigned owner-local access. The URL is a bearer secret.
+    """
+
+    scope = get_managed_agent_scope_context()
+    if scope is None or scope.scope != "single" or scope.target_tmux_session is not None:
+        raise click.ClickException(
+            "Terminal entry requires an explicit local agent selection in the owner's execution context."
+        )
+    emit(
+        gateway_terminal_entry(
+            agent_id=scope.agent_id, agent_name=scope.agent_name, interact=interact, signer=signer
+        )
+    )
 
 
 @gateway_group.command(name="prompt")

@@ -19,8 +19,22 @@ from houmao.gateway.access_models import MANAGED_SELF_PATH, parse_access_documen
 from houmao.gateway.authorization_catalog import DEFAULT_FALLBACK_SET, DEFAULT_GROUP_SET
 from houmao.gateway.authorization_models import Permission
 from houmao.gateway.file_edits.contracts import FILE_EDIT_PATH, FILE_REQUESTS
+from houmao.gateway.terminal_entry_contracts import (
+    TERMINAL_ASSET_PATH,
+    TERMINAL_INTERACT_PATH,
+    TERMINAL_INTERACT_STREAM_PATH,
+    TERMINAL_INTERACT_TICKET_PATH,
+    TERMINAL_LOGIN_CLAIM_PATH,
+    TERMINAL_LOGIN_PATH,
+    TERMINAL_LOGIN_PROVE_PATH,
+    TERMINAL_VIEW_PATH,
+    TERMINAL_VIEW_STREAM_PATH,
+    TERMINAL_VIEW_TICKET_PATH,
+)
 
 WEB_ENTRY = Permission(resource="native:web", action="web.enter")
+TERMINAL_VIEW = Permission(resource="native:terminal", action="terminal.view")
+TERMINAL_INTERACT = Permission(resource="native:terminal", action="admin.terminal.interact")
 WORK_REQUEST = Permission(resource="agent", action="agent.request.submit")
 PROMPT = Permission(resource="agent", action="agent.prompt.direct")
 COMMAND_INVOKE = Permission(resource="agent", action="agent.command.invoke")
@@ -316,6 +330,22 @@ _operations = (
 CORE_OPERATIONS = {
     **{(method, path): GatewayOperation(path, None) for method, path in _public},
     **{
+        (method, path): GatewayOperation(path, None)
+        for method, path in (
+            ("GET", TERMINAL_VIEW_PATH),
+            ("GET", TERMINAL_INTERACT_PATH),
+            ("GET", TERMINAL_ASSET_PATH),
+            ("POST", TERMINAL_VIEW_TICKET_PATH),
+            ("GET", TERMINAL_LOGIN_PATH),
+            ("POST", TERMINAL_LOGIN_PATH),
+            ("POST", TERMINAL_LOGIN_PROVE_PATH),
+            ("POST", TERMINAL_LOGIN_CLAIM_PATH),
+        )
+    },
+    ("POST", TERMINAL_INTERACT_TICKET_PATH): GatewayOperation(
+        TERMINAL_INTERACT_TICKET_PATH, TERMINAL_INTERACT
+    ),
+    **{
         ("POST", f"{FILE_EDIT_PATH}/{name}"): GatewayOperation(
             f"{FILE_EDIT_PATH}/{name}", None, selector="files-resolved"
         )
@@ -377,8 +407,14 @@ CORE_OPERATIONS = {
     ),
 }
 
+CORE_TERMINAL_WEBSOCKETS = {
+    TERMINAL_VIEW_STREAM_PATH: TERMINAL_VIEW,
+    TERMINAL_INTERACT_STREAM_PATH: TERMINAL_INTERACT,
+}
+
 CORE_PERMISSIONS = frozenset(
     {
+        TERMINAL_VIEW,
         WORK_REQUEST,
         PROMPT,
         COMMAND_INVOKE,

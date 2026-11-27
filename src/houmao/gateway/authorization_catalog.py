@@ -34,9 +34,16 @@ ROLE_TEMPLATE_ACTIONS: dict[str, tuple[str, ...]] = {
 def is_admin_exclusive(permission: Permission) -> bool:
     """Identify effects reserved for effective administrators on the target."""
 
-    return (permission.resource == "policy" and permission.action.startswith("admin.")) or (
-        permission.resource.startswith("mailbox:")
-        and permission.action in {"mail.attachment.owner_file", "mail.post"}
+    return (
+        (permission.resource == "policy" and permission.action.startswith("admin."))
+        or (
+            permission.resource.startswith("mailbox:")
+            and permission.action in {"mail.attachment.owner_file", "mail.post"}
+        )
+        or (
+            permission.resource == "native:terminal"
+            and permission.action == "admin.terminal.interact"
+        )
     )
 
 

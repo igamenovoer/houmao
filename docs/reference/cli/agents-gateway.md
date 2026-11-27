@@ -83,6 +83,19 @@ houmao-mgr --print-json agents single --agent-id "$agent_id" gateway web-entry
 
 Both outputs contain `url` and `expires_at_utc`. The URL is a bearer secret valid for 60 seconds and one redemption. Open it in a browser that can reach both the owner-local gateway and the native Web app. `web-entry` uses the direct owner-local gateway. Select the agent by ID or name under `agents single`. [Open a Live Web Agent](../gateway/operations/access.md#open-a-live-web-agent)
 
+### `terminal-entry`
+
+Request a one-time browser link to a managed agent's tmux terminal through its running gateway. Run the command in the execution owner's context. Select the agent by ID or name under `agents single`.
+
+```bash
+houmao-mgr agents single --agent-id "$agent_id" gateway terminal-entry
+houmao-mgr --print-json agents single --agent-name "$agent_name" gateway terminal-entry --interact
+```
+
+The default `view` mode uses unsigned owner-local access and opens a read-only terminal, including when the gateway has enrolled administrators. `--interact` requires a currently enrolled administrator signer. Use the deployment's `admin_signer_path` or pass `--signer <absolute-path>` with `--interact`.
+
+The command prints `url`, `mode`, and `expires_at_utc`. Keep the URL private as a single-use bearer secret and open it in a browser that can reach the same owner-local gateway. If the agent has no running gateway, use `gateway attach` explicitly.
+
 ### `prompt`
 
 Submit the explicit gateway-mediated prompt path for one managed agent.
@@ -393,7 +406,7 @@ houmao-mgr agents single --agent-id <id> gateway mail-notifier disable --channel
 - `--pair-port` is only supported on selected-agent `agents single ... gateway` commands. It selects the Houmao pair authority, not the live gateway listener port. Lower-level gateway listener overrides use runtime-facing flags such as `--gateway-port`.
 - Gateway TUI timing overrides must be positive seconds. They apply to the gateway sidecar started by this attach and are persisted as the desired timing config for the gateway root after attach succeeds.
 - External communication-only targets registered with `houmao-mgr agents external register` are supported through selected-agent communication-safe routes such as `agents single --agent-name <name> gateway status`, `gateway prompt`, and `gateway interrupt`; those commands route through the stored remote pair API base URL and remote agent ref.
-- External targets are rejected for local gateway ownership commands such as `gateway attach`, `gateway detach`, `gateway web-entry`, `gateway send-keys`, self/current-session targeting, TUI snapshot helpers, reminders, and mail-notifier mutation.
+- External targets are rejected for local gateway ownership commands such as `gateway attach`, `gateway detach`, `gateway web-entry`, `gateway terminal-entry`, `gateway send-keys`, self/current-session targeting, TUI snapshot helpers, reminders, and mail-notifier mutation.
 
 ## See Also
 

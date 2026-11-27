@@ -190,6 +190,7 @@ from .cleanup import cleanup_group
 from .external import external_group
 from .gateway import (
     gateway_group,
+    terminal_entry_gateway_command,
     web_entry_gateway_command,
 )
 from .mail import mail_group
@@ -2559,6 +2560,7 @@ def _install_scoped_agents_commands() -> None:
     )
     assert isinstance(single_gateway, click.Group)
     single_gateway.add_command(web_entry_gateway_command)
+    single_gateway.add_command(terminal_entry_gateway_command)
     agents_single_group.add_command(single_gateway)
     for command_name in ("mail", "turn", "memory"):
         agents_single_group.add_command(

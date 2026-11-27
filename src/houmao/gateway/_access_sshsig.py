@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa,
 
 SSHSIG_NAMESPACE = "houmao-gateway-access-v1"
 WEB_LOGIN_NAMESPACE = "houmao-web-entry-login-v1"
+TERMINAL_LOGIN_NAMESPACE = "houmao-terminal-admin-login-v1"
 MAX_SIGNATURE_HEADER = 8192
 _MAGIC = b"SSHSIG"
 _PREFIX = _MAGIC + struct.pack(">I", 1)

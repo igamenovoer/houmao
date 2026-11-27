@@ -63,6 +63,7 @@
     }
     .action a:focus-visible { outline: 2px solid var(--action); outline-offset: 3px; }
     .action a + p { margin-top: .5rem; }
+    .action-links { display: flex; flex-wrap: wrap; gap: .5rem; margin-bottom: .5rem; }
   </style>
 </head>
 <body>
@@ -76,8 +77,10 @@
         <div><dt>Gateway health</dt><dd>$gateway_health</dd></div>
         <div><dt>Roster mode</dt><dd>$admin_mode</dd></div>
         <div><dt>Native Web availability</dt><dd>$web_availability</dd></div>
+        <div><dt>Tmux terminal availability</dt><dd>$terminal_availability</dd></div>
       </dl>
       <div class="action">$web_entry</div>
+      <div class="action">$terminal_entry</div>
     </div>
   </main>
 </body>

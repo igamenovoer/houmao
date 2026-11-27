@@ -12,7 +12,7 @@ export function signingCommand(attempt, keyPath, origin, limits) {
   if (!/^[A-Za-z0-9_-]+$/.test(attempt.attempt_id)) {
     throw new Error("Invalid login attempt");
   }
-  const prove = new URL("/v1/web/login/" + attempt.attempt_id + "/prove", origin);
+  const prove = new URL((limits.loginPath ?? "/v1/web/login") + "/" + attempt.attempt_id + "/prove", origin);
   const namespace = shellQuote(limits.namespace);
   const challenge = shellQuote(challengeBytes(attempt.challenge));
   const selectedPath = keyPath.trim();
@@ -73,15 +73,14 @@ function post(path, headers) {
   });
 }
 
-function entryUrl(ticket) {
+function entryUrl(ticket, limits) {
   const url = new URL(ticket.url);
-  if (
-    url.origin !== location.origin ||
-    url.username || url.password || url.hash ||
-    url.pathname !== "/v1/web/enter" ||
-    url.searchParams.size !== 1 ||
-    !url.searchParams.get("ticket")
-  ) {
+  if (url.origin !== location.origin || url.username || url.password || url.pathname !== limits.entryPath) {
+    throw new Error("Invalid entry URL");
+  }
+  const usesFragment = limits.ticketLocation === "fragment";
+  const params = usesFragment ? new URLSearchParams(url.hash.slice(1)) : url.searchParams;
+  if ((usesFragment ? url.search : url.hash) || params.size !== 1 || !params.get("ticket")) {
     throw new Error("Invalid entry URL");
   }
   return url.href;
@@ -108,12 +107,12 @@ export function initializeWebLogin() {
   }
 
   async function waitForApproval() {
-    const path = "/v1/web/login/" + attempt.attempt_id + "/claim";
-    const headers = { "X-Houmao-Web-Claim": attempt.claim_secret };
+    const path = limits.loginPath + "/" + attempt.attempt_id + "/claim";
+    const headers = { [limits.claimHeader]: attempt.claim_secret };
     for (;;) {
       const result = await post(path, headers);
       if (result.status === 200) {
-        location.replace(entryUrl(await result.json()));
+        location.replace(entryUrl(await result.json(), limits));
         return;
       }
       if (result.status !== 202) {
@@ -127,7 +126,7 @@ export function initializeWebLogin() {
     start.disabled = true;
     status.textContent = "Starting login…";
     try {
-      const result = await post("/v1/web/login");
+      const result = await post(limits.loginPath);
       if (!result.ok) {
         throw new Error("Login unavailable");
       }

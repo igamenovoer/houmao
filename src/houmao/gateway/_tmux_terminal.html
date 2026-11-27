@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Houmao tmux terminal</title>
+  <link rel="stylesheet" href="/v1/terminal/assets/xterm.css">
+  <link rel="stylesheet" href="/v1/terminal/assets/terminal.css">
+  <script type="module" src="/v1/terminal/assets/terminal.js"></script>
+</head>
+<body>
+  <header>
+    <a href="/" aria-label="Houmao gateway dashboard">Gateway</a>
+    <h1>tmux terminal</h1>
+    <span id="mode">$label</span>
+    <p id="connection" role="status">Connecting…</p>
+    <a id="restart" href="$entry_path" hidden>Open again</a>
+  </header>
+  <main id="terminal-viewport" data-mode="$mode" data-entry-path="$entry_path" aria-label="tmux terminal">
+    <div id="terminal"></div>
+  </main>
+  <noscript>Enable JavaScript to open the terminal.</noscript>
+</body>
+</html>

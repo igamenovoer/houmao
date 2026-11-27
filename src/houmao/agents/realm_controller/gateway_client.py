@@ -117,6 +117,12 @@ from houmao.gateway.deployment import (
     validate_gateway_base_url,
 )
 from houmao.gateway.file_edits.contracts import FILE_EDIT_PATH, FILE_REQUESTS, FileTargetRequest
+from houmao.gateway.terminal_entry_contracts import (
+    GatewayTerminalEntryMode,
+    GatewayTerminalEntryTicketV1,
+    TERMINAL_INTERACT_PATH,
+    TERMINAL_VIEW_PATH,
+)
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 GATEWAY_RESPECT_PROXY_ENV_VAR = "HOUMAO_GATEWAY_RESPECT_PROXY_ENV"
@@ -321,6 +327,60 @@ class GatewayClient:
         except ValueError:
             raise GatewayHttpError(
                 method="POST", url=url, detail="Gateway returned an invalid Web entry ticket."
+            ) from None
+        return ticket
+
+    def issue_terminal_entry_ticket(
+        self, *, mode: GatewayTerminalEntryMode
+    ) -> GatewayTerminalEntryTicketV1:
+        """Request a browser ticket using the exact terminal mode's direct authority."""
+
+        origin = parse.urlsplit(self.m_base_url)
+        if (
+            origin.port is None
+            or self.m_base_url != owner_gateway_base_url(origin.port)
+            or self.m_respect_proxy_env
+            or self.m_request_proof is not None
+        ):
+            raise ValueError("Terminal entry requires the direct owner-local gateway address.")
+        binding = self.m_binding
+        if mode == "interact":
+            if binding is None or binding.purpose != "caller" or binding.private_key_path is None:
+                raise ValueError("Terminal interaction requires an enrolled administrator signer.")
+            entry_path = TERMINAL_INTERACT_PATH
+        else:
+            if binding is not None:
+                raise ValueError("Terminal viewing uses unsigned owner-local access.")
+            entry_path = TERMINAL_VIEW_PATH
+        path = f"{entry_path}/ticket"
+        url = self._build_url(path)
+        try:
+            request_obj = self._prepare_request("POST", path, None, {})
+            payload = self._open_request(request_obj=request_obj, method="POST", url=url)
+        except GatewayHttpError as exc:
+            if exc.status_code in {401, 403} and mode == "interact":
+                detail = (
+                    "Terminal interaction was refused. Select a currently enrolled admin signer."
+                )
+            elif exc.status_code is not None and 300 <= exc.status_code < 400:
+                detail = "Gateway redirects are refused. Use the direct owner-local gateway."
+            else:
+                detail = "Terminal entry was refused. Check the live owner-local gateway and tmux session."
+            raise GatewayHttpError(
+                method="POST", url=url, status_code=exc.status_code, detail=detail
+            ) from None
+        try:
+            ticket = parse_access_document(GatewayTerminalEntryTicketV1, payload)
+            prefix = f"{self.m_base_url}{entry_path}#ticket="
+            if (
+                ticket.mode != mode
+                or not ticket.url.startswith(prefix)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{43}", ticket.url[len(prefix) :])
+            ):
+                raise ValueError("Terminal ticket does not match the selected gateway and mode.")
+        except ValueError:
+            raise GatewayHttpError(
+                method="POST", url=url, detail="Gateway returned an invalid terminal entry ticket."
             ) from None
         return ticket
 

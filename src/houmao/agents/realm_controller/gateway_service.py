@@ -51,6 +51,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, JsonValue, ValidationError
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import HTTPConnection
 
 from houmao.ag_ui.runtime import (
     AgUiHeadlessArtifactObservation,
@@ -131,6 +132,12 @@ from houmao.agents.realm_controller.gateway_admission import (
     gateway_access_error_response,
     validate_core_gateway_routes,
 )
+from houmao.agents.realm_controller.gateway_terminal_entry import register_terminal_entry_routes
+from houmao.agents.realm_controller.gateway_terminal_pty import (
+    TerminalTarget,
+    TerminalUnavailable,
+    resolve_terminal_target,
+)
 from houmao.agents.realm_controller.gateway_web_entry import (
     WEB_ENTER_PATH,
     WEB_RESPONSE_HEADERS,
@@ -178,6 +185,7 @@ from houmao.gateway.operations import (
 )
 from houmao.gateway.deployment import GatewayDeployment, GatewayEndpointDescriptor
 from houmao.gateway.owner_authority import RELAY_HEADER, consume_gateway_relay
+from houmao.gateway.terminal_entry_contracts import is_terminal_entry_path
 from houmao.gateway.plugins import (
     GatewayPluginConfiguration,
     PluginDispatchError,
@@ -2571,6 +2579,7 @@ class GatewayServiceRuntime:
         self.m_reminder_condition = threading.Condition(self.m_lock)
         self.m_log_lock = threading.Lock()
         self.m_stop_event = threading.Event()
+        self.m_terminal_shutdown: threading.Event = threading.Event()
         self.m_worker_thread: threading.Thread | None = None
         self.m_reminder_thread: threading.Thread | None = None
         self.m_notifier_thread: threading.Thread | None = None
@@ -2830,6 +2839,19 @@ class GatewayServiceRuntime:
                 "unavailable", "Gateway owner authority is unavailable."
             ) from None
 
+    def _resolve_terminal_entry_target(self) -> TerminalTarget:
+        """Bind a browser attachment to this gateway's current managed session."""
+
+        if self.m_terminal_shutdown.is_set():
+            raise TerminalUnavailable("The terminal gateway is shutting down.")
+        try:
+            manifest = self._verified_owner_manifest()
+        except OwnerAdmissionError:
+            raise TerminalUnavailable("The current managed terminal is unavailable.") from None
+        if manifest is None or self.m_manifest_path is None:
+            raise TerminalUnavailable("The current managed terminal is unavailable.")
+        return resolve_terminal_target(manifest, manifest_path=self.m_manifest_path)
+
     def _require_owner_control(
         self, operation: ManagedControlOperation, *, expected_generation: str | None = None
     ) -> SessionManifestPayloadV4 | None:
@@ -3053,10 +3075,12 @@ class GatewayServiceRuntime:
     ) -> GatewayGrant | FirstEnrollment | None:
         """Verify proof before selecting and authorizing semantic effects."""
 
-        if operation.direct_web_entry:
+        if operation.direct_web_entry or is_terminal_entry_path(operation.path):
             try:
                 require_web_entry_origin(request, self.owner_connect_url)
             except HTTPException:
+                if is_terminal_entry_path(operation.path):
+                    raise GatewayAccessError(403, "direct_terminal_access_required") from None
                 raise GatewayAccessError(403, "owner_local_web_entry_required") from None
         policy = self._require_access_policy()
         issuer = self._request_issuer(request) if proof else self.owner_connect_url
@@ -3406,6 +3430,7 @@ class GatewayServiceRuntime:
     def shutdown(self) -> None:
         """Stop the queue worker and remove ephemeral run metadata."""
 
+        self.m_terminal_shutdown.set()
         self.m_stop_event.set()
         if self.m_usage_service is not None:
             self.m_usage_service.stop()
@@ -3439,6 +3464,8 @@ class GatewayServiceRuntime:
     def dashboard(self, request: Request) -> str:
         """Render a public summary without refreshing persisted gateway status."""
 
+        from houmao.gateway.terminal_entry_contracts import TERMINAL_INTERACT_PATH, TERMINAL_VIEW_PATH
+
         try:
             manifest = self._verified_owner_manifest()
         except OwnerAdmissionError:
@@ -3448,9 +3475,12 @@ class GatewayServiceRuntime:
         admin_mode: Literal["open", "keyed", "unavailable"] = "unavailable"
         availability = "Unavailable"
         reason = "The current managed agent is unavailable."
+        terminal_availability = "Unavailable"
+        terminal_reason = reason
         if manifest is not None:
             agent = manifest.agent_name or manifest.agent_id
             backend, mode = manifest.backend, manifest.mode
+            connection_reason = self._dashboard_browser_entry_reason(request)
             try:
                 endpoint = self.endpoint_descriptor(read_only=True)
             except GatewayAccessError:
@@ -3466,11 +3496,18 @@ class GatewayServiceRuntime:
                 reason = "This agent's run mode has no native Web interface."
             elif self._dashboard_web_available(manifest):
                 availability = "Available"
-                reason = self._dashboard_web_entry_reason(
-                    request, policy_available=admin_mode != "unavailable"
+                reason = connection_reason or (
+                    "The gateway access policy is unavailable." if admin_mode == "unavailable" else ""
                 )
             else:
                 reason = "The native Web interface is unavailable."
+            if manifest.tmux is None:
+                terminal_availability = "Not applicable"
+                terminal_reason = "This agent has no managed tmux terminal."
+            else:
+                terminal_reason = connection_reason or self._dashboard_terminal_entry_reason(manifest)
+                if not terminal_reason:
+                    terminal_availability = "Available"
 
         return render_dashboard(
             agent=agent,
@@ -3481,6 +3518,12 @@ class GatewayServiceRuntime:
             web_availability=availability,
             web_entry_path=None if reason else WEB_ENTER_PATH,
             web_entry_reason=reason,
+            terminal_availability=terminal_availability,
+            terminal_view_path=None if terminal_reason else TERMINAL_VIEW_PATH,
+            terminal_interact_path=(
+                TERMINAL_INTERACT_PATH if not terminal_reason and admin_mode == "keyed" else None
+            ),
+            terminal_entry_reason=terminal_reason,
         )
 
     def _dashboard_web_available(self, manifest: SessionManifestPayloadV4) -> bool:
@@ -3500,14 +3543,30 @@ class GatewayServiceRuntime:
         except (KeyError, OSError, RuntimeError, ValueError):
             return False
 
-    def _dashboard_web_entry_reason(self, request: Request, *, policy_available: bool) -> str:
-        """Explain why a live Web surface cannot be opened from this page."""
+    def _dashboard_browser_entry_reason(self, request: Request) -> str:
+        """Explain when the browser is outside the direct owner-local origin."""
 
         try:
             require_web_entry_origin(request, self.owner_connect_url)
         except HTTPException:
             return "Open the owner-local gateway directly or through a private TCP forward."
-        return "" if policy_available else "The gateway access policy is unavailable."
+        return ""
+
+    def _dashboard_terminal_entry_reason(self, manifest: SessionManifestPayloadV4) -> str:
+        """Check the exact recorded tmux attachment without starting a client."""
+
+        from houmao.agents.realm_controller.gateway_terminal_pty import (
+            TerminalUnavailable,
+            resolve_terminal_target,
+        )
+
+        if self.m_manifest_path is None:
+            return "The current managed agent is unavailable."
+        try:
+            resolve_terminal_target(manifest, manifest_path=self.m_manifest_path)
+        except TerminalUnavailable:
+            return "The managed tmux terminal is unavailable."
+        return ""
 
     def status(self) -> GatewayStatusV1:
         """Return the latest gateway status snapshot."""
@@ -11016,29 +11075,30 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
     if isinstance(runtime, GatewayServiceRuntime) and runtime.m_access_policy is None:
         runtime.prepare_access()
 
-    def _fence_http_effect(request: Request) -> None:
+    def _fence_http_effect(request: HTTPConnection) -> None:
         """Recheck current authority at dispatch for immediate HTTP effects."""
 
-        if not isinstance(runtime, GatewayServiceRuntime):
+        if not isinstance(runtime, GatewayServiceRuntime) or request.scope["type"] != "http":
             return
         grant = getattr(request.state, "gateway_grant", None)
         operation = getattr(request.state, "gateway_admitted_operation", None)
         if not isinstance(grant, GatewayGrant) or not isinstance(operation, GatewayOperation):
             return
-        if operation.selector == "files-resolved":
+        if operation.selector == "files-resolved" or is_terminal_entry_path(operation.path):
             return
+        method = request.scope["method"]
         if operation.path in {
             "/v1/requests",
             "/v1/control/prompt",
             "/v1/control/send-keys",
             "/v1/admin/keys",
             "/v1/admin/keys/{key_id}",
-        } or (operation.path == "/v1/control/refresh" and request.method == "POST"):
+        } or (operation.path == "/v1/control/refresh" and method == "POST"):
             return
         policy = runtime._require_access_policy()
         # Page lookup and mailbox observation use POST for their request bodies.
         action = grant.permissions[0].action
-        read_only = request.method == "GET" or action in {
+        read_only = method == "GET" or action in {
             "memory.page.tree",
             "memory.page.resolve",
             "memory.page.read",
@@ -11075,6 +11135,7 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
             yield
         finally:
             if embedded_lifecycle:
+                runtime.m_terminal_shutdown.set()
                 try:
                     await runtime.stop_plugins()
                 finally:
@@ -11132,6 +11193,10 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
             if is_web_entry_path(request.scope["path"]):
                 return JSONResponse(
                     status_code=500, content={"detail": "Web entry is unavailable. Start again."}
+                )
+            if is_terminal_entry_path(request.scope["path"]):
+                return JSONResponse(
+                    status_code=500, content={"detail": "Terminal entry is unavailable. Start again."}
                 )
             raise
         duration_ms = int((time.monotonic() - start_monotonic) * 1000)
@@ -11916,6 +11981,14 @@ def create_app(*, runtime: GatewayServiceRuntime) -> FastAPI:
             resolve=runtime.resolve_web_entry,
             access_policy=runtime._require_access_policy,
         )
+        register_terminal_entry_routes(
+            app,
+            issuer=lambda: runtime.owner_connect_url,
+            listener=lambda: runtime.m_presence_id,
+            agent_id=runtime.m_access_runtime.owner.agent_id,
+            resolve_target=runtime._resolve_terminal_entry_target,
+            policy=runtime._require_access_policy,
+        )
     validate_core_gateway_routes(list(app.routes))
     if isinstance(runtime, GatewayServiceRuntime):
         runtime.prepare_plugin_host(app)
@@ -11995,6 +12068,7 @@ class _GatewayUvicornServer(uvicorn.Server):
                 self.m_runtime_started = False
                 try:
                     if isinstance(self.m_runtime, GatewayServiceRuntime):
+                        self.m_runtime.m_terminal_shutdown.set()
                         await self.m_runtime.stop_plugins()
                 finally:
                     self.m_runtime.shutdown()
@@ -12089,6 +12163,8 @@ def main(argv: list[str] | None = None) -> int:
         port=int(args.port),
         log_level="warning",
         access_log=False,
+        ws_max_size=64 * 1024,
+        ws_max_queue=8,
         proxy_headers=True,
         forwarded_allow_ips="127.0.0.1,::1",
     )

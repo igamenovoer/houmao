@@ -172,6 +172,24 @@ ssh -N -o ExitOnForwardFailure=yes \
 
 For a browser and terminal in separate network namespaces, make the exact gateway address reachable from both. Keep the native forward within the browser's private network boundary. The advertised HTTPS gateway applies the live roster to its API. Exclude Web entry and login routes from its reverse proxy and use the owner-local addresses for browser handoff. [Gateway Protocol and State Contracts](../contracts/protocol-and-state.md#web-entry-and-login)
 
+## Open a Managed Tmux Terminal
+
+Run `houmao-mgr agents single --agent-id "$agent_id" gateway status` in the execution owner's context to find the running gateway port. If the gateway is detached, use `gateway attach` explicitly. Open the exact owner-local base URL, such as `http://127.0.0.1:43123/`.
+
+**View tmux terminal** opens a read-only view of the recorded live terminal. Viewing on the direct owner-local gateway works regardless of roster mode. A service or native Web launch can expose its supervisor console, and a headless launch can expose its headless console. A native Web agent with both surfaces also shows **Open agent Web UI**.
+
+**Interact with tmux** appears when the gateway verifies an enrolled administrator roster. Follow the page's instructions to sign in with a current administrator key. Interaction supplies normal tmux input to the running session. Closing the browser tab detaches its client and leaves the agent running.
+
+From another machine, use a private TCP forward that preserves the gateway's loopback host and port. The browser terminal uses that one gateway listener.
+
+```bash
+ssh -N -o ExitOnForwardFailure=yes \
+  -L 127.0.0.1:43123:127.0.0.1:43123 \
+  owner@example.org
+```
+
+Open `http://127.0.0.1:43123/` while the forward is active. Advertised HTTPS or HTTP proxy ingress cannot carry browser terminal entry. For a one-time link from the owner's command line, use [`gateway terminal-entry`](../../cli/agents-gateway.md#terminal-entry).
+
 ## Submit an Authenticated Prompt
 
 Use the enrolled admin client from the previous example to submit a ready-only prompt. The client signs the exact request to `POST /v1/control/prompt`.

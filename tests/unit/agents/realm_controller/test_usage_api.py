@@ -126,6 +126,7 @@ def test_gateway_usage_collection_follows_gateway_lifecycle(
         m_usage_service=service,
         m_file_edit_thread=None,
         m_stop_event=threading.Event(),
+        m_terminal_shutdown=threading.Event(),
         m_tui_tracking=None,
         m_diagnostic_logger=Mock(),
         _mark_running_requests_failed=Mock(),

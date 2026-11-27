@@ -15,6 +15,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 
@@ -424,7 +425,15 @@ class TmuxServer:
         return self._native_argv(["wait-for", "-S", escape_trailing_separator(channel)])
 
     def attach_invocation(
-        self, target: str, *, detach_others: bool = False, readonly: bool = False
+        self,
+        target: str,
+        *,
+        detach_others: bool = False,
+        readonly: bool = False,
+        preserve_environment: bool = False,
+        control_mode: bool = False,
+        client_flags: str | None = None,
+        guard: tuple[str, str] | None = None,
     ) -> list[str]:
         """Build a native attach command for a PTY or inherited-stdio child."""
 
@@ -433,12 +442,41 @@ class TmuxServer:
             args.append("-d")
         if readonly:
             args.append("-r")
+        if preserve_environment:
+            args.append("-E")
+        if client_flags is not None:
+            args.extend(["-f", client_flags])
         args.extend(["-t", escape_trailing_separator(target)])
+        if guard is not None:
+            pane_target, condition = guard
+            args = ["if-shell", "-F", "-t", pane_target, condition, shlex.join(args)]
         argv = self._native_argv(args)
+        if control_mode:
+            argv.insert(1, "-C")
         resolved = shutil.which(argv[0])
         if resolved is not None:
             argv[0] = os.path.abspath(resolved)
         return argv
+
+    def display_format(self, target: str, expression: str, *, timeout_seconds: float) -> str:
+        """Read one target's native tmux format under a process deadline."""
+
+        args = ["display-message", "-p", "-t", target, expression]
+        result = self._native_command(
+            args, operation="display-message", timeout_seconds=timeout_seconds, sensitive=True
+        )
+        result.require_success()
+        return result.stdout.removesuffix("\n")
+
+    def clients_in_session(self, target: str, *, timeout_seconds: float) -> str:
+        """Observe client PIDs and exact session IDs without starting a new client."""
+
+        args = ["list-clients", "-t", target, "-F", "#{client_pid}\t#{session_id}"]
+        result = self._native_command(
+            args, operation="list-clients", timeout_seconds=timeout_seconds, sensitive=True
+        )
+        result.require_success()
+        return result.stdout
 
     def native_environment(self) -> dict[str, str]:
         """Give a delegated child its own environment without inherited selectors."""
