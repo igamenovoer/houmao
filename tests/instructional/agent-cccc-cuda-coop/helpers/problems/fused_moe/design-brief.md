@@ -24,11 +24,12 @@ For each token `t in [0, num_tokens)`:
 
 ## Constraints & Workflow
 
-- Edit **only** `solution.cu`. Do not modify `driver.cu`, `kernel_api.cuh`, or `Makefile`.
+- Develop the implementation in your private `solution.cu`. Keep the supplied driver, header, and Makefile intact. Publish the chosen team implementation to `team/solution.cu` before the deadline.
 - Keep all dependencies within standard C++17 and the CUDA Toolkit (`nvcc`, `ncu`, `nsys`).
 - Do not mutate any `const` input buffer and do not hardcode `num_tokens` or router skew patterns (note that some experts can receive 0 tokens on small or skewed batches).
 - Accuracy requirement: `|got - ref| <= 1e-3 + 1e-3 * |ref|` on `y`.
 - Useful commands in this workspace:
   - `make run` — compile, verify accuracy and input immutability, and time against the naive baseline.
+  - `make run-all` checks every scored workload and prints JSON. Compare the geometric mean of the per-shape `custom_ms` values.
   - `make profile-ncu` — collect SM/DRAM throughput, occupancy, and register pressure via `ncu`.
   - `make profile-nsys` — inspect kernel launch timeline via `nsys`.

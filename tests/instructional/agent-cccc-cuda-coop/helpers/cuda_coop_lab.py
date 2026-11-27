@@ -12,6 +12,8 @@ import math
 import os
 import re
 import secrets
+import stat
+import shlex
 import shutil
 import subprocess
 import sys
@@ -22,6 +24,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import geometric_mean
 from threading import Event
 from typing import Any
 
@@ -158,8 +161,8 @@ def load_manifest(manifest_path: Path, problem_override: str | None = None) -> d
     peers = tuple(team.get("peers") or _PEERS)
     if peers != _PEERS:
         raise LabError(f"Manifest team.peers must be {list(_PEERS)}, got {list(peers)}")
-    if team.get("duration_seconds") != 300:
-        raise LabError("The team shares one 300-second window")
+    if team.get("duration_seconds") != 600:
+        raise LabError("The team shares one 600-second window")
     actors = {peer: peer for peer in _PEERS}
     cuda_cfg = raw.get("cuda") or {}
     delivery_cfg = raw.get("delivery") or {}
@@ -290,6 +293,9 @@ def pool_selection(
         "manager",
     ):
         raise LabError(f"Peer {peer} requires a manager fixture in {mode} mode")
+    options = config.get("model_options")
+    if not isinstance(options, dict) or options.get("max_output_tokens") is not None:
+        raise LabError(f"Peer {peer} needs a fixture with no experiment-imposed output-token limit")
     key = run.get("pool_key")
     if not isinstance(key, str) or not key or run.get("pool_slot") != peer:
         raise LabError(f"Prepare peer {peer} with fixture.py prepare --pool-slot {peer}")
@@ -641,7 +647,10 @@ def command_configure(args: argparse.Namespace) -> int:
     if private_run.exists():
         raise LabError(f"Private run directory already exists: {private_run}")
 
+    team_dir = args.run_meta.resolve().parent / "runtime" / "team"
+    team_dir.mkdir(mode=0o700)
     for workspace in workspaces.values():
+        (workspace / "team").symlink_to(team_dir, target_is_directory=True)
         seed_cuda_workspace(Path(manifest["problem"]["source_dir"]), workspace, gpu_info["arch"])
 
     meta: dict[str, Any] = {
@@ -651,6 +660,7 @@ def command_configure(args: argparse.Namespace) -> int:
         "tag": tag,
         "endpoint": args.endpoint.rstrip("/"),
         "manifest": manifest,
+        "team_submission": str(team_dir / "solution.cu"),
         "workspaces": {peer: str(path) for peer, path in workspaces.items()},
         "runs": {peer: str(path) for peer, path in run_dirs.items()},
         "model_pool": model_pool,
@@ -808,6 +818,8 @@ def command_configure(args: argparse.Namespace) -> int:
                     "peer": peer,
                     "peers": peers,
                     "workspace_dir": ".",
+                    "peer_workdirs": meta["workspaces"],
+                    "team_submission": "team/solution.cu",
                     "cuda_arch": gpu_info["arch"],
                     "protocol": "Use CCCC chat for team discussion",
                 },
@@ -1118,10 +1130,13 @@ def verify_candidate(
 
 
 _KICKOFF = (
-    "You are one of four peers working on the same CUDA kernel. This is your private working "
-    "directory. Your team has five minutes to implement the target kernel in solution.cu as "
-    "efficiently as you can while preserving the correctness requirements in design-brief.md. "
-    "Use CCCC for team discussion whenever you choose."
+    "Your four-person team has {minutes} minutes to produce one kernel: the fastest correct "
+    "implementation of the operation in design-brief.md. Organize yourselves through CCCC. "
+    "How you explore, share evidence, and decide which version to ship is up to all of you. "
+    "Each of you has a private workspace for experiments. You can share source paths through "
+    "chat. Use make run-all to compare correctness and timing across all shapes; lower geometric "
+    "mean custom_ms wins. Before the deadline, publish your team's chosen source as "
+    "team/solution.cu (the same file in every workspace). The deadline is {deadline}."
 )
 _SOURCES = ("solution.cu", "driver.cu", "kernel_api.cuh", "Makefile")
 
@@ -1131,6 +1146,35 @@ def journal_offsets(run: Path, *, before_kickoff: bool = False) -> dict[str, int
     client = load_run(run)["configuration"]["client"]
     files = session_files(run, client=client, before_kickoff=before_kickoff)
     return {str(path.relative_to(run)): path.stat().st_size for path in files}
+
+
+def capture_source(
+    path: Path, target: Path | None = None, cutoff_ns: int | None = None
+) -> dict[str, str]:
+    """Hash a stable regular file and preserve the bytes attributable to the deadline."""
+    try:
+        initial = path.lstat()
+        if not stat.S_ISREG(initial.st_mode):
+            raise LabError("Expected a regular source file")
+        with path.open("rb") as stream:
+            data = stream.read()
+            last = os.fstat(stream.fileno())
+        current = path.lstat()
+        if (
+            not os.path.samestat(initial, last)
+            or not os.path.samestat(current, last)
+            or initial.st_ctime_ns != last.st_ctime_ns
+            or current.st_ctime_ns != last.st_ctime_ns
+            or len(data) != last.st_size
+            or (cutoff_ns is not None and max(last.st_ctime_ns, last.st_mtime_ns) > cutoff_ns)
+        ):
+            raise LabError("No stable version attributable to the cutoff")
+        if target is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        return {"sha256": hashlib.sha256(data).hexdigest()}
+    except (OSError, LabError) as exc:
+        return {"error": str(exc)}
 
 
 def capture_peer(
@@ -1146,26 +1190,8 @@ def capture_peer(
         result["journal_error"] = str(exc)
     for name in _SOURCES:
         path = Path(meta["workspaces"][peer]) / name
-        try:
-            if path.is_symlink() or not path.is_file():
-                raise LabError("Missing regular source file")
-            with path.open("rb") as stream:
-                first = os.fstat(stream.fileno())
-                data = stream.read()
-                last = os.fstat(stream.fileno())
-            if (
-                first.st_mtime_ns != last.st_mtime_ns
-                or len(data) != last.st_size
-                or (cutoff_ns is not None and max(last.st_ctime_ns, last.st_mtime_ns) > cutoff_ns)
-            ):
-                raise LabError("No stable version attributable to the cutoff")
-            result["sources"][name] = {"sha256": hashlib.sha256(data).hexdigest()}
-            if not before:
-                target = directory / "cutoff" / peer / name
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(data)
-        except (LabError, OSError) as exc:
-            result["sources"][name] = {"error": str(exc)}
+        target = None if before else directory / "cutoff" / peer / name
+        result["sources"][name] = capture_source(path, target, cutoff_ns)
     result["finished_ns"] = time.time_ns()
     return result
 
@@ -1225,15 +1251,179 @@ def peer_control(
     return result
 
 
+def introduction_prompt(meta: dict[str, Any], peer: str) -> str:
+    """Provide runnable peer-owned sends and leave automatic delivery free to start a new turn."""
+    cli = shlex.join([str(cccc_path()), "--gateway-url", meta["gateways"][peer]])
+    others = [p for p in _PEERS if p != peer]
+    token = f"CONNECT=$({cli} members --group {shlex.quote(meta['group_id'])} | jq -er .connection_token)"
+    send = f'{cli} chat send --connection-token "$CONNECT"'
+    targets = " ".join(f"--to {p}" for p in others)
+    welcome = f"{send} {targets} --mode request_reply --operation-id intro-{peer} --text 'Hello, I am {peer}.'"
+    ack = f'{send} --to "$SENDER" --operation-id "ack-{peer}-$SENDER" --text "ACK $SENDER from {peer}"'
+    return (
+        f"You are {peer}. Run these two shell lines now to introduce yourself to the other "
+        f"three peers via CCCC, then immediately finish this turn.\n{token}\n{welcome}\n\n"
+        "Incoming CCCC greetings will start new turns automatically. For each received "
+        "'Hello, I am ...' greeting, set SENDER to the originating peer ID and run these "
+        f"two lines once for that sender:\n{token}\n{ack}\n\n"
+        "An ACK needs no reply. Finish each turn as soon as the required sends complete. "
+        "Leave the queue to automatic delivery. Your CUDA task comes in a later tester message."
+    )
+
+
+def introduction_inputs(meta: dict[str, Any], peer: str) -> list[dict[str, Any]]:
+    """Capture native delivery fences and successful consuming queue reads with their locations."""
+    run = Path(meta["runs"][peer])
+    files = session_files(run, client=load_run(run)["configuration"]["client"], before_kickoff=True)
+    entries = []
+    for path in files:
+        pop_calls: set[str] = set()
+        with path.open("rb") as stream:
+            for line_no, line in enumerate(stream, 1):
+                if not line.endswith(b"\n"):
+                    break
+                row = json.loads(line)
+                messages = introduction_messages(row, pop_calls)
+                for msg in messages:
+                    entries.append(
+                        {
+                            "sender": msg["sender"],
+                            "timestamp": msg["timestamp"],
+                            "text": msg["text"],
+                            "journal": str(path.relative_to(run)),
+                            "row": line_no,
+                            "time_ms": row.get("time"),
+                        }
+                    )
+    return entries
+
+
+def introduction_messages(row: dict[str, Any], pop_calls: set[str]) -> list[dict[str, Any]]:
+    """Decode actual input and queue-pop results without treating history or previews as handoffs."""
+    kind = row.get("type")
+    if kind == "context.append_loop_event":
+        event = row.get("event", {})
+        call_id = event.get("toolCallId")
+        if event.get("type") == "tool.call" and re.search(
+            r"\bchat\s+pop\b|/chat/queue/pop\b", str(event.get("args", {}).get("command", ""))
+        ):
+            pop_calls.add(call_id)
+        if event.get("type") != "tool.result" or call_id not in pop_calls:
+            return []
+        result = event.get("result", {})
+        if result.get("isError") or not isinstance(result.get("output"), str):
+            return []
+        try:
+            body = json.loads(result["output"])
+        except ValueError:
+            return []
+        if (
+            not isinstance(body, dict)
+            or body.get("kind") != "cccc_chat_requests"
+            or not body.get("found")
+        ):
+            return []
+        return [msg for batch in body["batches"] for msg in batch]
+    if kind == "turn.prompt":
+        origin, parts = row.get("origin"), row.get("input")
+    elif kind == "user/message":
+        data = row["data"]
+        origin, parts = data.get("source"), data.get("content")
+    else:
+        return []
+    if not isinstance(origin, dict) or origin.get("kind") != "user" or not isinstance(parts, list):
+        return []
+    messages = []
+    for part in parts:
+        value = part.get("text", "") if isinstance(part, dict) else ""
+        _, sep, tail = value.partition("<<< BEGIN CCCC REQUEST >>>\n")
+        if sep and "\n<<< END CCCC REQUEST >>>" in tail:
+            messages.extend(json.loads(tail.split("\n<<< END CCCC REQUEST >>>", 1)[0])["messages"])
+    return messages
+
+
+def initialize_team(meta: dict[str, Any], evidence: Path) -> None:
+    """Wait for all four introductions and all twelve direct acknowledgments before timing."""
+    evidence.mkdir(mode=0o700)
+    if any(next(iter_history(meta, p, limit=1), None) for p in _PEERS):
+        raise LabError("Introductions require a fresh group with empty chat history")
+    prompts = {peer: introduction_prompt(meta, peer) for peer in _PEERS}
+    write_json(evidence / "prompts.json", prompts)
+    deadline = time.monotonic() + 300
+    with ThreadPoolExecutor(max_workers=len(_PEERS)) as pool:
+        kickoff = {
+            p: pool.submit(peer_control, meta, p, ["prompt", "--prompt", prompts[p]], 60)
+            for p in _PEERS
+        }
+        write_json(evidence / "dispatch.json", {p: job.result() for p, job in kickoff.items()})
+
+    expected = {
+        (a, b, f"Hello, I am {a}."): "introduction" for a in _PEERS for b in _PEERS if a != b
+    }
+    expected.update({(b, a, f"ACK {a} from {b}"): "ack" for a in _PEERS for b in _PEERS if a != b})
+    while time.monotonic() < deadline:
+        native = {peer: introduction_inputs(meta, peer) for peer in _PEERS}
+        histories = {peer: list(iter_history(meta, peer)) for peer in _PEERS}
+        events = {m["event_id"]: m for history in histories.values() for m in history}
+        routes = []
+        for (sender, recipient, text), kind in expected.items():
+            stored = [
+                m
+                for m in events.values()
+                if m.get("by") == sender
+                and m["data"].get("text") == text
+                and recipient in (m["data"].get("to") or [])
+            ]
+            stamps = {m["ts"] for m in stored}
+            received = [
+                m
+                for m in native[recipient]
+                if m["sender"] == sender and m["text"] == text and m["timestamp"] in stamps
+            ]
+            routes.append(
+                {
+                    "kind": kind,
+                    "from": sender,
+                    "to": recipient,
+                    "event_ids": [m["event_id"] for m in stored],
+                    "native_rows": received,
+                }
+            )
+        complete = all(r["event_ids"] and r["native_rows"] for r in routes)
+        readiness = {p: live_observation(meta, p) for p in _PEERS}
+        ready = complete and all(
+            state["can_accept_prompt_now"] is True for state in readiness.values()
+        )
+        write_json(
+            evidence / "exchange.json",
+            {
+                "status": "ready" if ready else "waiting",
+                "observed_ns": time.time_ns(),
+                "routes": routes,
+                "readiness": readiness,
+                "history": histories,
+                "native": native,
+            },
+        )
+        if ready:
+            return
+        time.sleep(2)
+    last = read_json(evidence / "exchange.json", label="initialization exchange")
+    last["status"] = "blocked"
+    write_json(evidence / "exchange.json", last)
+    raise LabError(
+        "Initialization timed out before all twelve introductions and twelve ACK deliveries were confirmed and the peers were ready"
+    )
+
+
 def command_window(args: argparse.Namespace) -> int:
     """Release the four peers once and seal their evidence at the common deadline."""
     meta = load_meta(args.run_meta)
     directory = Path(meta["evidence_root"]) / "window"
     directory.mkdir(mode=0o700)
+    initialize_team(meta, directory.parent / "initialization")
     history = {peer: list(iter_history(meta, peer)) for peer in _PEERS}
     write_json(directory / "history-before.json", history)
-    if any(history.values()):
-        raise LabError("Begin with a fresh group with empty chat history")
     baseline: dict[str, Any] = {}
     queue_enabled: dict[str, bool] = {}
     for peer in _PEERS:
@@ -1258,6 +1448,9 @@ def command_window(args: argparse.Namespace) -> int:
             or baseline[peer]["queue"].get("open_batch_count")
         ):
             raise LabError(f"{peer} is not ready for a clean release")
+    submission = Path(meta["team_submission"])
+    if os.path.lexists(submission):
+        raise LabError("Team submission must be empty at release")
     seconds = meta["manifest"]["duration_seconds"]
     stop = Event()
     with ThreadPoolExecutor(max_workers=len(_PEERS) * 3) as pool:
@@ -1270,7 +1463,7 @@ def command_window(args: argparse.Namespace) -> int:
             start_ns = time.time_ns()
             cutoff_ns = start_ns + seconds * 1_000_000_000
             deadline = datetime.fromtimestamp(cutoff_ns / 1e9, UTC).isoformat()
-            prompt = f"{_KICKOFF} The deadline is {deadline}."
+            prompt = _KICKOFF.format(minutes=seconds // 60, deadline=deadline)
             kickoffs = {
                 p: pool.submit(peer_control, meta, p, ["prompt", "--prompt", prompt], seconds + 10)
                 for p in _PEERS
@@ -1287,7 +1480,9 @@ def command_window(args: argparse.Namespace) -> int:
             time.sleep(max(0, start + seconds - time.monotonic()))
             stop.set()
             elapsed = time.monotonic() - start
+            selection = capture_source(submission, directory / "cutoff/team/solution.cu", cutoff_ns)
             frozen = {peer: capture_peer(meta, peer, directory, cutoff_ns) for peer in _PEERS}
+            frozen["team"] = {"sources": {"solution.cu": selection}}
             write_json(directory / "cutoff.json", frozen)
             write_json(directory / "timer.json", {"elapsed_seconds_at_capture": elapsed})
             interrupts = {p: pool.submit(peer_control, meta, p, ["interrupt"], 30) for p in _PEERS}
@@ -1380,37 +1575,71 @@ def command_verify_cuda(args: argparse.Namespace) -> int:
         for name in ("driver.cu", "kernel_api.cuh")
     }
     expected["Makefile"] = hashlib.sha256(workspace_makefile(source, arch)).hexdigest()
-    peers: dict[str, Any] = {}
+    sources: dict[str, Any] = {}
     candidates: dict[str, Any] = {}
-    for peer in _PEERS:
-        hashes = cutoff[peer]["sources"]
+    for owner in (*_PEERS, "team"):
+        hashes = cutoff[owner]["sources"]
         digest = hashes["solution.cu"].get("sha256")
-        path = directory / "cutoff" / peer / "solution.cu"
-        peers[peer] = {
-            "solution_sha256": digest,
-            "locked_file_mismatches": [
+        path = directory / "cutoff" / owner / "solution.cu"
+        entry = sources[owner] = {"solution_sha256": digest}
+        if owner in _PEERS:
+            entry["locked_file_mismatches"] = [
                 name for name, value in expected.items() if hashes[name].get("sha256") != value
-            ],
-        }
+            ]
         if (
             not digest
             or not path.is_file()
             or hashlib.sha256(path.read_bytes()).hexdigest() != digest
         ):
-            peers[peer]["error"] = "Frozen source unavailable or digest mismatch"
-        elif digest not in candidates:
-            try:
-                status = verify_candidate(meta, path, directory / "cuda" / digest, args.verify_dir)
-                candidates[digest] = {"exit_code": status}
-            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-                candidates[digest] = {"error": str(exc)}
-    report = {"peers": peers, "candidates": candidates}
+            entry["error"] = hashes["solution.cu"].get(
+                "error", "Frozen source unavailable or digest mismatch"
+            )
+            continue
+        if digest in candidates:
+            continue
+        evidence_dir = directory / "cuda" / digest
+        try:
+            status = verify_candidate(meta, path, evidence_dir, args.verify_dir)
+            result = read_json(evidence_dir / "independent-verify.json", label="verification")
+            candidate = candidates[digest] = {"exit_code": status, "status": result["status"]}
+            if status == 0:
+                times = [row["custom_ms"] for row in result["driver_result"]["workloads"]]
+                if all(
+                    isinstance(ms, (float, int))
+                    and not isinstance(ms, bool)
+                    and ms > 0
+                    and math.isfinite(ms)
+                    for ms in times
+                ):
+                    candidate["geomean_ms"] = geometric_mean(times)
+                else:
+                    candidate["error"] = "Invalid workload timing"
+        except (OSError, LabError, ValueError, subprocess.TimeoutExpired) as exc:
+            candidates[digest] = {"error": str(exc)}
+    selected = sources.pop("team")
+    digest = selected["solution_sha256"]
+    ranked = sorted(
+        (item["geomean_ms"], sha) for sha, item in candidates.items() if "geomean_ms" in item
+    )
+    selected["matching_peers"] = [
+        peer for peer, item in sources.items() if digest and digest == item["solution_sha256"]
+    ]
+    selected_ms = candidates.get(digest, {}).get("geomean_ms") if "error" not in selected else None
+    selected["rank"] = (
+        1 + sum(ms < selected_ms for ms, _ in ranked) if selected_ms is not None else None
+    )
+    selected["geomean_ms"] = selected_ms
+    complete = all("error" not in item for item in (*sources.values(), *candidates.values()))
+    report = {
+        "peers": sources,
+        "candidates": candidates,
+        "team_selection": selected,
+        "comparison_complete": complete,
+        "fastest_correct_hashes": [sha for ms, sha in ranked if ms == ranked[0][0]],
+    }
     write_json(directory / "cuda-results.json", report)
     print(json.dumps(report))
-    return int(
-        any("error" in item or item["locked_file_mismatches"] for item in peers.values())
-        or any(item.get("exit_code") != 0 for item in candidates.values())
-    )
+    return int(not complete or selected["rank"] != 1)
 
 
 def kill_private_tmux(run_dir: Path, socket_path: str | None) -> dict[str, Any]:
@@ -1491,10 +1720,12 @@ def command_stop(args: argparse.Namespace) -> int:
                         + str(grant["grant_id"])
                     )
                     result["grants"][peer] = {"http_status": response.status_code}
-                response = provider.delete(f"/api/v1/groups/{meta['group_id']}")
-                result["group_delete_http_status"] = response.status_code
+                if not args.keep_group:
+                    response = provider.delete(f"/api/v1/groups/{meta['group_id']}")
+                    result["group_delete_http_status"] = response.status_code
                 verification = provider.get(f"/api/v1/groups/{meta['group_id']}")
                 result["group_absent"] = verification.status_code == 404
+                result["group_retained"] = verification.status_code == 200
         except (httpx.HTTPError, OSError) as exc:
             result["group_cleanup_error"] = str(exc)
 
@@ -1528,7 +1759,10 @@ def command_stop(args: argparse.Namespace) -> int:
         failures.append("grant revocation")
     if result.get("private_run_absent") is False:
         failures.append("external credential directory")
-    if meta.get("group_id") and result.get("group_absent") is not True:
+    if (
+        meta.get("group_id")
+        and result.get("group_retained" if args.keep_group else "group_absent") is not True
+    ):
         failures.append("group cleanup")
     if any(item.get("absent") is not True for item in result["credentials"].values()):
         failures.append("credential cleanup")
@@ -1588,6 +1822,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     stop = commands.add_parser("stop")
     stop.add_argument("--run-meta", type=Path, required=True)
+    stop.add_argument("--keep-group", action="store_true", help="Retain the conversation in CCCC")
     stop.set_defaults(handler=command_stop)
 
     return parser

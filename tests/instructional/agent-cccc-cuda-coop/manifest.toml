@@ -13,7 +13,7 @@ max_wait_seconds = 15.0
 [team]
 peers = ["peer-a", "peer-b", "peer-c", "peer-d"]
 model = "Qwen/Qwen3.8-27B-FP8"
-duration_seconds = 300
+duration_seconds = 600
 
 [problems.gdn_prefill]
 id = "gdn_prefill"

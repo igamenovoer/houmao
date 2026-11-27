@@ -1,12 +1,14 @@
-# Spontaneous CCCC Chat During GDN Prefill Optimization
+# Team Selection Through CCCC During GDN Prefill Optimization
 
-The tester asks four independent Qwen 3.8 peers to optimize Gated Delta Net prefill. Use the default problem to find out whether a message a peer chooses to send reaches the intended teammate during normal CUDA work.
+The tester asks four Qwen 3.8 peers to produce one fast, correct Gated Delta Net prefill kernel. Observe how CCCC discussion affects the work and whether the peers publish their fastest correct implementation.
 
 ## Sub-cases
 
+- **Team introduction before timing.** The tester prompts each peer to introduce itself via CCCC to the other three. Require 12 delivered introductions and 12 delivered acknowledgments, with one of each on every directed route. Check stored event IDs against native recipient rows in `initialization/exchange.json`. Release the shared CUDA task only after all four peers are ready. Timed route counts exclude the initialization exchange.
+
 - **Default launch.** Four peers receive the same GDN starter, permissions, and kernel assignment in separate working directories.
 - **First delivery and subsequent traffic.** Trace the first attempted send, then account for every subsequent attempt until the deadline, including retries and sends to busy peers if they occur.
-- **Cutoff.** Preserve the communication evidence and the available GDN implementations at five minutes, including when all four peers are silent.
+- **Cutoff.** Preserve the communication evidence and the team submission and private GDN implementations at ten minutes, including when all four peers are silent.
 
 ## How to get to it (user POV)
 
@@ -22,11 +24,14 @@ Leave `PROBLEM_ID` unset and follow Launch and Doctor. Choose the same Web pool 
 
 **Quantified checks**
 
-- Four distinct sessions and actor bindings join one group using `Qwen/Qwen3.8-27B-FP8`. Four copies of the GDN starter have the same initial hash. Four native journals show one identical tester kickoff apiece. The recorded window spans exactly 300 seconds. Count zero tester discussion messages, nudges, relays, or consuming queue operations.
+- Four distinct sessions and actor bindings join one group using `Qwen/Qwen3.8-27B-FP8`. Four copies of the GDN starter have the same initial hash. Four native journals show one identical tester kickoff apiece. The recorded window spans exactly 600 seconds. Count zero tester discussion messages, nudges, relays, or consuming queue operations.
 - Apply the recipient-level checks to all attempted chat. Report confirmed, attempted, and unexercised directed routes out of 12, plus per-recipient delay and anomalies. A pass requires positive in-window delivery evidence. Zero sends gives `0/12` attempted and confirmed routes and `FAIL (insufficient evidence)`. A single confirmed send supports the named route on that occasion. [Grading communication](../README.md#grading-communication)
 - Record each peer’s frozen source hash or capture error. For each distinct source, report independent build and accuracy, input immutability, and timing for `prefill_balanced`, `prefill_ragged_init`, `prefill_long`, `extended_odd_tail`, and `extended_empty_and_long`. The driver checks both output and final state at `atol = rtol = 1e-3`. Include the geomean speedup for correct results and any locked-file mismatches.
+- Check the team’s `team/solution.cu` at the common cutoff. Record its frozen hash and rank against all distinct correct candidates by geometric mean latency. A missing entry fails selection. Report timing and correctness separately from communication.
 
 **Qualitative checks**
+
+Reconstruct a peer-initiated decision through CCCC and the downstream action it influenced. Cite a concrete recipient action or team selection using native rows and artifact evidence. Progress reports alone leave coordination unverified. Issue separate coordination, selection, and transport verdicts. [Grading team coordination and selection](../README.md#grading-team-coordination-and-selection)
 
 If a tool invocation, message match, or retry is ambiguous, quote the relevant sender and recipient rows in redacted form and explain what can be attributed to Houmao, CCCC, or peer behavior. A reply or useful idea can illustrate discussion. Neither is required for a successful delivery.
 

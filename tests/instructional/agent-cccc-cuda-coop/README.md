@@ -1,29 +1,29 @@
-# CCCC Chat During Five Minutes of CUDA Optimization
+# Ten-Minute Team CUDA Optimization Through CCCC
 
 Status: draft
 
-Can four Houmao-managed Web agents use CCCC chat reliably while they work on a kernel? The tester gives four Qwen 3.8 peers the same task, observes any discussion they initiate, and traces attempted messages to the intended native sessions. The first naturally delivered message is the first evidence that the path works. The run continues for the full five minutes to expose later failures and deliveries while a peer is busy.
+Can four Houmao-managed Qwen 3.8 peers use CCCC to organize their own work and choose their fastest correct kernel? After an all-peer introduction and acknowledgment exchange, the tester releases one team assignment and observes silently for ten minutes. Trace both the delivery of the messages and the effect of the discussion on implementation, measurement, or selection.
 
 ## Case Index
 
 | Case | Workload | Decision |
 | --- | --- | --- |
-| [GDN prefill](cases/four-agent-cuda-coop.md) | Manifest default, five verification shapes | Which directed routes carried the peers’ chat, and what happened to each attempted send? |
-| [Fused MoE](cases/manifest-problem-switch.md) | Explicit `--problem fused_moe`, four verification shapes | Does the same setup carry naturally occurring chat during a different optimization problem? |
+| [GDN prefill](cases/four-agent-cuda-coop.md) | Manifest default, five verification shapes | Did peer discussion influence the work, and did the team choose its fastest verified kernel? |
+| [Fused MoE](cases/manifest-problem-switch.md) | Explicit `--problem fused_moe`, four verification shapes | Can a fresh team coordinate and choose its fastest correct MoE implementation? |
 
-Start each case with a fresh group and four fresh sessions. Record the two results individually. Each run samples up to 12 directed routes. Limit conclusions to the workload, observed routes, and five-minute window.
+Start each case with a fresh group and four fresh sessions. Record the two results individually. Each run samples up to 12 directed routes. Limit conclusions to the workload, observed routes, and ten-minute window.
 
 ## Baseline and Isolation
 
 Use the Houmao checkout, Pixi, Bash, `jq`, `curl`, tmux, `make`, a CUDA compiler, and a GPU visible to `nvidia-smi`. Run one case at a time on that GPU. `ncu` and `nsys` are available to peers when installed. The independent verifier uses `nvcc`.
 
-Select one external DSH or Kimi Web model-pool entry for `Qwen/Qwen3.8-27B-FP8` with `HOUMAO_TEST_MODEL`. All four launches use that entry’s client, routing, reasoning settings, and tool configuration. Set `CCCC_ENDPOINT` to a running receiver-v2 CCCC service with timed push delivery. The tester also samples queue state when the provider advertises that capability. Use matching workspace builds of `houmao-mgr` and `houmao-cccc`. Keep credentials outside the checkout. [Fixture guide](../../../scripts/agents/test-fixtures/README.md) · [Plugin setup](../../../packages/houmao-cccc/README.md)
+Select one external Kimi Web model-pool entry for `Qwen/Qwen3.8-27B-FP8` with `HOUMAO_TEST_MODEL`. Omit `max_output_tokens` from the pool entry. The ten-minute deadline is the experiment’s only budget. The model still has its native context window. The current DSH fixture requires an explicit output-token limit, so use Kimi Web for this case. All four launches use the same client, routing, reasoning settings, and tools. Set `CCCC_ENDPOINT` to a running receiver-v2 CCCC service with timed push delivery. The tester also samples queue state when the provider advertises that capability. Use matching workspace builds of `houmao-mgr` and `houmao-cccc`. Keep credentials outside the checkout. [Fixture guide](../../../scripts/agents/test-fixtures/README.md) · [Plugin setup](../../../packages/houmao-cccc/README.md)
 
-Each peer starts in its own physical `workdir` with its own `solution.cu`, brief, locked driver, header, Makefile, and build products. “Private” is a working convention. The four sessions run as the same OS user and can access each other’s files. CCCC chat is the team discussion channel. Each peer may research, implement, measure, or speak whenever it chooses. CCCC may display its first actor as `foreman` in membership metadata. All four receive the same assignment and authority in this experiment.
+Each peer starts in its own physical `workdir` with its own `solution.cu`, brief, locked driver, header, Makefile, and build products. “Private” is a working convention. The four sessions run as the same OS user and can access each other’s files. CCCC chat is the team discussion channel. Every workspace has a link to the same initially empty team directory. Peers decide how to research, implement, and measure, who speaks, and when. They publish one chosen implementation to `team/solution.cu` by the deadline. CCCC may display its first actor as `foreman` in membership metadata. All four receive the same assignment and authority in this experiment.
 
 ## Launch
 
-From the checkout root, use one Bash shell for the case. Leave `PROBLEM_ID` unset for GDN. Set `PROBLEM_ID=fused_moe` for MoE. A run-private link under `tmp/instructional-tests/` points to the neutral runtime path. Launch prepares the four idle sessions before releasing any task.
+From the checkout root, use one Bash shell for the case. Leave `PROBLEM_ID` unset for GDN. Set `PROBLEM_ID=fused_moe` for MoE. A run-private link under `tmp/instructional-tests/` points to the neutral runtime path. Launch prepares four idle sessions in a fresh group.
 
 ```bash
 set -euo pipefail
@@ -67,7 +67,7 @@ mkdir -p "$EVIDENCE" "$RUN_TMP/runtime" "$RUN_TMP/scripts"
 peers=(peer-a peer-b peer-c peer-d)
 cleanup() {
   if [[ -s "$RUN_META" ]]; then
-    pixi run python "$LAB" stop --run-meta "$RUN_META" > "$EVIDENCE/stop.json"
+    pixi run python "$LAB" stop --keep-group --run-meta "$RUN_META" > "$EVIDENCE/stop.json"
   else
     for peer in "${peers[@]}"; do
       if [[ -s "$EVIDENCE/$peer-prepare.json" ]]; then
@@ -81,7 +81,10 @@ trap cleanup EXIT
 pixi run python "$LAB" show-manifest "${problem_args[@]}" > "$EVIDENCE/manifest-resolved.json"
 model=$(jq -er '.team_model' "$EVIDENCE/manifest-resolved.json")
 pixi run python "$FIXTURE" check --pool-key "$HOUMAO_TEST_MODEL" --mode web --surface manager --live > "$EVIDENCE/pool-check.json"
-jq -e --arg model "$model" '.configuration.model == $model' "$EVIDENCE/pool-check.json" >/dev/null
+jq -e --arg model "$model" '
+  .configuration.model == $model and
+  (.configuration.model_options | type == "object" and .max_output_tokens == null)
+' "$EVIDENCE/pool-check.json" >/dev/null
 for peer in "${peers[@]}"; do
   prompt="$RUN_TMP/runtime/$peer.md"
   { cat "$BUNDLE_ROOT/helpers/prompts/common.md"; echo; cat "$BUNDLE_ROOT/helpers/prompts/$peer.md"; } > "$prompt"
@@ -110,13 +113,16 @@ Require four distinct managed sessions, actor identities, bindings, and workdirs
 ```bash
 window_exit=0
 pixi run python "$LAB" run-window --run-meta "$RUN_META" > "$EVIDENCE/window.json" 2> "$EVIDENCE/window.stderr" || window_exit=$?
-collection_exit=0
-pixi run python "$LAB" collect --run-meta "$RUN_META" > "$EVIDENCE/collect.json" 2> "$EVIDENCE/collect.stderr" || collection_exit=$?
+collection_exit=125
+if [[ -s "$EVIDENCE/window/cutoff.json" ]]; then
+  collection_exit=0
+  pixi run python "$LAB" collect --run-meta "$RUN_META" > "$EVIDENCE/collect.json" 2> "$EVIDENCE/collect.stderr" || collection_exit=$?
+fi
 ```
 
-`run-window` saves initial journal offsets, file hashes, queue state, and empty group history. It submits the same kernel assignment with the same absolute deadline to all four peers concurrently. The five minutes start at dispatch. Inspect each native journal for the identical kickoff and report any dispatch skew. During the window the tester observes gateway health, bindings, and queues using read-only calls. Let the clock run through silence, idle periods, and active work. The tester sends zero follow-ups and performs zero queue pops or acknowledgments.
+`run-window` first sends one initialization prompt to each peer. Each broadcasts its introduction and sends three direct CCCC acknowledgments. The tester matches the addressed CCCC events to native delivery fences or successful queue-pop results and waits for four ready peers. The setup watchdog allows five minutes, independently of the CUDA clock. An incomplete exchange blocks task release. Report introduction and ACK coverage separately out of 12, with missing routes from `initialization/exchange.json`. After initialization, the helper records the post-exchange history, native journal offsets, source hashes, and queue state. It submits the same kernel assignment with the same absolute deadline to all four peers concurrently. The ten minutes start at dispatch. Inspect each native journal for the identical kickoff and report any dispatch skew. During the window the tester observes gateway health, bindings, and queues using read-only calls. Let the clock run through silence, idle periods, and active work. The tester sends zero follow-ups and performs zero queue pops or acknowledgments.
 
-At 300 seconds the helper records journal end offsets and freezes the available source files, then requests an interrupt on each run-owned session. It records capture times and rejects source files that changed after the deadline. `collect` copies the bounded native journal excerpts and reads each actor’s paginated history and each sender’s delivery receipts before teardown. Filter by the release and cutoff timestamps. A receipt retrieved later may describe later work. Record an uncertain boundary when native append times or pre-cutoff journal offsets cannot establish which side of the deadline a record belongs to. The timestamp inside the CCCC fence identifies the original send. For a post-cutoff binding check, keep the observation time and the interrupt time distinct.
+At 600 seconds the helper first freezes the shared submission, then records journal end offsets and freezes the available source files, then requests an interrupt on each run-owned session. It records capture times and rejects source files that changed after the deadline. `collect` copies the bounded native journal excerpts and reads each actor’s paginated history and each sender’s delivery receipts before teardown. Filter by the release and cutoff timestamps. A receipt retrieved later may describe later work. Record an uncertain boundary when native append times or pre-cutoff journal offsets cannot establish which side of the deadline a record belongs to. The timestamp inside the CCCC fence identifies the original send. For a post-cutoff binding check, keep the observation time and the interrupt time distinct.
 
 ## Evidence
 
@@ -124,15 +130,22 @@ Store raw evidence in `$EVIDENCE`, accessible through the operator link. Keep it
 
 | Question | Evidence |
 | --- | --- |
+| Did the introductory messages reach every peer? | `initialization/prompts.json`, `dispatch.json`, and `exchange.json` identify the prompts, directed routes, stored events, native journal rows, and peer readiness before task release. |
 | Did four peers get a fair start? | `manifest-resolved.json`, `pool-check.json`, four prepare and launch receipts, `configure.json`, `doctor.json`, `delivery.json`, `window/baseline.json`, `window/history-before.json`, `window/release.json`, `window/kickoffs.json`, and the four native kickoff rows |
 | What did the tester observe? | `window/*-observations.jsonl` records host timestamps, status, binding identity, and available non-consuming queue snapshots. Each sample also records journal byte offsets, which can confirm that a row existed before cutoff. Compare each actor’s final read-only `window/communication/<peer>/binding-after.json` to its initial binding before teardown. Inspect any gaps, disconnects, and changes in binding or session identity. |
 | What happened to each attempted send? | Sender tool call and result, `window/communication/<peer>/history.json`, `deliveries-*.json` in the sender’s evidence, and the recipient’s native journal excerpt under `window/communication/<peer>/runtime/homes/`. `window/collection.json` lists capture errors. |
 | What was available at the deadline? | `window/timer.json`, `window/cutoff.json`, `window/cutoff/<peer>/`, and `window/interrupts.json`. Capture times bound any uncertainty at the deadline. |
-| Which CUDA implementations worked? | `window/cuda-results.json` maps peers to source hashes and locked-file mismatches. Under `window/cuda/<sha256>/`, `independent-verify.json` records the clean build and driver result, including workload timings. `solution-diff.patch` shows the change from the starter. |
+| Which CUDA implementations worked? | `window/cuda-results.json` records the submitted source hash, its rank, matching private sources, fastest correct hashes, and any incomplete comparisons. Under `window/cuda/<sha256>/`, `independent-verify.json` records the clean build and driver result, including workload timings. `solution-diff.patch` shows the change from the starter. |
+
+### Grading Team Coordination and Selection
+
+Trace a concrete decision during the timed task. Cite the CCCC event, the recipient’s native read or incoming message, and a subsequent action that depended on it. Examples include volunteering for an investigation another peer then leaves to them, testing a teammate’s variant, applying a suggested change, or using another peer’s timing to decide which code to ship. Tie the action to a command, source, timing result, or published hash. Introductions, acknowledgments, parallel progress reports, and an unanswered proposal establish no such dependency. Report coordination as `PASS` when the trace supports it, otherwise `FAIL (insufficient evidence)`. No speaking quota, assigned role, or handoff sequence applies.
+
+The source frozen at `window/cutoff/team/solution.cu` is the team's entry. Build it and each distinct frozen private implementation against the authoritative driver after stopping all peers. Rank correct candidates by the geometric mean of their per-workload median kernel times (`custom_ms`, lower wins). Record the chosen hash, matching peers, rank among distinct correct hashes, per-shape timings, and any incomplete comparison. Mark selection `PASS` when the team submitted a correct first-ranked or tied-first kernel and all frozen alternatives could be assessed. An absent or late submission fails selection even if a private candidate won. With only one distinct correct implementation, describe how little its rank establishes. Treat small timing differences as measured on this run. The team objective requires both coordination and selection to pass. Give delivery its own verdict below.
 
 ### Grading Communication
 
-Start with actual send and reply attempts in the four sender journals, including errors before an event was stored. Merge copies of a stored event by `event_id`. For each intended recipient, record the sender, operation or event ID, destination, send time, receipt attempts and states, native journal location, and observed delivery time. Resolve recipients from the actual send/reply addressing and group membership. Visibility in a history query alone cannot establish delivery.
+Exclude the events in `window/history-before.json` and the native rows before the baseline offsets from the timed verdict. Start with actual send and reply attempts in the four timed sender journals, including errors before an event was stored. Merge copies of a stored event by `event_id`. For each intended recipient, record the sender, operation or event ID, destination, send time, receipt attempts and states, native journal location, and observed delivery time. Resolve recipients from the actual send/reply addressing and group membership. Visibility in a history query alone cannot establish delivery.
 
 Match each receipt to a native CCCC input fence or a successful consuming **peer** tool result using the actor, sender, timestamp, mode, and text. Confirm reply linkage when present. Count a logical message once per intended recipient. Distinguish receipt retries from duplicate native deliveries. Check the other journals for misroutes, including in multi-recipient sends. Count user-input errors, service rejections, accepted events, confirmed recipients, late or still-pending deliveries, missing evidence, wrong recipients, and unexplained duplicates separately. Record the delay where timestamps support it and whether the recipient appeared busy. If a peer reads content through history or a non-consuming peek, record that the message was visible to that peer. Count it separately from a gateway handoff or a consuming read. Re-reading history creates no duplicate handoff.
 
@@ -140,7 +153,7 @@ Report confirmed and attempted directed routes out of 12. For a communication `P
 
 ## Cleanup
 
-Collect communication evidence before deleting the group. Stop only this run’s four sessions and private sockets. Verify each distinct frozen source once on the idle GPU against the authoritative driver and header. If an agent survives cleanup, resolve its recorded run-owned process before timing kernels.
+Collect communication evidence and retain the group for inspection in CCCC. Stop only this run’s four sessions and private sockets. Verify each distinct frozen source once on the idle GPU against the authoritative driver and header. If an agent survives cleanup, resolve its recorded run-owned process before timing kernels.
 
 ```bash
 trap - EXIT
@@ -157,11 +170,11 @@ jq -n --argjson w "$window_exit" --argjson c "$collection_exit" --argjson s "$cl
 find "$EVIDENCE" -type f ! -name evidence-check.txt | sort > "$EVIDENCE/evidence-check.txt"
 ```
 
-Inspect `stop.json` for all four stop receipts, run-owned tmux cleanup, grant revocations, group absence, and credential removal. Record any residue and its exact owner. Keep the evidence, run metadata, and all cited artifacts. Runtime builds can be discarded after verification. On an interrupted or partial launch, the exit trap uses the metadata or the individual fixture receipts to clean up. Preserve the failed step’s diagnostics and assign `BLOCKED` if setup prevented a valid drive. Use `VERIFIED-UNREACHABLE` for a demonstrated unavailable external prerequisite.
+Inspect `stop.json` for all four stop receipts, run-owned tmux cleanup, grant revocations, group retention, and credential removal. Record any residue and its exact owner. Keep the evidence, run metadata, and all cited artifacts. Runtime builds can be discarded after verification. On an interrupted or partial launch, the exit trap uses the metadata or the individual fixture receipts to clean up. Preserve the failed step’s diagnostics and assign `BLOCKED` if setup prevented a valid drive. Use `VERIFIED-UNREACHABLE` for a demonstrated unavailable external prerequisite.
 
 ### Run Report
 
-After cleanup, write a redacted Markdown report to the operator’s explicit destination, otherwise under `IMSIGHT_SKILL_OUTPUT_DIR` if set (relative paths resolve from the checkout root). The default is `$REPO_ROOT/.imsight-arts/project-mgr/agent-driven-testing/reports/$RUN_ID.md`. Include checkout and tool versions, model and pool key, group and window, attempted sends, recipient-level outcomes, route coverage, timing uncertainty, and one communication verdict for the case. Cite one concrete end-to-end trace or the first failed checkpoint. Record CUDA results, interference, cleanup, and usability issues separately. Both cases remain draft until a live report supports promotion.
+After cleanup, write a redacted Markdown report to the operator’s explicit destination, otherwise under `IMSIGHT_SKILL_OUTPUT_DIR` if set (relative paths resolve from the checkout root). The default is `$REPO_ROOT/.imsight-arts/project-mgr/agent-driven-testing/reports/$RUN_ID.md`. Include checkout and tool versions, model and pool key, group and window, attempted sends, recipient-level outcomes, route coverage, timing uncertainty, and separate verdicts for coordination, kernel selection, and message delivery. Include the retained group URL. Cite one concrete end-to-end trace or the first failed checkpoint. Record CUDA results, interference, cleanup, and usability issues separately. Both cases remain draft until a live report supports promotion.
 
 ## Helpers
 

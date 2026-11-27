@@ -4,7 +4,7 @@ NVCC_FLAGS ?= -O3 -std=c++17 -arch=$(ARCH) --use_fast_math
 NCU ?= ncu
 NSYS ?= nsys
 
-.PHONY: build run run-json profile-ncu profile-nsys clean
+.PHONY: build run run-all run-json profile-ncu profile-nsys clean
 
 build: run_kernel
 
@@ -17,6 +17,12 @@ run: build
 run-json: build
 	./run_kernel --json
 
+run_kernel_all: driver.cu solution.cu kernel_api.cuh
+	$(NVCC) $(NVCC_FLAGS) -DEXTENDED_SHAPES=1 driver.cu solution.cu -o $@
+
+run-all: run_kernel_all
+	./run_kernel_all --json
+
 profile-ncu: build
 	$(NCU) --metrics sm__throughput.avg.pct_of_peak_sustained_elapsed,dram__throughput.avg.pct_of_peak_sustained_elapsed,sm__warps_active.avg.pct_of_peak_sustained_active,launch__registers_per_thread ./run_kernel --profile-only
 
@@ -24,4 +30,4 @@ profile-nsys: build
 	$(NSYS) profile --stats=true --force-overwrite=true -o profile_trace ./run_kernel --profile-only
 
 clean:
-	rm -f run_kernel profile_trace.nsys-rep profile_trace.sqlite
+	rm -f run_kernel run_kernel_all profile_trace.nsys-rep profile_trace.sqlite
