@@ -11,36 +11,40 @@ import re
 import shlex
 import shutil
 import signal
-import socket
 import subprocess
 import sys
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.error import URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
+import click
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
 from houmao.agents.hermes_configuration import resolve_hermes_executable
 from houmao.agents.launch_env import owner_launch_baseline, owner_tmux_launch_environment
+from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
 from houmao.agents.realm_controller.gateway_access_runtime import owner_gateway_client_binding
 from houmao.agents.realm_controller.gateway_models import (
     GatewayControlInputRequestV1,
     GatewayPromptControlRequestV1,
+    GatewayStatusV1,
 )
 from houmao.agents.realm_controller.manifest import (
     load_session_manifest,
     parse_session_manifest_payload,
 )
 from houmao.agents.realm_controller.native_surface import NativeSurfaceV1, TerminalNativeSurfaceV1
+from houmao.agents.realm_controller.registry_storage import load_managed_agent_record_by_agent_id
+from houmao.agents.realm_controller.runtime import require_active_managed_control_manifest
 from houmao.execution.tmux import TmuxCommandError, TmuxServer, tmux_server_scope
 from houmao.execution.tmux_selection import TmuxServerSelector, resolve_tmux_server
 from houmao.gateway.client import GatewayClient, GatewayHttpError
-from houmao.owned_paths import resolve_registry_root
+from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, resolve_registry_root
 
 from fixturelib.auth import private_write, validate_native_bundle, write_json
 from fixturelib.config import FixtureError, ResolvedConfig
@@ -52,7 +56,11 @@ from fixturelib.prepare import (
     load_run,
     manager_call,
     manager_root_call,
+    manager_selected_call,
 )
+
+if TYPE_CHECKING:
+    from houmao.srv_ctrl.commands.managed_agents import ManagedAgentTarget, VerifiedRegistryManifest
 
 _VERSION_OUTPUT = re.compile(
     r"(?:codex-cli )?(\d{1,4}\.\d{1,4}\.\d{1,4}(?:[-+][\w.-]{1,40})?)(?: \(Claude Code\))?"
@@ -160,6 +168,9 @@ def public_run(run: dict[str, Any]) -> dict[str, Any]:
         "error",
         "cleanup",
         "gateway_cleanup",
+        "manager_exit_code",
+        "diagnostic_path",
+        "cleanup_diagnostic_path",
         "prerequisites",
         "usage",
         "client_version",
@@ -198,7 +209,7 @@ def _http(base: str, path: str, body: dict[str, Any] | None = None) -> dict[str,
     return result
 
 
-def manager_gateway(run: dict[str, Any]) -> GatewayClient:
+def manager_gateway(run: dict[str, Any], *, generation_id: str | None = None) -> GatewayClient:
     """Bind requests to the captured gateway and current fixture self signer."""
 
     identity = run["identity"]
@@ -210,19 +221,23 @@ def manager_gateway(run: dict[str, Any]) -> GatewayClient:
                 private=True,
                 prefer_self=True,
             )
-        if binding is None:
-            raise ValueError("Missing current fixture binding")
+        if binding is None or (generation_id is not None and generation != generation_id):
+            raise ValueError("Missing or changed fixture gateway binding")
         return GatewayClient(binding=binding, target_incarnation=generation, timeout_seconds=20)
     except (KeyError, OSError, RuntimeError, ValueError):
         raise FixtureError("Current fixture gateway authority is unavailable") from None
 
 
 def _gateway_request(
-    run: dict[str, Any], path: str, body: dict[str, Any] | None = None
+    run: dict[str, Any],
+    path: str,
+    body: dict[str, Any] | None = None,
+    *,
+    generation_id: str | None = None,
 ) -> dict[str, Any]:
     """Call a fixture-owned gateway operation with owner-local proof."""
 
-    client = manager_gateway(run)
+    client = manager_gateway(run, generation_id=generation_id)
     try:
         if path == "/v1/usage":
             return client.get_usage().model_dump(mode="json")
@@ -646,28 +661,186 @@ def _owned_raw_tui_session(run: dict[str, Any], server: TmuxServer) -> str | Non
     return session_id
 
 
-def _record_managed_tmux(run: dict[str, Any]) -> None:
-    """Read the managed launch's concrete socket from its own runtime manifest."""
+def _captured_manifest_path(run: dict[str, Any]) -> Path:
+    """Select only the canonical manifest recorded in the private fixture run."""
 
-    identity = run["identity"]
-    path = Path(identity["manifest_path"]).resolve()
-    if not path.is_relative_to(Path(run["run_dir"])):
+    identity = run.get("identity")
+    raw_path = identity.get("manifest_path") if isinstance(identity, dict) else None
+    if not isinstance(raw_path, str) or not raw_path:
+        raise FixtureError("Managed fixture has no captured manifest authority")
+    path = Path(raw_path)
+    if not path.is_absolute() or path.resolve() != path or not path.is_relative_to(run["run_dir"]):
         raise FixtureError("Managed fixture manifest lies outside the private run")
+    return path
+
+
+def _manager_lineage(run: dict[str, Any], manifest: SessionManifestPayloadV4) -> dict[str, Any]:
+    """Check that the manifest belongs to the fixture and return its stable owner facts."""
+
+    config = run["configuration"]
+    registry_root = str(Path(run["run_dir"]) / "registry")
+    binding = manifest.runtime.execution_binding
+    if (
+        manifest.agent_id != run["identity"].get("agent_id")
+        or (manifest.tool, manifest.mode, manifest.backend)
+        != (config["client"], config["mode"], run["backend"])
+        or manifest.working_directory != run["workdir"]
+        or manifest.registry_launch_authority != "runtime"
+        or not manifest.runtime.session_id
+        or binding is None
+        or binding.registry_root != registry_root
+        or manifest.tmux is None
+        or manifest.tmux.socket_path is None
+        or (binding.tmux_socket is not None and binding.tmux_socket != manifest.tmux.socket_path)
+    ):
+        raise FixtureError("Managed fixture runtime does not match the captured owner and identity")
+    return {
+        "session_id": manifest.runtime.session_id,
+        "execution_binding": binding.model_dump(mode="json"),
+    }
+
+
+def _record_managed_tmux(run: dict[str, Any]) -> None:
+    """Capture the managed launch's verified socket and runtime lineage."""
+
+    path = _captured_manifest_path(run)
+    identity = run["identity"]
     try:
         manifest = parse_session_manifest_payload(
             load_session_manifest(path).payload, source=str(path)
         )
     except (SessionManifestError, ValueError) as exc:
         raise FixtureError("Cannot read the managed fixture's runtime binding") from exc
-    if (
-        manifest.agent_id != identity["agent_id"]
-        or manifest.tmux is None
-        or manifest.tmux.socket_path is None
-    ):
-        raise FixtureError("Managed fixture manifest does not match the launched identity")
+    lineage = _manager_lineage(run, manifest)
+    assert manifest.tmux is not None
     if manifest.tmux.session_name != identity.get("tmux_session_name"):
         raise FixtureError("Managed fixture manifest does not match the launched session")
     run["tmux_socket_path"] = manifest.tmux.socket_path
+    run["manager_lineage"] = lineage
+    identity["generation_id"] = manifest.registry_generation_id
+
+
+def _select_manager_fixture(
+    run: dict[str, Any],
+) -> tuple[ManagedAgentTarget, VerifiedRegistryManifest]:
+    """Verify one captured local fixture with no selector, pair, or name fallback."""
+
+    from houmao.srv_ctrl.commands.managed_agents import (
+        VerifiedRegistryManifest,
+        read_selected_manifest,
+        select_local_managed_agent_record,
+    )
+
+    manifest_path = _captured_manifest_path(run)
+    identity = run["identity"]
+    agent_id = identity.get("agent_id")
+    if not isinstance(agent_id, str) or not agent_id:
+        raise FixtureError("Managed fixture has no captured agent identity")
+    registry = Path(run["run_dir"]) / "registry"
+    if registry.resolve() != registry:
+        raise FixtureError("Managed fixture registry lies outside the private run")
+    try:
+        record = load_managed_agent_record_by_agent_id(
+            agent_id, env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: str(registry)}
+        )
+        if record is None:
+            raise FixtureError("Captured managed fixture authority is unavailable")
+        if (record.agent_id, record.runtime.manifest_path) != (agent_id, str(manifest_path)):
+            raise FixtureError("Registered runtime does not match the captured fixture manifest")
+        if record.lifecycle.state not in {"active", "stopped"}:
+            raise FixtureError("Captured managed fixture lifecycle is unresolved")
+        target = select_local_managed_agent_record(record, agent_ref=agent_id)
+        authority = read_selected_manifest(target)
+    except FixtureError:
+        raise
+    except (OSError, ValueError, SessionManifestError, click.ClickException):
+        raise FixtureError("Cannot verify the captured managed fixture authority") from None
+    if not isinstance(authority, VerifiedRegistryManifest):
+        raise FixtureError("Captured managed fixture does not have a local registry authority")
+    lineage = _manager_lineage(run, authority.payload)
+    saved_lineage = run.get("manager_lineage")
+    if saved_lineage is not None and saved_lineage != lineage:
+        raise FixtureError("Registered runtime does not match the captured fixture lineage")
+    tmux = authority.payload.tmux
+    assert tmux is not None
+    if tmux.socket_path != run.get("tmux_socket_path"):
+        raise FixtureError("Registered runtime does not match the captured fixture socket")
+    run["manager_lineage"] = lineage
+    return target, authority
+
+
+def _require_current_manager_fixture(authority: VerifiedRegistryManifest) -> None:
+    """Fence an imminent effect to the selected registry generation and local owner."""
+
+    record = authority.record
+    require_active_managed_control_manifest(
+        authority.manifest_path,
+        generation_id=record.generation_id,
+        agent_id=record.agent_id,
+        execution_binding=record.execution_binding,
+    )
+
+
+def _refresh_manager_snapshot(
+    run: dict[str, Any],
+    authority: VerifiedRegistryManifest,
+    *,
+    gateway_status: GatewayStatusV1 | None = None,
+) -> None:
+    """Update observed metadata while keeping the captured fixture's stable identity."""
+
+    identity = run["identity"]
+    manifest = authority.payload
+    tmux = manifest.tmux
+    assert tmux is not None
+    native = manifest.native_surface
+    identity["native_surface"] = native.model_dump(mode="json") if native is not None else None
+    run["native_surface"] = identity["native_surface"]
+    identity["tmux_session_name"] = tmux.session_name
+    if (
+        identity.get("generation_id") != authority.record.generation_id
+        or gateway_status is not None
+    ):
+        for key in ("gateway_host", "gateway_port", "gateway_tmux_window_index"):
+            identity.pop(key, None)
+    if gateway_status is not None and gateway_status.gateway_health == "healthy":
+        identity["gateway_host"] = gateway_status.gateway_host
+        identity["gateway_port"] = gateway_status.gateway_port
+    identity["generation_id"] = authority.record.generation_id
+
+    if authority.record.lifecycle.state == "active":
+        run["status"] = "launched"
+        run.pop("cleanup", None)
+        run.pop("gateway_cleanup", None)
+
+
+def _prepare_manager_prompt(
+    run: dict[str, Any],
+) -> tuple[ManagedAgentTarget, VerifiedRegistryManifest]:
+    """Refresh the captured active runtime and any gateway used for fixture input."""
+
+    from houmao.srv_ctrl.commands.managed_agents import gateway_status
+
+    with command_environment(run_environment(run)):
+        target, authority = _select_manager_fixture(run)
+        if authority.record.lifecycle.state != "active":
+            raise FixtureError("Captured managed fixture is stopped; relaunch it before prompting")
+        try:
+            _require_current_manager_fixture(authority)
+        except (OSError, ValueError, SessionManifestError):
+            raise FixtureError("Captured managed fixture generation is no longer active") from None
+        status = None
+        gateway_failed = False
+        if run["configuration"]["client"] != "hermes":
+            try:
+                status = gateway_status(target)
+            except click.ClickException:
+                gateway_failed = True
+        _refresh_manager_snapshot(run, authority, gateway_status=status)
+    _save(run)
+    if gateway_failed:
+        raise FixtureError("Current fixture gateway authority is unavailable")
+    return target, authority
 
 
 def _passive_launch(run: dict[str, Any], base_url: str) -> dict[str, Any]:
@@ -732,6 +905,7 @@ def launch_run(
         raise FixtureError("Client executable is unavailable; prepare a fresh fixture run")
     run["status"] = "launching"
     _save(run)
+    initial_prompt = False
     try:
         if config["client"] != "hermes":
             version = subprocess.run(
@@ -800,6 +974,7 @@ def launch_run(
         if config["client"] == "hermes" and config["mode"] == "tui":
             prompt_after_launch = True
         if prompt and prompt_after_launch:
+            initial_prompt = True
             return prompt_run(path, prompt=prompt, timeout=timeout)
         return public_run(run)
     except (
@@ -809,17 +984,42 @@ def launch_run(
         subprocess.SubprocessError,
         TmuxCommandError,
     ) as exc:
-        if isinstance(exc, ManagedCommandError):
-            run["identity"] = exc.payload
+        if initial_prompt:
+            with suppress(FixtureError):
+                observed = load_run(path)
+                captured_identity = run.get("identity", {})
+                observed_identity = observed.get("identity", {})
+                if all(
+                    captured_identity.get(key) == observed_identity.get(key)
+                    for key in ("agent_id", "manifest_path", "tracked_agent_id")
+                ):
+                    run = observed
+        elif isinstance(exc, ManagedCommandError) and (
+            exc.payload.get("agent_id") or exc.payload.get("manifest_path")
+        ):
+            run["identity"] = dict(exc.payload)
+            run["identity"].pop("gateway_auto_attach_error", None)
             if exc.payload.get("agent_id") and exc.payload.get("manifest_path"):
                 with suppress(FixtureError, OSError):
                     _record_managed_tmux(run)
+        if isinstance(exc, ManagedCommandError):
+            run.update(exc.diagnostic_reference())
         run["status"] = "launch_failed"
         run["error"] = "Launch failed; private run state retained for inspection"
         _save(run)
-        _cleanup(run)
+        try:
+            _cleanup(run)
+        except ManagedCommandError as cleanup_error:
+            if diagnostic_path := cleanup_error.diagnostic_reference().get("diagnostic_path"):
+                run["cleanup_diagnostic_path"] = diagnostic_path
+        except FixtureError:
+            pass
+        run["status"] = "launch_failed"
         _save(run)
-        raise FixtureError(f"Launch failed; inspect {path / 'report.json'}") from exc
+        message = f"Launch failed; inspect {path / 'report.json'}"
+        if isinstance(exc, ManagedCommandError):
+            raise exc.with_message(message) from exc
+        raise FixtureError(message) from exc
 
 
 def _record_native_surface(run: dict[str, Any]) -> None:
@@ -846,9 +1046,12 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
     """Continue an owned raw or managed headless session, or send direct TUI input."""
 
     run = load_run(path)
-    if run["status"] != "launched":
-        raise FixtureError("Prompt requires a launched run")
     config = run["configuration"]
+    manager_selection = None
+    if config["surface"] == "manager" and run.get("identity"):
+        manager_selection = _prepare_manager_prompt(run)
+    elif run["status"] != "launched":
+        raise FixtureError("Prompt requires a launched run")
     identity = run.get("identity", {})
     if config["surface"] == "raw":
         if config["mode"] == "web":
@@ -913,28 +1116,62 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             _save(run)
             raise FixtureError("Managed headless turn did not complete")
     elif config["client"] == "hermes":
-        receipt = manager_root_call(
-            ["agents", "single", "--agent-id", identity["agent_id"], "prompt", "--prompt", prompt],
+        from houmao.srv_ctrl.commands.managed_agents import prompt_managed_agent
+
+        if manager_selection is None:
+            raise FixtureError("Managed fixture has no captured agent identity")
+        target, authority = manager_selection
+
+        def send_selected_prompt() -> object:
+            """Submit once to the exact runtime generation read by the fixture."""
+
+            _require_current_manager_fixture(authority)
+            return prompt_managed_agent(target, prompt=prompt)
+
+        receipt = manager_selected_call(
+            "prompt",
+            send_selected_prompt,
             env=run_environment(run),
+            private_values=(prompt,),
         )
         delivery = receipt.get("delivery_state", "uncertain")
         run.setdefault("turns", []).append(
             {"request_id": receipt.get("request_id"), "status": delivery}
         )
-        if not receipt.get("success") or delivery not in {"handed_off", "completed"}:
+        if not receipt.get("success") or delivery not in {"queued", "handed_off", "completed"}:
             _save(run)
             raise FixtureError("Managed Hermes prompt outcome was not verified")
     else:
+        if manager_selection is None:
+            raise FixtureError("Managed fixture has no captured agent identity")
+        _, authority = manager_selection
+        generation = authority.record.generation_id
+
+        def selected_gateway_request(
+            route: str, body: dict[str, Any] | None = None
+        ) -> dict[str, Any]:
+            """Keep input and follow-up reads on the same verified generation."""
+
+            if body is not None:
+                try:
+                    with command_environment(run_environment(run)):
+                        _require_current_manager_fixture(authority)
+                except (OSError, ValueError, SessionManifestError):
+                    raise FixtureError(
+                        "Captured managed fixture generation changed before input"
+                    ) from None
+            return _gateway_request(run, route, body, generation_id=generation)
+
         if config["mode"] == "tui":
-            _gateway_request(
-                run, "/v1/control/send-keys", {"sequence": prompt, "escape_special_keys": True}
+            selected_gateway_request(
+                "/v1/control/send-keys", {"sequence": prompt, "escape_special_keys": True}
             )
             time.sleep(0.25)
-            _gateway_request(run, "/v1/control/send-keys", {"sequence": "<[Enter]>"})
+            selected_gateway_request("/v1/control/send-keys", {"sequence": "<[Enter]>"})
         else:
-            before = _gateway_request(run, "/v1/usage")
+            before = selected_gateway_request("/v1/usage")
             previous = {record["record_id"] for record in before["records"]}
-            accepted = _gateway_request(run, "/v1/control/prompt", {"prompt": prompt})
+            accepted = selected_gateway_request("/v1/control/prompt", {"prompt": prompt})
             require_operation_id = (
                 config["mode"] in {"service", "web"} or run.get("backend") == "dsh_headless"
             )
@@ -943,7 +1180,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
                 raise FixtureError("Managed prompt has no exact admitted operation identity")
             deadline = time.monotonic() + timeout
             while True:
-                usage = _gateway_request(run, "/v1/usage")
+                usage = selected_gateway_request("/v1/usage")
                 rows = [
                     record
                     for record in usage["records"]
@@ -967,7 +1204,7 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
             # The ledger may finalize before the current gateway worker releases
             # execution ownership. Finish observing that same successful turn;
             # this never waits on or retries a subsequent prompt mutation.
-            while _gateway_request(run, "/v1/status").get("active_execution") == "running":
+            while selected_gateway_request("/v1/status").get("active_execution") == "running":
                 if time.monotonic() >= deadline:
                     raise FixtureError(
                         "Completed usage is available but the current execution has not settled"
@@ -977,12 +1214,44 @@ def prompt_run(path: Path, *, prompt: str, timeout: float = 300) -> dict[str, An
     return public_run(run)
 
 
+def _stop_manager_fixture(run: dict[str, Any]) -> None:
+    """Stop the verified captured generation or confirm that it already stopped."""
+
+    from houmao.srv_ctrl.commands.managed_agents import stop_managed_agent
+
+    env = run_environment(run)
+    with command_environment(env):
+        target, authority = _select_manager_fixture(run)
+    _refresh_manager_snapshot(run, authority)
+    if authority.record.lifecycle.state == "stopped":
+        return
+
+    def stop_selected() -> object:
+        """Use the normal manager stop, including its current gateway teardown."""
+
+        _require_current_manager_fixture(authority)
+        result = stop_managed_agent(target)
+        if not result.success:
+            raise click.ClickException(result.detail)
+        return result
+
+    manager_selected_call("stop", stop_selected, env=env)
+
+
 def _cleanup(run: dict[str, Any]) -> None:
     """Stop only identities captured by this run; preserve its private evidence."""
 
     identity = run.get("identity", {})
     config = run["configuration"]
     stopped_owned = bool(identity)
+    if config["surface"] == "manager" and identity:
+        try:
+            _stop_manager_fixture(run)
+        except FixtureError:
+            run["cleanup"] = "failed_requires_scoped_follow_up"
+            raise
+        run["cleanup"] = "stopped_owned_identity"
+        return
     try:
         if config["surface"] == "raw" and config["mode"] == "web":
             if run.get("raw_web_state"):
@@ -1009,14 +1278,6 @@ def _cleanup(run: dict[str, Any]) -> None:
                     if not _signal_raw_driver(run, signal.SIGKILL):
                         raise FixtureError("Raw fixture cleanup lost its verified process target")
             run.pop("active_process", None)
-        elif config["surface"] == "manager" and identity.get("agent_id"):
-            scope = ["agents", "single", "--agent-id", identity["agent_id"]]
-            if identity.get("gateway_port"):
-                try:
-                    manager_root_call([*scope, "gateway", "detach"], env=run_environment(run))
-                except FixtureError:
-                    run["gateway_cleanup"] = "detach_failed"
-            manager_root_call([*scope, "stop"], env=run_environment(run))
         elif config["surface"] == "passive-server" and identity.get("tracked_agent_id"):
             ref = quote(identity["tracked_agent_id"], safe="")
             _http(identity["passive_url"], f"/houmao/agents/{ref}/stop", {})
@@ -1033,16 +1294,6 @@ def _cleanup(run: dict[str, Any]) -> None:
 
             raw_hermes_daemon(run, run_environment(run)).stop()
         run["cleanup"] = "stopped_owned_identity" if stopped_owned else "no_owned_identity"
-        if run.get("gateway_cleanup") == "detach_failed":
-            try:
-                connection = socket.create_connection(
-                    (identity.get("gateway_host", "127.0.0.1"), identity["gateway_port"]),
-                    timeout=0.3,
-                )
-                connection.close()
-                run["cleanup"] = "failed_requires_scoped_follow_up"
-            except OSError:
-                run["gateway_cleanup"] = "already_unavailable"
     except (
         BackendExecutionError,
         FixtureError,
@@ -1057,11 +1308,20 @@ def stop_run(path: Path) -> dict[str, Any]:
     """Stop captured owned identities and keep metadata inspectable."""
 
     run = load_run(path)
-    if run["status"] == "stopped" or run.get("cleanup") == "stopped_owned_identity":
+    captured_manager = run["configuration"]["surface"] == "manager" and bool(run.get("identity"))
+    if not captured_manager and (
+        run["status"] == "stopped" or run.get("cleanup") == "stopped_owned_identity"
+    ):
         run["status"] = "stopped"
         _save(run)
         return public_run(run)
-    _cleanup(run)
+    try:
+        _cleanup(run)
+    except FixtureError as exc:
+        if isinstance(exc, ManagedCommandError):
+            run.update(exc.diagnostic_reference())
+        _save(run)
+        raise
     if run["cleanup"] == "failed_requires_scoped_follow_up":
         _save(run)
         raise FixtureError("Cleanup failed; use the captured identity for scoped follow-up")

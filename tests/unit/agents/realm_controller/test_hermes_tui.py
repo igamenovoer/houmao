@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
+import json
 from pathlib import Path
 import sqlite3
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from click.testing import CliRunner
 
 from houmao.agents.realm_controller import owner_admission
 from houmao.agents.realm_controller.backends import hermes_tui
@@ -25,12 +27,21 @@ from houmao.agents.realm_controller.backends.hermes_tui import (
     HermesTuiSessionState,
 )
 from houmao.agents.realm_controller.models import LaunchPlan, RoleInjectionPlan
+from houmao.agents.realm_controller.managed_control import managed_control_capabilities
 from houmao.agents.realm_controller.owner_admission import (
     OwnerAdmissionError,
     observe_owner_prompt,
     reserve_owner_prompt,
 )
 from houmao.execution.tmux import TmuxPaneRecord
+from houmao.execution import application
+from houmao.execution.context import current_execution_deadline
+from houmao.execution.models import ExecutionRequestV1
+from houmao.execution.owner import OwnerAdmissionError as ExecutionOwnerAdmissionError
+from houmao.server.models import HoumaoManagedAgentIdentity
+from houmao.srv_ctrl.commands import managed_agents
+from houmao.srv_ctrl.commands.agents import core as agent_commands
+from houmao.srv_ctrl.commands.main import cli
 
 
 class FakeOwnerClaim:
@@ -251,6 +262,332 @@ def hermes_owner_queue(tui: HermesTuiSession, monkeypatch: pytest.MonkeyPatch) -
         ),
     )
     return database
+
+
+@pytest.fixture
+def manager_target(tui: HermesTuiSession, monkeypatch: pytest.MonkeyPatch):
+    """Use both manager entrypaths with real Hermes admission and a stubbed owner reader."""
+
+    controller = SimpleNamespace(
+        manifest_path=tui.manifest_path,
+        registry_generation_id="managed-generation",
+        backend_session=tui,
+        execution_scope=nullcontext,
+        observe_managed_tui=tui.observe_managed_control,
+        control_capabilities=lambda: managed_control_capabilities(
+            tool="hermes", mode="tui", backend="hermes_tui", native_surface=None
+        ),
+    )
+    target = managed_agents.ManagedAgentTarget(
+        mode="local",
+        agent_ref="hermes-manager",
+        identity=HoumaoManagedAgentIdentity(
+            tracked_agent_id="hermes-manager",
+            agent_id="hermes-manager",
+            transport="tui",
+            tool="hermes",
+            mode="tui",
+            backend="hermes_tui",
+        ),
+        controller=controller,
+    )
+    monkeypatch.setattr(agent_commands, "resolve_managed_agent_target", lambda **_: target)
+    monkeypatch.setattr(managed_agents, "resolve_managed_agent_target", lambda **_: target)
+    monkeypatch.setattr(
+        managed_agents,
+        "_manager_prompt_readiness",
+        lambda *args, **kwargs: pytest.fail("Hermes must bypass parser readiness"),
+    )
+    monkeypatch.setattr(tui, "terminal_attachment", lambda: "attached")
+    return target
+
+
+def _local_manager_prompt():
+    """Invoke the maintained scoped manager command through Click."""
+
+    return CliRunner().invoke(
+        cli,
+        [
+            "--print-json",
+            "agents",
+            "single",
+            "--agent-id",
+            "hermes-manager",
+            "prompt",
+            "--prompt",
+            "literal",
+        ],
+    )
+
+
+def _delegated_manager_prompt(monkeypatch: pytest.MonkeyPatch, *, seconds: float):
+    """Invoke the owner application dispatcher and its v1 prompt argument boundary."""
+
+    record = SimpleNamespace(
+        execution_binding=object(), agent_id="hermes-manager", generation_id="managed-generation"
+    )
+    monkeypatch.setattr(
+        "houmao.agents.realm_controller.registry_storage.load_managed_agent_record_by_agent_id",
+        lambda _: record,
+    )
+    request = ExecutionRequestV1(
+        operation="prompt",
+        agent_id=record.agent_id,
+        generation_id=record.generation_id,
+        deadline_seconds=seconds,
+        arguments={"prompt": "literal"},
+    )
+    return application.dispatch_operation(request, record.execution_binding, SimpleNamespace())
+
+
+@pytest.mark.parametrize("delegated", [False, True])
+@pytest.mark.parametrize("attachment", ["attached", "detached", "other_session"])
+def test_manager_hermes_settles_one_native_prompt_without_gateway(
+    tui, monkeypatch, hermes_owner_queue, manager_target, delegated, attachment
+) -> None:
+    """Observe the pinned conversation and settle its one accepted request through either command."""
+
+    identity = _instance(tui)
+    calls = []
+    polls = iter(["started", "terminal"])
+    monkeypatch.setattr(tui, "terminal_attachment", lambda: attachment)
+
+    def rpc(method, **params):
+        calls.append(method)
+        assert params["session_id"] == tui.state.native_session_id
+        if method == "prompt.submit":
+            assert params["text"] == "literal"
+            assert (current_execution_deadline() is not None) is delegated
+            with pytest.raises(OwnerAdmissionError, match="unresolved"):
+                reserve_owner_prompt(tui.manifest_path, "managed-generation", origin="gateway")
+            return _receipt(tui, identity, "queued")
+        if method == "prompt.receipt":
+            assert params["admission_id"] == "native-admission"
+            assert current_execution_deadline() is not None
+            status = next(polls)
+            if status == "terminal":
+                return _receipt(tui, identity, status, outcome="completed")
+            return _receipt(tui, identity, status)
+        assert method == "session.events.since"
+        return {
+            "replay_epoch": "replay-one",
+            "latest_seq": 2,
+            "events": [
+                {
+                    "seq": 2,
+                    "session_id": tui.state.native_session_id,
+                    "admission_id": "human-turn",
+                    "authority_epoch": 1,
+                    "execution_generation": 3,
+                    "type": "message.delta",
+                    "payload": {"text": "a different turn"},
+                }
+            ],
+        }
+
+    _install_peer(monkeypatch, tui, SimpleNamespace(identity=identity, rpc=rpc))
+    if delegated:
+        response = _delegated_manager_prompt(monkeypatch, seconds=2.0)
+    else:
+        result = _local_manager_prompt()
+        assert result.exit_code == 0, result.output
+        response = json.loads(result.output)
+
+    assert response["delivery_state"] == "completed" and response["success"] is True
+    assert response["evidence_source"] == "tui_native"
+    request_id = response["request_id"]
+    receipt = tui.read_native_admission(request_id)
+    assert receipt is not None and receipt.terminal_outcome == "completed"
+    assert receipt.events == ()
+    assert calls == [
+        "prompt.submit",
+        "prompt.receipt",
+        "session.events.since",
+        "prompt.receipt",
+        "session.events.since",
+    ]
+    with sqlite3.connect(hermes_owner_queue) as connection:
+        assert connection.execute(
+            "SELECT request_id, state FROM managed_prompt_attempts"
+        ).fetchall() == [(request_id, "completed")]
+
+
+@pytest.mark.parametrize("reason", ["busy", "unavailable", "gateway-owned", "final-check"])
+def test_manager_hermes_refusal_keeps_native_input_closed(
+    tui, monkeypatch, hermes_owner_queue, manager_target, reason
+) -> None:
+    """Refuse native busy or unavailable authority without a stale reserved claim."""
+
+    identity = _instance(tui)
+    peer = SimpleNamespace(identity=identity, rpc=lambda *a, **kw: pytest.fail("Unexpected input"))
+    _install_peer(monkeypatch, tui, peer, busy=reason == "busy")
+    if reason == "gateway-owned":
+        gateway_claim = reserve_owner_prompt(
+            tui.manifest_path, "managed-generation", origin="gateway"
+        )
+    elif reason == "unavailable":
+
+        def unavailable():
+            raise HermesNativeError("The daemon went away.")
+
+        monkeypatch.setattr(tui.daemon, "client", unavailable)
+    elif reason == "final-check":
+        resume = tui.daemon.resume_session
+        checks = iter([False, True])
+
+        def resume_after_race(client, session_id):
+            snapshot = resume(client, session_id)
+            return replace(snapshot, payload={**snapshot.payload, "running": next(checks)})
+
+        monkeypatch.setattr(tui.daemon, "resume_session", resume_after_race)
+
+    code = "unavailable" if reason == "unavailable" else "not_ready"
+    with pytest.raises(ExecutionOwnerAdmissionError) as refusal:
+        _delegated_manager_prompt(monkeypatch, seconds=2.0)
+    assert refusal.value.code == code
+    with sqlite3.connect(hermes_owner_queue) as connection:
+        rows = connection.execute(
+            "SELECT request_id, state FROM managed_prompt_attempts"
+        ).fetchall()
+    if reason == "gateway-owned":
+        assert rows == [(gateway_claim.request_id, "reserved")]
+    elif reason == "final-check":
+        assert len(rows) == 1 and rows[0][1] == "failed"
+        assert observe_owner_prompt(tui.manifest_path, "managed-generation") is None
+    else:
+        assert rows == []
+
+
+@pytest.mark.parametrize("disposition", ["queued", "running", "wrong-receipt", "lost-ack"])
+def test_delegated_hermes_reports_exact_admission_under_shorter_deadline(
+    tui, monkeypatch, hermes_owner_queue, manager_target, disposition
+) -> None:
+    """Keep the original owner claim when the finite request cannot observe settlement."""
+
+    identity = _instance(tui)
+    calls = []
+    clock = [application.monotonic()]
+    monkeypatch.setattr(application, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        hermes_tui,
+        "time",
+        SimpleNamespace(
+            monotonic=lambda: clock[0], sleep=lambda value: clock.__setitem__(0, clock[0] + value)
+        ),
+    )
+
+    def rpc(method, **params):
+        calls.append(method)
+        if method == "prompt.receipt":
+            assert disposition == "wrong-receipt"
+            return _receipt(tui, identity, "terminal", outcome="completed", admission_id="human")
+        assert method == "prompt.submit"
+        if disposition == "lost-ack":
+            raise HermesNativeError("The original acknowledgment was lost.")
+        return _receipt(tui, identity, "started" if disposition == "running" else "queued")
+
+    peer = SimpleNamespace(identity=identity, rpc=rpc)
+    _install_peer(monkeypatch, tui, peer)
+    if disposition == "lost-ack":
+        connections = iter(
+            [peer, peer, SimpleNamespace(identity=_instance(tui, name="replaced"), rpc=rpc)]
+        )
+
+        @contextmanager
+        def native_client():
+            yield next(connections)
+
+        monkeypatch.setattr(tui.daemon, "client", native_client)
+
+    response = _delegated_manager_prompt(
+        monkeypatch, seconds=0.8 if disposition == "wrong-receipt" else 0.12
+    )
+    expected = {
+        "queued": "queued",
+        "running": "handed_off",
+        "wrong-receipt": "queued",
+        "lost-ack": "uncertain",
+    }
+    assert response["delivery_state"] == expected[disposition]
+    assert response["success"] is (disposition != "lost-ack")
+    assert calls.count("prompt.submit") == 1
+    active = observe_owner_prompt(tui.manifest_path, "managed-generation")
+    assert active is not None and active.request_id == response["request_id"]
+    assert active.state == ("uncertain" if disposition == "lost-ack" else "handed_off")
+
+
+@pytest.mark.parametrize(
+    ("native_outcome", "delivery"), [("failed", "failed"), ("cancelled", "interrupted")]
+)
+def test_manager_reports_the_attributable_native_terminal_disposition(
+    tui, monkeypatch, hermes_owner_queue, manager_target, native_outcome, delivery
+) -> None:
+    """Project native failure and cancellation as supported terminal outcomes."""
+
+    identity = _instance(tui)
+    calls = []
+
+    def rpc(method, **params):
+        calls.append(method)
+        assert params["session_id"] == tui.state.native_session_id
+        return _receipt(tui, identity, "terminal", outcome=native_outcome)
+
+    _install_peer(monkeypatch, tui, SimpleNamespace(identity=identity, rpc=rpc))
+    result = _local_manager_prompt()
+    assert result.exit_code == 0, result.output
+    response = json.loads(result.output)
+
+    assert response["success"] is False and response["delivery_state"] == delivery
+    assert calls == ["prompt.submit", "prompt.receipt"]
+    with sqlite3.connect(hermes_owner_queue) as connection:
+        assert connection.execute(
+            "SELECT request_id, state FROM managed_prompt_attempts"
+        ).fetchall() == [(response["request_id"], delivery)]
+
+
+def test_durable_queue_receipt_recovers_an_unwritten_handoff(
+    tui, monkeypatch, hermes_owner_queue, manager_target
+) -> None:
+    """Keep a verified admission recoverable when the SQLite handoff write is busy."""
+
+    identity = _instance(tui)
+    calls = []
+
+    def rpc(method, **params):
+        calls.append(method)
+        if method == "prompt.submit":
+            return _receipt(tui, identity, "queued")
+        if method == "prompt.receipt":
+            assert params["admission_id"] == "native-admission"
+            return _receipt(tui, identity, "terminal", outcome="completed")
+        assert method == "session.events.since"
+        return {"replay_epoch": "replay-one", "latest_seq": 1, "events": []}
+
+    def busy_handoff(_claim):
+        raise OwnerAdmissionError("unavailable", "The owner ledger is busy.")
+
+    _install_peer(monkeypatch, tui, SimpleNamespace(identity=identity, rpc=rpc))
+    monkeypatch.setattr(owner_admission.OwnerPromptClaim, "handoff", busy_handoff)
+    monkeypatch.setattr(hermes_tui, "_TURN_TIMEOUT", 0)
+    result = _local_manager_prompt()
+    assert result.exit_code == 0, result.output
+    response = json.loads(result.output)
+    assert response["delivery_state"] == "queued" and response["success"] is True
+    active = observe_owner_prompt(tui.manifest_path, "managed-generation")
+    assert active is not None and active.request_id == response["request_id"]
+    assert active.state == "reserved"
+
+    assert (
+        observe_owner_prompt(
+            tui.manifest_path, "managed-generation", reconcile_tui=tui.reconcile_owner_attempt
+        )
+        is None
+    )
+    assert calls == ["prompt.submit", "prompt.receipt", "session.events.since"]
+    with sqlite3.connect(hermes_owner_queue) as connection:
+        assert connection.execute(
+            "SELECT request_id, state FROM managed_prompt_attempts"
+        ).fetchall() == [(response["request_id"], "completed")]
 
 
 @pytest.mark.parametrize("bad_receipt", ["partial", "missing-sequence", "other-session", "json"])

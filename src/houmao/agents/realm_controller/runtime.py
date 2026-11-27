@@ -274,6 +274,10 @@ from houmao.agents.realm_controller.run_modes import (
     mode_for_backend,
     resolve_run_mode,
 )
+from houmao.agents.realm_controller.hermes_self import (
+    HERMES_DETACHED_SELF_BACKENDS,
+    refresh_hermes_daemon_authority,
+)
 from houmao.agents.realm_controller.startup_rollback import (
     current_runtime_startup,
     runtime_startup_scope,
@@ -2067,8 +2071,16 @@ class RuntimeSessionController:
                 record, expected_generation_id=self.m_registry_handoff_generation
             )
             self.m_registry_handoff_generation = None
-            return published
-        return publish_live_agent_record(record)
+        else:
+            published = publish_live_agent_record(record)
+        if self.launch_plan.backend in HERMES_DETACHED_SELF_BACKENDS:
+            try:
+                refresh_hermes_daemon_authority(self.manifest_path, published, self.launch_plan)
+            except SessionManifestError as exc:
+                self._record_registry_warning(
+                    "Hermes detached self authority was not published", exc
+                )
+        return published
 
     def should_publish_shared_registry_record(self) -> bool:
         """Return whether runtime is the launch authority for registry publication."""

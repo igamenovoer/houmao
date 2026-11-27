@@ -16,7 +16,7 @@ import pytest
 
 from houmao.ag_ui.models import AgUiEventPublishRequest
 from houmao.agents.realm_controller import gateway_access_runtime
-from houmao.agents.realm_controller.errors import GatewayHttpError
+from houmao.agents.realm_controller.errors import GatewayHttpError, SessionManifestError
 from houmao.agents.realm_controller.gateway_client import (
     GATEWAY_RESPECT_PROXY_ENV_VAR,
     GatewayClient,
@@ -26,6 +26,7 @@ from houmao.agents.realm_controller.gateway_client import (
 from houmao.gateway.access import (
     CHALLENGE_HEADER,
     SIGNATURE_HEADER,
+    GatewayAccessError,
     GatewayAccessPolicy,
     GatewayChallengeRequest,
     GatewayClientBinding,
@@ -36,10 +37,10 @@ from houmao.gateway.access import (
     GatewayTarget,
 )
 
-from houmao.gateway.authorization_models import seed_snapshot
+from houmao.gateway.authorization_models import Permission, seed_snapshot
 from houmao.gateway.authorization_store import AuthorizationStore
 from houmao.gateway.file_edits.contracts import FileReadRequest, FileReadResponse
-from houmao.gateway.operations import WEB_ENTRY
+from houmao.gateway.operations import WEB_ENTRY, mailbox_resource
 from tests.fixtures.gateway_access import fixture_admin_key
 
 _PROXY_ENV_KEYS = (
@@ -232,6 +233,134 @@ def test_client_signs_with_verified_sqlite_registration(
     )
     with pytest.raises(GatewayHttpError, match="signer binding is unavailable"):
         wrong.caller_proof_headers("GET", "/v1/status", b"")
+
+
+@pytest.mark.parametrize("backend", ["hermes_tui", "hermes_service"])
+def test_detached_hermes_gateway_self_mail_proof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+) -> None:
+    """Sign and authorize mail against live daemon authority with a detached terminal."""
+
+    port = 43210
+    issuer = f"http://127.0.0.1:{port}"
+    owner = GatewayOwner(agent_id="hermes-client", context_id="owner")
+    target = GatewayTarget(owner=owner, incarnation="current")
+    private_root = tmp_path / "access"
+    store = AuthorizationStore(private_root, owner)
+    store.initialize()
+    registration = store.provision_self(target.incarnation)
+    manifest = tmp_path / "manifest.json"
+    execution = SimpleNamespace(registry_root=str(tmp_path / "registry"))
+    access = gateway_access_runtime.GatewayRuntimeAccess(
+        manifest_path=manifest,
+        execution_binding=execution,
+        target=target,
+        private_root=private_root,
+        store=store,
+    )
+    record = SimpleNamespace(
+        identity=SimpleNamespace(backend=backend),
+        lifecycle=SimpleNamespace(state="active"),
+        generation_id=target.incarnation,
+        runtime=SimpleNamespace(manifest_path=str(manifest)),
+        execution_binding=execution,
+        terminal=SimpleNamespace(current_session_name=None),
+    )
+    payload = object()
+    live = True
+
+    def daemon_authority(path: Path, selected: object) -> None:
+        """Represent the native verifier at the exact gateway proof boundary."""
+
+        assert path == manifest and selected is payload
+        if not live:
+            raise SessionManifestError("Current Hermes daemon authority is unavailable.")
+
+    monkeypatch.setattr(gateway_access_runtime, "gateway_access_for_manifest", lambda _: access)
+    monkeypatch.setattr(gateway_access_runtime, "load_gateway_deployment", lambda _: None)
+    monkeypatch.setattr(
+        gateway_access_runtime, "load_managed_agent_record_by_agent_id", lambda *_, **__: record
+    )
+    monkeypatch.setattr(gateway_access_runtime, "is_live_agent_record_fresh", lambda _: True)
+    monkeypatch.setattr(gateway_access_runtime, "load_registry_mode_authority", lambda _: payload)
+    monkeypatch.setattr(
+        gateway_access_runtime, "require_live_hermes_daemon_authority", daemon_authority
+    )
+    binding, generation = gateway_access_runtime.owner_gateway_client_binding(
+        manifest, port=port, private=True, prefer_self=True
+    )
+    assert binding is not None and binding.managed_self_manifest_path == str(manifest)
+    policy = GatewayAccessPolicy(
+        store=store, target=lambda: target, current_self=access.current_self, listener_id="mail"
+    )
+    client = GatewayClient(
+        binding=binding, target_incarnation=generation, target_presence_id=policy.listener_id
+    )
+    path = "/v1/mail/offline/list"
+    calls: list[str] = []
+    permission = Permission(resource=mailbox_resource("offline", "binding"), action="mail.list")
+
+    def respond(*, request_obj: Request, method: str, url: str) -> bytes:
+        """Authenticate the request bytes and verify the managed-self grant."""
+
+        assert method == "POST" and request_obj.data is not None
+        calls.append(url)
+        if url == f"{issuer}/v1/auth/challenge":
+            request = GatewayChallengeRequest.model_validate_json(request_obj.data)
+            return policy.issue(issuer, request).model_dump_json().encode()
+        assert url == f"{issuer}{path}"
+        actor = policy.authenticate(
+            issuer=issuer,
+            request=GatewayRequestBinding.from_request(method, path, "", request_obj.data),
+            challenge_id=request_obj.get_header(CHALLENGE_HEADER.capitalize()),
+            signature=request_obj.get_header(SIGNATURE_HEADER.capitalize()),
+        )
+        assert actor.kind == "self"
+        assert policy.revalidate(policy.authorize(actor, [permission]))
+        return b'{"messages":[]}'
+
+    monkeypatch.setattr(client, "_open_request", respond)
+    assert client.request_json("POST", path, body={}) == {"messages": []}
+    assert calls == [f"{issuer}/v1/auth/challenge", f"{issuer}{path}"]
+
+    proof = client.caller_proof_headers("POST", path, b"{}")
+    live = False
+    with pytest.raises(GatewayAccessError):
+        policy.authenticate(
+            issuer=issuer,
+            request=GatewayRequestBinding.from_request("POST", path, "", b"{}"),
+            challenge_id=proof[CHALLENGE_HEADER],
+            signature=proof[SIGNATURE_HEADER],
+        )
+    calls.clear()
+    with pytest.raises(GatewayHttpError, match="signer binding is unavailable"):
+        client.request_json("POST", path, body={})
+    assert calls == []
+
+    live = True
+    proof = client.caller_proof_headers("POST", path, b"{}")
+    with store.transaction() as transaction:
+        transaction.replace_self(
+            target.incarnation,
+            expected_revision=registration.registration_revision,
+            signer=None,
+            actor="owner",
+        )
+    with pytest.raises(GatewayAccessError):
+        policy.authenticate(
+            issuer=issuer,
+            request=GatewayRequestBinding.from_request("POST", path, "", b"{}"),
+            challenge_id=proof[CHALLENGE_HEADER],
+            signature=proof[SIGNATURE_HEADER],
+        )
+    calls.clear()
+    with pytest.raises(SessionManifestError, match="signing authority is unavailable"):
+        gateway_access_runtime.owner_gateway_client_binding(
+            manifest, port=port, private=True, prefer_self=True
+        )
+    with pytest.raises(GatewayHttpError, match="signer binding is unavailable"):
+        client.request_json("POST", path, body={})
+    assert calls == []
 
 
 @pytest.mark.parametrize("outcome", ["ticket", "redirect", "native_url", "refused"])

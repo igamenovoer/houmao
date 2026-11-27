@@ -42,6 +42,7 @@ from houmao.agents.realm_controller.startup_rollback import (
     stop_owned_startup_child,
 )
 from houmao.agents.realm_controller.owner_admission import owner_process_has_exited
+from houmao.execution.context import current_execution_deadline
 
 _CANONICAL_PROTOCOL = "hermes-gateway-v1"
 _TICKET_PREFIX = "hermes-gateway-ticket."
@@ -55,6 +56,22 @@ _STOP_TIMEOUT = 15.0
 
 class HermesNativeError(BackendExecutionError):
     """Report an unavailable or mismatched native Hermes authority."""
+
+
+class HermesDeadlineExpired(HermesNativeError):
+    """Refuse a native operation that has no remaining time before it starts."""
+
+
+def _native_timeout(limit: float) -> float:
+    """Cap a native wait at the active delegated execution deadline."""
+
+    deadline = current_execution_deadline()
+    if deadline is None:
+        return limit
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise HermesDeadlineExpired("The execution deadline expired before the Hermes operation.")
+    return min(remaining, limit)
 
 
 class HermesRpcRefused(HermesNativeError):
@@ -137,10 +154,18 @@ class HermesClient:
 
         self.m_request_id += 1
         request_id = self.m_request_id
-        deadline = time.monotonic() + _RPC_TIMEOUT
+        deadline = time.monotonic() + _native_timeout(_RPC_TIMEOUT)
         frame = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+        serialized = json.dumps(frame)
         try:
-            self.m_connection.send(json.dumps(frame))
+            if current_execution_deadline() is None:
+                self.m_connection.send(serialized)
+            else:
+                self.m_connection.socket.settimeout(_native_timeout(_RPC_TIMEOUT))
+                try:
+                    self.m_connection.send(serialized)
+                finally:
+                    self.m_connection.socket.settimeout(None)
             while time.monotonic() < deadline:
                 incoming = json.loads(
                     self.m_connection.recv(timeout=max(0, deadline - time.monotonic()))
@@ -400,8 +425,8 @@ class HermesDaemon:
                 identity.websocket_url,
                 subprotocols=socket_options,
                 proxy=None,
-                open_timeout=_CONTROL_TIMEOUT,
-                close_timeout=_CONTROL_TIMEOUT,
+                open_timeout=_native_timeout(_CONTROL_TIMEOUT),
+                close_timeout=_CONTROL_TIMEOUT if current_execution_deadline() is None else 0,
                 max_size=_MAX_FRAME_BYTES,
             ) as ws:
                 if ws.subprotocol != _CANONICAL_PROTOCOL:
@@ -418,7 +443,14 @@ class HermesDaemon:
                 ):
                     raise HermesNativeError("Hermes reported a different native authority.")
                 self._record(identity)
-                yield native
+                try:
+                    yield native
+                finally:
+                    deadline = current_execution_deadline()
+                    if deadline is not None:
+                        ws.close_timeout = max(
+                            0.0, min(_CONTROL_TIMEOUT, deadline - time.monotonic())
+                        )
         except (OSError, ValueError, WebSocketException) as exc:
             raise HermesNativeError("Could not authenticate to the local Hermes daemon.") from exc
 
@@ -594,10 +626,15 @@ def _control_query(
     request = {"protocol": 1, "id": 1, "verb": verb, "params": params or {}}
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as peer:
-            deadline = time.monotonic() + _CONTROL_TIMEOUT
-            peer.settimeout(_CONTROL_TIMEOUT)
+            timeout = _native_timeout(_CONTROL_TIMEOUT)
+            deadline = time.monotonic() + timeout
+            peer.settimeout(timeout)
             peer.connect(str(_socket_path(home)))
             pid = _verify_control_peer(peer)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError
+            peer.settimeout(remaining)
             peer.sendall(json.dumps(request).encode() + b"\n")
             data = bytearray()
             while b"\n" not in data:

@@ -33,8 +33,8 @@ from houmao.agents.realm_controller.registry_models import (
     RegistryRuntimeV1,
     RegistryTerminalV2,
 )
-from houmao.execution import application, router
-from houmao.execution.context import execution_is_read_only
+from houmao.execution import application, owner, router
+from houmao.execution.context import current_execution_deadline, execution_is_read_only
 from houmao.execution.locators import ExecutorAgentLocatorV1
 from houmao.execution.locators import load_executor_locator, publish_executor_locator
 from houmao.execution.models import (
@@ -897,6 +897,47 @@ def test_native_refresh_timeout_cannot_exceed_request_budget(
     )
     application.dispatch_operation(request, boundary.binding, boundary.policy)
     assert len(observed) == 1 and 0 < observed[0] <= 3.0
+
+
+def test_owner_prompt_budget_includes_work_before_application_dispatch(
+    boundary: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bound native prompt waits by the request received at the owner."""
+
+    _registry(monkeypatch, boundary.record)
+    monkeypatch.setattr(managed, "resolve_managed_agent_target", lambda **_: object())
+    clock = [100.0]
+    monkeypatch.setattr(owner, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(application, "monotonic", lambda: clock[0])
+
+    def observe(*args: object, **kwargs: object):
+        """Account for owner observation before the application starts."""
+
+        clock[0] += 0.75
+        return boundary.binding
+
+    monkeypatch.setattr(owner, "observe_binding", observe)
+    monkeypatch.setattr(
+        managed,
+        "prompt_managed_agent",
+        lambda *args, **kwargs: {"observed_deadline": current_execution_deadline()},
+    )
+    policy = boundary.policy.model_copy(
+        update={
+            "controller": boundary.policy.controller.model_copy(update={"operations": ("prompt",)})
+        }
+    )
+    request = ExecutionRequestV1(
+        operation="prompt",
+        agent_id="agent-1",
+        generation_id="generation-1",
+        deadline_seconds=2.0,
+        arguments={"prompt": "one request"},
+    )
+    response = handle_request(request, policy, application.dispatch_operation)
+    assert response.outcome == "completed"
+    assert response.result == {"observed_deadline": 101.75}
+    assert current_execution_deadline() is None
 
 
 @pytest.mark.parametrize("operation,read_only", [("state", True), ("stop", False)])

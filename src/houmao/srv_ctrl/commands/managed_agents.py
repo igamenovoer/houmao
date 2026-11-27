@@ -36,7 +36,7 @@ import uuid
 import click
 from pydantic import BaseModel, JsonValue, ValidationError
 
-from houmao.execution.context import validate_execution_owner
+from houmao.execution.context import execution_is_read_only, validate_execution_owner
 from houmao.execution.tmux import TmuxObservationError
 from houmao.execution.locators import (
     ExecutorAgentLocatorV1,
@@ -64,6 +64,14 @@ from houmao.agents.realm_controller.agent_identity import normalize_agent_identi
 from houmao.agents.realm_controller.backends.cao_rest import CaoRestSession
 from houmao.agents.realm_controller.backends.dispatch_control import HeadlessDispatchControl
 from houmao.agents.realm_controller.backends.headless_base import HeadlessInteractiveSession
+from houmao.agents.realm_controller.backends.hermes_native import (
+    HermesDeadlineExpired,
+    HermesRpcRefused,
+)
+from houmao.agents.realm_controller.backends.hermes_tui import (
+    HermesAdmissionUncertain,
+    HermesTuiSession,
+)
 from houmao.agents.realm_controller.backends.kimi_web import KimiWebSession
 from houmao.agents.realm_controller.backends.local_interactive import LocalInteractiveSession
 from houmao.agents.realm_controller.backends.dsh_web import DshWebSession, DshWebSessionState
@@ -555,6 +563,16 @@ class GatewayPromptControlCliError(RuntimeError):
     def __init__(self, payload: GatewayPromptControlErrorV1) -> None:
         self.payload = payload
         super().__init__(payload.detail)
+
+
+class HermesManagerPromptRefused(click.ClickException):
+    """Report a definite native prompt refusal before any accepted handoff."""
+
+    def __init__(self, code: str, detail: str) -> None:
+        """Retain the refusal reason across the delegated execution boundary."""
+
+        self.code = code
+        super().__init__(detail)
 
 
 def _target_uses_pair_api(target: ManagedAgentTarget) -> bool:
@@ -2745,10 +2763,21 @@ def _dispatch_owned_manager_prompt(
     generation = controller.registry_generation_id
     if generation is None:
         raise click.ClickException("The selected owner has no current generation.")
+    backend = controller.backend_session
     dispatch_attempted = False
     try:
         capabilities = controller.control_capabilities()
         capabilities.require("prompt")
+        if isinstance(backend, HermesTuiSession):
+            if execution_model is not None:
+                raise BackendExecutionError("Hermes requests use the launch-selected model.")
+            return _dispatch_hermes_tui_manager_prompt(
+                controller,
+                backend,
+                tracked_agent_id=tracked_agent_id,
+                generation=generation,
+                prompt=prompt,
+            )
         claim = reserve_owner_prompt(
             controller.manifest_path,
             generation,
@@ -2756,9 +2785,15 @@ def _dispatch_owned_manager_prompt(
             readiness=_manager_prompt_readiness(controller, mode=capabilities.mode),
         )
     except (BrainLaunchRuntimeError, OSError) as exc:
+        if isinstance(backend, HermesTuiSession):
+            if isinstance(exc, OwnerAdmissionError):
+                raise HermesManagerPromptRefused(exc.code, str(exc)) from None
+            if isinstance(exc, HermesDeadlineExpired):
+                raise HermesManagerPromptRefused("deadline_exhausted", str(exc)) from None
+            if isinstance(exc, HermesRpcRefused):
+                raise HermesManagerPromptRefused("native_refusal", str(exc)) from None
         raise click.ClickException(str(exc)) from None
 
-    backend = controller.backend_session
     dispatch = HeadlessDispatchControl.from_callbacks(
         allowed=claim.active,
         confirmed=claim.handoff,
@@ -2841,6 +2876,75 @@ def _dispatch_owned_manager_prompt(
         evidence_source=capabilities.evidence_source,
         headless_turn_id=claim.request_id if capabilities.mode == "headless" else None,
         headless_turn_index=headless_turn_index,
+    )
+
+
+def _dispatch_hermes_tui_manager_prompt(
+    controller: RuntimeSessionController,
+    backend: HermesTuiSession,
+    *,
+    tracked_agent_id: str,
+    generation: str,
+    prompt: str,
+) -> HoumaoManagedAgentRequestAcceptedResponse:
+    """Reserve and observe one prompt for the pinned Hermes conversation."""
+
+    if execution_is_read_only():
+        raise OwnerAdmissionError("unavailable", "Read-only execution cannot submit a prompt.")
+    delivery: Literal["queued", "handed_off", "completed", "failed", "interrupted", "uncertain"]
+    with controller.execution_scope():
+        # Native observation reconciles the owner ledger and needs its own transaction.
+        observed = controller.observe_managed_tui()
+        if (
+            observed.freshness != "current"
+            or observed.owner_available is not True
+            or observed.connection_ready is not True
+        ):
+            raise OwnerAdmissionError(
+                "unavailable", "The native Hermes conversation is unavailable."
+            )
+        if observed.active_request_id is not None:
+            raise OwnerAdmissionError("not_ready", "The owner has an unresolved prompt attempt.")
+        if observed.can_accept_prompt_now is not True:
+            raise OwnerAdmissionError("not_ready", "The native Hermes conversation is busy.")
+
+        claim = reserve_owner_prompt(
+            controller.manifest_path,
+            generation,
+            origin="manager",
+            reconcile_tui=backend.reconcile_owner_attempt,
+        )
+        try:
+            admission = backend.submit_native_prompt(
+                prompt, request_id=claim.request_id, owner_claim=claim, existing_only=True
+            )
+        except HermesAdmissionUncertain as exc:
+            delivery = "uncertain"
+            detail = str(exc)
+        else:
+            settled = backend.wait_for_native_prompt(claim, admission)
+            outcome = settled.terminal_outcome
+            if outcome is not None:
+                delivery = outcome
+                detail = f"Native prompt outcome: {outcome}."
+            elif settled.native_admission_id is not None and settled.status == "queued":
+                delivery = "queued"
+                detail = "Hermes accepted the prompt into its native queue."
+            elif settled.native_admission_id is not None and settled.status == "running":
+                delivery = "handed_off"
+                detail = "Hermes started the prompt. Completion is unconfirmed."
+            else:
+                delivery = "uncertain"
+                detail = "Hermes native prompt admission could not be confirmed."
+
+    return HoumaoManagedAgentRequestAcceptedResponse(
+        success=delivery in {"queued", "handed_off", "completed"},
+        tracked_agent_id=tracked_agent_id,
+        request_id=claim.request_id,
+        request_kind="submit_prompt",
+        detail=detail,
+        delivery_state=delivery,
+        evidence_source="tui_native",
     )
 
 

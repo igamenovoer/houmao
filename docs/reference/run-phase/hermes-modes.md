@@ -25,6 +25,10 @@ The agent's recorded Hermes launch home defines daemon ownership. Houmao starts 
 
 Houmao checks the current process identity before managing it and keeps the loopback endpoint and one-use native tickets private. After a replacement starts in the same home, Houmao reconciles existing requests against their native admissions before handling new work. Detaching the Houmao gateway leaves daemon work running. Managed stop waits for the exact daemon to exit.
 
+Tools running under the verified daemon for a current service or TUI generation can use `houmao-mgr agents self` for identity, state, and mailbox discovery, including when Ink is detached. The managed-home locator supports lookup after same-home adoption. Houmao checks the caller's process ancestry and the recorded native binding before using self authority. A launch or explicit relaunch publishes the evidence required for detached self verification.
+
+`houmao-mgr agents self mail resolve-live` discovers the current mailbox and gateway binding. Mail operations through a live gateway use the existing managed-self key and grants. A stale daemon or generation causes the signed route to fail closed. Commands that control a terminal still require the owning terminal surface.
+
 ## Service
 
 Service mode runs `hermes acp` over private stdio. The persistent client negotiates ACP and binds the selected logical conversation before publishing readiness. History replay during binding stays out of the current prompt's results. The unattended adapter selects an advertised one-time rejection when Hermes requests approval. An unsupported interaction receives a refusal.
@@ -38,6 +42,10 @@ TUI mode creates or resolves the managed conversation before opening Hermes Ink 
 Use `houmao-mgr agents single --agent-id <id> state` or passive `/houmao/agents/<id>/state/detail` to inspect native readiness and the terminal attachment. An unavailable native connection makes prompt readiness unavailable. Tracker history, parser controls, automated key delivery, and prompt-time session selectors are unsupported for Hermes TUI.
 
 Houmao refuses a new managed prompt if the selected conversation is already busy. If human input starts after the native idle check, Hermes can accept the managed prompt into its queue. The receipt confirms acceptance. The matching admission reports execution and completion as they happen. An interrupt addresses that admission specifically.
+
+Use `houmao-mgr agents single --agent-id <id> prompt --prompt "Your request"` to send a prompt to the saved native conversation. The manager checks that conversation's current native readiness even if Ink is closed or showing a different conversation. It reads receipts directly from Hermes, so the same command works with the Houmao gateway detached.
+
+The manager waits within its request budget and returns the original Houmao `request_id` with `evidence_source: "tui_native"`. A verified terminal receipt reports `completed`, `failed`, or `interrupted`. If the wait ends first, `queued` confirms native queue acceptance and `handed_off` confirms that Hermes started the request. `uncertain` means the manager could not confirm native admission. An outstanding request remains in the owner slot until exact evidence settles it or an authorized lifecycle operation fences it. Delegated calls use the configured owner execution deadline.
 
 ## Headless
 

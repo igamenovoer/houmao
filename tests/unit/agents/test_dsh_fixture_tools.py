@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import yaml
@@ -401,15 +401,21 @@ def test_managed_fixture_observes_execution_release_after_usage_without_resendin
         process_env=_inputs("cloud-api"),
     )
     run = prepare.prepare_run(config, run_root=tmp_path / "runs", executable=sys.executable)
-    run.update(
-        {"status": "launched", "identity": {"gateway_host": "127.0.0.1", "gateway_port": 19094}}
-    )
+    run.update({"status": "launched", "identity": {"agent_id": "dsh-fixture-owner"}})
     root = Path(run["run_dir"])
     prepare.write_json(root / "run.json", run)
     calls, states = [], iter(["running", "idle"])
+    authority = SimpleNamespace(record=SimpleNamespace(generation_id="dsh-generation"))
+    fences = []
 
-    def request(run, path, body=None):
+    def prepare_prompt(run):
+        """Return the verified generation for the captured fixture owner."""
+        assert run["identity"]["agent_id"] == "dsh-fixture-owner"
+        return object(), authority
+
+    def request(run, path, body=None, *, generation_id):
         """Finalize accounting before releasing the same execution's ownership."""
+        assert generation_id == authority.record.generation_id
         calls.append((path, body))
         if path == "/v1/control/prompt":
             return {"status": "accepted", "operation_id": "admitted-operation"}
@@ -433,9 +439,12 @@ def test_managed_fixture_observes_execution_release_after_usage_without_resendin
             ]
         }
 
+    monkeypatch.setattr(launch, "_prepare_manager_prompt", prepare_prompt)
+    monkeypatch.setattr(launch, "_require_current_manager_fixture", fences.append)
     monkeypatch.setattr(launch, "_gateway_request", request)
     monkeypatch.setattr(launch.time, "sleep", lambda _: None)
     result = launch.prompt_run(root, prompt="one explicit request")
     assert result["turns"][-1]["status"] == "completed"
+    assert fences == [authority]
     assert sum(path == "/v1/control/prompt" for path, _ in calls) == 1
     assert sum(path == "/v1/status" for path, _ in calls) == 2

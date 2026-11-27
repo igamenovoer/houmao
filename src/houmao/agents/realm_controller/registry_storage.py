@@ -1090,7 +1090,9 @@ def _raise_if_conflicting_active_generation(
 
 
 @contextmanager
-def _managed_agent_record_lock(agent_id: str, *, env: Mapping[str, str] | None) -> Iterator[None]:
+def _managed_agent_record_lock(
+    agent_id: str, *, env: Mapping[str, str] | None, blocking: bool = True
+) -> Iterator[None]:
     """Serialize publication and removal on a stable lock outside the removable record."""
 
     normalized = _normalize_agent_id_component(agent_id)
@@ -1101,7 +1103,7 @@ def _managed_agent_record_lock(agent_id: str, *, env: Mapping[str, str] | None) 
     path = directory / f"{normalized}.lock"
     descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        fcntl.flock(descriptor, fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB)
         yield
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)

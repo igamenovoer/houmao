@@ -13,7 +13,9 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, list_tmux_panes
 from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
+from houmao.agents.realm_controller.hermes_self import require_live_hermes_daemon_authority
 from houmao.agents.realm_controller.manifest import (
+    load_registry_mode_authority,
     load_session_manifest,
     parse_session_manifest_payload,
 )
@@ -95,8 +97,14 @@ class GatewayRuntimeAccess:
             or record.generation_id != self.target.incarnation
             or Path(record.runtime.manifest_path) != self.manifest_path
             or record.execution_binding != self.execution_binding
-            or record.terminal.current_session_name is None
         ):
+            raise SessionManifestError("Current gateway runtime generation is unavailable.")
+        if record.identity.backend in {"hermes_service", "hermes_tui"}:
+            payload = load_registry_mode_authority(record)
+            require_live_hermes_daemon_authority(self.manifest_path, payload)
+            self.require_current()
+            return
+        if record.terminal.current_session_name is None:
             raise SessionManifestError("Current gateway runtime generation is unavailable.")
         try:
             with tmux_server_scope(record.terminal.socket_path):

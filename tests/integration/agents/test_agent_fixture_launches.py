@@ -133,6 +133,33 @@ def test_manager_fixtures_share_test_owned_houmao_default(
             assert server.list_sessions() == {first_session, second_session, raw_session}
             assert launch.stop_run(roots[0])["status"] == "stopped"
             assert server.list_sessions() == {second_session, raw_session}
+
+            stopped = prepare.load_run(roots[0])
+            captured_generation = stopped["identity"].pop("generation_id")
+            stopped.pop("manager_lineage")
+            prepare.write_json(roots[0] / "run.json", stopped)
+            prepare.manager_root_call(
+                [
+                    "agents",
+                    "single",
+                    "--agent-id",
+                    stopped["identity"]["agent_id"],
+                    "relaunch",
+                    "--chat-session-mode",
+                    "new",
+                ],
+                env=launch.run_environment(stopped),
+            )
+            assert launch.check_run(roots[0])["status"] == "stopped"
+            revived_sessions = server.list_sessions() - {second_session, raw_session}
+            assert len(revived_sessions) == 1
+            stopped_again = launch.stop_run(roots[0])
+            assert stopped_again["status"] == "stopped"
+            assert stopped_again["identity"]["generation_id"] != captured_generation
+            assert revived_sessions == {stopped_again["identity"]["tmux_session_name"]}
+            assert launch.stop_run(roots[0])["status"] == "stopped"
+            assert server.list_sessions() == {second_session, raw_session}
+
             raw_session_id = terminal["identity"]["tmux_session_id"]
             owner = prepare.load_run(roots[2])["raw_tmux_owner"]
             marker = ["set-environment", "-t", raw_session_id, "HOUMAO_FIXTURE_RUN_ID"]

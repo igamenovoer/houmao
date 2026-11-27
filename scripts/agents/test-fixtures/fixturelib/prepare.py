@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 import io
 import json
@@ -10,11 +10,14 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
 import threading
 from typing import Any, Literal
 
+import click
 import tomli_w
 import yaml
+from pydantic import BaseModel
 
 from houmao.agents.hermes_configuration import (
     HERMES_API_KEY_ENV,
@@ -158,42 +161,180 @@ def manager_root_call(args: list[str], *, env: Mapping[str, str]) -> dict[str, A
             payload.update(item)
             remaining = remaining[end:].strip()
     except ValueError as exc:
-        raise FixtureError("Managed project command did not return structured output") from exc
+        if code == 0:
+            raise FixtureError("Managed project command did not return structured output") from exc
     if code != 0:
-        # Command errors can repeat input values. Report only the operation, never
-        # captured raw diagnostics or the secret-bearing in-memory argv list.
-        operation = "/".join(args[:2])
         diagnostic = errors.getvalue()
-        for key, value in env.items():
-            if value and any(marker in key for marker in ("KEY", "TOKEN", "SECRET")):
-                diagnostic = diagnostic.replace(value, "[REDACTED]")
-        runtime = env.get("HOUMAO_GLOBAL_RUNTIME_DIR")
-        if runtime:
-            diagnostic_root = Path(runtime).parent
-            destination = diagnostic_root / "manager-error.txt"
-            index = 1
-            while destination.exists():
-                destination = diagnostic_root / f"manager-error-{index}.txt"
-                index += 1
-            private_write(destination, diagnostic.encode())
-        raise ManagedCommandError(f"Managed project operation failed: {operation}", payload)
+        if isinstance(detail := payload.get("gateway_auto_attach_error"), str):
+            diagnostic += detail + "\n"
+        raise _manager_failure(
+            _manager_operation_label(args),
+            code,
+            diagnostic,
+            env=env,
+            payload=payload,
+            private_values=_manager_private_arguments(args),
+        )
     if not payload:
         raise FixtureError("Managed project command returned an empty result")
     return payload
 
 
-class ManagedCommandError(FixtureError):
-    """Retain emitted identity after a partially successful managed launch."""
+def manager_selected_call(
+    operation: Literal["prompt", "stop"],
+    action: Callable[[], object],
+    *,
+    env: Mapping[str, str],
+    private_values: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Invoke a manager operation using its already verified target and private diagnostics."""
 
-    def __init__(self, message: str, payload: dict[str, Any]) -> None:
+    from houmao.agents.realm_controller.errors import BrainLaunchRuntimeError
+    from houmao.srv_ctrl.commands.main import _render_uncaught_exception
+
+    errors = io.StringIO()
+    failure: click.ClickException
+    with command_environment(env), redirect_stdout(io.StringIO()), redirect_stderr(errors):
+        try:
+            result = action()
+            if not isinstance(result, BaseModel):
+                raise click.ClickException("Managed operation did not return a typed result.")
+            return result.model_dump(mode="json")
+        except click.ClickException as exc:
+            failure = exc
+        except BrainLaunchRuntimeError as exc:
+            failure = click.ClickException(str(exc))
+        except Exception as exc:
+            failure = _render_uncaught_exception(exc)
+        failure.show()
+    raise _manager_failure(
+        f"agents/single/{operation}",
+        failure.exit_code,
+        errors.getvalue(),
+        env=env,
+        payload={},
+        private_values=private_values,
+    ) from None
+
+
+def _manager_operation_label(args: Sequence[str]) -> str:
+    """Return a fixed operation label without reflecting raw arguments."""
+
+    if len(args) >= 5 and args[:3] == ["agents", "single", "--agent-id"]:
+        if args[4] in {"prompt", "stop", "interrupt", "state", "gateway"}:
+            return f"agents/single/{args[4]}"
+    if args[:2] == ["project", "--project-dir"]:
+        if args[3:5] == ["agents", "launch"]:
+            return "project/agents/launch"
+        return "project"
+    return "manager"
+
+
+def _manager_private_arguments(args: Sequence[str]) -> list[str]:
+    """Collect explicit input values that could be repeated in private manager stderr."""
+
+    private_options = {"--api-key", "--auth-token", "--oauth-token", "--prompt"}
+    values = []
+    for index, argument in enumerate(args):
+        option, separator, value = argument.partition("=")
+        if option in private_options:
+            if separator:
+                values.append(value)
+            elif index + 1 < len(args):
+                values.append(args[index + 1])
+    return values
+
+
+def _manager_failure(
+    operation: str,
+    exit_code: int,
+    diagnostic: str,
+    *,
+    env: Mapping[str, str],
+    payload: dict[str, Any],
+    private_values: Sequence[str],
+) -> ManagedCommandError:
+    """Capture one private diagnostic and return only its safe public reference."""
+
+    values = set(private_values)
+    for key, value in env.items():
+        if any(marker in key.upper() for marker in ("KEY", "TOKEN", "SECRET", "PASSWORD")):
+            values.add(value)
+    values.discard("")
+    for value in sorted(values, key=len, reverse=True):
+        diagnostic = diagnostic.replace(value, "[REDACTED]")
+    destination = None
+    if runtime := env.get("HOUMAO_GLOBAL_RUNTIME_DIR"):
+        destination = _save_manager_diagnostic(Path(runtime).parent, diagnostic)
+    return ManagedCommandError(
+        f"Managed project operation failed: {operation}",
+        payload,
+        manager_exit_code=exit_code,
+        diagnostic_path=destination,
+    )
+
+
+def _save_manager_diagnostic(root: Path, diagnostic: str) -> Path | None:
+    """Allocate a new private diagnostic without replacing another failure's evidence."""
+
+    path = None
+    try:
+        private_directory(root)
+        descriptor, name = tempfile.mkstemp(prefix="manager-error-", suffix=".txt", dir=root)
+        path = Path(name)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(diagnostic)
+        return path
+    except (FixtureError, OSError, UnicodeError):
+        if path is not None:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        return None
+
+
+class ManagedCommandError(FixtureError):
+    """Retain private diagnostic references and any partial manager result."""
+
+    def __init__(
+        self,
+        message: str,
+        payload: dict[str, Any],
+        *,
+        manager_exit_code: int | None = None,
+        diagnostic_path: Path | None = None,
+    ) -> None:
         super().__init__(message)
         self.m_payload: dict[str, Any] = payload
+        self.m_manager_exit_code: int | None = manager_exit_code
+        self.m_diagnostic_path: Path | None = diagnostic_path
 
     @property
     def payload(self) -> dict[str, Any]:
         """Return command output for identity-scoped cleanup."""
 
         return self.m_payload
+
+    def diagnostic_reference(self) -> dict[str, int | str]:
+        """Return fields that can be reported without showing the diagnostic text."""
+
+        fields: dict[str, int | str] = {}
+        if self.m_manager_exit_code is not None:
+            fields["manager_exit_code"] = self.m_manager_exit_code
+        if self.m_diagnostic_path is not None:
+            fields["diagnostic_path"] = str(self.m_diagnostic_path)
+        return fields
+
+    def with_message(self, message: str) -> ManagedCommandError:
+        """Keep the original manager evidence when reporting a higher-level failure."""
+
+        return ManagedCommandError(
+            message,
+            self.m_payload,
+            manager_exit_code=self.m_manager_exit_code,
+            diagnostic_path=self.m_diagnostic_path,
+        )
 
 
 def credential_values(config: ResolvedConfig) -> dict[str, str]:

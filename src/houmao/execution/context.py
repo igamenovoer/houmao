@@ -34,6 +34,27 @@ def current_execution_binding() -> ExecutionBindingV1 | None:
 
 
 _READ_ONLY: ContextVar[bool] = ContextVar("houmao_execution_read_only", default=False)
+_OPERATION_DEADLINE: ContextVar[float | None] = ContextVar(
+    "houmao_execution_operation_deadline", default=None
+)
+
+
+def current_execution_deadline() -> float | None:
+    """Return the admitted operation's monotonic deadline, if it has one."""
+
+    return _OPERATION_DEADLINE.get()
+
+
+@contextmanager
+def execution_deadline_scope(deadline: float) -> Iterator[None]:
+    """Bound native operation waits to the enclosing finite execution request."""
+
+    enclosing = current_execution_deadline()
+    token = _OPERATION_DEADLINE.set(deadline if enclosing is None else min(enclosing, deadline))
+    try:
+        yield
+    finally:
+        _OPERATION_DEADLINE.reset(token)
 
 
 def execution_is_read_only() -> bool:

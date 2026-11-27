@@ -20,6 +20,13 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 )
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.agents.realm_controller.hermes_self import (
+    HERMES_DETACHED_SELF_BACKENDS,
+    HermesSelfLocator,
+    read_hermes_self_locator,
+    require_hermes_daemon_caller,
+    require_live_hermes_daemon_authority,
+)
 from houmao.agents.realm_controller.manifest import (
     default_manifest_path,
     load_session_manifest,
@@ -72,6 +79,28 @@ def resolve_self_manifest() -> VerifiedSelfManifest:
 def _resolve_self_manifest() -> VerifiedSelfManifest:
     """Select the current runtime and validate its saved authority."""
 
+    detached = _detached_hermes_manifest()
+    if detached is not None:
+        path, payload, locator = detached
+        authority = _verify_self_generation(path, payload, os.environ.get(AGENT_ID_ENV_VAR))
+        daemon = require_live_hermes_daemon_authority(path, payload)
+        if locator is not None and (locator.pid, locator.birth_token) != (
+            daemon.pid,
+            daemon.birth_token,
+        ):
+            raise ValueError("The Hermes self locator names a different daemon incarnation.")
+        require_hermes_daemon_caller(daemon)
+
+        # A relaunch may replace the manifest or registry while ancestry is being checked.
+        current_path, current = _read_confined_self_manifest(str(path))
+        if (
+            current.registry_generation_id != payload.registry_generation_id
+            or current.runtime.execution_binding != payload.runtime.execution_binding
+            or require_live_hermes_daemon_authority(current_path, current) != daemon
+        ):
+            raise ValueError("The managed Hermes owner changed during self resolution.")
+        return _verify_self_generation(current_path, current, authority.agent_id)
+
     owner = _self_tmux_session()
     published_agent_id = None
     if owner is None:
@@ -94,6 +123,24 @@ def _resolve_self_manifest() -> VerifiedSelfManifest:
             if record is not None:
                 pointer = record.runtime.manifest_path
 
+    path, payload = _read_confined_self_manifest(pointer)
+    authority = _verify_self_generation(path, payload, published_agent_id)
+    registry_tmux = (
+        authority.record.terminal.socket_path,
+        authority.record.terminal.current_session_name,
+    )
+    if owner is None and payload.mode != "headless":
+        raise ValueError("Self lookup requires the owning tmux socket and session.")
+    if owner is not None and (payload.tmux is None or owner != registry_tmux):
+        raise ValueError("The self manifest does not match the owning tmux socket and session.")
+    if os.environ.get(SELF_TMUX_SOCKET_ENV_VAR):
+        _require_web_caller(payload)
+    return authority
+
+
+def _read_confined_self_manifest(pointer: str | None) -> tuple[Path, SessionManifestPayloadV4]:
+    """Read one canonical manifest selected by a caller-context locator."""
+
     if not pointer:
         raise ValueError("Self commands require the manifest of the current managed runtime.")
     path = Path(pointer)
@@ -106,7 +153,50 @@ def _resolve_self_manifest() -> VerifiedSelfManifest:
         raise ValueError("The self locator must identify a confined runtime manifest.")
 
     handle = load_session_manifest(path)
-    payload = parse_session_manifest_payload(handle.payload, source=str(path))
+    return path, parse_session_manifest_payload(handle.payload, source=str(path))
+
+
+def _detached_hermes_manifest() -> (
+    tuple[Path, SessionManifestPayloadV4, HermesSelfLocator | None] | None
+):
+    """Locate a detached Hermes daemon's candidate without reading its tmux hints."""
+
+    home_value = os.environ.get("HERMES_HOME")
+    if not home_value or os.environ.get("TMUX"):
+        return None
+    home = Path(home_value)
+    locator = read_hermes_self_locator(home)
+    inherited = os.environ.get(AGENT_MANIFEST_PATH_ENV_VAR)
+    if inherited is None and locator is None:
+        return None
+    path, payload = _read_confined_self_manifest(
+        inherited
+        if inherited is not None
+        else locator.manifest_path
+        if locator is not None
+        else None
+    )
+    if payload.backend not in HERMES_DETACHED_SELF_BACKENDS and locator is None:
+        return None
+    if (
+        payload.backend not in HERMES_DETACHED_SELF_BACKENDS
+        or payload.launch_plan.home_selector.home_path != str(home)
+        or locator is not None
+        and (
+            locator.manifest_path != str(path)
+            or locator.agent_id != payload.agent_id
+            or locator.generation_id != payload.registry_generation_id
+        )
+    ):
+        raise ValueError("The Hermes self locator does not match the current managed runtime.")
+    return path, payload, locator
+
+
+def _verify_self_generation(
+    path: Path, payload: SessionManifestPayloadV4, published_agent_id: str | None
+) -> VerifiedSelfManifest:
+    """Verify shared owner and registry authority before checking caller provenance."""
+
     binding = payload.runtime.execution_binding
     if binding is None:
         raise ValueError("The self manifest is missing its execution binding.")
@@ -144,13 +234,6 @@ def _resolve_self_manifest() -> VerifiedSelfManifest:
         != registry_tmux
     ):
         raise ValueError("The self manifest tmux binding does not match the live registry record.")
-    if owner is None and payload.mode != "headless":
-        raise ValueError("Self lookup requires the owning tmux socket and session.")
-    if owner is not None and (payload.tmux is None or owner != registry_tmux):
-        raise ValueError("The self manifest does not match the owning tmux socket and session.")
-
-    if os.environ.get(SELF_TMUX_SOCKET_ENV_VAR):
-        _require_web_caller(payload)
     return VerifiedSelfManifest(path=path, payload=payload, record=record)
 
 

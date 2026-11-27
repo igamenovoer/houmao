@@ -22,7 +22,11 @@ from houmao.execution.arguments import (
     RefreshArguments,
     RelaunchArguments,
 )
-from houmao.execution.context import execution_read_only_scope
+from houmao.execution.context import (
+    current_execution_deadline,
+    execution_deadline_scope,
+    execution_read_only_scope,
+)
 from houmao.execution.models import ExecutionBindingV1, ExecutionRequestV1, JsonObject
 from houmao.execution.owner import OwnerAdmissionError, OwnerPolicyV1, prepare_owner_operation
 
@@ -163,7 +167,11 @@ def _control(
         )
     if current.generation_id != record.generation_id:
         raise OwnerAdmissionError("generation_conflict", "Agent changed during target resolution.")
-    remaining = request.deadline_seconds - (monotonic() - started)
+    deadline = started + request.deadline_seconds
+    admitted_deadline = current_execution_deadline()
+    if admitted_deadline is not None:
+        deadline = min(deadline, admitted_deadline)
+    remaining = deadline - monotonic()
     if remaining <= 0:
         raise OwnerAdmissionError(
             "deadline_exhausted", "Execution deadline expired before operation admission."
@@ -185,14 +193,19 @@ def _control(
             )
         )
     if isinstance(arguments, PromptArguments):
-        return _json_result(
-            managed.prompt_managed_agent(
-                target,
-                prompt=arguments.prompt,
-                model=arguments.model,
-                reasoning_level=arguments.reasoning_level,
-            )
-        )
+        # Leave time to serialize and transmit the result when native work is still active.
+        with execution_deadline_scope(deadline - min(0.25, remaining / 2)):
+            try:
+                return _json_result(
+                    managed.prompt_managed_agent(
+                        target,
+                        prompt=arguments.prompt,
+                        model=arguments.model,
+                        reasoning_level=arguments.reasoning_level,
+                    )
+                )
+            except managed.HermesManagerPromptRefused as exc:
+                raise OwnerAdmissionError(exc.code, exc.message) from None
     if operation == "interrupt":
         return _json_result(managed.interrupt_managed_agent(target))
     if operation == "stop":

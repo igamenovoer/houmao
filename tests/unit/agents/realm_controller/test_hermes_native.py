@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock
 
@@ -12,11 +13,14 @@ import pytest
 
 from houmao.agents.realm_controller.backends import hermes_native
 from houmao.agents.realm_controller.backends.hermes_native import (
+    HermesClient,
     HermesDaemon,
+    HermesDeadlineExpired,
     HermesNativeError,
     read_hermes_evidence,
 )
 from houmao.agents.realm_controller.startup_rollback import runtime_startup_scope
+from houmao.execution.context import execution_deadline_scope
 
 
 @pytest.fixture
@@ -132,6 +136,46 @@ def test_daemon_rejects_stale_process_and_non_loopback_endpoint(
     payload["api_origin"] = "http://192.0.2.1:58242"
     with pytest.raises(HermesNativeError, match="private loopback"):
         daemon.discover()
+
+
+def test_native_rpc_uses_delegated_budget_for_send_and_receive(
+    native_setup: tuple[HermesDaemon, Path, dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Clamp the actual native transport waits and refuse an expired RPC before sending."""
+
+    daemon, _, payload = native_setup
+    monkeypatch.setattr(hermes_native, "_dispatch_origin_birth_token", lambda _: "proc:10")
+    monkeypatch.setattr(hermes_native, "_control_query", lambda *args: (payload, payload["pid"]))
+    identity = daemon.discover()
+    assert identity is not None
+    sent: list[dict[str, Any]] = []
+    socket_timeouts: list[float | None] = []
+    receive_timeouts: list[float] = []
+    clock = [100.0]
+    monkeypatch.setattr(hermes_native, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+
+    def receive(*, timeout: float) -> str:
+        """Expose the native RPC receive budget without opening a network socket."""
+
+        receive_timeouts.append(timeout)
+        return json.dumps({"id": sent[-1]["id"], "result": {"status": "queued"}})
+
+    peer = SimpleNamespace(
+        socket=SimpleNamespace(settimeout=socket_timeouts.append),
+        send=lambda raw: sent.append(json.loads(raw)),
+        recv=receive,
+    )
+    client = HermesClient(peer, identity)
+    with execution_deadline_scope(100.125):
+        assert client.rpc("prompt.receipt") == {"status": "queued"}
+        clock[0] = 100.125
+        with pytest.raises(HermesDeadlineExpired, match="execution deadline expired"):
+            client.rpc("prompt.submit", text="must never be sent")
+
+    assert socket_timeouts == [0.125, None]
+    assert receive_timeouts == [0.125]
+    assert [message["method"] for message in sent] == ["prompt.receipt"]
 
 
 def test_stop_adopts_exact_unready_process_without_touching_other_home(

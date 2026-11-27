@@ -8,7 +8,7 @@ only by an admitted mutation; read-only discovery never initializes state.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stdout
 import hashlib
 import json
 import os
@@ -41,7 +41,7 @@ from houmao.execution.arguments import (
     OwnerOperation,
     validate_owner_operation,
 )
-from houmao.execution.context import execution_binding_scope
+from houmao.execution.context import execution_binding_scope, execution_deadline_scope
 from houmao.execution.protocol import (
     MAX_REQUEST_BYTES,
     ExecutionProtocolError,
@@ -323,9 +323,12 @@ def handle_request(
     request: ExecutionRequestV1,
     policy: OwnerPolicyV1,
     dispatch: OwnerDispatcher,
+    *,
+    started_at: float | None = None,
 ) -> ExecutionResponseV1:
     """Admit one finite request and retain uncertainty after dispatch begins."""
 
+    deadline = (monotonic() if started_at is None else started_at) + request.deadline_seconds
     binding: ExecutionBindingV1 | None = None
     admitted = False
     try:
@@ -365,6 +368,7 @@ def handle_request(
             owner_environment(policy),
             execution_binding_scope(binding),
             tmux_server_scope(binding.tmux_socket),
+            execution_deadline_scope(deadline) if request.operation == "prompt" else nullcontext(),
         ):
             # Protocol stdout must contain only the response, even if an existing
             # application helper writes a diagnostic during execution.
@@ -438,6 +442,7 @@ def serve_stdio(
 ) -> int:
     """Read one bounded private request and write exactly one bounded response."""
 
+    started = monotonic()
     source = input_stream if input_stream is not None else sys.stdin.buffer
     target = output_stream if output_stream is not None else sys.stdout.buffer
     request_id = "invalid-request"
@@ -448,7 +453,7 @@ def serve_stdio(
         policy = load_owner_policy(policy_path)
         if dispatch is None:
             dispatch = _application_dispatch
-        response = handle_request(request, policy, dispatch)
+        response = handle_request(request, policy, dispatch, started_at=started)
     except (OwnerAdmissionError, ExecutionProtocolError):
         response = ExecutionResponseV1(
             request_id=request_id,

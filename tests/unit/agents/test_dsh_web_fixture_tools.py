@@ -218,7 +218,7 @@ def test_manager_web_waits_for_exact_operation_usage(
         "run_dir": str(tmp_path),
         "status": "launched",
         "configuration": {"client": "dsh", "mode": "web", "surface": "manager"},
-        "identity": {"gateway_host": "127.0.0.1", "gateway_port": 19095},
+        "identity": {"agent_id": "web-fixture-owner"},
     }
     human = {
         "record_id": "human-record",
@@ -233,11 +233,21 @@ def test_manager_web_waits_for_exact_operation_usage(
         "turn_origin": "managed",
     }
     reads = 0
+    authority = SimpleNamespace(record=SimpleNamespace(generation_id="web-generation"))
 
-    def gateway_request(run: dict[str, Any], path: str, body: Any = None) -> dict[str, Any]:
+    def prepare_prompt(run: dict[str, Any]) -> tuple[object, SimpleNamespace]:
+        """Select the captured fixture's active runtime generation."""
+
+        assert run["identity"]["agent_id"] == "web-fixture-owner"
+        return object(), authority
+
+    def gateway_request(
+        run: dict[str, Any], path: str, body: Any = None, *, generation_id: str
+    ) -> dict[str, Any]:
         """Expose an unrelated completed row before the exact managed record arrives."""
 
         nonlocal reads
+        assert generation_id == authority.record.generation_id
         if path == "/v1/control/prompt":
             return {"operation_id": "admitted-operation"}
         if path == "/v1/status":
@@ -248,6 +258,9 @@ def test_manager_web_waits_for_exact_operation_usage(
 
     monkeypatch.setattr(launch, "load_run", lambda path: run)
     monkeypatch.setattr(launch, "_save", lambda run: None)
+    monkeypatch.setattr(launch, "_prepare_manager_prompt", prepare_prompt)
+    monkeypatch.setattr(launch, "run_environment", lambda run: {})
+    monkeypatch.setattr(launch, "_require_current_manager_fixture", lambda selected: None)
     monkeypatch.setattr(launch, "_gateway_request", gateway_request)
     monkeypatch.setattr(launch.time, "sleep", lambda seconds: None)
     result = launch.prompt_run(tmp_path, prompt="Explicit managed input", timeout=1)
@@ -306,7 +319,13 @@ def test_failed_launch_with_completed_cleanup_does_not_stop_an_inactive_agent_ag
     repo = Path(__file__).resolve().parents[3]
     monkeypatch.syspath_prepend(str(repo / "scripts/agents/test-fixtures"))
     launch = importlib.import_module("fixturelib.launch")
-    run = {"run_dir": str(tmp_path), "status": "launch_failed", "cleanup": "stopped_owned_identity"}
+    run = {
+        "run_dir": str(tmp_path),
+        "status": "launch_failed",
+        "cleanup": "stopped_owned_identity",
+        "configuration": {"client": "dsh", "mode": "web", "surface": "raw"},
+        "error": "Launch failed; private run state retained for inspection",
+    }
     monkeypatch.setattr(launch, "load_run", lambda path: run)
     monkeypatch.setattr(launch, "_save", lambda run: None)
 
@@ -316,4 +335,6 @@ def test_failed_launch_with_completed_cleanup_does_not_stop_an_inactive_agent_ag
         raise AssertionError("Cleanup already completed")
 
     monkeypatch.setattr(launch, "_cleanup", duplicate_stop)
-    assert launch.stop_run(tmp_path)["status"] == "stopped"
+    stopped = launch.stop_run(tmp_path)
+    assert stopped["status"] == "stopped"
+    assert stopped["error"] == "Launch failed; private run state retained for inspection"

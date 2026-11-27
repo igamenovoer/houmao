@@ -42,7 +42,7 @@ from fixturelib.launch import (
     stop_run,
 )
 from fixturelib.pool import ModelPoolEntry, load_model_pool, select_pool_key
-from fixturelib.prepare import load_run, prepare_run
+from fixturelib.prepare import ManagedCommandError, load_run, prepare_run
 
 
 _MANAGED_CONFIGURATION_GUIDE = """Houmao managed configuration:
@@ -506,7 +506,8 @@ def main(argv: list[str] | None = None) -> int:
         message = (
             str(exc) if isinstance(exc, FixtureError) else "Fixture filesystem operation failed"
         )
-        print(json.dumps({"error": message}), file=sys.stderr)
+        diagnostic = exc.diagnostic_reference() if isinstance(exc, ManagedCommandError) else {}
+        print(json.dumps({"error": message, **diagnostic}), file=sys.stderr)
         return 2
 
 

@@ -9,10 +9,18 @@ from pathlib import Path
 import subprocess
 import sys
 import tomllib
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
+import click
 import pytest
 import yaml
+
+from houmao.agents.realm_controller.errors import SessionManifestError
+from houmao.server.models import (
+    HoumaoManagedAgentActionResponse,
+    HoumaoManagedAgentRequestAcceptedResponse,
+)
+from houmao.srv_ctrl.commands import managed_agents
 
 _REPO = Path(__file__).resolve().parents[3]
 _TOOL_ROOT = _REPO / "scripts/agents/test-fixtures"
@@ -1053,38 +1061,344 @@ def test_raw_launch_and_exact_resume_use_selected_private_environment(
     assert fixture_launch.stop_run(root)["status"] == "stopped"
 
 
-def test_partial_manager_launch_retains_identity_and_cleans_only_its_agent(
-    fixture_config: ModuleType,
+@pytest.fixture
+def manager_fixture_authority(
     fixture_prepare: ModuleType,
     fixture_launch: ModuleType,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A failed gateway attachment does not lose the already created managed identity."""
+) -> SimpleNamespace:
+    """Supply a captured schema-v2 fixture at the real manager's registry boundary."""
 
-    config = fixture_config.resolve_config(
-        case="cloud-api", client="claude", process_env=_env("cloud-api")
+    root = tmp_path / "run"
+    root.mkdir(mode=0o700)
+    workdir = root / "workdir"
+    workdir.mkdir()
+    manifest_path = root / "manifest.json"
+    manifest_path.touch()
+    registry_root = str(root / "registry")
+    socket_path = str(root / "isolated.sock")
+    identity = {
+        "agent_id": "fixture-owner",
+        "manifest_path": str(manifest_path),
+        "tmux_session_name": "fixture-old-session",
+        "gateway_port": 20000,
+        "tool": "hermes",
+        "mode": "service",
+        "backend": "hermes_service",
+    }
+    run = {
+        "schema_version": 2,
+        "status": "stopped",
+        "cleanup": "stopped_owned_identity",
+        "run_dir": str(root),
+        "workdir": str(workdir),
+        "project_dir": str(workdir),
+        "executable": sys.executable,
+        "configuration": {"client": "hermes", "mode": "service", "surface": "manager"},
+        "backend": "hermes_service",
+        "tmux_server_mode": "new",
+        "tmux_socket_path": socket_path,
+        "identity": identity,
+        "turns": [{"request_id": "previous", "status": "completed"}],
+    }
+    fixture_prepare.write_json(root / "run.json", run)
+    fixture_prepare.write_json(root / "private-env.json", {"HERMES_API_KEY": "fixture-key"})
+    binding = SimpleNamespace(
+        registry_root=registry_root,
+        tmux_socket=socket_path,
+        model_dump=lambda **_: {"context_id": "fixture-context", "registry_root": registry_root},
     )
-    run = fixture_prepare.prepare_run(config, run_root=tmp_path / "runs", executable=sys.executable)
-    root = Path(run["run_dir"])
+    record = SimpleNamespace(
+        agent_id="fixture-owner",
+        lifecycle=SimpleNamespace(state="stopped"),
+        generation_id="original-generation",
+        execution_binding=binding,
+        runtime=SimpleNamespace(manifest_path=str(manifest_path)),
+    )
+    manifest = SimpleNamespace(
+        agent_id="fixture-owner",
+        tool="hermes",
+        mode="service",
+        backend="hermes_service",
+        working_directory=str(workdir),
+        registry_generation_id=record.generation_id,
+        registry_launch_authority="runtime",
+        runtime=SimpleNamespace(session_id="fixture-runtime", execution_binding=binding),
+        tmux=SimpleNamespace(socket_path=socket_path, session_name=identity["tmux_session_name"]),
+        native_surface=None,
+    )
+    scenario = SimpleNamespace(root=root, run=run, record=record, manifest=manifest)
 
-    def failed(*_args, **_kwargs):
-        raise fixture_prepare.ManagedCommandError(
-            "sanitized failure", {"agent_id": "only-owned-agent"}
+    def load_record(agent_id, *, env):
+        assert agent_id == "fixture-owner"
+        assert env == {"HOUMAO_GLOBAL_REGISTRY_DIR": registry_root}
+        return scenario.record
+
+    def fence(path, *, generation_id, agent_id, execution_binding):
+        assert path == manifest_path and agent_id == "fixture-owner"
+        assert execution_binding is binding
+        if scenario.record is None or generation_id != scenario.record.generation_id:
+            raise SessionManifestError("The captured generation changed")
+        assert scenario.record.lifecycle.state == "active"
+        return manifest
+
+    monkeypatch.setattr(fixture_launch, "load_managed_agent_record_by_agent_id", load_record)
+    monkeypatch.setattr(fixture_launch, "require_active_managed_control_manifest", fence)
+    monkeypatch.setattr(fixture_launch, "resolve_hermes_executable", lambda **_: sys.executable)
+    monkeypatch.setattr(
+        fixture_launch, "load_session_manifest", lambda _path: SimpleNamespace(payload={})
+    )
+    monkeypatch.setattr(
+        fixture_launch, "parse_session_manifest_payload", lambda *_a, **_k: manifest
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "select_local_managed_agent_record",
+        lambda selected, *, agent_ref: SimpleNamespace(record=selected, agent_ref=agent_ref),
+    )
+    monkeypatch.setattr(
+        managed_agents,
+        "read_selected_manifest",
+        lambda target: managed_agents.VerifiedRegistryManifest(
+            manifest_path, manifest, target.record
+        ),
+    )
+    return scenario
+
+
+def test_manager_fixture_follows_verified_relaunch_and_stops_once(
+    manager_fixture_authority: SimpleNamespace,
+    fixture_prepare: ModuleType,
+    fixture_launch: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Past stop evidence never prevents input or cleanup of the same revived runtime."""
+
+    case = manager_fixture_authority
+    case.record.lifecycle.state = "active"
+    case.record.generation_id = "relaunched-generation"
+    case.manifest.registry_generation_id = case.record.generation_id
+    case.manifest.tmux.session_name = "fixture-new-session"
+    calls = []
+
+    def prompt(target, *, prompt):
+        calls.append(("prompt", target.record.generation_id, prompt))
+        return HoumaoManagedAgentRequestAcceptedResponse(
+            success=True,
+            tracked_agent_id="fixture-owner",
+            request_id="next-request",
+            request_kind="submit_prompt",
+            delivery_state="queued",
+            detail="Queued on the native owner",
         )
 
-    calls = []
-    monkeypatch.setattr(fixture_launch, "manager_call", failed)
+    def stop(target):
+        calls.append(("stop", target.record.generation_id))
+        case.record.lifecycle.state = "stopped"
+        return HoumaoManagedAgentActionResponse(
+            success=True, tracked_agent_id="fixture-owner", detail="Stopped"
+        )
+
+    monkeypatch.setattr(managed_agents, "prompt_managed_agent", prompt)
+    monkeypatch.setattr(managed_agents, "stop_managed_agent", stop)
     monkeypatch.setattr(
-        fixture_launch, "manager_root_call", lambda args, **_kw: calls.append(args) or {}
+        fixture_launch, "manager_root_call", lambda *_a, **_k: pytest.fail("New selector lookup")
     )
-    with pytest.raises(fixture_config.FixtureError, match="inspect"):
-        fixture_launch.launch_run(root)
-    metadata = fixture_prepare.load_run(root)
+    prompt_result = fixture_launch.prompt_run(case.root, prompt="new turn")
+    assert prompt_result["status"] == "launched" and "cleanup" not in prompt_result
+    assert prompt_result["identity"]["tmux_session_name"] == "fixture-new-session"
+    assert prompt_result["identity"]["generation_id"] == "relaunched-generation"
+    assert "gateway_port" not in prompt_result["identity"]
+    assert prompt_result["turns"] == [
+        {"request_id": "previous", "status": "completed"},
+        {"request_id": "next-request", "status": "queued"},
+    ]
+    assert fixture_launch.stop_run(case.root)["status"] == "stopped"
+    assert fixture_launch.stop_run(case.root)["status"] == "stopped"
+    saved = fixture_prepare.load_run(case.root)
+    assert saved["manager_lineage"]["session_id"] == "fixture-runtime"
+    assert saved["identity"]["manifest_path"] == case.run["identity"]["manifest_path"]
+    assert calls == [
+        ("prompt", "relaunched-generation", "new turn"),
+        ("stop", "relaunched-generation"),
+    ]
+
+
+@pytest.mark.parametrize("operation", ["prompt", "stop"])
+@pytest.mark.parametrize(
+    "evidence", ["missing", "incomplete", "replacement", "relaunching", "race"]
+)
+def test_manager_fixture_rejects_unverified_authority_before_effect(
+    operation: str,
+    evidence: str,
+    manager_fixture_authority: SimpleNamespace,
+    fixture_prepare: ModuleType,
+    fixture_launch: ModuleType,
+    fixture_config: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Missing and replaced owners cannot receive a fixture prompt or stop."""
+
+    case = manager_fixture_authority
+    case.record.lifecycle.state = "active"
+    if evidence == "missing":
+        case.record = None
+    elif evidence == "incomplete":
+        case.run["identity"].pop("agent_id")
+        fixture_prepare.write_json(case.root / "run.json", case.run)
+    elif evidence == "replacement":
+        case.record.runtime.manifest_path = str(case.root / "replacement-manifest.json")
+    elif evidence == "relaunching":
+        case.record.lifecycle.state = "relaunching"
+    else:
+        invoke = fixture_launch.manager_selected_call
+
+        def dispatch_after_race(*args, **kwargs):
+            case.record = SimpleNamespace(**vars(case.record))
+            case.record.generation_id = "racing-generation"
+            return invoke(*args, **kwargs)
+
+        monkeypatch.setattr(fixture_launch, "manager_selected_call", dispatch_after_race)
+    monkeypatch.setattr(
+        managed_agents, "prompt_managed_agent", lambda *_a, **_k: pytest.fail("Prompt called")
+    )
+    monkeypatch.setattr(
+        managed_agents, "stop_managed_agent", lambda *_a, **_k: pytest.fail("Stop called")
+    )
+    with pytest.raises(fixture_config.FixtureError):
+        if operation == "prompt":
+            fixture_launch.prompt_run(case.root, prompt="private test prompt")
+        else:
+            fixture_launch.stop_run(case.root)
+    observed = fixture_prepare.load_run(case.root)
+    assert observed["identity"]["manifest_path"] == case.run["identity"]["manifest_path"]
+    assert observed["turns"] == case.run["turns"]
+
+
+@pytest.mark.parametrize("failed_phase", ["initial-prompt", "launch"])
+def test_manager_fixture_failure_preserves_birth_and_primary_diagnostic(
+    failed_phase: str,
+    manager_fixture_authority: SimpleNamespace,
+    fixture_prepare: ModuleType,
+    fixture_launch: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial birth and initial input failure retain the exact owned runtime for cleanup."""
+
+    case = manager_fixture_authority
+    case.run["status"] = "prepared"
+    identity = case.run.pop("identity")
+    case.record.lifecycle.state = "active"
+    fixture_prepare.write_json(case.root / "run.json", case.run)
+    diagnostic = case.root / "initial-launch-error.txt"
+    fixture_prepare.private_write(diagnostic, b"Gateway failed\n")
+
+    def launch(*_args, **_kwargs):
+        if failed_phase == "launch":
+            raise fixture_prepare.ManagedCommandError(
+                "sanitized failure",
+                {**identity, "gateway_auto_attach_error": "raw fixture-key failure"},
+                manager_exit_code=2,
+                diagnostic_path=diagnostic,
+            )
+        return identity
+
+    def prompt(_target, *, prompt):
+        raise click.ClickException(f"Failed input {prompt} with fixture-key")
+
+    stops = []
+
+    def stop(target):
+        stops.append(target.record)
+        return HoumaoManagedAgentActionResponse(
+            success=True, tracked_agent_id="fixture-owner", detail="Stopped"
+        )
+
+    monkeypatch.setattr(fixture_launch, "manager_call", launch)
+    monkeypatch.setattr(managed_agents, "prompt_managed_agent", prompt)
+    monkeypatch.setattr(managed_agents, "stop_managed_agent", stop)
+    with pytest.raises(fixture_prepare.ManagedCommandError, match="inspect") as failure:
+        fixture_launch.launch_run(case.root, prompt="private original prompt")
+    metadata = fixture_prepare.load_run(case.root)
     assert metadata["status"] == "launch_failed"
-    assert metadata["identity"]["agent_id"] == "only-owned-agent"
-    assert calls == [["agents", "single", "--agent-id", "only-owned-agent", "stop"]]
+    assert metadata["identity"]["agent_id"] == "fixture-owner"
+    assert metadata["identity"]["manifest_path"] == identity["manifest_path"]
+    assert "gateway_auto_attach_error" not in metadata["identity"]
     assert metadata["cleanup"] == "stopped_owned_identity"
+    assert stops == [case.record]
+    reference = failure.value.diagnostic_reference()
+    assert reference["manager_exit_code"] == (2 if failed_phase == "launch" else 1)
+    assert reference["diagnostic_path"] == metadata["diagnostic_path"]
+    readable = Path(reference["diagnostic_path"]).read_text()
+    assert "private original prompt" not in readable and "fixture-key" not in readable
+    assert "Gateway failed" in readable if failed_phase == "launch" else "Failed input" in readable
+
+
+def test_manager_failure_json_links_unique_redacted_private_diagnostics(
+    fixture_prepare: ModuleType,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Capture both valid and malformed failure output without surfacing private text."""
+
+    from houmao.srv_ctrl.commands import main as manager_cli
+
+    fixture_cli = importlib.import_module("fixture")
+    prompt = "private prompt text"
+    env_key, flag_key = "secret from env", "secret from argv"
+    output = None
+
+    def fail_manager(args):
+        assert args == [
+            "--print-json",
+            "agents",
+            "single",
+            "--agent-id",
+            "selected",
+            "prompt",
+            "--prompt",
+            prompt,
+            "--api-key",
+            flag_key,
+        ]
+        print(output)
+        print(f"Manager refused {prompt}, {env_key}, {flag_key}", file=sys.stderr)
+        return 9
+
+    def run_prompt(_root, **_kwargs):
+        return fixture_prepare.manager_root_call(
+            [
+                "agents",
+                "single",
+                "--agent-id",
+                "selected",
+                "prompt",
+                "--prompt",
+                prompt,
+                "--api-key",
+                flag_key,
+            ],
+            env={"HOUMAO_GLOBAL_RUNTIME_DIR": str(tmp_path / "runtime"), "HERMES_API_KEY": env_key},
+        )
+
+    monkeypatch.setattr(manager_cli, "main", fail_manager)
+    monkeypatch.setattr(fixture_cli, "prompt_run", run_prompt)
+    paths = []
+    for output in ('{"success": false}', "invalid stdout"):
+        assert fixture_cli.main(["prompt", "--run-dir", str(tmp_path), "--prompt", prompt]) == 2
+        captured = capsys.readouterr()
+        assert not captured.out
+        fields = json.loads(captured.err)
+        assert fields["manager_exit_code"] == 9
+        assert fields["error"].endswith("agents/single/prompt")
+        assert all(value not in captured.err for value in (prompt, env_key, flag_key))
+        path = Path(fields["diagnostic_path"])
+        assert path.parent == tmp_path and path.stat().st_mode & 0o077 == 0
+        assert path.read_text() == "Manager refused [REDACTED], [REDACTED], [REDACTED]\n"
+        paths.append(path)
+    assert len(set(paths)) == 2 and all(path.exists() for path in paths)
 
 
 def test_passive_headless_creation_and_turn_use_maintained_http_contract(
@@ -1214,59 +1528,100 @@ def test_offline_check_reports_missing_private_prerequisites_without_network(
     assert result["prerequisites"]["missing"] == ["client_executable"]
 
 
-def test_gateway_detach_failure_still_attempts_owned_runtime_stop(
-    fixture_config: ModuleType,
-    fixture_prepare: ModuleType,
+def test_manager_fixture_stop_uses_current_owner_without_the_cached_gateway(
+    manager_fixture_authority: SimpleNamespace,
     fixture_launch: ModuleType,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A dead gateway cannot prevent cleanup of the captured runtime identity."""
+    """The manager owns gateway teardown even when a fixture's launch port is stale."""
 
-    config = fixture_config.resolve_config(
-        case="cloud-api", client="claude", process_env=_env("cloud-api")
-    )
-    run = fixture_prepare.prepare_run(config, run_root=tmp_path / "runs", executable=sys.executable)
-    run["identity"] = {"agent_id": "owned-id", "gateway_port": 12345}
+    case = manager_fixture_authority
+    case.record.lifecycle.state = "active"
     calls = []
 
-    def command(args, **_kwargs):
-        calls.append(args)
-        if args[-1] == "detach":
-            raise fixture_config.FixtureError("controlled dead gateway")
-        return {"status": "ok"}
+    def stop(target):
+        calls.append(target.record)
+        return HoumaoManagedAgentActionResponse(
+            success=True, tracked_agent_id="fixture-owner", detail="Stopped"
+        )
 
-    monkeypatch.setattr(fixture_launch, "manager_root_call", command)
-    fixture_launch._cleanup(run)
-    assert calls[-1] == ["agents", "single", "--agent-id", "owned-id", "stop"]
+    monkeypatch.setattr(managed_agents, "stop_managed_agent", stop)
+    monkeypatch.setattr(
+        managed_agents, "gateway_status", lambda _target: pytest.fail("Gateway probe")
+    )
+    assert fixture_launch.stop_run(case.root)["status"] == "stopped"
+    assert calls == [case.record]
+
+
+def test_manager_fixture_refuses_to_report_failed_stop_as_stopped(
+    manager_fixture_authority: SimpleNamespace,
+    fixture_prepare: ModuleType,
+    fixture_launch: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A typed manager stop failure retains the live fixture and redacts the detail."""
+
+    case = manager_fixture_authority
+    case.record.lifecycle.state = "active"
+    monkeypatch.setattr(
+        managed_agents,
+        "stop_managed_agent",
+        lambda _target: HoumaoManagedAgentActionResponse(
+            success=False, tracked_agent_id="fixture-owner", detail="Cannot stop fixture-key"
+        ),
+    )
+    with pytest.raises(fixture_prepare.ManagedCommandError, match="agents/single/stop") as failure:
+        fixture_launch.stop_run(case.root)
+    saved = fixture_prepare.load_run(case.root)
+    assert saved["status"] == "launched"
+    assert saved["cleanup"] == "failed_requires_scoped_follow_up"
+    assert failure.value.diagnostic_reference() == {
+        "manager_exit_code": 1,
+        "diagnostic_path": saved["diagnostic_path"],
+    }
+    assert Path(saved["diagnostic_path"]).read_text() == "Error: Cannot stop [REDACTED]\n"
 
 
 def test_failed_managed_turn_cannot_be_reported_as_successful_qualification(
+    manager_fixture_authority: SimpleNamespace,
     fixture_config: ModuleType,
     fixture_prepare: ModuleType,
     fixture_launch: ModuleType,
-    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A finalized failed row must fail the prompt operation while retaining its evidence."""
 
-    config = fixture_config.resolve_config(
-        case="cloud-api", client="codex", process_env=_env("cloud-api")
-    )
-    run = fixture_prepare.prepare_run(config, run_root=tmp_path / "runs", executable=sys.executable)
-    root = Path(run["run_dir"])
-    run.update(
+    case = manager_fixture_authority
+    case.record.lifecycle.state = "active"
+    case.manifest.tool = "codex"
+    case.manifest.mode = "headless"
+    case.manifest.backend = "codex_headless"
+    case.run.update(
         status="launched",
-        identity={"agent_id": "owned-id", "gateway_host": "127.0.0.1", "gateway_port": 12345},
+        turns=[],
+        backend="codex_headless",
+        configuration={"client": "codex", "mode": "headless", "surface": "manager"},
     )
-    fixture_prepare.write_json(root / "run.json", run)
+    fixture_prepare.write_json(case.root / "run.json", case.run)
+    monkeypatch.setattr(
+        managed_agents,
+        "gateway_status",
+        lambda _target: SimpleNamespace(
+            gateway_health="healthy", gateway_host="127.0.0.1", gateway_port=12345
+        ),
+    )
     pages = iter([{"records": []}, {"records": [{"record_id": "failed-row", "outcome": "failed"}]}])
+
+    def gateway(_run, _path, body=None, *, generation_id):
+        assert generation_id == case.record.generation_id
+        return {"status": "ok"} if body is not None else next(pages)
+
     monkeypatch.setattr(
         fixture_launch,
         "_gateway_request",
-        lambda _run, _path, body=None: {"status": "ok"} if body is not None else next(pages),
+        gateway,
     )
     with pytest.raises(fixture_config.FixtureError, match="did not complete"):
-        fixture_launch.prompt_run(root, prompt="controlled")
-    saved = fixture_prepare.load_run(root)
+        fixture_launch.prompt_run(case.root, prompt="controlled")
+    saved = fixture_prepare.load_run(case.root)
     assert saved["turns"] == [{"record_id": "failed-row", "status": "failed"}]

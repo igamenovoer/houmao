@@ -15,6 +15,7 @@ import re
 import secrets
 import sqlite3
 import stat
+from time import monotonic
 from typing import Literal, cast
 
 from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_origin_birth_token
@@ -29,6 +30,7 @@ from houmao.agents.realm_controller.gateway_models import (
     GatewayWebExecutionIdentityV1,
 )
 from houmao.agents.realm_controller.run_modes import RunMode
+from houmao.execution.context import current_execution_deadline
 
 
 OwnerPromptTerminal = Literal["completed", "interrupted", "failed", "settled", "uncertain"]
@@ -520,8 +522,10 @@ def _connection(manifest_path: Path) -> Iterator[sqlite3.Connection]:
     paths = gateway_paths_from_manifest_path(manifest_path)
     if paths is None or not paths.queue_path.is_file():
         raise OwnerAdmissionError("unavailable", "Managed owner admission storage is unavailable.")
+    deadline = current_execution_deadline()
+    timeout = 2.0 if deadline is None else max(0.0, min(2.0, deadline - monotonic()))
     try:
-        connection = sqlite3.connect(paths.queue_path, timeout=2.0)
+        connection = sqlite3.connect(paths.queue_path, timeout=timeout)
         connection.row_factory = sqlite3.Row
         try:
             connection.execute(_TABLE_SQL)
@@ -745,7 +749,6 @@ def _reconcile_active(
                 terminal is None
                 and manifest.backend == "hermes_tui"
                 and reconcile_tui is not None
-                and attempt.handoff_at_utc is not None
                 and reconcile_tui(attempt)
             ):
                 terminal = _read_native_terminal(attempt, manifest=manifest)

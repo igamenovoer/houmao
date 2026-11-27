@@ -21,6 +21,8 @@ from houmao.agents.realm_controller.backends.dispatch_control import _dispatch_o
 from houmao.agents.realm_controller.backends.hermes_native import (
     HermesClient,
     HermesDaemon,
+    HermesDaemonIdentity,
+    HermesDeadlineExpired,
     HermesNativeError,
     HermesRpcRefused,
     HermesSessionSnapshot,
@@ -48,7 +50,11 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
     publish_tmux_launch_environment,
     tmux_session_exists,
 )
-from houmao.agents.realm_controller.errors import BackendExecutionError
+from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
+from houmao.agents.realm_controller.hermes_self import (
+    hermes_tui_native_root,
+    publish_verified_hermes_daemon_for_generation,
+)
 from houmao.agents.realm_controller.startup_rollback import current_runtime_startup
 from houmao.agents.realm_controller.managed_control import ManagedControlObservationV1
 from houmao.agents.realm_controller.manifest import load_session_manifest
@@ -66,6 +72,7 @@ from houmao.agents.realm_controller.owner_admission import (
     observe_owner_prompt,
     reserve_owner_prompt,
 )
+from houmao.execution.context import current_execution_deadline, execution_deadline_scope
 from houmao.execution.tmux import (
     TmuxPaneRecord,
     capture_tmux_socket_path,
@@ -82,6 +89,10 @@ HermesTerminalAttachment = Literal["attached", "detached", "unverified", "other_
 
 class HermesInputConflict(HermesNativeError):
     """Protect an existing native binding from a second submit for the same request."""
+
+
+class HermesAdmissionUncertain(HermesNativeError):
+    """Retain the original owner claim when native admission cannot be confirmed."""
 
 
 class HermesTuiSessionState(BaseModel):
@@ -204,7 +215,7 @@ class HermesTuiSession:
     def _native_root(self) -> Path:
         """Return the private runtime directory for Hermes native control."""
 
-        return self.manifest_path.parent / f".{self.manifest_path.stem}.hermes"
+        return hermes_tui_native_root(self.manifest_path)
 
     def _verify_launch_binding(self, plan: LaunchPlan) -> None:
         """Reject changes that would retarget an existing native conversation."""
@@ -384,6 +395,7 @@ class HermesTuiSession:
         request_id: str,
         authorize: Callable[[], None] | None = None,
         owner_claim: OwnerPromptClaim | None = None,
+        existing_only: bool = False,
     ) -> HermesTuiAdmission:
         """Reserve one native input and return its exact positive admission receipt."""
 
@@ -414,7 +426,8 @@ class HermesTuiSession:
         path = self._turn_path(request_id)
         admission: HermesTuiAdmission | None = None
         try:
-            self.daemon.ensure()
+            if not existing_only:
+                self.daemon.ensure()
             with self.daemon.client() as native:
                 current = self.daemon.resume_session(native, self.state.native_session_id)
                 if not current.ready:
@@ -422,6 +435,7 @@ class HermesTuiSession:
                         "not_ready", "The Hermes session is busy or its readiness is unverified."
                     )
                 verify_claim()
+                self._publish_self_daemon(native.identity, generation)
                 admission = self._prepare_input(
                     path, prompt, request_id, generation, current, native
                 )
@@ -430,10 +444,22 @@ class HermesTuiSession:
                 )
         except HermesInputConflict:
             raise
-        except (OSError, ValueError, RuntimeError):
+        except (OSError, ValueError, RuntimeError) as exc:
             if admission is None:
                 claim.finish("failed", evidence="hermes_pre_handoff")
+                if existing_only and not isinstance(
+                    exc, (OwnerAdmissionError, HermesDeadlineExpired, HermesRpcRefused)
+                ):
+                    raise OwnerAdmissionError(
+                        "unavailable", "The native Hermes conversation could not be verified."
+                    ) from exc
             raise
+
+    def _publish_self_daemon(self, identity: HermesDaemonIdentity, generation: str) -> None:
+        """Refresh detached self proof for this verified native conversation."""
+
+        with suppress(OSError, SessionManifestError, ValueError):
+            publish_verified_hermes_daemon_for_generation(self.manifest_path, generation, identity)
 
     def _prepare_input(
         self,
@@ -478,7 +504,7 @@ class HermesTuiSession:
 
         try:
             accepted = self._submit_rpc(native, admission, prompt)
-        except HermesRpcRefused:
+        except (HermesDeadlineExpired, HermesRpcRefused):
             rejected = admission.model_copy(update={"status": "failed"})
             write_hermes_evidence(path, rejected.model_dump(mode="json"))
             claim.finish("failed", evidence="hermes_refused")
@@ -495,14 +521,23 @@ class HermesTuiSession:
                     accepted = self._submit_rpc(recovered, admission, prompt)
             except (OSError, ValueError, RuntimeError) as exc:
                 unknown = admission.model_copy(update={"status": "uncertain"})
-                write_hermes_evidence(path, unknown.model_dump(mode="json"))
-                claim.finish("uncertain", evidence="hermes_acknowledgment_lost")
-                raise HermesNativeError(
+                with suppress(OSError, RuntimeError):
+                    write_hermes_evidence(path, unknown.model_dump(mode="json"))
+                with suppress(OSError, RuntimeError):
+                    claim.finish("uncertain", evidence="hermes_acknowledgment_lost")
+                raise HermesAdmissionUncertain(
                     "The exact Hermes admission could not be recovered."
                 ) from exc
-        write_hermes_evidence(path, accepted.model_dump(mode="json"))
-        claim.handoff()
-        self._finish_claim(claim, accepted)
+        try:
+            write_hermes_evidence(path, accepted.model_dump(mode="json"))
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise HermesAdmissionUncertain(
+                "Hermes acknowledged the input but Houmao could not finalize its owner evidence."
+            ) from exc
+        # The durable receipt can reconcile this claim even if its ledger update is blocked.
+        with suppress(OwnerAdmissionError):
+            claim.handoff()
+            self._finish_claim(claim, accepted)
         return accepted
 
     def _submit_rpc(
@@ -712,9 +747,8 @@ class HermesTuiSession:
     def _finish_claim(claim: OwnerPromptClaim, admission: HermesTuiAdmission) -> None:
         """Release the shared owner slot only after exact native settlement."""
 
-        status = admission.status
-        if status in ("completed", "failed", "interrupted"):
-            claim.finish(status, evidence="hermes_native_receipt")
+        if (outcome := admission.terminal_outcome) is not None:
+            claim.finish(outcome, evidence="hermes_native_receipt")
 
     def observe_managed_control(self) -> ManagedControlObservationV1:
         """Project current native readiness, pending request, and the separate Ink view."""
@@ -763,23 +797,64 @@ class HermesTuiSession:
                 terminal_attachment=attachment,
             )
 
+    def wait_for_native_prompt(
+        self, claim: OwnerPromptClaim, admission: HermesTuiAdmission
+    ) -> HermesTuiAdmission:
+        """Observe an admitted request through terminal evidence or the current deadline."""
+
+        if (
+            claim.request_id != admission.request_id
+            or claim.generation_id != admission.generation_id
+            or claim.manifest_path != self.manifest_path
+            or claim.mode != "tui"
+            or admission.native_session_id != self.state.native_session_id
+        ):
+            raise HermesNativeError("The Hermes receipt does not match the owner claim.")
+        current = admission
+        deadline = time.monotonic() + _TURN_TIMEOUT
+        execution_deadline = current_execution_deadline()
+        if execution_deadline is not None:
+            deadline = min(deadline, execution_deadline)
+        while current.status in {"queued", "running"}:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.2, remaining))
+            if time.monotonic() >= deadline:
+                break
+            try:
+                with execution_deadline_scope(deadline):
+                    updated = self.read_native_admission(claim.request_id)
+            except (OSError, RuntimeError, ValueError):
+                break
+            if updated is None or (
+                updated.terminal_outcome is None and updated.status not in {"queued", "running"}
+            ):
+                break
+            if (
+                updated.request_id != admission.request_id
+                or updated.generation_id != admission.generation_id
+                or updated.native_session_id != admission.native_session_id
+                or updated.native_admission_id != admission.native_admission_id
+                or updated.native_admission_sequence != admission.native_admission_sequence
+            ):
+                break
+            current = updated
+            if current.terminal_outcome is not None:
+                # A later owner read can settle the claim if the ledger is busy here.
+                with execution_deadline_scope(deadline), suppress(OwnerAdmissionError):
+                    self._finish_claim(claim, current)
+        return current
+
     def send_prompt(self, prompt: str) -> list[SessionEvent]:
         """Submit a literal native prompt and wait for its exact terminal receipt."""
 
         request_id = uuid4().hex
-        current = self.submit_native_prompt(prompt, request_id=request_id)
-        deadline = time.monotonic() + _TURN_TIMEOUT
-        while (
-            not current.terminal and current.status != "uncertain" and time.monotonic() < deadline
-        ):
-            time.sleep(0.2)
-            updated = self.read_native_admission(request_id)
-            if updated is not None:
-                current = updated
-        if not current.terminal:
+        admission = self.submit_native_prompt(prompt, request_id=request_id)
+        claim = OwnerPromptClaim(self.manifest_path, admission.generation_id, request_id, "tui")
+        current = self.wait_for_native_prompt(claim, admission)
+        if current.terminal_outcome is None:
             raise HermesNativeError("Hermes native turn remains unresolved.")
-        claim = OwnerPromptClaim(self.manifest_path, current.generation_id, request_id, "tui")
-        self._finish_claim(claim, current)
         return [
             *current.events,
             SessionEvent(
@@ -918,5 +993,19 @@ def _lock_admission(path: Path) -> Iterator[None]:
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     descriptor = os.open(path.with_suffix(".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     with os.fdopen(descriptor, "rb+") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        deadline = current_execution_deadline()
+        if deadline is None:
+            fcntl.flock(handle, fcntl.LOCK_EX)
+        else:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise HermesDeadlineExpired(
+                        "The execution deadline expired before receipt access."
+                    )
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    time.sleep(min(0.02, remaining))
         yield

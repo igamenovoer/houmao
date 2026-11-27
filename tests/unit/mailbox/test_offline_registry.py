@@ -413,8 +413,11 @@ def test_unqualified_registry_leaves_ordinary_delivery_available(
     """An operator opt-in cannot qualify a shared authoritative filesystem."""
 
     root = protected_config.mailbox_root
-    root.mkdir(mode=0o755 if isolation_failure == "shared" else 0o700)
-    if isolation_failure == "same-uid":
+    root.mkdir(mode=0o700)
+    if isolation_failure == "shared":
+        # Directory creation masks group and other access under umask 077.
+        root.chmod(0o755)
+    elif isolation_failure == "same-uid":
         protected_config = protected_config.model_copy(
             update={"protected_runtime_uids": (os.geteuid(),)}
         )
