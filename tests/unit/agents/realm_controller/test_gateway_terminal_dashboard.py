@@ -75,9 +75,12 @@ def test_dashboard_offers_independent_terminal_and_native_web_actions(
     assert page.status_code == 200, page.text
     assert f'href="{WEB_ENTER_PATH}">Open agent Web UI</a>' in page.text
     assert f'href="{TERMINAL_VIEW_PATH}">View tmux terminal</a>' in page.text
-    assert (f'href="{TERMINAL_INTERACT_PATH}">Interact with tmux</a>' in page.text) == keyed
+    assert f'href="{TERMINAL_INTERACT_PATH}">Interact with tmux</a>' in page.text
     assert "Supervisor console" in page.text
-    assert "Interaction requires an enrolled administrator" in page.text
+    if keyed:
+        assert "Sign in with an enrolled administrator key to interact." in page.text
+    else:
+        assert "The gateway opens the interactive terminal directly." in page.text
     assert "<dt>Tmux terminal availability</dt><dd>Available</dd>" in page.text
     assert "Local &lt;worker&gt;" in page.text
     assert page.headers["cache-control"] == "no-store"
@@ -105,6 +108,7 @@ def test_dashboard_allows_viewing_when_roster_is_unavailable(
     assert "<dt>Roster mode</dt><dd>Unavailable</dd>" in page.text
     assert f'href="{TERMINAL_VIEW_PATH}"' in page.text
     assert f'href="{TERMINAL_INTERACT_PATH}"' not in page.text
+    assert "Gateway administrator policy is unavailable." in page.text
     assert "Headless console" in page.text
     observe.assert_called_once()
 

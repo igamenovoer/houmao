@@ -99,7 +99,7 @@ The public dashboard SHALL show the selected gateway's open, keyed, or unavailab
 
 ### Requirement: The dashboard offers eligible browser terminal entry
 
-The dashboard SHALL evaluate browser terminal eligibility independently from native Web entry. For an eligible owner-local request and live tmux binding, it SHALL link **View tmux terminal** to `/v1/terminal/view`. On a keyed roster it SHALL also link **Interact with tmux** to `/v1/admin/terminal/attach` as an admin sign-in action. It SHALL label supervisor consoles for modes backed by supervision.
+The dashboard SHALL evaluate browser terminal eligibility independently from native Web entry. For an eligible owner-local request and live tmux binding, it SHALL link **View tmux terminal** to `/v1/terminal/view`. An open or keyed roster SHALL also offer **Interact with tmux** at `/v1/admin/terminal/attach`. The action SHALL present direct entry for open mode and administrator sign-in for keyed mode. It SHALL label supervisor consoles for modes backed by supervision.
 
 #### Scenario: A Web agent has both surfaces
 
@@ -110,7 +110,14 @@ The dashboard SHALL evaluate browser terminal eligibility independently from nat
 #### Scenario: The roster is empty
 
 - **WHEN** the gateway verifies an empty roster and has an eligible tmux session
-- **THEN** the dashboard offers the view and explains that interactive access requires an enrolled administrator
+- **THEN** the dashboard offers both view and interactive entry
+- **AND THEN** following the bare interactive link opens the terminal without an administrator login while the roster remains open
+
+#### Scenario: The roster has enrolled administrator keys
+
+- **WHEN** the gateway verifies a keyed roster and has an eligible tmux session
+- **THEN** the dashboard offers both view and interactive entry
+- **AND THEN** following the bare interactive link offers administrator sign-in before attaching
 
 #### Scenario: Administrator policy is unavailable
 

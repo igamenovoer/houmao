@@ -92,7 +92,7 @@ houmao-mgr agents single --agent-id "$agent_id" gateway terminal-entry
 houmao-mgr --print-json agents single --agent-name "$agent_name" gateway terminal-entry --interact
 ```
 
-The default `view` mode uses unsigned owner-local access and opens a read-only terminal, including when the gateway has enrolled administrators. `--interact` requires a currently enrolled administrator signer. Use the deployment's `admin_signer_path` or pass `--signer <absolute-path>` with `--interact`.
+The default `view` mode uses unsigned owner-local access and opens a read-only terminal regardless of admin roster status. `--interact` uses unsigned open admin authority when the gateway verifies an empty roster and you omit `--signer`. On a keyed gateway, use the deployment's `admin_signer_path` or pass `--signer <absolute-path>` for a currently enrolled administrator. If you supply a signer on an open gateway, the gateway verifies that proof. A refusal ends the attempt, and an unavailable admin policy prevents interactive entry.
 
 The command prints `url`, `mode`, and `expires_at_utc`. Keep the URL private as a single-use bearer secret and open it in a browser that can reach the same owner-local gateway. If the agent has no running gateway, use `gateway attach` explicitly.
 

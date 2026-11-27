@@ -78,6 +78,7 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         selector=(owner.agent_id, None),
         terminal_modes=[],
         replace_after_issue=False,
+        roster_after_issue=None,
     )
 
     def resolve_record(*, agent_id: str | None, agent_name: str | None) -> SimpleNamespace | None:
@@ -136,6 +137,10 @@ def web_target(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespa
         if target.replace_after_issue:
             target.descriptor = target.descriptor.model_copy(
                 update={"presence_id": "replacement-gateway"}
+            )
+        if target.roster_after_issue is not None:
+            target.descriptor = target.descriptor.model_copy(
+                update={"admin_mode": target.roster_after_issue}
             )
         return _terminal_ticket(mode)
 
@@ -380,12 +385,33 @@ def test_terminal_entry_views_anonymously_in_every_roster(
     assert web_target.client_settings == [{"base_url": _OWNER_URL, "respect_proxy_env": False}]
 
 
-@pytest.mark.parametrize("explicit_signer", [False, True])
-def test_terminal_entry_interaction_binds_the_admin_signer(
-    web_target: SimpleNamespace, tmp_path: Path, explicit_signer: bool
+@pytest.mark.parametrize("configured_signer", [False, True])
+def test_terminal_entry_uses_unsigned_open_authority(
+    web_target: SimpleNamespace, configured_signer: bool
 ) -> None:
-    """Use a configured or explicit signer only for the requested interactive ticket."""
+    """Use the open roster without loading a key or selecting a different mode."""
 
+    web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
+    if not configured_signer:
+        web_target.binding = None
+    result = CliRunner().invoke(cli, ["--print-json", *_TERMINAL_COMMAND, "--interact"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output) == _terminal_ticket("interact").model_dump(mode="json")
+    assert web_target.terminal_modes == ["interact"]
+    assert web_target.signer_calls == []
+    assert web_target.describe_calls == 2
+    assert web_target.client_settings == [{"base_url": _OWNER_URL, "respect_proxy_env": False}]
+
+
+@pytest.mark.parametrize(
+    ("roster", "explicit_signer"), [("keyed", False), ("keyed", True), ("open", True)]
+)
+def test_terminal_entry_interaction_binds_the_admin_signer(
+    web_target: SimpleNamespace, tmp_path: Path, roster: str, explicit_signer: bool
+) -> None:
+    """Use a configured keyed signer or the explicit signer on either roster."""
+
+    web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": roster})
     args = ["--print-json", *_TERMINAL_COMMAND, "--interact"]
     signer = tmp_path / "experimental-signer"
     if explicit_signer:
@@ -402,31 +428,71 @@ def test_terminal_entry_interaction_binds_the_admin_signer(
     assert selected_settings["binding"].private_key_path == expected_signer
 
 
-@pytest.mark.parametrize("state", ["open", "missing-signer", "revoked", "signed-view"])
+@pytest.mark.parametrize(
+    "state",
+    [
+        "unavailable",
+        "missing-signer",
+        "revoked",
+        "signed-view",
+        "open-invalid-proof",
+        "keyed-before-issuance",
+    ],
+)
 def test_terminal_entry_refuses_unauthorized_interaction_without_downgrade(
     web_target: SimpleNamespace, state: str
 ) -> None:
     """Deny unqualified admin requests or a signer option submitted for unsigned viewing."""
 
     args = [*_TERMINAL_COMMAND, "--interact"]
-    if state == "open":
-        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
+    if state == "unavailable":
+        web_target.descriptor = web_target.descriptor.model_copy(
+            update={"admin_mode": "unavailable"}
+        )
     elif state == "missing-signer":
         web_target.binding = None
     elif state == "revoked":
         web_target.proof_error = "Terminal interaction was refused."
-    else:
+    elif state == "signed-view":
         args = [*_TERMINAL_COMMAND, "--signer", web_target.binding.private_key_path]
+    else:
+        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
+        web_target.proof_error = "Terminal interaction was refused after the policy changed."
+        if state == "open-invalid-proof":
+            args.extend(["--signer", web_target.binding.private_key_path])
     result = CliRunner().invoke(cli, args)
     assert result.exit_code == 1, result.output
-    assert web_target.terminal_modes == (["interact"] if state == "revoked" else [])
+    attempted = state in {"revoked", "open-invalid-proof", "keyed-before-issuance"}
+    assert web_target.terminal_modes == (["interact"] if attempted else [])
+    if state in {"open-invalid-proof", "keyed-before-issuance"}:
+        assert web_target.signer_calls == []
+        assert web_target.describe_calls == 1
+        assert len(web_target.client_settings) == (2 if state == "open-invalid-proof" else 1)
     assert "#ticket=" not in result.output
     assert web_target.issue_calls == 0
 
 
+@pytest.mark.parametrize("new_roster", ["keyed", "unavailable"])
+def test_terminal_entry_withholds_open_ticket_after_policy_changes(
+    web_target: SimpleNamespace, new_roster: str
+) -> None:
+    """Discard an open ticket when the gateway loses that mode before the result is printed."""
+
+    web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
+    web_target.roster_after_issue = new_roster
+    result = CliRunner().invoke(cli, [*_TERMINAL_COMMAND, "--interact"])
+    assert result.exit_code == 1, result.output
+    assert "gateway admin policy changed" in result.output
+    assert "#ticket=" not in result.output
+    assert web_target.signer_calls == []
+    assert web_target.terminal_modes == ["interact"]
+    assert web_target.describe_calls == 2
+
+
+@pytest.mark.parametrize("mode", ["view", "interact"])
 @pytest.mark.parametrize("state", ["detached", "replaced", "replaced-after-issue"])
 def test_terminal_entry_uses_the_existing_verified_gateway(
-    web_target: SimpleNamespace, state: str
+    web_target: SimpleNamespace, state: str, mode: str
 ) -> None:
     """Reject absent or changed gateways before disclosing a browser ticket."""
 
@@ -438,12 +504,16 @@ def test_terminal_entry_uses_the_existing_verified_gateway(
         )
     else:
         web_target.replace_after_issue = True
-    result = CliRunner().invoke(cli, _TERMINAL_COMMAND)
+    args = _TERMINAL_COMMAND
+    if mode == "interact":
+        web_target.descriptor = web_target.descriptor.model_copy(update={"admin_mode": "open"})
+        args = [*args, "--interact"]
+    result = CliRunner().invoke(cli, args)
     assert result.exit_code == 1, result.output
     expected = "attach it explicitly" if state == "detached" else "execution changed"
     assert expected in result.output
     assert "#ticket=" not in result.output
-    assert web_target.terminal_modes == (["view"] if state == "replaced-after-issue" else [])
+    assert web_target.terminal_modes == ([mode] if state == "replaced-after-issue" else [])
 
 
 def test_terminal_entry_help_announces_unsigned_view_and_bearer_secret() -> None:
@@ -453,7 +523,13 @@ def test_terminal_entry_help_announces_unsigned_view_and_bearer_secret() -> None
     result = runner.invoke(cli, [*_TERMINAL_COMMAND, "--help"])
     assert result.exit_code == 0
     help_text = " ".join(result.output.split())
-    for detail in ("bearer secret", "unsigned owner-local", "--interact", "--signer"):
+    for detail in (
+        "bearer secret",
+        "unsigned owner-local",
+        "no signer on an open gateway",
+        "--interact",
+        "--signer",
+    ):
         assert detail in help_text
     result = runner.invoke(cli, ["agents", "self", "gateway", "--help"])
     assert result.exit_code == 0

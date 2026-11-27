@@ -345,8 +345,10 @@ class GatewayClient:
             raise ValueError("Terminal entry requires the direct owner-local gateway address.")
         binding = self.m_binding
         if mode == "interact":
-            if binding is None or binding.purpose != "caller" or binding.private_key_path is None:
-                raise ValueError("Terminal interaction requires an enrolled administrator signer.")
+            if binding is not None and (
+                binding.purpose != "caller" or binding.private_key_path is None
+            ):
+                raise ValueError("Terminal interaction requires a direct gateway caller signer.")
             entry_path = TERMINAL_INTERACT_PATH
         else:
             if binding is not None:
@@ -360,7 +362,9 @@ class GatewayClient:
         except GatewayHttpError as exc:
             if exc.status_code in {401, 403} and mode == "interact":
                 detail = (
-                    "Terminal interaction was refused. Select a currently enrolled admin signer."
+                    "Unsigned terminal interaction was refused. Check the current gateway roster and retry."
+                    if binding is None
+                    else "Terminal interaction was refused. Select a currently enrolled admin signer."
                 )
             elif exc.status_code is not None and 300 <= exc.status_code < 400:
                 detail = "Gateway redirects are refused. Use the direct owner-local gateway."

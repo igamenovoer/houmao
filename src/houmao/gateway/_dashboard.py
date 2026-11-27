@@ -57,9 +57,14 @@ def render_dashboard(
             "service": "Supervisor console. ",
             "web": "Supervisor console. ",
         }.get(mode, "")
+        guidance = {
+            "open": "The gateway opens the interactive terminal directly.",
+            "keyed": "Sign in with an enrolled administrator key to interact.",
+            "unavailable": "Gateway administrator policy is unavailable.",
+        }[admin_mode]
         terminal_entry = (
             f'<div class="action-links">{"".join(terminal_links)}</div>'
-            f"<p>{console}Viewing is read-only. Interaction requires an enrolled administrator.</p>"
+            f"<p>{console}Viewing is read-only. {guidance}</p>"
         )
     return _load_page().substitute(
         agent=escape(agent),

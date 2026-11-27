@@ -269,20 +269,20 @@ def register_terminal_entry_routes(
 
     @app.post(TERMINAL_INTERACT_TICKET_PATH)
     async def admin_ticket(request: Request) -> GatewayTerminalEntryTicketV1:
-        """Issue an interactive grant only under current per-key administration."""
+        """Issue a ticket under current open or enrolled-key administrator authority."""
 
         _require_http_origin(request, issuer())
         await _bounded_request(request, 0)
         grant = getattr(request.state, "gateway_grant", None)
         if not isinstance(grant, GatewayGrant):
-            raise HTTPException(403, "An enrolled gateway administrator is required.")
+            raise HTTPException(403, "Gateway administrator authority is required.")
 
         def issue() -> GatewayTerminalEntryTicketV1:
             """Validate privilege before and after live target resolution."""
 
-            policy().require_terminal_admin(grant)
+            policy().require_terminal_interaction(grant)
             target = current_target()
-            policy().require_terminal_admin(grant)
+            policy().require_terminal_interaction(grant)
             return mint_admin(target, grant)
 
         return await run_in_threadpool(issue)
@@ -314,10 +314,10 @@ def register_terminal_entry_routes(
 
                 if listener() != entry.listener:
                     raise TerminalUnavailable("The gateway instance changed.")
-                if entry.admin is not None:
-                    policy().require_terminal_admin(entry.admin)
                 if resolve_target() != entry.target:
                     raise TerminalUnavailable("The managed terminal changed.")
+                if entry.admin is not None:
+                    policy().require_terminal_interaction(entry.admin)
 
             await run_in_threadpool(check_current)
             if time.monotonic() >= entry.deadline:

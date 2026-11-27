@@ -389,17 +389,18 @@ def web_entry_gateway_command(pair_port: int | None, signer: Path | None) -> Non
 @click.option(
     "--interact",
     is_flag=True,
-    help="Request an interactive terminal link as a currently enrolled gateway administrator.",
+    help="Request an interactive link using open gateway access or a current enrolled admin signer.",
 )
 @click.option(
     "--signer",
     type=click.Path(dir_okay=False, path_type=Path),
-    help="Absolute private key path for --interact. Defaults to the configured admin signer.",
+    help="Absolute private key path for --interact. Keyed gateways default to the configured admin signer.",
 )
 def terminal_entry_gateway_command(interact: bool, signer: Path | None) -> None:
     """Print a one-time browser terminal URL, expiry, and mode.
 
     Read-only viewing uses unsigned owner-local access. The URL is a bearer secret.
+    Interactive entry uses no signer on an open gateway unless you supply one.
     """
 
     scope = get_managed_agent_scope_context()

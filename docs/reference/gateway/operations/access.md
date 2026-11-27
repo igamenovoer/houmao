@@ -178,7 +178,9 @@ Run `houmao-mgr agents single --agent-id "$agent_id" gateway status` in the exec
 
 **View tmux terminal** opens a read-only view of the recorded live terminal. Viewing on the direct owner-local gateway works regardless of roster mode. A service or native Web launch can expose its supervisor console, and a headless launch can expose its headless console. A native Web agent with both surfaces also shows **Open agent Web UI**.
 
-**Interact with tmux** appears when the gateway verifies an enrolled administrator roster. Follow the page's instructions to sign in with a current administrator key. Interaction supplies normal tmux input to the running session. Closing the browser tab detaches its client and leaves the agent running.
+**Interact with tmux** appears when the gateway can verify its administrator policy. An empty administrator roster grants open administrator access, and the gateway opens the terminal directly. A roster with enrolled keys asks you to sign in with a current administrator key. When administrator policy is unavailable, the eligible read-only view is still available.
+
+Interaction supplies normal tmux input to the running session. Closing the browser tab detaches its client and leaves the agent running. Enrolling the first administrator closes interactive streams and invalidates unused links from the previous open roster. Removing an administrator revokes that key's interactive access. Open the terminal again to enter under the current policy.
 
 From another machine, use a private TCP forward that preserves the gateway's loopback host and port. The browser terminal uses that one gateway listener.
 

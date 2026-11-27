@@ -238,15 +238,15 @@ Both terminal modes use the running gateway's exact owner-local origin and port.
 
 | Operation | Authority and result |
 | --- | --- |
-| `GET /v1/terminal/view` | Anonymous owner-local access serves the read-only viewer on open and keyed gateways. |
+| `GET /v1/terminal/view` | Anonymous owner-local access serves the read-only viewer regardless of roster mode. |
 | `POST /v1/terminal/view/ticket` | An empty unsigned request for the anonymous `terminal.view` effect returns `url`, `expires_at_utc`, and `mode: view`. |
-| `GET /v1/admin/terminal/attach` | Serves the interactive page and the link to administrator sign-in. |
-| `POST /v1/admin/terminal/attach/ticket` | An empty request with current enrolled-administrator SSHSIG proof for `admin.terminal.interact` returns a one-time link and `mode: interact`. |
+| `GET /v1/admin/terminal/attach` | Serves the interactive page for direct entry on an open roster or administrator sign-in on a keyed roster. |
+| `POST /v1/admin/terminal/attach/ticket` | An empty request using verified open admin authority or current enrolled-administrator SSHSIG proof for `admin.terminal.interact` returns a one-time link and `mode: interact`. Open authority permits an unsigned request. |
 | `GET /v1/admin/terminal/attach/login` | Serves the administrator login page. The same path accepts the browser's login start POST. `POST .../login/{attempt_id}/prove` verifies terminal approval and `POST .../login/{attempt_id}/claim` returns the one-time link to the initiating browser. |
 | `WS /v1/terminal/view/stream` | Redeems a view grant and streams live terminal output. Input and resize requests are refused. |
 | `WS /v1/admin/terminal/attach/stream` | Redeems an interactive grant and forwards terminal input, output, and bounded resize requests while the exact administrator grant remains current. |
 
-The owner-local viewer's public read effect is independent of the administrator roster, scoped grants, and default permission group. Interaction requires the exact enrolled administrator key and follows its revocation. Each connection grant expires after 60 seconds and can be used once for its mode, listener, and tmux binding. The link stores the bearer in the URL fragment. The page removes the fragment and sends the bearer as its first WebSocket message. Terminal HTTP responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. Gateway logs and discovery omit terminal data and grant secrets. [Open a Managed Tmux Terminal](../operations/access.md#open-a-managed-tmux-terminal)
+The owner-local viewer's public read effect is independent of the administrator roster, scoped grants, and default permission group. Interaction uses the open epoch of a verified empty roster or the exact enrolled administrator key. An unavailable policy refuses interactive entry. First enrollment invalidates outstanding open interactive tickets and closes open interactive streams. Revoking the key or its admin qualification has the same effect on its tickets and streams. Each connection grant expires after 60 seconds and can be used once for its mode, listener, and tmux binding. The link stores the bearer in the URL fragment. The page removes the fragment and sends the bearer as its first WebSocket message. Terminal HTTP responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. Gateway logs and discovery omit terminal data and grant secrets. [Open a Managed Tmux Terminal](../operations/access.md#open-a-managed-tmux-terminal)
 
 ### Plugin Status and Custom Routes
 

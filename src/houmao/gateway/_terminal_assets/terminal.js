@@ -25,8 +25,6 @@ async function connectionGrant() {
     if (!ticket) throw new Error("Invalid terminal link");
     return ticket;
   }
-  if (interactive) return null;
-
   const response = await fetch(`${entryPath}/ticket`, {
     method: "POST",
     mode: "same-origin",
@@ -34,12 +32,20 @@ async function connectionGrant() {
     cache: "no-store",
     redirect: "error",
   });
-  if (!response.ok) throw new Error("Terminal unavailable");
+  if (!response.ok) {
+    if (interactive && (response.status === 401 || response.status === 403)) {
+      const refusal = await response.json();
+      const code = refusal?.detail?.error_code;
+      if ((response.status === 401 && code === "proof_required") ||
+          (response.status === 403 && code === "insufficient_authority")) return null;
+    }
+    throw new Error("Terminal unavailable");
+  }
   const receipt = await response.json();
   const url = new URL(receipt.url);
   const issuedTicket = grantFromUrl(url);
   if (
-    receipt.mode !== "view" || url.origin !== location.origin || url.pathname !== entryPath ||
+    receipt.mode !== mode || url.origin !== current.origin || url.pathname !== entryPath ||
     url.username || url.password || url.search || !issuedTicket
   ) throw new Error("Invalid terminal link");
   return issuedTicket;

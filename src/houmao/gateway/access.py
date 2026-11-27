@@ -257,9 +257,19 @@ class GatewayAccessPolicy:
         )
 
     def require_terminal_admin(self, grant: GatewayGrant) -> None:
-        """Check the original administrator's current qualification for terminal input."""
+        """Require the original enrolled administrator for terminal browser sign-in."""
 
         self._require_admin(self.m_store.snapshot(), grant, TERMINAL_INTERACT)
+
+    def require_terminal_interaction(self, grant: GatewayGrant) -> None:
+        """Recheck the open epoch or enrolled key that authorized terminal input."""
+
+        if (
+            grant.basis not in {"open", "admin"}
+            or TERMINAL_INTERACT not in grant.permissions
+            or not self.revalidate(grant)
+        ):
+            raise GatewayAccessError(403, "insufficient_authority")
 
     def _verify_browser_login(
         self,

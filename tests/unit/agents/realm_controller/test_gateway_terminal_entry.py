@@ -16,6 +16,12 @@ from starlette.websockets import WebSocketDisconnect
 import houmao.agents.realm_controller.gateway_terminal_entry as terminal_entry
 from houmao.agents.realm_controller.gateway_service import GatewayServiceRuntime, create_app
 from houmao.agents.realm_controller.gateway_terminal_pty import TerminalTarget
+from houmao.gateway.access import (
+    CHALLENGE_HEADER,
+    SIGNATURE_HEADER,
+    GatewayAccessError,
+    GatewayGrant,
+)
 from houmao.gateway.terminal_entry_contracts import (
     TERMINAL_INTERACT_STREAM_PATH,
     TERMINAL_INTERACT_TICKET_PATH,
@@ -97,7 +103,7 @@ def test_keyed_gateway_views_anonymously_but_only_enrolled_admins_get_interactio
     """Exercise both routes with open, default, self, and exact admin decisions."""
 
     runtime, client, _, calls = gateway_terminal
-    assert client.post(TERMINAL_INTERACT_TICKET_PATH).status_code == 403
+    assert _grant(client.post(TERMINAL_INTERACT_TICKET_PATH))["type"] == "grant"
     assert client.post(TERMINAL_VIEW_TICKET_PATH).status_code == 200
 
     administrator, admin_key = fixture_admin_key(tmp_path, "terminal-admin")
@@ -146,6 +152,125 @@ def test_keyed_gateway_views_anonymously_but_only_enrolled_admins_get_interactio
         watcher.send_text("check")
         assert watcher.receive_bytes() == b"current"
     assert calls == [False, True]
+
+
+def test_open_gateway_requires_valid_transport_and_policy_for_interaction(
+    gateway_terminal: tuple[GatewayServiceRuntime, TestClient, list[TerminalTarget], list[bool]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Allow the open role and keep proof and owner-local checks authoritative."""
+
+    runtime, client, _, calls = gateway_terminal
+    ordinary, signer = fixture_admin_key(tmp_path, "enrolled-caller")
+    enroll_fixture_caller(runtime, ordinary, permissions=())
+    assert (
+        client.post(TERMINAL_INTERACT_TICKET_PATH, auth=FixtureProofAuth(signer)).status_code == 200
+    )
+    assert (
+        client.post(
+            TERMINAL_INTERACT_TICKET_PATH,
+            headers={CHALLENGE_HEADER: "invalid", SIGNATURE_HEADER: "invalid"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            TERMINAL_INTERACT_TICKET_PATH, headers={"Origin": "http://other.example"}
+        ).status_code
+        == 403
+    )
+
+    def unavailable() -> None:
+        """Represent a retained policy that cannot be verified."""
+
+        raise GatewayAccessError(503, "policy_unavailable")
+
+    monkeypatch.setattr(runtime._require_access_policy().store, "snapshot", unavailable)
+    assert client.post(TERMINAL_INTERACT_TICKET_PATH).status_code == 503
+    assert client.post(TERMINAL_VIEW_TICKET_PATH).status_code == 200
+    assert calls == []
+
+
+def test_first_enrollment_during_open_issuance_refuses_the_ticket(
+    gateway_terminal: tuple[GatewayServiceRuntime, TestClient, list[TerminalTarget], list[bool]],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Close open issuance when the roster becomes keyed between authority checks."""
+
+    runtime, client, _, calls = gateway_terminal
+    administrator, signer = fixture_admin_key(tmp_path, "first-admin")
+    policy = runtime._require_access_policy()
+    original_check = policy.require_terminal_interaction
+    enrolled = False
+
+    def enroll_after_first_check(grant: GatewayGrant) -> None:
+        """Enroll the first key immediately after validating the original open decision."""
+
+        nonlocal enrolled
+        original_check(grant)
+        if not enrolled:
+            enroll_fixture_admin(client, administrator, signer)
+            enrolled = True
+
+    monkeypatch.setattr(policy, "require_terminal_interaction", enroll_after_first_check)
+    response = client.post(TERMINAL_INTERACT_TICKET_PATH)
+    assert enrolled
+    assert response.status_code == 403
+    assert "url" not in response.json()
+    assert calls == []
+
+
+def test_open_interaction_ends_with_its_roster_epoch(
+    gateway_terminal: tuple[GatewayServiceRuntime, TestClient, list[TerminalTarget], list[bool]],
+    tmp_path: Path,
+) -> None:
+    """Fence existing streams and pending tickets to the epoch that admitted them."""
+
+    runtime, client, _, calls = gateway_terminal
+    active = _grant(client.post(TERMINAL_INTERACT_TICKET_PATH))
+    pending = _grant(client.post(TERMINAL_INTERACT_TICKET_PATH))
+    old_epoch = _grant(client.post(TERMINAL_INTERACT_TICKET_PATH))
+    view = _grant(client.post(TERMINAL_VIEW_TICKET_PATH))
+    administrator, signer = fixture_admin_key(tmp_path, "first-admin")
+    origin = {"Origin": runtime.owner_connect_url}
+    ws_origin = runtime.owner_connect_url.replace("http:", "ws:", 1)
+    interact_url = f"{ws_origin}{TERMINAL_INTERACT_STREAM_PATH}"
+
+    with client.websocket_connect(
+        f"{ws_origin}{TERMINAL_VIEW_STREAM_PATH}", headers=origin
+    ) as watcher:
+        watcher.send_json(view)
+        assert watcher.receive_bytes() == b"attached"
+        with client.websocket_connect(interact_url, headers=origin) as terminal:
+            terminal.send_json(active)
+            assert terminal.receive_bytes() == b"attached"
+            enroll_fixture_admin(client, administrator, signer)
+            terminal.send_text("check")
+            with pytest.raises(WebSocketDisconnect) as ended:
+                terminal.receive_bytes()
+            assert ended.value.code == 1008
+        with client.websocket_connect(interact_url, headers=origin) as terminal:
+            terminal.send_json(pending)
+            with pytest.raises(WebSocketDisconnect):
+                terminal.receive_bytes()
+
+        removed = client.delete(
+            f"/v1/admin/keys/{administrator.key_id}", auth=FixtureProofAuth(signer)
+        )
+        assert removed.status_code == 204
+        with client.websocket_connect(interact_url, headers=origin) as terminal:
+            terminal.send_json(old_epoch)
+            with pytest.raises(WebSocketDisconnect):
+                terminal.receive_bytes()
+        fresh = _grant(client.post(TERMINAL_INTERACT_TICKET_PATH))
+        with client.websocket_connect(interact_url, headers=origin) as terminal:
+            terminal.send_json(fresh)
+            assert terminal.receive_bytes() == b"attached"
+        watcher.send_text("check")
+        assert watcher.receive_bytes() == b"current"
+    assert calls == [False, True, True]
 
 
 def test_terminal_rejects_wrong_origin_mode_replay_and_replaced_target_before_pty(

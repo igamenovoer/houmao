@@ -3763,18 +3763,21 @@ def gateway_terminal_entry(
         agent_id=agent_id, agent_name=agent_name, surface="terminal"
     )
     mode: GatewayTerminalEntryMode = "interact" if interact else "view"
-    client = entry.client
-    if interact:
-        if entry.descriptor.admin_mode != "keyed":
-            raise click.ClickException(
-                "Terminal interaction requires a gateway with a verified enrolled administrator."
-            )
-        client = _signed_browser_gateway_client(entry, signer=signer, surface="terminal")
+    if interact and entry.descriptor.admin_mode == "unavailable":
+        raise click.ClickException(
+            "Terminal interaction requires a verified gateway admin policy. Check the live owner-local gateway."
+        )
+    signed = interact and (signer is not None or entry.descriptor.admin_mode == "keyed")
+    client = (
+        _signed_browser_gateway_client(entry, signer=signer, surface="terminal")
+        if signed
+        else entry.client
+    )
     try:
         ticket = client.issue_terminal_entry_ticket(mode=mode)
     except GatewayHttpError as exc:
         raise click.ClickException(exc.detail) from None
-    if not interact:
+    if not signed:
         # An unsigned request has no challenge binding, so check the same listener again.
         changed = "The managed terminal execution changed. Select its live gateway and retry."
         try:
@@ -3788,6 +3791,8 @@ def gateway_terminal_entry(
             or current.proof_protocol != entry.descriptor.proof_protocol
         ):
             raise click.ClickException(changed)
+        if interact and current.admin_mode != "open":
+            raise click.ClickException("The gateway admin policy changed. Request a fresh link.")
     return ticket
 
 

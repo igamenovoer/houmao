@@ -7,7 +7,7 @@ const playwright = await import("playwright").catch(() => null);
 if (!playwright) process.exit(77);
 const { chromium } = playwright;
 
-const [origin, signerPath] = process.argv.slice(2);
+const [origin, signerPath, enrollmentReady] = process.argv.slice(2);
 const viewPath = "/v1/terminal/view";
 const interactPath = "/v1/admin/terminal/attach";
 const browserCache = join(homedir(), ".cache/ms-playwright");
@@ -37,10 +37,34 @@ try {
       await route.abort();
     }
   });
-  const deniedAdmin = await context.request.post(`${origin}${interactPath}/ticket`);
-  verify(deniedAdmin.status() === 401 || deniedAdmin.status() === 403, "Unsigned admin ticket was issued");
-  const view = await context.newPage();
   const browserErrors: string[] = [];
+  const openTerminal = await context.newPage();
+  openTerminal.on("pageerror", (error) => browserErrors.push(error.message));
+  openTerminal.setDefaultTimeout(8000);
+  await openTerminal.goto(origin);
+  await openTerminal.getByText("The gateway opens the interactive terminal directly.").waitFor();
+  const openLink = openTerminal.getByRole("link", { name: "Interact with tmux", exact: true });
+  verify(await openLink.getAttribute("href") === interactPath, "Dashboard did not offer bare terminal entry");
+
+  const interactive = await context.newPage();
+  interactive.on("pageerror", (error) => browserErrors.push(error.message));
+  interactive.setDefaultTimeout(8000);
+  await interactive.goto(origin);
+  await interactive.getByText("The gateway opens the interactive terminal directly.").waitFor();
+
+  await openLink.click();
+  await openTerminal.locator("#connection").getByText("Connected", { exact: true }).waitFor();
+  await openTerminal.locator(".xterm-rows").getByText("owned-terminal", { exact: false }).waitFor();
+  verify(!await openTerminal.getByRole("link", { name: "Sign in", exact: true }).isVisible(), "Open entry asked for administrator sign-in");
+  await openTerminal.keyboard.type("typed with open authority");
+  await openTerminal.keyboard.press("Enter");
+  await openTerminal.locator(".xterm-rows").getByText("typed with open authority", { exact: false }).waitFor();
+  await Bun.write(enrollmentReady, "open terminal verified\n");
+  await openTerminal.locator("#connection").getByText("Disconnected", { exact: true }).waitFor();
+
+  const deniedAdmin = await context.request.post(`${origin}${interactPath}/ticket`);
+  verify(deniedAdmin.status() === 401 || deniedAdmin.status() === 403, "Keyed gateway issued unsigned interaction");
+  const view = await context.newPage();
   view.on("pageerror", (error) => browserErrors.push(error.message));
   view.setDefaultTimeout(8000);
   await view.goto(origin + viewPath);
@@ -76,10 +100,7 @@ try {
   verify(!((await view.locator(".xterm-rows").textContent()) ?? "").includes("unexpected-viewer-input"), "Read-only input reached tmux");
   await view.close();
 
-  const interactive = await context.newPage();
-  interactive.on("pageerror", (error) => browserErrors.push(error.message));
-  interactive.setDefaultTimeout(8000);
-  await interactive.goto(`${origin}${interactPath}`);
+  await interactive.getByRole("link", { name: "Interact with tmux", exact: true }).click();
   const signIn = interactive.getByRole("link", { name: "Sign in" });
   await signIn.waitFor();
   verify(await signIn.getAttribute("href") === `${interactPath}/login`, "Incorrect admin login entry");
@@ -104,7 +125,7 @@ try {
 
   const clientSize = async () => {
     const clients = (await (await context.request.get(`${origin}/health`)).json()) as string;
-    return clients.split("\n").find((client) => client && !client.includes("control-mode"))?.split("\t")[0];
+    return clients.split("\n").find((client) => client && !client.includes("read-only"))?.split("\t")[0];
   };
   const originalSize = await clientSize();
   verify(originalSize && /^\d+x\d+$/.test(originalSize), "Interactive fixture did not have one active client");
@@ -117,6 +138,8 @@ try {
   }
   verify(resized && /^\d+x\d+$/.test(resized) && resized !== originalSize, "Browser resize did not reach tmux");
   await interactive.close();
+  verify(await openTerminal.locator("#connection").textContent() === "Disconnected", "Former open terminal reconnected during keyed entry");
+  await openTerminal.close();
   verify(foreign.length === 0, "Browser requested an external resource");
   verify(browserErrors.length === 0, browserErrors.join("\n"));
 } finally {

@@ -563,17 +563,22 @@ def test_web_entry_client_refuses_a_delegated_proof_source() -> None:
 
 
 @pytest.mark.parametrize("outcome", ["ticket", "redirect", "wrong-mode", "wrong-origin", "refused"])
-@pytest.mark.parametrize("mode", ["view", "interact"])
+@pytest.mark.parametrize(
+    ("mode", "signed"),
+    [("view", False), ("interact", False), ("interact", True)],
+    ids=["view", "open-interact", "keyed-interact"],
+)
 def test_terminal_entry_client_requests_the_exact_owner_local_ticket(
-    tmp_path: Path, outcome: str, mode: GatewayTerminalEntryMode
+    tmp_path: Path, outcome: str, mode: GatewayTerminalEntryMode, signed: bool
 ) -> None:
-    """Exercise unsigned viewing and signed interaction against a keyed live endpoint."""
+    """Exercise direct viewing and both interactive proof modes against a live endpoint."""
 
     admin, signer = fixture_admin_key(tmp_path, "terminal-entry-admin")
     owner = GatewayOwner(agent_id="terminal-agent", context_id="terminal-owner")
     target = GatewayTarget(owner=owner, incarnation="terminal-generation")
     store = AuthorizationStore(tmp_path / "access", owner)
-    store.initialize(seed_snapshot(owner, GatewayLaunchSeed(admin_keys=(admin,))))
+    roster = (admin,) if mode == "view" or signed else ()
+    store.initialize(seed_snapshot(owner, GatewayLaunchSeed(admin_keys=roster)))
     policy = GatewayAccessPolicy(
         store=store, target=lambda: target, current_self=lambda: None, listener_id="terminal"
     )
@@ -599,7 +604,7 @@ def test_terminal_entry_client_requests_the_exact_owner_local_ticket(
             body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
             expected = GatewayRequestBinding.from_request("POST", ticket_path, "", b"")
             if self.path == "/v1/auth/challenge":
-                assert interactive
+                assert signed
                 request = GatewayChallengeRequest.model_validate_json(body)
                 assert request.purpose == "caller"
                 assert request.key_id == admin.key_id
@@ -618,8 +623,8 @@ def test_terminal_entry_client_requests_the_exact_owner_local_ticket(
                 challenge_id=self.headers.get(CHALLENGE_HEADER),
                 signature=self.headers.get(SIGNATURE_HEADER),
             )
-            assert caller.kind == ("credential" if interactive else "anonymous")
-            assert caller.key_id == (admin.key_id if interactive else None)
+            assert caller.kind == ("credential" if signed else "anonymous")
+            assert caller.key_id == (admin.key_id if signed else None)
             if outcome == "redirect":
                 self.send_response(302)
                 self.send_header("Location", issued_url)
@@ -648,7 +653,7 @@ def test_terminal_entry_client_requests_the_exact_owner_local_ticket(
             GatewayClientBinding(
                 base_url=base, owner=owner, purpose="caller", private_key_path=str(signer)
             )
-            if interactive
+            if signed
             else None
         )
         client = GatewayClient(
@@ -673,19 +678,49 @@ def test_terminal_entry_client_requests_the_exact_owner_local_ticket(
                     client.issue_terminal_entry_ticket(mode=mode)
                 assert "#ticket=" not in str(denied.value)
                 assert "private-terminal-marker" not in str(denied.value)
-            challenge_calls = [("POST", "/v1/auth/challenge")] if interactive else []
+            challenge_calls = [("POST", "/v1/auth/challenge")] if signed else []
             assert calls == [*challenge_calls, ("POST", ticket_path)]
         finally:
             server.shutdown()
             worker.join(timeout=2)
 
 
-def test_terminal_entry_client_refuses_unsigned_interaction() -> None:
-    """Require a caller key before any interactive request can be sent."""
+@pytest.mark.parametrize(
+    ("base_url", "proxy_env"),
+    [("http://127.0.0.1:43123", True), ("https://gateway.example", False)],
+)
+def test_terminal_entry_client_refuses_proxy_and_remote_interaction(
+    base_url: str, proxy_env: bool
+) -> None:
+    """Allow unsigned requests only on the direct numeric owner-local origin."""
 
-    client = GatewayClient(base_url="http://127.0.0.1:43123", respect_proxy_env=False)
-    with pytest.raises(ValueError, match="enrolled administrator signer"):
+    client = GatewayClient(base_url=base_url, respect_proxy_env=proxy_env)
+    with pytest.raises(ValueError, match="direct owner-local gateway"):
         client.issue_terminal_entry_ticket(mode="interact")
+
+
+def test_terminal_entry_client_refuses_relay_and_self_interaction() -> None:
+    """Reject delegated or managed-self proof before dispatching the HTTP request."""
+
+    base = "http://127.0.0.1:43123"
+
+    def unexpected_proof(method: str, path: str, body: bytes) -> dict[str, str]:
+        """Fail if terminal entry requests relay proof."""
+
+        pytest.fail("Terminal entry consulted a delegated proof source")
+
+    relay = GatewayClient(base_url=base, request_proof=unexpected_proof, respect_proxy_env=False)
+    with pytest.raises(ValueError, match="direct owner-local gateway"):
+        relay.issue_terminal_entry_ticket(mode="interact")
+    binding = GatewayClientBinding(
+        base_url=base,
+        owner=GatewayOwner(agent_id="terminal-agent", context_id="terminal-owner"),
+        purpose="caller",
+        managed_self_manifest_path="/unused-runtime/manifest.json",
+    )
+    managed_self = GatewayClient(base_url=base, binding=binding, respect_proxy_env=False)
+    with pytest.raises(ValueError, match="direct gateway caller signer"):
+        managed_self.issue_terminal_entry_ticket(mode="interact")
 
 
 class _ProxyHealthHandler(BaseHTTPRequestHandler):

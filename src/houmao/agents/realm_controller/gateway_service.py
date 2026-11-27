@@ -3464,7 +3464,10 @@ class GatewayServiceRuntime:
     def dashboard(self, request: Request) -> str:
         """Render a public summary without refreshing persisted gateway status."""
 
-        from houmao.gateway.terminal_entry_contracts import TERMINAL_INTERACT_PATH, TERMINAL_VIEW_PATH
+        from houmao.gateway.terminal_entry_contracts import (
+            TERMINAL_INTERACT_PATH,
+            TERMINAL_VIEW_PATH,
+        )
 
         try:
             manifest = self._verified_owner_manifest()
@@ -3497,7 +3500,9 @@ class GatewayServiceRuntime:
             elif self._dashboard_web_available(manifest):
                 availability = "Available"
                 reason = connection_reason or (
-                    "The gateway access policy is unavailable." if admin_mode == "unavailable" else ""
+                    "The gateway access policy is unavailable."
+                    if admin_mode == "unavailable"
+                    else ""
                 )
             else:
                 reason = "The native Web interface is unavailable."
@@ -3505,7 +3510,9 @@ class GatewayServiceRuntime:
                 terminal_availability = "Not applicable"
                 terminal_reason = "This agent has no managed tmux terminal."
             else:
-                terminal_reason = connection_reason or self._dashboard_terminal_entry_reason(manifest)
+                terminal_reason = connection_reason or self._dashboard_terminal_entry_reason(
+                    manifest
+                )
                 if not terminal_reason:
                     terminal_availability = "Available"
 
@@ -3521,7 +3528,9 @@ class GatewayServiceRuntime:
             terminal_availability=terminal_availability,
             terminal_view_path=None if terminal_reason else TERMINAL_VIEW_PATH,
             terminal_interact_path=(
-                TERMINAL_INTERACT_PATH if not terminal_reason and admin_mode == "keyed" else None
+                TERMINAL_INTERACT_PATH
+                if not terminal_reason and admin_mode in {"open", "keyed"}
+                else None
             ),
             terminal_entry_reason=terminal_reason,
         )
