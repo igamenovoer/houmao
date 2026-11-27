@@ -8,6 +8,7 @@ import difflib
 import hashlib
 import importlib.metadata
 import json
+import math
 import os
 import re
 import secrets
@@ -17,7 +18,11 @@ import sys
 import tempfile
 import time
 import tomllib
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import httpx
@@ -28,7 +33,7 @@ DEFAULT_MANIFEST = BUNDLE_ROOT / "manifest.toml"
 DEFAULT_MANAGER = REPO_ROOT / ".pixi/envs/default/bin/houmao-mgr"
 DEFAULT_CCCC = REPO_ROOT / ".pixi/envs/default/bin/houmao-cccc"
 _TMUX_ENV_KEYS = ("TMUX", "TMUX_PANE", "TMUX_TMPDIR")
-_ROLES = ("lead", "algo", "kernel", "profiler")
+_PEERS = ("peer-a", "peer-b", "peer-c", "peer-d")
 _RECEIVER_PROTOCOL_VERSION = 2
 
 
@@ -124,6 +129,14 @@ def load_manifest(manifest_path: Path, problem_override: str | None = None) -> d
         valid = ", ".join(sorted(problems.keys()))
         raise LabError(f"Unknown problem '{selected_id}'. Available in manifest: {valid}")
     problem = dict(problems[selected_id])
+    workloads = problem.get("expected_workloads")
+    if not (
+        isinstance(workloads, list)
+        and workloads
+        and all(isinstance(name, str) and name for name in workloads)
+        and len(set(workloads)) == len(workloads)
+    ):
+        raise LabError(f"Problem '{selected_id}' must declare distinct expected_workloads")
     source_rel = problem.get("source_dir")
     if not isinstance(source_rel, str):
         raise LabError(f"Problem '{selected_id}' is missing source_dir")
@@ -139,39 +152,37 @@ def load_manifest(manifest_path: Path, problem_override: str | None = None) -> d
     if missing:
         raise LabError(f"Problem source_dir {source_dir} is missing: {', '.join(missing)}")
     team = raw.get("team") or {}
-    roles = tuple(team.get("roles") or _ROLES)
-    if roles != _ROLES:
-        raise LabError(f"Manifest team.roles must be {list(_ROLES)}, got {list(roles)}")
-    slots = team.get("slots")
-    if not isinstance(slots, dict) or set(slots) != set(_ROLES):
-        raise LabError(f"Manifest team.slots must declare all four roles: {', '.join(_ROLES)}")
-    for role in _ROLES:
-        if slots[role] != {"mode": "web"}:
-            raise LabError(f"Manifest team.slots.{role} must declare mode = 'web'")
-    actors_cfg = team.get("actors") or {role: role for role in _ROLES}
-    actors = {role: str(actors_cfg.get(role, role)) for role in _ROLES}
+    team_model = team.get("model")
+    if not isinstance(team_model, str) or not team_model.strip():
+        raise LabError("Manifest team.model must name the model for all four peers")
+    peers = tuple(team.get("peers") or _PEERS)
+    if peers != _PEERS:
+        raise LabError(f"Manifest team.peers must be {list(_PEERS)}, got {list(peers)}")
+    if team.get("duration_seconds") != 300:
+        raise LabError("The team shares one 300-second window")
+    actors = {peer: peer for peer in _PEERS}
     cuda_cfg = raw.get("cuda") or {}
     delivery_cfg = raw.get("delivery") or {}
     return {
         "manifest_path": str(resolved_manifest),
         "default_problem": str(raw.get("default_problem")),
+        "problem_override": problem_override,
         "selected_problem": selected_id,
         "available_problems": sorted(problems.keys()),
         "problem": {**problem, "source_dir": str(source_dir)},
         "cuda": {
             "arch_config": str(cuda_cfg.get("arch", "auto")),
             "nvcc": str(cuda_cfg.get("nvcc", "nvcc")),
-            "ncu": str(cuda_cfg.get("ncu", "ncu")),
-            "nsys": str(cuda_cfg.get("nsys", "nsys")),
         },
         "delivery": {
             "default_policy": str(delivery_cfg.get("default_policy", "batch")),
             "quiet_interval_seconds": float(delivery_cfg.get("quiet_interval_seconds", 6.0)),
             "max_wait_seconds": float(delivery_cfg.get("max_wait_seconds", 15.0)),
         },
-        "roles": list(_ROLES),
+        "peers": list(_PEERS),
+        "team_model": team_model,
         "actors": actors,
-        "slots": slots,
+        "duration_seconds": team["duration_seconds"],
     }
 
 
@@ -269,24 +280,31 @@ def load_run(run_dir: Path) -> dict[str, Any]:
     return payload
 
 
-def pool_selection(run: dict[str, Any], *, role: str, mode: str) -> dict[str, str]:
-    """Read the pool selection from a managed fixture prepared for this role."""
+def pool_selection(
+    run: dict[str, Any], *, peer: str, mode: str, expected_model: str
+) -> dict[str, str]:
+    """Check the prepared fixture's slot and model against the team manifest."""
     config = run.get("configuration")
     if not isinstance(config, dict) or (config.get("mode"), config.get("surface")) != (
         mode,
         "manager",
     ):
-        raise LabError(f"Role {role} requires a manager fixture in {mode} mode")
+        raise LabError(f"Peer {peer} requires a manager fixture in {mode} mode")
     key = run.get("pool_key")
-    if not isinstance(key, str) or not key or run.get("pool_slot") != role:
-        raise LabError(f"Prepare role {role} with fixture.py prepare --pool-slot {role}")
-    return {"pool_key": key, "pool_slot": role}
+    if not isinstance(key, str) or not key or run.get("pool_slot") != peer:
+        raise LabError(f"Prepare peer {peer} with fixture.py prepare --pool-slot {peer}")
+    model = config.get("model")
+    if not isinstance(model, str) or model != expected_model:
+        raise LabError(
+            f"Peer {peer} uses model {model!r} from pool key {key!r}, expected {expected_model!r}"
+        )
+    return {"pool_key": key, "pool_slot": peer, "model": model}
 
 
 def load_meta(path: Path, *, complete: bool = True) -> dict[str, Any]:
     """Load run metadata and require configured identities when complete."""
     payload = read_json(path, label="run metadata")
-    required = ["runs", "agent_ids", "endpoint", "tag", "manifest", "workspace_dir"]
+    required = ["runs", "agent_ids", "endpoint", "tag", "manifest", "workspaces"]
     if complete:
         required.extend(["group_id", "actors", "bindings", "gateways", "plugin_configs"])
     missing = [key for key in required if not payload.get(key)]
@@ -295,9 +313,9 @@ def load_meta(path: Path, *, complete: bool = True) -> dict[str, Any]:
     return payload
 
 
-def role_run(meta: dict[str, Any], role: str) -> tuple[Path, str]:
-    """Resolve one role's fixture directory and managed agent ID."""
-    return Path(str(meta["runs"][role])), str(meta["agent_ids"][role])
+def peer_run(meta: dict[str, Any], peer: str) -> tuple[Path, str]:
+    """Resolve one peer's fixture directory and managed agent ID."""
+    return Path(str(meta["runs"][peer])), str(meta["agent_ids"][peer])
 
 
 def provider_client(meta: dict[str, Any]) -> httpx.Client:
@@ -325,28 +343,30 @@ def provider_result(response: httpx.Response) -> dict[str, Any]:
     return result
 
 
-def gateway_get(meta: dict[str, Any], role: str, path: str) -> dict[str, Any]:
+def gateway_get(meta: dict[str, Any], peer: str, path: str) -> dict[str, Any]:
     """Read one public gateway route without ambient proxy or credentials."""
-    base = str(meta["gateways"][role]).rstrip("/")
+    base = str(meta["gateways"][peer]).rstrip("/")
     try:
         response = httpx.get(base + path, trust_env=False, timeout=20)
     except httpx.HTTPError as exc:
-        raise LabError(f"Gateway {role} is unavailable") from exc
+        raise LabError(f"Gateway {peer} is unavailable") from exc
     if response.status_code != 200:
-        raise LabError(f"Gateway {role} {path} returned HTTP {response.status_code}")
+        raise LabError(f"Gateway {peer} {path} returned HTTP {response.status_code}")
     payload = response.json()
     if not isinstance(payload, dict):
-        raise LabError(f"Gateway {role} {path} returned an invalid response")
+        raise LabError(f"Gateway {peer} {path} returned an invalid response")
     return payload
 
 
-def live_observation(meta: dict[str, Any], role: str) -> dict[str, Any]:
+def live_observation(meta: dict[str, Any], peer: str) -> dict[str, Any]:
     """Project current Web or headless native readiness from public status."""
-    state = gateway_get(meta, role, "/v1/status")
-    web = state.get("web") if isinstance(state.get("web"), dict) else {}
+    state = gateway_get(meta, peer, "/v1/status")
+    web = state.get("web")
+    if not isinstance(web, dict):
+        web = {}
     readiness: dict[str, Any] = {}
     if not web:
-        readiness = gateway_get(meta, role, "/v1/control/headless/state")
+        readiness = gateway_get(meta, peer, "/v1/control/headless/state")
     return {
         "availability": web.get("availability") or state.get("managed_agent_connectivity"),
         "active_execution": state.get("active_execution"),
@@ -360,13 +380,17 @@ def live_observation(meta: dict[str, Any], role: str) -> dict[str, Any]:
     }
 
 
-def cccc_json(meta: dict[str, Any], role: str, arguments: list[str]) -> dict[str, Any]:
-    """Run one local houmao-cccc CLI command against a role's gateway."""
-    command = [str(cccc_path()), "--gateway-url", str(meta["gateways"][role]), *arguments]
-    result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=60)
+def cccc_json(meta: dict[str, Any], peer: str, arguments: list[str]) -> dict[str, Any]:
+    """Run one local houmao-cccc CLI command against a peer's gateway."""
+    run_dir, _ = peer_run(meta, peer)
+    command = [str(cccc_path()), "--gateway-url", str(meta["gateways"][peer]), *arguments]
+    result = subprocess.run(
+        command, env=run_env(run_dir), capture_output=True, text=True, check=False, timeout=60
+    )
     if result.returncode != 0:
         raise LabError(
-            f"houmao-cccc {arguments[0]} failed for role {role}: {result.stdout.strip()}"
+            f"houmao-cccc {arguments[0]} failed for peer {peer}: "
+            f"{(result.stdout or result.stderr).strip()}"
         )
     try:
         payload = json.loads(result.stdout)
@@ -375,6 +399,30 @@ def cccc_json(meta: dict[str, Any], role: str, arguments: list[str]) -> dict[str
     if not isinstance(payload, dict):
         raise LabError("houmao-cccc returned an unexpected JSON shape")
     return payload
+
+
+def iter_history(meta: dict[str, Any], peer: str, *, limit: int = 20) -> Iterator[dict[str, Any]]:
+    """Read one Actor's history newest first, keeping its cursor and page size together."""
+    query = ["chat", "history", "--limit", str(limit)]
+    arguments = query
+    seen_cursors: set[str] = set()
+    while True:
+        page = cccc_json(meta, peer, arguments)
+        messages = page.get("messages")
+        if not isinstance(messages, list) or not isinstance(page.get("has_more"), bool):
+            raise LabError(f"Invalid CCCC history page for {peer}")
+        for message in messages:
+            event_id = message.get("event_id") if isinstance(message, dict) else None
+            if not isinstance(event_id, str) or not event_id:
+                raise LabError(f"CCCC history for {peer} contains a message without an event ID")
+            yield message
+        if not page["has_more"]:
+            return
+        cursor = page.get("cursor")
+        if not messages or not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+            raise LabError(f"CCCC history pagination did not advance for {peer}")
+        seen_cursors.add(cursor)
+        arguments = [*query, "--cursor", cursor]
 
 
 def body_snapshot(run_dir: Path) -> dict[str, Any]:
@@ -411,7 +459,7 @@ def assert_same_body(before: dict[str, Any], after: dict[str, Any]) -> None:
         raise LabError(f"CCCC attachment changed native body identity: {', '.join(changed)}")
 
 
-def session_files(run_dir: Path, *, client: str) -> list[Path]:
+def session_files(run_dir: Path, *, client: str, before_kickoff: bool = False) -> list[Path]:
     """Return native Web journals from this fixture's managed homes."""
     journal = {"dsh": "session.v4.jsonl", "kimi": "wire.jsonl"}.get(client)
     if journal is None:
@@ -421,6 +469,8 @@ def session_files(run_dir: Path, *, client: str) -> list[Path]:
         (path for path in homes.rglob(journal) if path.is_file() and path.resolve() == path),
         key=lambda path: path.stat().st_mtime,
     )
+    if before_kickoff and not files:
+        return []
     if client == "kimi":
         run = load_run(run_dir)
         manifest = read_json(
@@ -435,19 +485,19 @@ def session_files(run_dir: Path, *, client: str) -> list[Path]:
     return files
 
 
-def wait_binding(meta: dict[str, Any], role: str, *, timeout: float = 60) -> dict[str, Any]:
+def wait_binding(meta: dict[str, Any], peer: str, *, timeout: float = 60) -> dict[str, Any]:
     """Wait for the selected Actor receiver to negotiate and acquire its lease."""
     deadline = time.monotonic() + timeout
     last: dict[str, Any] = {}
     while time.monotonic() < deadline:
         try:
-            last = cccc_json(meta, role, ["binding"])
+            last = cccc_json(meta, peer, ["binding"])
             if last.get("connection") == "connected":
                 return last
         except LabError:
             pass
         time.sleep(0.25)
-    raise LabError(f"CCCC receiver {role} did not connect; last phase={last.get('connection')}")
+    raise LabError(f"CCCC receiver {peer} did not connect; last phase={last.get('connection')}")
 
 
 def update_gateway_run(run_dir: Path, attached: dict[str, Any]) -> str:
@@ -510,8 +560,14 @@ def service_identity(runtime_path: Path, binary_path: Path) -> dict[str, Any]:
     }
 
 
-def seed_cuda_workspace(source_dir: Path, workspace_dir: Path, arch: str) -> dict[str, Any]:
-    """Copy neutral problem files into the shared run workspace."""
+def workspace_makefile(source_dir: Path, arch: str) -> bytes:
+    """Render the locked Makefile bytes for the selected GPU architecture."""
+    template = (source_dir / "Makefile").read_text(encoding="utf-8")
+    return re.sub(r"^ARCH\s*\?=.*$", f"ARCH ?= {arch}", template, flags=re.MULTILINE).encode()
+
+
+def seed_cuda_workspace(source_dir: Path, workspace_dir: Path, arch: str) -> None:
+    """Copy neutral problem files into the peer working directory."""
     workspace_dir.mkdir(parents=True, exist_ok=True)
     copies = {
         "kernel_api.cuh": "kernel_api.cuh",
@@ -521,36 +577,17 @@ def seed_cuda_workspace(source_dir: Path, workspace_dir: Path, arch: str) -> dic
     }
     for src_name, dst_name in copies.items():
         shutil.copy2(source_dir / src_name, workspace_dir / dst_name)
-    makefile_text = (source_dir / "Makefile").read_text(encoding="utf-8")
-    makefile_text = re.sub(r"^ARCH\s*\?=.*$", f"ARCH ?= {arch}", makefile_text, flags=re.MULTILINE)
-    (workspace_dir / "Makefile").write_text(makefile_text, encoding="utf-8")
-    return {
-        "workspace_dir": str(workspace_dir),
-        "arch": arch,
-        "files": sorted([*copies.values(), "Makefile"]),
-    }
+    (workspace_dir / "Makefile").write_bytes(workspace_makefile(source_dir, arch))
 
 
 def check_cuda_toolchain(cuda_cfg: dict[str, Any]) -> dict[str, Any]:
-    """Verify nvcc, ncu, nsys, and local GPU visibility without writing to repo."""
+    """Verify nvcc and local GPU visibility without writing to repo."""
     gpu = detect_gpu_arch(str(cuda_cfg.get("arch_config", "auto")))
-    versions: dict[str, str] = {}
-    for key in ("nvcc", "ncu", "nsys"):
-        exe = str(cuda_cfg.get(key, key))
-        result = subprocess.run(
-            [exe, "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=20,
-        )
-        if result.returncode != 0:
-            raise LabError(f"CUDA tool '{exe}' is unavailable or failed --version")
-        lines = [
-            line.strip() for line in (result.stdout or result.stderr).splitlines() if line.strip()
-        ]
-        versions[key] = lines[-1] if lines else "available"
-    return {"gpu": gpu, "tools": versions}
+    nvcc = str(cuda_cfg["nvcc"])
+    result = subprocess.run([nvcc, "--version"], capture_output=True, text=True, timeout=20)
+    if result.returncode:
+        raise LabError(f"{nvcc} failed --version")
+    return {"gpu": gpu, "tools": {"nvcc": result.stdout.strip()}}
 
 
 def command_show_manifest(args: argparse.Namespace) -> int:
@@ -568,20 +605,34 @@ def command_configure(args: argparse.Namespace) -> int:
     manifest["resolved_gpu"] = gpu_info
 
     run_dirs = {
-        "lead": args.run_lead.resolve(),
-        "algo": args.run_algo.resolve(),
-        "kernel": args.run_kernel.resolve(),
-        "profiler": args.run_profiler.resolve(),
+        peer: Path(
+            read_json(args.evidence_root / f"{peer}-prepare.json", label="fixture receipt")[
+                "run_dir"
+            ]
+        ).resolve()
+        for peer in _PEERS
     }
-    runs = {role: load_run(path) for role, path in run_dirs.items()}
+    runs = {peer: load_run(path) for peer, path in run_dirs.items()}
     model_pool = {
-        role: pool_selection(runs[role], role=role, mode=manifest["slots"][role]["mode"])
-        for role in _ROLES
+        peer: pool_selection(
+            runs[peer],
+            peer=peer,
+            mode="web",
+            expected_model=manifest["team_model"],
+        )
+        for peer in _PEERS
     }
-    agent_ids = {role: str(runs[role]["identity"]["agent_id"]) for role in _ROLES}
-    if len(set(agent_ids.values())) != len(_ROLES):
+    agent_ids = {peer: str(runs[peer]["identity"]["agent_id"]) for peer in _PEERS}
+    if len(set(agent_ids.values())) != len(_PEERS):
         raise LabError("All four managed CCCC owners must have distinct agent IDs")
 
+    if len({entry["pool_key"] for entry in model_pool.values()}) != 1:
+        raise LabError("Use the same Web model pool entry for all peers")
+    workspaces = {peer: Path(run["workdir"]).resolve() for peer, run in runs.items()}
+    if len(set(workspaces.values())) != len(_PEERS) or any(
+        path != run_dirs[peer] / "workdir" for peer, path in workspaces.items()
+    ):
+        raise LabError("Each fixture needs its own physical working directory")
     private_parent = args.private_root.expanduser().resolve()
     if private_parent.is_relative_to(REPO_ROOT):
         raise LabError("CCCC_PRIVATE_ROOT must be outside the checkout")
@@ -589,13 +640,9 @@ def command_configure(args: argparse.Namespace) -> int:
     private_run = private_parent / tag
     if private_run.exists():
         raise LabError(f"Private run directory already exists: {private_run}")
-    private_run.mkdir(parents=True, mode=0o700)
-    private_run.chmod(0o700)
 
-    workspace_dir = args.workspace_dir.expanduser().resolve()
-    seeded = seed_cuda_workspace(
-        Path(manifest["problem"]["source_dir"]), workspace_dir, gpu_info["arch"]
-    )
+    for workspace in workspaces.values():
+        seed_cuda_workspace(Path(manifest["problem"]["source_dir"]), workspace, gpu_info["arch"])
 
     meta: dict[str, Any] = {
         "schema_version": 1,
@@ -604,9 +651,8 @@ def command_configure(args: argparse.Namespace) -> int:
         "tag": tag,
         "endpoint": args.endpoint.rstrip("/"),
         "manifest": manifest,
-        "workspace_dir": str(workspace_dir),
-        "workspace_seed": seeded,
-        "runs": {role: str(path) for role, path in run_dirs.items()},
+        "workspaces": {peer: str(path) for peer, path in workspaces.items()},
+        "runs": {peer: str(path) for peer, path in run_dirs.items()},
         "model_pool": model_pool,
         "agent_ids": agent_ids,
         "actors": manifest["actors"],
@@ -617,12 +663,14 @@ def command_configure(args: argparse.Namespace) -> int:
         "plugin_configs": {},
         "private_run": str(private_run),
         "evidence_root": str(args.evidence_root.resolve()),
-        "tmux_sockets": {role: runs[role].get("tmux_socket_path") for role in _ROLES},
-        "body_before": {role: body_snapshot(run_dirs[role]) for role in _ROLES},
+        "tmux_sockets": {peer: runs[peer].get("tmux_socket_path") for peer in _PEERS},
+        "body_before": {peer: body_snapshot(run_dirs[peer]) for peer in _PEERS},
     }
     write_json(args.run_meta, meta)
 
     try:
+        private_run.mkdir(parents=True, mode=0o700)
+        private_run.chmod(0o700)
         if args.service_runtime or args.provider_binary:
             if not args.service_runtime or not args.provider_binary:
                 raise LabError("Select both --service-runtime and --provider-binary, or neither")
@@ -638,16 +686,16 @@ def command_configure(args: argparse.Namespace) -> int:
             meta["group_id"] = group_id
             write_json(args.run_meta, meta)
 
-            for role in _ROLES:
-                run_dir, agent_id = role_run(meta, role)
-                actor_id = str(meta["actors"][role])
+            for peer in _PEERS:
+                run_dir, agent_id = peer_run(meta, peer)
+                actor_id = str(meta["actors"][peer])
                 provider_result(
                     provider.post(
                         f"/api/v1/groups/{group_id}/actors",
                         json={"actor_id": actor_id, "runtime": "custom", "command": ["/bin/true"]},
                     )
                 )
-                credential = private_run / f"{role}.json"
+                credential = private_run / f"{peer}.json"
                 provision = subprocess.run(
                     [
                         sys.executable,
@@ -669,36 +717,13 @@ def command_configure(args: argparse.Namespace) -> int:
                     timeout=60,
                 )
                 if provision.returncode != 0:
-                    raise LabError(f"CCCC grant export failed for role {role}")
+                    raise LabError(f"CCCC grant export failed for peer {peer}")
                 grant = json.loads(provision.stdout)
-                meta["grants"][role] = {
+                meta["grants"][peer] = {
                     "grant_id": grant["grant_id"],
                     "credential_file": str(credential),
                     "actor_generation": grant["actor_generation"],
                 }
-                write_json(args.run_meta, meta)
-
-                manager_json(run_env(run_dir), ["mailbox", "init"])
-                offline = manager_json(
-                    run_env(run_dir),
-                    ["agents", "single", "--agent-id", agent_id, "mailbox", "offline", "status"],
-                )
-                if not offline.get("registered"):
-                    offline = manager_json(
-                        run_env(run_dir),
-                        [
-                            "agents",
-                            "single",
-                            "--agent-id",
-                            agent_id,
-                            "mailbox",
-                            "offline",
-                            "join",
-                            "--address",
-                            f"{actor_id}-{tag}@houmao.localhost",
-                        ],
-                    )
-                meta.setdefault("offline_recovery", {})[role] = offline
                 write_json(args.run_meta, meta)
 
                 selection = run_dir / "cccc-plugins.json"
@@ -722,7 +747,7 @@ def command_configure(args: argparse.Namespace) -> int:
                         },
                     },
                 )
-                meta["plugin_configs"][role] = str(selection)
+                meta["plugin_configs"][peer] = str(selection)
                 manager_json(
                     run_env(run_dir),
                     ["agents", "single", "--agent-id", agent_id, "gateway", "detach"],
@@ -741,22 +766,22 @@ def command_configure(args: argparse.Namespace) -> int:
                         str(selection),
                     ],
                 )
-                meta["gateways"][role] = update_gateway_run(run_dir, attached)
+                meta["gateways"][peer] = update_gateway_run(run_dir, attached)
                 write_json(args.run_meta, meta)
-                binding = wait_binding(meta, role)
+                binding = wait_binding(meta, peer)
                 if (
                     binding.get("agent_id") != agent_id
                     or binding.get("group_id") != group_id
                     or binding.get("actor_id") != actor_id
                 ):
-                    raise LabError(f"CCCC binding identity mismatch for role {role}")
-                meta["bindings"][role] = binding
+                    raise LabError(f"CCCC binding identity mismatch for peer {peer}")
+                meta["bindings"][peer] = binding
                 after = body_snapshot(run_dir)
-                assert_same_body(meta["body_before"][role], after)
-                meta.setdefault("body_after", {})[role] = after
+                assert_same_body(meta["body_before"][peer], after)
+                meta.setdefault("body_after", {})[peer] = after
                 write_json(args.run_meta, meta)
 
-        members = cccc_json(meta, "lead", ["members", "--group", str(meta["group_id"])])
+        members = cccc_json(meta, _PEERS[0], ["members", "--group", str(meta["group_id"])])
         expected_actors = set(meta["actors"].values())
         member_ids = {
             item.get("id") for item in members.get("members", []) if isinstance(item, dict)
@@ -767,23 +792,24 @@ def command_configure(args: argparse.Namespace) -> int:
                 f"got {sorted(str(x) for x in member_ids)}"
             )
 
-        for role in _ROLES:
-            run_dir, _ = role_run(meta, role)
-            peers = {r: meta["actors"][r] for r in _ROLES if r != role}
+        for peer in _PEERS:
+            run_dir, _ = peer_run(meta, peer)
+            peers = {r: meta["actors"][r] for r in _PEERS if r != peer}
+            workdir = run_dir / "workdir"
             write_json(
-                run_dir / "workdir" / "cccc-brief.json",
+                workdir / "cccc-brief.json",
                 {
                     "cccc_cli": str(cccc_path()),
-                    "gateway_url": meta["gateways"][role],
+                    "gateway_url": meta["gateways"][peer],
                     "plugin_instance": "cccc",
-                    "binding_id": meta["bindings"][role]["binding_id"],
+                    "binding_id": meta["bindings"][peer]["binding_id"],
                     "group_id": meta["group_id"],
-                    "actor_id": meta["actors"][role],
-                    "role": role,
+                    "actor_id": meta["actors"][peer],
+                    "peer": peer,
                     "peers": peers,
-                    "workspace_dir": str(workspace_dir),
+                    "workspace_dir": ".",
                     "cuda_arch": gpu_info["arch"],
-                    "protocol": "CCCC chat only; no mailbox channel",
+                    "protocol": "Use CCCC chat for team discussion",
                 },
             )
         meta["status"] = "configured"
@@ -800,8 +826,9 @@ def command_configure(args: argparse.Namespace) -> int:
                 "status": meta["status"],
                 "tag": tag,
                 "group_id": meta["group_id"],
+                "problem_override": manifest["problem_override"],
                 "selected_problem": manifest["selected_problem"],
-                "workspace_dir": str(workspace_dir),
+                "workspaces": meta["workspaces"],
                 "gpu": gpu_info,
                 "agents": agent_ids,
                 "model_pool": model_pool,
@@ -817,19 +844,14 @@ def command_configure(args: argparse.Namespace) -> int:
 
 
 def command_doctor(args: argparse.Namespace) -> int:
-    """Verify CUDA toolchain, provider, 4 gateways, native bodies, bindings, and recovery mail."""
+    """Verify CUDA toolchain, provider, 4 gateways, native bodies, bindings, and private working directories."""
     meta = load_meta(args.run_meta)
     if meta.get("status") != "configured":
         raise LabError(f"Run is not configured: {meta.get('status')}")
     model_pool = meta.get("model_pool")
-    if not isinstance(model_pool, dict) or set(model_pool) != set(_ROLES):
-        raise LabError("Run metadata is missing model pool selections for the four roles")
+    if not isinstance(model_pool, dict) or set(model_pool) != set(_PEERS):
+        raise LabError("Run metadata is missing model pool selections for the four peers")
     cuda_health = check_cuda_toolchain(meta["manifest"]["cuda"])
-
-    workspace = Path(str(meta["workspace_dir"]))
-    for filename in ("kernel_api.cuh", "driver.cu", "solution.cu", "Makefile", "design-brief.md"):
-        if not (workspace / filename).is_file():
-            raise LabError(f"Seeded workspace is missing {filename}: {workspace}")
 
     service = meta.get("service_identity")
     if service:
@@ -842,224 +864,161 @@ def command_doctor(args: argparse.Namespace) -> int:
 
     result: dict[str, Any] = {
         "status": "healthy",
+        "group_id": meta["group_id"],
         "selected_problem": meta["manifest"]["selected_problem"],
         "cuda": cuda_health,
         "provider_health": health,
         "agents": {},
     }
     expected_actors = set(meta["actors"].values())
-    for role in _ROLES:
-        run_dir, agent_id = role_run(meta, role)
+    for peer in _PEERS:
+        run_dir, agent_id = peer_run(meta, peer)
+        workdir = run_dir / "workdir"
+        brief = read_json(workdir / "cccc-brief.json", label=f"{peer} workspace brief")
+        if brief.get("workspace_dir") != "." or workdir != Path(meta["workspaces"][peer]):
+            raise LabError(f"Invalid working directory for {peer}")
+        for filename in (
+            "kernel_api.cuh",
+            "driver.cu",
+            "solution.cu",
+            "Makefile",
+            "design-brief.md",
+        ):
+            if not (workdir / filename).is_file():
+                raise LabError(f"Seeded workspace for {peer} is missing {filename}")
         selection = pool_selection(
-            load_run(run_dir), role=role, mode=meta["manifest"]["slots"][role]["mode"]
+            load_run(run_dir),
+            peer=peer,
+            mode="web",
+            expected_model=meta["manifest"]["team_model"],
         )
-        if selection != model_pool[role]:
-            raise LabError(f"Prepared model pool selection changed for role {role}")
-        state = live_observation(meta, role)
+        if selection != model_pool[peer]:
+            raise LabError(f"Prepared model pool selection changed for peer {peer}")
+        state = live_observation(meta, peer)
         if (
             state.get("gateway_health") != "healthy"
             or state.get("native_surface_eligibility") != "ready"
+            or state.get("can_accept_prompt_now") is not True
             or state.get("host_process_alive") is not True
         ):
-            raise LabError(f"Managed agent {role} is not healthy")
-        binding = cccc_json(meta, role, ["binding"])
-        expected = meta["bindings"][role]
+            raise LabError(f"Managed agent {peer} is not healthy")
+        binding = cccc_json(meta, peer, ["binding"])
+        expected = meta["bindings"][peer]
         if (
             binding.get("connection") != "connected"
             or binding.get("binding_id") != expected.get("binding_id")
             or binding.get("agent_id") != agent_id
+            or binding.get("group_id") != meta["group_id"]
+            or binding.get("actor_id") != meta["actors"][peer]
         ):
-            raise LabError(f"CCCC binding {role} is not connected to expected owner")
-        capabilities = cccc_json(meta, role, ["capabilities"])
-        members = cccc_json(meta, role, ["members", "--group", str(meta["group_id"])])
+            raise LabError(f"CCCC binding {peer} is not connected to expected owner")
+        capabilities = cccc_json(meta, peer, ["capabilities"])
+        members = cccc_json(meta, peer, ["members", "--group", str(meta["group_id"])])
         member_ids = {
             item.get("id") for item in members.get("members", []) if isinstance(item, dict)
         }
         if member_ids != expected_actors:
             raise LabError(
-                f"Role {role} sees unexpected Group members: {sorted(str(x) for x in member_ids)}"
+                f"Peer {peer} sees unexpected Group members: {sorted(str(x) for x in member_ids)}"
             )
         current_body = body_snapshot(run_dir)
-        assert_same_body(meta["body_before"][role], current_body)
-        offline = manager_json(
-            run_env(run_dir),
-            ["agents", "single", "--agent-id", agent_id, "mailbox", "offline", "status"],
-        )
-        if not offline.get("registered"):
-            raise LabError(f"Operator recovery mailbox {role} is not registered")
-        result["agents"][role] = {
+        assert_same_body(meta["body_before"][peer], current_body)
+        result["agents"][peer] = {
             "agent_id": agent_id,
             **selection,
-            "actor_id": meta["actors"][role],
+            "actor_id": meta["actors"][peer],
             "availability": state.get("availability"),
             "active_execution": state.get("active_execution"),
             "binding_id": binding.get("binding_id"),
             "capabilities": capabilities,
             "body": current_body,
-            "offline_recovery_registered": True,
         }
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
 
-def apply_delivery_for_role(
+def apply_delivery_for_peer(
     meta: dict[str, Any],
-    role: str,
+    peer: str,
     *,
     policy: str,
     quiet_interval: float,
     max_wait: float,
     timeout: float,
 ) -> dict[str, Any]:
-    """Set receiver delivery policy on one role and await active convergence."""
+    """Set receiver delivery policy on one peer and await active convergence."""
     path = "/v1/plugins/cccc/delivery"
-    before = gateway_get(meta, role, path)
+    before = gateway_get(meta, peer, path)
     settings: dict[str, Any] = {"transport": "pull"}
     if policy != "pull":
         settings = {"transport": "push", "push_policy": policy}
         if policy == "batch":
             settings.update(quiet_interval=quiet_interval, max_wait=max_wait)
     response = httpx.put(
-        str(meta["gateways"][role]).rstrip("/") + path,
+        str(meta["gateways"][peer]).rstrip("/") + path,
         json={"revision": before["revision"], "settings": settings},
         trust_env=False,
         timeout=20,
     )
     if response.status_code != 200:
-        raise LabError(f"Setting delivery on {role} returned HTTP {response.status_code}")
+        raise LabError(f"Setting delivery on {peer} returned HTTP {response.status_code}")
     revision = response.json()["revision"]
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        observed = gateway_get(meta, role, path)
+        observed = gateway_get(meta, peer, path)
         if observed.get("revision") != revision:
-            raise LabError(f"Delivery settings on {role} changed unexpectedly")
+            raise LabError(f"Delivery settings on {peer} changed unexpectedly")
         if observed.get("transition") == "active" and observed.get("effective") == observed.get(
             "desired"
         ):
             return observed
         time.sleep(0.25)
-    raise LabError(f"Timed out waiting for delivery policy on {role}")
+    raise LabError(f"Timed out waiting for delivery policy on {peer}")
 
 
 def command_delivery(args: argparse.Namespace) -> int:
-    """Set effective delivery policy for one role or all four roles."""
+    """Set effective delivery policy for one peer or all four peers."""
     meta = load_meta(args.run_meta)
-    targets = _ROLES if args.role == "all" else (args.role,)
+    targets = _PEERS if args.peer == "all" else (args.peer,)
     results = {
-        role: apply_delivery_for_role(
+        peer: apply_delivery_for_peer(
             meta,
-            role,
+            peer,
             policy=args.policy,
             quiet_interval=args.quiet_interval,
             max_wait=args.max_wait,
             timeout=args.timeout,
         )
-        for role in targets
+        for peer in targets
     }
-    print(json.dumps({"status": "active", "roles": results}, indent=2, sort_keys=True))
+    print(json.dumps({"status": "active", "peers": results}, indent=2, sort_keys=True))
     return 0
 
 
-def command_prompt(args: argparse.Namespace) -> int:
-    """Submit one ordinary operator prompt through the managed gateway."""
-    meta = load_meta(args.run_meta)
-    run_dir, agent_id = role_run(meta, args.role)
-    payload = manager_json(
-        run_env(run_dir),
-        ["agents", "single", "--agent-id", agent_id, "prompt", "--prompt", args.prompt],
-        timeout=args.timeout,
-    )
-    print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
+def workloads_passed(workloads: object, expected: list[str]) -> bool:
+    """Require one accurate, input-preserving result per named workload."""
+    if not isinstance(workloads, list) or len(workloads) != len(expected):
+        return False
+    names: list[str] = []
+    for row in workloads:
+        if not isinstance(row, dict) or row.get("passed") is not True:
+            return False
+        if row.get("inputs_immutable") is not True or not isinstance(row.get("name"), str):
+            return False
+        names.append(row["name"])
+    return sorted(names) == sorted(expected)
 
 
-def command_state(args: argparse.Namespace) -> int:
-    """Inspect live readiness for one role or all four roles."""
-    meta = load_meta(args.run_meta)
-    targets = _ROLES if args.role == "all" else (args.role,)
-    payload = {role: live_observation(meta, role) for role in targets}
-    print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
-
-
-def command_wait_idle(args: argparse.Namespace) -> int:
-    """Wait until all four agents stay idle for a quiet window and no messages arrive."""
-    meta = load_meta(args.run_meta)
-    start = time.monotonic()
-    deadline = start + args.timeout
-    quiet_since: float | None = None
-    last_msg_count: int | None = None
-
-    while time.monotonic() < deadline:
-        states = {role: live_observation(meta, role) for role in _ROLES}
-        history = cccc_json(meta, "lead", ["chat", "history", "--limit", "200"])
-        msg_count = len(history.get("messages") or [])
-        all_idle = all(
-            st.get("active_execution") == "idle" and st.get("can_accept_prompt_now") is True
-            for st in states.values()
-        )
-        if all_idle and (last_msg_count is None or msg_count == last_msg_count):
-            if quiet_since is None:
-                quiet_since = time.monotonic()
-            elif time.monotonic() - quiet_since >= args.quiesce_seconds:
-                print(
-                    json.dumps(
-                        {
-                            "status": "quiescent",
-                            "elapsed_seconds": round(time.monotonic() - start, 2),
-                            "message_count": msg_count,
-                            "states": states,
-                        },
-                        indent=2,
-                        sort_keys=True,
-                    )
-                )
-                return 0
-        else:
-            quiet_since = None
-        last_msg_count = msg_count
-        time.sleep(args.interval)
-
-    raise LabError(f"Timed out after {args.timeout}s waiting for all four agents to settle")
-
-
-def command_cccc(args: argparse.Namespace) -> int:
-    """Run a whitelisted read-only CCCC inspection command."""
-    meta = load_meta(args.run_meta)
-    arguments = args.arguments
-    allowed = (
-        ["binding"],
-        ["capabilities"],
-        ["members"],
-        ["chat", "history"],
-        ["chat", "deliveries"],
-    )
-    if not any(arguments[: len(prefix)] == prefix for prefix in allowed):
-        raise LabError(
-            "Only binding, capabilities, members, chat history, and deliveries are read-only"
-        )
-    payload = cccc_json(meta, args.role, arguments)
-    print(json.dumps(payload, indent=2, sort_keys=True))
-    return 0
-
-
-def command_verify_cuda(args: argparse.Namespace) -> int:
+def verify_candidate(
+    meta: dict[str, Any], submitted_src: Path, evidence_dir: Path, verify_root: Path
+) -> int:
     """Compile and verify submitted solution.cu against the untouched locked driver."""
-    meta = load_meta(args.run_meta)
     manifest = meta["manifest"]
     problem = manifest["problem"]
     source_dir = Path(str(problem["source_dir"]))
-    workspace_dir = Path(str(meta["workspace_dir"]))
-    submitted_src = workspace_dir / "solution.cu"
-    if not submitted_src.is_file():
-        raise LabError(f"Submitted solution.cu not found: {submitted_src}")
-
-    evidence_dir = args.evidence_dir.expanduser().resolve()
     evidence_dir.mkdir(parents=True, exist_ok=True)
-    verify_dir = args.verify_dir.expanduser().resolve()
-    if verify_dir.exists():
-        shutil.rmtree(verify_dir)
-    verify_dir.mkdir(parents=True, exist_ok=True)
+    verify_root.mkdir(parents=True, exist_ok=True)
+    verify_dir = Path(tempfile.mkdtemp(prefix="build-", dir=verify_root))
 
     # Copy untouched locked driver + API header + ONLY submitted solution.cu.
     shutil.copy2(source_dir / "kernel_api.cuh", verify_dir / "kernel_api.cuh")
@@ -1067,11 +1026,12 @@ def command_verify_cuda(args: argparse.Namespace) -> int:
     shutil.copy2(submitted_src, verify_dir / "solution.cu")
 
     # Save immutable evidence copies of submitted solution and diff vs starter.
-    shutil.copy2(submitted_src, evidence_dir / "submitted-solution.cu")
+    captured = evidence_dir / "submitted-solution.cu"
+    shutil.copy2(verify_dir / "solution.cu", captured)
     starter_lines = (
         (source_dir / "solution_starter.cu").read_text(encoding="utf-8").splitlines(keepends=True)
     )
-    submitted_lines = submitted_src.read_text(encoding="utf-8").splitlines(keepends=True)
+    submitted_lines = captured.read_text(encoding="utf-8").splitlines(keepends=True)
     diff_text = "".join(
         difflib.unified_diff(
             starter_lines,
@@ -1081,14 +1041,6 @@ def command_verify_cuda(args: argparse.Namespace) -> int:
         )
     )
     (evidence_dir / "solution-diff.patch").write_text(diff_text, encoding="utf-8")
-
-    # Detect whether agents tampered with locked workspace files.
-    tampered_files: list[str] = []
-    for locked_name in ("kernel_api.cuh", "driver.cu"):
-        src_bytes = (source_dir / locked_name).read_bytes()
-        ws_file = workspace_dir / locked_name
-        if not ws_file.is_file() or ws_file.read_bytes() != src_bytes:
-            tampered_files.append(locked_name)
 
     arch = str(manifest["resolved_gpu"]["arch"])
     nvcc = str(manifest["cuda"]["nvcc"])
@@ -1111,9 +1063,8 @@ def command_verify_cuda(args: argparse.Namespace) -> int:
     report: dict[str, Any] = {
         "problem": manifest["selected_problem"],
         "arch": arch,
+        "verify_dir": str(verify_dir),
         "solution_changed_from_starter": bool(diff_text.strip()),
-        "workspace_locked_files_untouched": not tampered_files,
-        "tampered_workspace_files": tampered_files,
         "compile_returncode": compile_res.returncode,
         "compile_stderr": compile_res.stderr.strip(),
         "min_speedup_target": problem.get("min_speedup"),
@@ -1123,7 +1074,6 @@ def command_verify_cuda(args: argparse.Namespace) -> int:
     if compile_res.returncode != 0:
         report["status"] = "compile_failed"
         write_json(evidence_dir / "independent-verify.json", report, mode=0o644)
-        print(json.dumps(report, indent=2, sort_keys=True))
         return 1
 
     run_res = subprocess.run(
@@ -1133,234 +1083,334 @@ def command_verify_cuda(args: argparse.Namespace) -> int:
     report["run_stderr"] = run_res.stderr.strip()
     try:
         driver_json = json.loads(run_res.stdout)
-    except json.JSONDecodeError:
+        if not isinstance(driver_json, dict):
+            raise ValueError("Expected a driver result object")
+    except ValueError:
         report["status"] = "invalid_driver_output"
         report["raw_stdout"] = run_res.stdout[:2000]
         write_json(evidence_dir / "independent-verify.json", report, mode=0o644)
-        print(json.dumps(report, indent=2, sort_keys=True))
         return 1
 
     report["driver_result"] = driver_json
-    passed = bool(driver_json.get("passed")) and bool(driver_json.get("inputs_immutable"))
-    speedup = float(driver_json.get("geomean_speedup", 0.0))
+    report["workloads_passed"] = workloads_passed(
+        driver_json.get("workloads"), problem["expected_workloads"]
+    )
+    driver_passed = (
+        run_res.returncode == 0
+        and driver_json.get("problem") == manifest["selected_problem"]
+        and driver_json.get("passed") is True
+        and driver_json.get("inputs_immutable") is True
+        and report["workloads_passed"]
+    )
+    speedup = driver_json.get("geomean_speedup")
+    if (
+        not isinstance(speedup, (int, float))
+        or isinstance(speedup, bool)
+        or not math.isfinite(speedup)
+    ):
+        speedup = 0.0
     report["meets_gt_1x"] = speedup > 1.0
     report["meets_min_speedup_target"] = speedup >= float(problem.get("min_speedup", 3.0))
     report["meets_stretch_speedup_target"] = speedup >= float(problem.get("stretch_speedup", 10.0))
-    report["status"] = "passed" if (passed and not tampered_files and speedup > 1.0) else "failed"
-
-    if args.run_ncu and passed:
-        ncu = str(manifest["cuda"]["ncu"])
-        ncu_cmd = [
-            ncu,
-            "--metrics",
-            (
-                "sm__throughput.avg.pct_of_peak_sustained_elapsed,"
-                "dram__throughput.avg.pct_of_peak_sustained_elapsed,"
-                "sm__warps_active.avg.pct_of_peak_sustained_active,"
-                "launch__registers_per_thread"
-            ),
-            str(binary),
-            "--profile-only",
-        ]
-        ncu_res = subprocess.run(ncu_cmd, capture_output=True, text=True, check=False, timeout=180)
-        (evidence_dir / "ncu-summary.txt").write_text(
-            (ncu_res.stdout or "") + "\n" + (ncu_res.stderr or ""), encoding="utf-8"
-        )
-        report["ncu_returncode"] = ncu_res.returncode
-
+    report["status"] = "passed" if driver_passed else "failed"
     write_json(evidence_dir / "independent-verify.json", report, mode=0o644)
-    print(json.dumps(report, indent=2, sort_keys=True))
     return int(report["status"] != "passed")
 
 
-def bash_call(record: dict[str, Any]) -> dict[str, Any] | None:
-    """Read one shell invocation from a native DSH or Kimi journal row."""
-    if record.get("type") == "tool/call":
-        event = record.get("data")
-        if not isinstance(event, dict) or event.get("name") != "bash":
-            return None
+_KICKOFF = (
+    "You are one of four peers working on the same CUDA kernel. This is your private working "
+    "directory. Your team has five minutes to implement the target kernel in solution.cu as "
+    "efficiently as you can while preserving the correctness requirements in design-brief.md. "
+    "Use CCCC for team discussion whenever you choose."
+)
+_SOURCES = ("solution.cu", "driver.cu", "kernel_api.cuh", "Makefile")
+
+
+def journal_offsets(run: Path, *, before_kickoff: bool = False) -> dict[str, int]:
+    """Record append-only native journal positions for this peer's fixture."""
+    client = load_run(run)["configuration"]["client"]
+    files = session_files(run, client=client, before_kickoff=before_kickoff)
+    return {str(path.relative_to(run)): path.stat().st_size for path in files}
+
+
+def capture_peer(
+    meta: dict[str, Any], peer: str, directory: Path, cutoff_ns: int | None = None
+) -> dict[str, Any]:
+    """Bound native journals by byte offset and freeze the peer's source at the deadline."""
+    before = cutoff_ns is None
+    result: dict[str, Any] = {"observed_ns": time.time_ns(), "journals": {}, "sources": {}}
+    run = Path(meta["runs"][peer])
+    try:
+        result["journals"] = journal_offsets(run, before_kickoff=before)
+    except (LabError, OSError) as exc:
+        result["journal_error"] = str(exc)
+    for name in _SOURCES:
+        path = Path(meta["workspaces"][peer]) / name
         try:
-            arguments = json.loads(event.get("arguments") or "{}")
-        except (TypeError, json.JSONDecodeError):
-            return None
-        turn = event.get("turn")
-    elif record.get("type") == "context.append_loop_event":
-        event = record.get("event")
-        if not isinstance(event, dict) or (event.get("type"), event.get("name")) != (
-            "tool.call",
-            "Bash",
-        ):
-            return None
-        arguments = event.get("args")
-        turn = event.get("turnId")
-    else:
-        return None
-    command = arguments.get("command") if isinstance(arguments, dict) else None
-    return {"turn": turn, "command": command} if isinstance(command, str) else None
+            if path.is_symlink() or not path.is_file():
+                raise LabError("Missing regular source file")
+            with path.open("rb") as stream:
+                first = os.fstat(stream.fileno())
+                data = stream.read()
+                last = os.fstat(stream.fileno())
+            if (
+                first.st_mtime_ns != last.st_mtime_ns
+                or len(data) != last.st_size
+                or (cutoff_ns is not None and max(last.st_ctime_ns, last.st_mtime_ns) > cutoff_ns)
+            ):
+                raise LabError("No stable version attributable to the cutoff")
+            result["sources"][name] = {"sha256": hashlib.sha256(data).hexdigest()}
+            if not before:
+                target = directory / "cutoff" / peer / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(data)
+        except (LabError, OSError) as exc:
+            result["sources"][name] = {"error": str(exc)}
+    result["finished_ns"] = time.time_ns()
+    return result
 
 
-def audit_role_transcripts(files: list[Path]) -> dict[str, Any]:
-    """Inspect native bash tool calls for forbidden mail/admin channels and CUDA/CCCC tool usage."""
-    commands: list[dict[str, Any]] = []
-    for path in files:
-        with path.open(encoding="utf-8") as stream:
-            for line in stream:
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
+def watch_peer(
+    meta: dict[str, Any], peer: str, directory: Path, stop: Event, queue_enabled: bool
+) -> None:
+    """Sample public receiver state without consuming messages or holding up the clock."""
+    with (directory / f"{peer}-observations.jsonl").open("x", encoding="utf-8") as stream:
+        while not stop.is_set():
+            sample: dict[str, Any] = {"started_ns": time.time_ns()}
+            for key, route in (
+                ("state", "/v1/status"),
+                ("binding", "/v1/plugins/cccc/binding"),
+                ("queue", "/v1/plugins/cccc/chat/queue?wait_seconds=0"),
+            ):
+                if key == "queue" and not queue_enabled:
                     continue
-                if isinstance(record, dict) and (call := bash_call(record)) is not None:
-                    commands.append(call)
-
-    forbidden: list[dict[str, Any]] = []
-    cccc_calls = 0
-    cuda_calls = 0
-    for item in commands:
-        command = item["command"]
-        lower = command.lower()
-        if "houmao-cccc" in lower or "/v1/plugins/cccc" in lower:
-            cccc_calls += 1
-        if any(tool in lower for tool in ("nvcc", "ncu", "nsys", "make ", "./run_kernel")):
-            cuda_calls += 1
-        reasons: list[str] = []
-        if re.search(r"houmao-cccc[^\n]*\smail(?:\s|$)", lower):
-            reasons.append("CCCC Mail")
-        if re.search(r"agents\s+(?:self|single)[^\n]*\smail\s+(?:send|reply|post)(?:\s|$)", lower):
-            reasons.append("Houmao peer mail")
-        if "/v1/mail/" in lower or "houmao-agent-email-comms" in lower:
-            reasons.append("mail channel")
-        if "/api/v1/external-receiver/" in lower or "/api/v1/groups" in lower:
-            reasons.append("CCCC provider administration")
-        if reasons:
-            forbidden.append({**item, "reasons": reasons})
-    return {
-        "bash_tool_call_count": len(commands),
-        "cccc_command_count": cccc_calls,
-        "cuda_command_count": cuda_calls,
-        "forbidden_calls": forbidden,
-        "status": "passed" if not forbidden else "failed",
-    }
+                try:
+                    response = gateway_get(meta, peer, route)
+                    if key == "binding":
+                        response = {
+                            k: response.get(k)
+                            for k in ("connection", "binding_id", "actor_id", "group_id")
+                        }
+                    if key == "queue":
+                        response = {
+                            k: response.get(k)
+                            for k in ("open_batch_count", "additional_queued", "batches")
+                        }
+                    sample[key] = response
+                except (LabError, ValueError) as exc:
+                    sample[key] = {"error": str(exc)}
+            try:
+                sample["journals"] = journal_offsets(Path(meta["runs"][peer]), before_kickoff=True)
+            except (LabError, OSError) as exc:
+                sample["journal_error"] = str(exc)
+            sample["finished_ns"] = time.time_ns()
+            stream.write(json.dumps(sample) + "\n")
+            stream.flush()
+            stop.wait(10)
 
 
-def command_audit(args: argparse.Namespace) -> int:
-    """Capture transcripts, CCCC history, 4-agent participation metrics, and channel audit."""
-    meta = load_meta(args.run_meta)
-    evidence_dir = args.evidence_dir.expanduser().resolve()
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-
-    copied_transcripts: dict[str, list[str]] = {}
-    role_audits: dict[str, Any] = {}
-    for role in _ROLES:
-        run_dir, _ = role_run(meta, role)
-        client = load_run(run_dir)["configuration"]["client"]
-        files = session_files(run_dir, client=client)
-        if not files:
-            raise LabError(f"No native {client} transcript found for role {role}")
-        copied: list[str] = []
-        for idx, source in enumerate(files[-args.max_files :]):
-            target = evidence_dir / f"transcript-{role}-{idx}{source.suffix}"
-            shutil.copy2(source, target)
-            copied.append(str(target))
-        copied_transcripts[role] = copied
-        role_audits[role] = audit_role_transcripts(files)
-
-    history = cccc_json(meta, "lead", ["chat", "history", "--limit", "200"])
-    write_json(evidence_dir / "cccc-history.json", history, mode=0o644)
-
-    messages = [msg for msg in (history.get("messages") or []) if isinstance(msg, dict)]
-    expected_actors = {str(meta["actors"][r]) for r in _ROLES}
-    messages_by_actor: dict[str, int] = {actor: 0 for actor in sorted(expected_actors)}
-    multi_recipient_count = 0
-    threaded_reply_count = 0
-    request_reply_count = 0
-
-    for msg in messages:
-        sender = str(msg.get("by") or "")
-        if sender in messages_by_actor:
-            messages_by_actor[sender] += 1
-        data = msg.get("data") or {}
-        to_list = data.get("to") if isinstance(data.get("to"), list) else []
-        if len(to_list) > 1:
-            multi_recipient_count += 1
-        if data.get("reply_to"):
-            threaded_reply_count += 1
-        if data.get("message_mode") == "request_reply":
-            request_reply_count += 1
-
-    active_actors = sorted([actor for actor, count in messages_by_actor.items() if count > 0])
-    missing_actors = sorted(expected_actors - set(active_actors))
-
-    channel_audit = {
-        "status": "passed"
-        if all(role_audits[role]["status"] == "passed" for role in _ROLES)
-        else "failed",
-        "roles": role_audits,
-        "transcripts": copied_transcripts,
-    }
-    participation = {
-        "status": "passed" if not missing_actors else "failed",
-        "total_messages": len(messages),
-        "messages_by_actor": messages_by_actor,
-        "active_actors": active_actors,
-        "missing_actors": missing_actors,
-        "multi_recipient_messages": multi_recipient_count,
-        "request_reply_messages": request_reply_count,
-        "threaded_replies": threaded_reply_count,
-    }
-    write_json(evidence_dir / "channel-audit.json", channel_audit, mode=0o644)
-    write_json(evidence_dir / "participation-summary.json", participation, mode=0o644)
-
-    combined = {
-        "status": "passed"
-        if (channel_audit["status"] == "passed" and participation["status"] == "passed")
-        else "failed",
-        "channel_audit": channel_audit,
-        "participation": participation,
-    }
-    print(json.dumps(combined, indent=2, sort_keys=True))
-    return int(combined["status"] != "passed")
-
-
-def command_recovery_post(args: argparse.Namespace) -> int:
-    """Post an operator-only filesystem-mail recovery note after explicit confirmation."""
-    if not args.confirm_operator_recovery:
-        raise LabError(
-            "Recovery mail requires --confirm-operator-recovery and invalidates the graded flow"
+def peer_control(
+    meta: dict[str, Any], peer: str, arguments: list[str], timeout: float
+) -> dict[str, Any]:
+    """Record the dispatch time and the manager response for one peer independently."""
+    run, agent_id = peer_run(meta, peer)
+    result: dict[str, Any] = {"started_ns": time.time_ns()}
+    try:
+        result["response"] = manager_json(
+            run_env(run), ["agents", "single", "--agent-id", agent_id, *arguments], timeout=timeout
         )
+    except (LabError, OSError, ValueError) as exc:
+        result["error"] = str(exc)
+    result["finished_ns"] = time.time_ns()
+    return result
+
+
+def command_window(args: argparse.Namespace) -> int:
+    """Release the four peers once and seal their evidence at the common deadline."""
     meta = load_meta(args.run_meta)
-    run_dir, agent_id = role_run(meta, args.role)
-    offline = manager_json(
-        run_env(run_dir),
-        ["agents", "single", "--agent-id", agent_id, "mailbox", "offline", "status"],
-    )
-    binding_id = (offline.get("binding") or {}).get("binding_id")
-    if not isinstance(binding_id, str):
-        raise LabError("Operator recovery mailbox is not configured")
-    payload = manager_json(
-        run_env(run_dir),
-        [
-            "agents",
-            "single",
-            "--agent-id",
-            agent_id,
-            "mail",
-            "post",
-            "--channel",
-            "offline",
-            "--expected-binding-id",
-            binding_id,
-            "--reply-policy",
-            "none",
-            "--subject",
-            args.subject,
-            "--body-content",
-            args.body,
-        ],
-    )
-    print(
-        json.dumps({"operator_recovery_only": True, "receipt": payload}, indent=2, sort_keys=True)
-    )
+    directory = Path(meta["evidence_root"]) / "window"
+    directory.mkdir(mode=0o700)
+    history = {peer: list(iter_history(meta, peer)) for peer in _PEERS}
+    write_json(directory / "history-before.json", history)
+    if any(history.values()):
+        raise LabError("Begin with a fresh group with empty chat history")
+    baseline: dict[str, Any] = {}
+    queue_enabled: dict[str, bool] = {}
+    for peer in _PEERS:
+        baseline[peer] = capture_peer(meta, peer, directory)
+        state = live_observation(meta, peer)
+        baseline[peer]["state"] = state
+        caps = gateway_get(meta, peer, "/v1/plugins/cccc/capabilities")
+        queue_enabled[peer] = caps.get("chat_queue") is True
+        baseline[peer]["queue"] = (
+            gateway_get(meta, peer, "/v1/plugins/cccc/chat/queue?wait_seconds=0")
+            if queue_enabled[peer]
+            else {"available": False}
+        )
+        write_json(directory / "baseline.json", baseline)
+        if (
+            caps.get("available") is not True
+            or state["can_accept_prompt_now"] is not True
+            or baseline[peer].get("journal_error")
+            or any("error" in item for item in baseline[peer]["sources"].values())
+            or baseline[peer]["queue"].get("batches")
+            or baseline[peer]["queue"].get("additional_queued")
+            or baseline[peer]["queue"].get("open_batch_count")
+        ):
+            raise LabError(f"{peer} is not ready for a clean release")
+    seconds = meta["manifest"]["duration_seconds"]
+    stop = Event()
+    with ThreadPoolExecutor(max_workers=len(_PEERS) * 3) as pool:
+        watchers = [
+            pool.submit(watch_peer, meta, peer, directory, stop, queue_enabled[peer])
+            for peer in _PEERS
+        ]
+        try:
+            start = time.monotonic()
+            start_ns = time.time_ns()
+            cutoff_ns = start_ns + seconds * 1_000_000_000
+            deadline = datetime.fromtimestamp(cutoff_ns / 1e9, UTC).isoformat()
+            prompt = f"{_KICKOFF} The deadline is {deadline}."
+            kickoffs = {
+                p: pool.submit(peer_control, meta, p, ["prompt", "--prompt", prompt], seconds + 10)
+                for p in _PEERS
+            }
+            write_json(
+                directory / "release.json",
+                {
+                    "prompt": prompt,
+                    "start_ns": start_ns,
+                    "cutoff_ns": cutoff_ns,
+                    "duration_seconds": seconds,
+                },
+            )
+            time.sleep(max(0, start + seconds - time.monotonic()))
+            stop.set()
+            elapsed = time.monotonic() - start
+            frozen = {peer: capture_peer(meta, peer, directory, cutoff_ns) for peer in _PEERS}
+            write_json(directory / "cutoff.json", frozen)
+            write_json(directory / "timer.json", {"elapsed_seconds_at_capture": elapsed})
+            interrupts = {p: pool.submit(peer_control, meta, p, ["interrupt"], 30) for p in _PEERS}
+            write_json(
+                directory / "interrupts.json", {p: job.result() for p, job in interrupts.items()}
+            )
+            write_json(
+                directory / "kickoffs.json", {p: job.result() for p, job in kickoffs.items()}
+            )
+        finally:
+            stop.set()
+        for job in watchers:
+            job.result()
+    print(json.dumps({"window": str(directory), "cutoff_ns": cutoff_ns}))
     return 0
+
+
+def command_collect(args: argparse.Namespace) -> int:
+    """Collect scoped CCCC events, handoff attempts and bounded native journal excerpts."""
+    meta = load_meta(args.run_meta)
+    directory = Path(meta["evidence_root"]) / "window"
+    baseline = read_json(directory / "baseline.json", label="baseline")
+    cutoff = read_json(directory / "cutoff.json", label="cutoff")
+    errors: list[str] = []
+    for peer in _PEERS:
+        folder = directory / "communication" / peer
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            run = Path(meta["runs"][peer])
+            for rel, end in cutoff[peer]["journals"].items():
+                start = baseline[peer]["journals"].get(rel, 0)
+                with (run / rel).open("rb") as stream:
+                    stream.seek(start)
+                    data = stream.read(max(0, end - start))
+                if end < start or len(data) != end - start:
+                    raise LabError(f"Truncated journal {rel}")
+                dest = folder / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(data)
+            if cutoff[peer].get("journal_error") or not cutoff[peer]["journals"]:
+                raise LabError("Incomplete native journal evidence")
+        except (LabError, OSError) as exc:
+            errors.append(f"{peer} journal: {exc}")
+
+        try:
+            binding = gateway_get(meta, peer, "/v1/plugins/cccc/binding")
+            write_json(
+                folder / "binding-after.json", {"observed_ns": time.time_ns(), "binding": binding}
+            )
+        except (LabError, ValueError) as exc:
+            errors.append(f"{peer} final binding: {exc}")
+        try:
+            messages = list(iter_history(meta, peer))
+            write_json(
+                folder / "history.json", {"observed_ns": time.time_ns(), "messages": messages}
+            )
+            for msg in messages:
+                if msg.get("by") != meta["actors"][peer]:
+                    continue
+                try:
+                    receipts = cccc_json(
+                        meta,
+                        peer,
+                        ["chat", "deliveries", "--event-ref", msg["event_ref"], "--limit", "100"],
+                    )
+                    if not isinstance(receipts.get("deliveries"), list) or receipts.get("has_more"):
+                        errors.append(f"{peer} {msg['event_id']}: incomplete attempt list")
+                    write_json(
+                        folder / f"deliveries-{msg['event_id']}.json",
+                        {"observed_ns": time.time_ns(), "result": receipts},
+                    )
+                except (KeyError, LabError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                    errors.append(f"{peer} {msg['event_id']} deliveries: {exc}")
+        except (LabError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            errors.append(f"{peer} history: {exc}")
+    write_json(directory / "collection.json", {"errors": errors})
+    print(json.dumps({"window": str(directory), "errors": errors}))
+    return int(bool(errors))
+
+
+def command_verify_cuda(args: argparse.Namespace) -> int:
+    """Verify each distinct frozen implementation once and record provenance for all peers."""
+    meta = load_meta(args.run_meta)
+    directory = Path(meta["evidence_root"]) / "window"
+    cutoff = read_json(directory / "cutoff.json", label="cutoff")
+    source = Path(meta["manifest"]["problem"]["source_dir"])
+    arch = meta["manifest"]["resolved_gpu"]["arch"]
+    expected = {
+        name: hashlib.sha256(source.joinpath(name).read_bytes()).hexdigest()
+        for name in ("driver.cu", "kernel_api.cuh")
+    }
+    expected["Makefile"] = hashlib.sha256(workspace_makefile(source, arch)).hexdigest()
+    peers: dict[str, Any] = {}
+    candidates: dict[str, Any] = {}
+    for peer in _PEERS:
+        hashes = cutoff[peer]["sources"]
+        digest = hashes["solution.cu"].get("sha256")
+        path = directory / "cutoff" / peer / "solution.cu"
+        peers[peer] = {
+            "solution_sha256": digest,
+            "locked_file_mismatches": [
+                name for name, value in expected.items() if hashes[name].get("sha256") != value
+            ],
+        }
+        if (
+            not digest
+            or not path.is_file()
+            or hashlib.sha256(path.read_bytes()).hexdigest() != digest
+        ):
+            peers[peer]["error"] = "Frozen source unavailable or digest mismatch"
+        elif digest not in candidates:
+            try:
+                status = verify_candidate(meta, path, directory / "cuda" / digest, args.verify_dir)
+                candidates[digest] = {"exit_code": status}
+            except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
+                candidates[digest] = {"error": str(exc)}
+    report = {"peers": peers, "candidates": candidates}
+    write_json(directory / "cuda-results.json", report)
+    print(json.dumps(report))
+    return int(
+        any("error" in item or item["locked_file_mismatches"] for item in peers.values())
+        or any(item.get("exit_code") != 0 for item in candidates.values())
+    )
 
 
 def kill_private_tmux(run_dir: Path, socket_path: str | None) -> dict[str, Any]:
@@ -1391,26 +1441,26 @@ def command_stop(args: argparse.Namespace) -> int:
     meta = load_meta(args.run_meta, complete=False)
     result: dict[str, Any] = {"agents": {}, "disconnects": {}, "grants": {}, "credentials": {}}
 
-    for role in _ROLES:
-        if role not in meta.get("bindings", {}) or role not in meta.get("gateways", {}):
+    for peer in _PEERS:
+        if peer not in meta.get("bindings", {}) or peer not in meta.get("gateways", {}):
             continue
         try:
-            result["disconnects"][role] = cccc_json(
+            result["disconnects"][peer] = cccc_json(
                 meta,
-                role,
+                peer,
                 [
                     "connection",
                     "disconnect",
                     "--binding-id",
-                    str(meta["bindings"][role]["binding_id"]),
+                    str(meta["bindings"][peer]["binding_id"]),
                 ],
             )
-        except (LabError, KeyError) as exc:
-            result["disconnects"][role] = {"error": str(exc)}
+        except (LabError, KeyError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
+            result["disconnects"][peer] = {"error": str(exc)}
 
-    for role in _ROLES:
-        run_str = (meta.get("runs") or {}).get(role)
-        agent_id = (meta.get("agent_ids") or {}).get(role)
+    for peer in _PEERS:
+        run_str = (meta.get("runs") or {}).get(peer)
+        agent_id = (meta.get("agent_ids") or {}).get(peer)
         if not run_str or not agent_id:
             continue
         run_dir = Path(str(run_str))
@@ -1420,27 +1470,27 @@ def command_stop(args: argparse.Namespace) -> int:
                 ["agents", "single", "--agent-id", str(agent_id), "stop"],
                 timeout=90,
             )
-            result["agents"][role] = {"status": "stopped", "receipt": receipt}
-        except LabError as exc:
+            result["agents"][peer] = {"status": "stopped", "receipt": receipt}
+        except (LabError, OSError, ValueError) as exc:
             detail = str(exc)
             already_stopped = "relaunch" in detail and "cleanup" in detail
-            result["agents"][role] = {
+            result["agents"][peer] = {
                 "status": "already_stopped" if already_stopped else "error",
                 "error": None if already_stopped else detail,
             }
-        result["agents"][role]["tmux"] = kill_private_tmux(
-            run_dir, (meta.get("tmux_sockets") or {}).get(role)
+        result["agents"][peer]["tmux"] = kill_private_tmux(
+            run_dir, (meta.get("tmux_sockets") or {}).get(peer)
         )
 
     if meta.get("group_id"):
         try:
             with provider_client(meta) as provider:
-                for role, grant in (meta.get("grants") or {}).items():
+                for peer, grant in (meta.get("grants") or {}).items():
                     response = provider.delete(
                         f"/api/v1/external-receiver/v{_RECEIVER_PROTOCOL_VERSION}/grants/"
                         + str(grant["grant_id"])
                     )
-                    result["grants"][role] = {"http_status": response.status_code}
+                    result["grants"][peer] = {"http_status": response.status_code}
                 response = provider.delete(f"/api/v1/groups/{meta['group_id']}")
                 result["group_delete_http_status"] = response.status_code
                 verification = provider.get(f"/api/v1/groups/{meta['group_id']}")
@@ -1450,13 +1500,13 @@ def command_stop(args: argparse.Namespace) -> int:
 
     private_run = Path(str(meta.get("private_run", "")))
     if private_run and private_run.is_absolute() and not private_run.is_relative_to(REPO_ROOT):
-        for role, grant in (meta.get("grants") or {}).items():
+        for peer, grant in (meta.get("grants") or {}).items():
             credential = Path(str(grant["credential_file"]))
             if credential.parent != private_run:
-                result["credentials"][role] = {"status": "unverified", "path": str(credential)}
+                result["credentials"][peer] = {"status": "unverified", "path": str(credential)}
                 continue
             credential.unlink(missing_ok=True)
-            result["credentials"][role] = {"absent": not credential.exists()}
+            result["credentials"][peer] = {"absent": not credential.exists()}
         if not private_run.exists():
             result["private_run_absent"] = True
         else:
@@ -1474,6 +1524,10 @@ def command_stop(args: argparse.Namespace) -> int:
         for item in result["agents"].values()
     ):
         failures.append("tmux cleanup")
+    if any(item.get("http_status") not in (200, 204, 404) for item in result["grants"].values()):
+        failures.append("grant revocation")
+    if result.get("private_run_absent") is False:
+        failures.append("external credential directory")
     if meta.get("group_id") and result.get("group_absent") is not True:
         failures.append("group cleanup")
     if any(item.get("absent") is not True for item in result["credentials"].values()):
@@ -1498,13 +1552,8 @@ def build_parser() -> argparse.ArgumentParser:
     configure = commands.add_parser("configure")
     configure.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     configure.add_argument("--problem")
-    configure.add_argument("--run-lead", type=Path, required=True)
-    configure.add_argument("--run-algo", type=Path, required=True)
-    configure.add_argument("--run-kernel", type=Path, required=True)
-    configure.add_argument("--run-profiler", type=Path, required=True)
     configure.add_argument("--endpoint", required=True)
     configure.add_argument("--private-root", type=Path, required=True)
-    configure.add_argument("--workspace-dir", type=Path, required=True)
     configure.add_argument("--service-runtime", type=Path)
     configure.add_argument("--provider-binary", type=Path)
     configure.add_argument("--run-meta", type=Path, required=True)
@@ -1517,58 +1566,25 @@ def build_parser() -> argparse.ArgumentParser:
 
     delivery = commands.add_parser("delivery")
     delivery.add_argument("--run-meta", type=Path, required=True)
-    delivery.add_argument("--role", choices=(*_ROLES, "all"), default="all")
+    delivery.add_argument("--peer", choices=(*_PEERS, "all"), default="all")
     delivery.add_argument("--policy", choices=("pull", "asap", "batch"), required=True)
     delivery.add_argument("--quiet-interval", type=float, default=6.0)
     delivery.add_argument("--max-wait", type=float, default=15.0)
     delivery.add_argument("--timeout", type=float, default=60.0)
     delivery.set_defaults(handler=command_delivery)
 
-    prompt = commands.add_parser("prompt")
-    prompt.add_argument("--run-meta", type=Path, required=True)
-    prompt.add_argument("--role", choices=_ROLES, required=True)
-    prompt.add_argument("--prompt", required=True)
-    prompt.add_argument("--timeout", type=float, default=600.0)
-    prompt.set_defaults(handler=command_prompt)
+    window = commands.add_parser("run-window")
+    window.add_argument("--run-meta", type=Path, required=True)
+    window.set_defaults(handler=command_window)
 
-    state = commands.add_parser("state")
-    state.add_argument("--run-meta", type=Path, required=True)
-    state.add_argument("--role", choices=(*_ROLES, "all"), default="all")
-    state.set_defaults(handler=command_state)
+    collect = commands.add_parser("collect")
+    collect.add_argument("--run-meta", type=Path, required=True)
+    collect.set_defaults(handler=command_collect)
 
-    wait_idle = commands.add_parser("wait-idle")
-    wait_idle.add_argument("--run-meta", type=Path, required=True)
-    wait_idle.add_argument("--timeout", type=float, default=900.0)
-    wait_idle.add_argument("--quiesce-seconds", type=float, default=12.0)
-    wait_idle.add_argument("--interval", type=float, default=2.0)
-    wait_idle.set_defaults(handler=command_wait_idle)
-
-    inspect = commands.add_parser("cccc")
-    inspect.add_argument("--run-meta", type=Path, required=True)
-    inspect.add_argument("--role", choices=_ROLES, required=True)
-    inspect.add_argument("arguments", nargs=argparse.REMAINDER)
-    inspect.set_defaults(handler=command_cccc)
-
-    verify_cuda = commands.add_parser("verify-cuda")
-    verify_cuda.add_argument("--run-meta", type=Path, required=True)
-    verify_cuda.add_argument("--verify-dir", type=Path, required=True)
-    verify_cuda.add_argument("--evidence-dir", type=Path, required=True)
-    verify_cuda.add_argument("--run-ncu", action="store_true")
-    verify_cuda.set_defaults(handler=command_verify_cuda)
-
-    audit = commands.add_parser("audit")
-    audit.add_argument("--run-meta", type=Path, required=True)
-    audit.add_argument("--evidence-dir", type=Path, required=True)
-    audit.add_argument("--max-files", type=int, default=3)
-    audit.set_defaults(handler=command_audit)
-
-    recovery = commands.add_parser("recovery-post")
-    recovery.add_argument("--run-meta", type=Path, required=True)
-    recovery.add_argument("--role", choices=_ROLES, required=True)
-    recovery.add_argument("--subject", required=True)
-    recovery.add_argument("--body", required=True)
-    recovery.add_argument("--confirm-operator-recovery", action="store_true")
-    recovery.set_defaults(handler=command_recovery_post)
+    verify = commands.add_parser("verify-cuda")
+    verify.add_argument("--run-meta", type=Path, required=True)
+    verify.add_argument("--verify-dir", type=Path, required=True)
+    verify.set_defaults(handler=command_verify_cuda)
 
     stop = commands.add_parser("stop")
     stop.add_argument("--run-meta", type=Path, required=True)
@@ -1583,7 +1599,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return int(args.handler(args))
-    except (LabError, OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+    except (LabError, OSError, ValueError, KeyError, subprocess.TimeoutExpired) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

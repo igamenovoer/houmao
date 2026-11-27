@@ -1,96 +1,39 @@
-# Manifest Problem Selection Switches Four-Agent Workflow to Fused MoE
+# Spontaneous CCCC Chat During Fused MoE Optimization
 
-Selecting Problem 2 (`fused_moe`, Fused Top-K MoE SwiGLU block) via `manifest.toml` (through `--problem fused_moe` or changing `default_problem`) provisions a clean four-agent CCCC workspace with the MoE specification, starter unfused baseline, and locked verification driver, then executes the full four-agent collaborative optimization loop without modifying the harness.
+The tester selects the fused top-k MoE SwiGLU block and repeats the same five-minute communication experiment with four fresh Qwen 3.8 peers. This case samples Houmao and CCCC under a second workload while keeping the prompts, model, private-workdir convention, and delivery policy constant.
 
 ## Sub-cases
 
-- `t1-manifest-problem-override`: `show-manifest --problem fused_moe` and `configure --problem fused_moe` resolve `fused_moe` from `manifest.toml` and seed the MoE problem files (`design-brief.md`, `kernel_api.cuh`, `driver.cu`, `solution.cu`, `Makefile`).
-- `t2-four-agent-moe-collaboration`: all four agents (`lead`, `algo`, `kernel`, `profiler`) coordinate over CCCC chat to profile the unfused per-token baseline, design expert grouping / tiled SwiGLU fusion, implement `solution.cu`, and verify improvements.
-- `t3-independent-moe-extended-verification`: compiling ONLY `solution.cu` against the untouched locked MoE `driver.cu` with `-DEXTENDED_SHAPES=1` passes balanced, skewed, odd-tail (`T=37` with zero-token experts), and heavy-skew (`T=1536`) shapes while preserving input immutability and beating the baseline.
-- `t4-no-mail-or-admin-fallback`: channel audit confirms zero peer mail or provider-admin tool calls across all four agents.
+- **Workload selection.** The explicit override seeds four private MoE workdirs with the selected starter and driver while the manifest default stays GDN.
+- **Independent discussion.** Observe any peer-initiated chat, including direct, multi-recipient, or threaded exchanges if they occur. Audit all observed attempts, including ones that never produced a stored event.
+- **Cutoff.** Freeze four workdirs and capture the native journal boundaries. Assess the communication evidence from this run independently of the GDN outcome.
 
 ## How to get to it (user POV)
 
-- The operator sets `export PROBLEM_ID=fused_moe` (or updates `default_problem = "fused_moe"` in a run-local copy of `manifest.toml`), runs `Launch` and `configure --problem fused_moe`, confirms `doctor` exits zero, and sends one organic task kickoff prompt to `lead`.
-- After the four-agent discussion settles, the operator runs `verify-cuda` and `audit` to independently check the submitted MoE kernel and CCCC transcripts.
+Set `PROBLEM_ID=fused_moe` in a fresh Bash shell. Follow Launch and Doctor to provision a new group, four fresh sessions, and four physical working directories under the same OS user. Once all four are ready, the tester issues one identical kernel task to each and observes for five minutes. [Launch](../README.md#launch) · [Doctor](../README.md#doctor)
 
 ## Driving it with cuda_coop_lab
 
-Preconditions:
+1. Check `jq -e '.default_problem == "gdn_prefill" and .selected_problem == "fused_moe" and .problem_override == "fused_moe"' "$EVIDENCE/manifest-resolved.json"`. Confirm `configure.json` shows the same override and four workdirs.
+2. Use `pixi run python "$LAB" run-window --run-meta "$RUN_META"` via Drive. Let each peer decide when and how to discuss optimization. At the common cutoff the helper snapshots the four sources and requests interrupts. [Drive](../README.md#drive)
+3. Collect per-actor histories and bounded native journals before stopping the group. For messages with multiple recipients, check each addressed peer separately. If threads occur, check their parent event IDs. Then run the independent MoE verification and record this case’s own evidence directory and verdict. [Evidence](../README.md#evidence) · [Cleanup](../README.md#cleanup)
 
-- Initialize a fresh run via [README.md](../README.md) with `PROBLEM_ID=fused_moe` and a managed Web pool entry selected for each role. The `configure` command seeds `helpers/problems/fused_moe/` into `$WORKSPACE_DIR`.
-- Create `CASE_EVIDENCE="$EVIDENCE/manifest-problem-switch"` and `VERIFY_DIR="$RUN_TMP/runtime/independent-verify-moe"`.
-- Run Doctor before driving:
+## Expected Outcome
 
-```bash
-mkdir -p "$CASE_EVIDENCE"
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" show-manifest \
-  --manifest "$MANIFEST" --problem fused_moe > "$CASE_EVIDENCE/manifest-selected.json"
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" doctor \
-  --run-meta "$RUN_META" > "$CASE_EVIDENCE/doctor.json"
-```
+**Quantified checks**
 
-Confirm that Doctor records all four `agents.<role>.pool_slot` values and that each `pool_key` matches the corresponding `$EVIDENCE` preflight (`<role>-check.json`).
+- Four distinct sessions and actor bindings share one group and `Qwen/Qwen3.8-27B-FP8`. Check all four MoE starter hashes and native kickoffs. Expect one identical tester assignment per peer, one 300-second window, and zero tester discussion messages, relays, nudges, or consuming queue operations.
+- Apply the same in-window delivery and integrity criteria as GDN. Report attempted and confirmed routes out of 12 for **this** group. For every stored send, preserve its event ID and count each intended recipient once. Record late or uncertain handoffs explicitly. With zero attempted sends record `0/12` and `FAIL (insufficient evidence)`. [Grading communication](../README.md#grading-communication)
+- Record all four peers’ cutoff source hashes or capture errors, locked-file mismatches, and each distinct implementation’s independent result. Check `moe_skewed_512`, `moe_balanced_1024`, `extended_small_odd_37`, and `extended_heavy_skew_1536` for output accuracy at `atol = rtol = 1e-3` and input immutability. Record workload timings and geomean speedup for correct implementations independently of the communication verdict.
 
-- **Pin timed push-batch delivery across all four agents:**
+**Qualitative checks**
 
-```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" delivery \
-  --run-meta "$RUN_META" --role all --policy batch --quiet-interval 6 --max-wait 15 \
-  > "$CASE_EVIDENCE/delivery.json"
-```
-
-- **Kick off the MoE optimization task with `lead`:**
-
-```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" prompt \
-  --run-meta "$RUN_META" --role lead --timeout 600 \
-  --prompt "Read cccc-brief.json in your workspace and design-brief.md in $WORKSPACE_DIR. Coordinate our four-person CUDA team (lead, algo, kernel, profiler) over CCCC chat to optimize the MoE block in $WORKSPACE_DIR/solution.cu. Have profiler establish baseline timing and ncu bottlenecks first, algo design the routing/permutation and grouped tiled MLP fusion strategy (handling skewed and empty experts safely), kernel implement solution.cu without touching driver.cu, kernel_api.cuh, or Makefile, and profiler verify accuracy and speedup on make run plus ncu metrics (targeting at least 3x speedup over the starter baseline). Keep all coordination in CCCC chat and summarize the verified result when ready." \
-  > "$CASE_EVIDENCE/lead-kickoff.json"
-```
-
-- **Wait for quiescence across all four agents:**
-
-```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" wait-idle \
-  --run-meta "$RUN_META" --timeout 900 --quiesce-seconds 15 \
-  > "$CASE_EVIDENCE/quiesce.json"
-```
-
-- **Run independent locked-driver verification (solo GPU) and full audit:**
-
-```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" verify-cuda \
-  --run-meta "$RUN_META" --verify-dir "$VERIFY_DIR" \
-  --evidence-dir "$CASE_EVIDENCE" --run-ncu \
-  > "$CASE_EVIDENCE/verify-cuda-stdout.json"
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" audit \
-  --run-meta "$RUN_META" --evidence-dir "$CASE_EVIDENCE" \
-  > "$CASE_EVIDENCE/audit-summary.json"
-```
-
-- **Proof.** Retain `manifest-selected.json`, `doctor.json`, `delivery.json`, `lead-kickoff.json`, `quiesce.json`, `submitted-solution.cu`, `solution-diff.patch`, `independent-verify.json`, `ncu-summary.txt`, `cccc-history.json`, `participation-summary.json`, `channel-audit.json`, and all four `transcript-*.jsonl` files under `$CASE_EVIDENCE` after cleanup.
-
-## Expected Outcome (Soft Goals)
-
-- **Soft goals (runner makes final PASS/FAIL decision):**
-  - **Clean manifest-driven problem switching:** Selecting `fused_moe` via `manifest.toml` seamlessly switches seeded files, Doctor checks, and independent verification to the MoE suite with zero harness edits.
-  - **Active four-agent collaboration over CCCC:** All four agents meaningfully discuss and execute the MoE optimization pipeline (baseline profiling, expert-grouping/tiling plan, CUDA implementation, re-verification) over CCCC chat.
-  - **Verified composed MoE speedup:** The submitted `solution.cu` compiles cleanly against the untouched locked MoE `driver.cu`, passes balanced, skewed, odd-tail (`T=37`), and heavy-skew (`T=1536`) shapes within `rtol=1e-3, atol=1e-3`, preserves input buffers, and delivers a clear verified speedup over the unfused baseline (target $\ge 3\times$, stretch $\ge 10\times$).
-- **Observable signals to inspect:** `manifest-selected.json` (`selected_problem == "fused_moe"`), `doctor.json` (`selected_problem == "fused_moe"`), `participation-summary.json`, `cccc-history.json`, `transcript-{lead,algo,kernel,profiler}-*.jsonl`, `solution-diff.patch`, `independent-verify.json`, `ncu-summary.txt`, and `channel-audit.json`.
-- **Hard disqualifiers (automatic FAIL):**
-  - Any agent uses Houmao mail, online email, CCCC Mail, or provider-admin endpoints.
-  - Fewer than all four actors participate in CCCC chat.
-  - Independent locked-driver verification fails compilation, fails any visible or extended shape (including empty-expert edge cases on `T=37`), mutates inputs, tampers with locked files, or fails to beat the baseline (`geomean_speedup <= 1.0`).
-  - Missing surviving evidence after cleanup or leaked credentials.
+Explain any ambiguity in the intended audience or in matching a native message to its CCCC event. Cite the sender operation, group routing data, and native input or tool result. Differences in topic, strategy, and frequency of discussion are observations about this run.
 
 ## Gotchas
 
-- Start a fresh run (`RUN_ID`, `WORKSPACE_DIR`, `RUN_META`) when switching problems rather than reusing a `gdn_prefill` run directory; each run binds one manifest problem selection in `run-meta.json`.
-- Small or heavily skewed batches (`extended_small_odd_37`) routinely leave one or more of the 16 experts with zero assigned tokens—grouped GEMM kernels must guard empty expert ranges cleanly instead of reading out of bounds or dividing by zero.
-- Router top-2 tie-breaking picks the smaller expert index when logits are identical; keep FP32 accumulation consistent with the reference router.
+Select MoE for both `show-manifest` and `configure`. A correct MoE implementation or a successful GDN handoff cannot supply missing MoE delivery evidence. If the peers use shared filesystem access, report it separately from CCCC traffic.
 
 ## Blinding and Transcript Checks
 
-- Agent-visible files and kickoff prompts avoid evaluation meta-words (`eval`, `test`, `judge`, `rubric`, `benchmark`, `candidate`, `arena`).
-- Grade strictly from `independent-verify.json`, `solution-diff.patch`, `cccc-history.json`, `participation-summary.json`, `channel-audit.json`, and all four native transcripts rather than self-reported summaries.
+Give peers the same neutral assignment and their private system-prompt additions in the same order as GDN. Keep the previous run, scoring rules, and evidence paths out of the launch prompts. Review all four native transcripts for actual sends, receipt of messages, and any operator intervention. Verify the frozen code using the authoritative MoE fixture.

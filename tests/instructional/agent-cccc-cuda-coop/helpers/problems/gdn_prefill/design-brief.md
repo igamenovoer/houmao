@@ -32,8 +32,3 @@ For each sequence `s in [0, num_seqs)` and value head `hv in [0, 8)` (`hqk = hv 
   - `make run` — compile, verify accuracy and input immutability, and time against the naive baseline.
   - `make profile-ncu` — collect SM/DRAM throughput, occupancy, and register pressure via `ncu`.
   - `make profile-nsys` — inspect kernel launch timeline via `nsys`.
-
-## Optimization Directions to Explore
-
-- The starter kernel keeps `S` in global memory and runs sequentially token-by-token (`~2` global sweeps of `128x128` per token).
-- Consider register/shared-memory state residency, V/K tiling across warps, vectorized `float4` loads/stores, and especially **chunkwise parallel WY reformulation** (splitting each sequence into chunks of size `C=32` or `C=64`, solving the small lower-triangular intra-chunk system, and turning inter-chunk/intra-chunk updates into high-arithmetic-intensity tiled matrix multiplications).

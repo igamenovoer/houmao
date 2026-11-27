@@ -1,181 +1,168 @@
-# Instructional Four-Agent CCCC CUDA Cooperation Suite
+# CCCC Chat During Five Minutes of CUDA Optimization
 
 Status: draft
 
-Agent-driven live verification for four Houmao-managed Web agents (`lead`, `algo`, `kernel`, `profiler`) collaborating exclusively through one `houmao-cccc` Group on a standalone CUDA optimization problem. The two problems use CUDA C++ and native tools (`nvcc`, `ncu`, `nsys`). Choose `gdn_prefill` (Gated Delta Net prefill, default) or `fused_moe` (Fused Top-K MoE SwiGLU block). [Problem manifest](manifest.toml)
+Can four Houmao-managed Web agents use CCCC chat reliably while they work on a kernel? The tester gives four Qwen 3.8 peers the same task, observes any discussion they initiate, and traces attempted messages to the intended native sessions. The first naturally delivered message is the first evidence that the path works. The run continues for the full five minutes to expose later failures and deliveries while a peer is busy.
 
-## Baseline Preconditions & Isolation
+## Case Index
 
-- Realwork checkout: Houmao repository root on `devel` (`$REPO_ROOT`, resolved through `git rev-parse --show-toplevel`).
-- **Manager and plugin.** Use matching workspace builds of `houmao-mgr` and `houmao-cccc` with receiver protocol 2 support. Set `HOUMAO_MGR` and `HOUMAO_CCCC` to those two executables (default `$REPO_ROOT/.pixi/envs/default/bin/`).
-- **Model pool.** Configure your private external model pool with entries that support managed `web` mode and provide each client's executable and model settings as needed. Set `HOUMAO_TEST_MODEL` to one key for all four slots, or assign individual keys with `HOUMAO_TEST_MODEL_LEAD`, `HOUMAO_TEST_MODEL_ALGO`, `HOUMAO_TEST_MODEL_KERNEL`, and `HOUMAO_TEST_MODEL_PROFILER`. A per-slot key takes precedence over `HOUMAO_TEST_MODEL`. See the [test fixture guide](../../../scripts/agents/test-fixtures/README.md).
-- **CUDA toolchain & GPU.** Local NVIDIA GPU visible to `nvidia-smi` (target architecture auto-detected from compute capability, e.g., `sm_121` on NVIDIA GB10, or pinned via `[cuda].arch` in `manifest.toml`), plus working `nvcc`, `ncu`, `nsys`, and `g++`. No Python ML packages are required.
-- **CCCC service.** Set `CCCC_ENDPOINT` to a running external-receiver protocol-2 service. For local managed services, set `CCCC_SERVICE_RUNTIME` and `CCCC_PROVIDER_BINARY` so `configure` and `doctor` verify the PID, `/proc` executable, build receipt, protocol 2, tracked patch series, and binary SHA-256. Omit both for remote services.
-- **Private external root.** Houmao forbids plugin credentials inside the checkout. Set `CCCC_PRIVATE_ROOT` to an owner-private directory outside `$REPO_ROOT` (default `$HOME/.local/state/houmao/cccc-instructional`). `configure` writes one run-specific subdirectory with four grant files and `stop` deletes only those four files.
-- **Project-local temporary root.** `$REPO_ROOT/tmp/instructional-tests/<test-slug>/` (Git-ignored). Holds temporary `scripts/`, disposable `runtime/` (four fixture homes, the shared agent-writable `cuda-workspace/`, and the clean runner-owned `independent-verify/` build dir), `run-meta.json`, and surviving `evidence/agent-cccc-cuda-coop/<scenario-slug>/`.
-- **Isolation.** Each of the four agents prepares with `--tmux-server new` and owns an isolated tmux socket, registry, runtime root, home, gateway port, Houmao UUID, and CCCC Actor grant inside one run-unique Group. Never touch the caller's default tmux server or another Group.
-- **Single-GPU concurrency rule.** Do not run two CUDA cooperation bundles concurrently against the same local GPU; concurrent `ncu` runs serialize and skew timing.
-- **Operator recovery channel.** `configure` registers one run-local offline filesystem mailbox per agent. `recovery-post` is strictly for operator recovery after a failure, requires `--confirm-operator-recovery`, and invalidates the graded run.
+| Case | Workload | Decision |
+| --- | --- | --- |
+| [GDN prefill](cases/four-agent-cuda-coop.md) | Manifest default, five verification shapes | Which directed routes carried the peers’ chat, and what happened to each attempted send? |
+| [Fused MoE](cases/manifest-problem-switch.md) | Explicit `--problem fused_moe`, four verification shapes | Does the same setup carry naturally occurring chat during a different optimization problem? |
+
+Start each case with a fresh group and four fresh sessions. Record the two results individually. Each run samples up to 12 directed routes. Limit conclusions to the workload, observed routes, and five-minute window.
+
+## Baseline and Isolation
+
+Use the Houmao checkout, Pixi, Bash, `jq`, `curl`, tmux, `make`, a CUDA compiler, and a GPU visible to `nvidia-smi`. Run one case at a time on that GPU. `ncu` and `nsys` are available to peers when installed. The independent verifier uses `nvcc`.
+
+Select one external DSH or Kimi Web model-pool entry for `Qwen/Qwen3.8-27B-FP8` with `HOUMAO_TEST_MODEL`. All four launches use that entry’s client, routing, reasoning settings, and tool configuration. Set `CCCC_ENDPOINT` to a running receiver-v2 CCCC service with timed push delivery. The tester also samples queue state when the provider advertises that capability. Use matching workspace builds of `houmao-mgr` and `houmao-cccc`. Keep credentials outside the checkout. [Fixture guide](../../../scripts/agents/test-fixtures/README.md) · [Plugin setup](../../../packages/houmao-cccc/README.md)
+
+Each peer starts in its own physical `workdir` with its own `solution.cu`, brief, locked driver, header, Makefile, and build products. “Private” is a working convention. The four sessions run as the same OS user and can access each other’s files. CCCC chat is the team discussion channel. Each peer may research, implement, measure, or speak whenever it chooses. CCCC may display its first actor as `foreman` in membership metadata. All four receive the same assignment and authority in this experiment.
 
 ## Launch
 
-Ensure workspace binaries are current:
+From the checkout root, use one Bash shell for the case. Leave `PROBLEM_ID` unset for GDN. Set `PROBLEM_ID=fused_moe` for MoE. A run-private link under `tmp/instructional-tests/` points to the neutral runtime path. Launch prepares the four idle sessions before releasing any task.
 
 ```bash
-pixi install
-pixi run python scripts/agents/test-fixtures/fixture.py list-models
-```
-
-Allocate the isolated run workspace, inspect the resolved manifest, and verify live preconditions (set `PROBLEM_ID=gdn_prefill` by default, or `PROBLEM_ID=fused_moe` to switch problems):
-
-```bash
+set -euo pipefail
 umask 077
 unset TMUX TMUX_PANE TMUX_TMPDIR
-export REPO_ROOT="${REPO_ROOT:-$(git rev-parse --show-toplevel)}"
-export BUNDLE_ROOT="$REPO_ROOT/tests/instructional/agent-cccc-cuda-coop"
-export MANIFEST="$BUNDLE_ROOT/manifest.toml"
-export FIXTURE="$REPO_ROOT/scripts/agents/test-fixtures/fixture.py"
-export PROBLEM_ID="${PROBLEM_ID:-gdn_prefill}"
-export RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-agent-cccc-cuda-coop-${PROBLEM_ID}"
-export RUN_TMP="$REPO_ROOT/tmp/instructional-tests/$RUN_ID"
-export EVIDENCE="$RUN_TMP/evidence/agent-cccc-cuda-coop"
-export RUN_META="$RUN_TMP/run-meta.json"
-export WORKSPACE_DIR="$RUN_TMP/runtime/cuda-workspace"
+: "${CCCC_ENDPOINT:?Set the CCCC receiver endpoint}"
+: "${HOUMAO_TEST_MODEL:?Select the external Qwen Web pool key}"
+unset HOUMAO_TEST_MODEL_PEER_A HOUMAO_TEST_MODEL_PEER_B HOUMAO_TEST_MODEL_PEER_C HOUMAO_TEST_MODEL_PEER_D
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+BUNDLE_ROOT="$REPO_ROOT/tests/instructional/agent-cccc-cuda-coop"
+FIXTURE="$REPO_ROOT/scripts/agents/test-fixtures/fixture.py"
+LAB="$BUNDLE_ROOT/helpers/cuda_coop_lab.py"
+case "${PROBLEM_ID:-gdn_prefill}" in
+  gdn_prefill) CASE=four-agent-cuda-coop; problem_args=() ;;
+  fused_moe) CASE=manifest-problem-switch; problem_args=(--problem fused_moe) ;;
+  *) exit 2 ;;
+esac
 export HOUMAO_MGR="${HOUMAO_MGR:-$REPO_ROOT/.pixi/envs/default/bin/houmao-mgr}"
 export HOUMAO_CCCC="${HOUMAO_CCCC:-$REPO_ROOT/.pixi/envs/default/bin/houmao-cccc}"
-export CCCC_ENDPOINT="${CCCC_ENDPOINT:?Set the receiver v2 service endpoint}"
-export CCCC_SERVICE_RUNTIME="${CCCC_SERVICE_RUNTIME:-$HOME/.local/share/houmao-cccc-receiver-v2-queue/runtime.json}"
-export CCCC_PROVIDER_BINARY="${CCCC_PROVIDER_BINARY:-$HOME/.local/share/houmao-cccc-receiver-v2-queue/target/debug/cccc}"
-export CCCC_PRIVATE_ROOT="${CCCC_PRIVATE_ROOT:-$HOME/.local/state/houmao/cccc-instructional}"
-
-mkdir -p "$RUN_TMP/scripts" "$RUN_TMP/runtime" "$EVIDENCE"
-git check-ignore -q "$RUN_TMP" || { echo "RUN_TMP is not Git-ignored" >&2; exit 1; }
-chmod 700 "$RUN_TMP"
-test -x "$HOUMAO_MGR" && test -x "$HOUMAO_CCCC"
+CCCC_PRIVATE_ROOT="${CCCC_PRIVATE_ROOT:-$HOME/.local/state/houmao/cccc-instructional}"
+service_args=()
+if [[ -n "${CCCC_SERVICE_RUNTIME:-}" || -n "${CCCC_PROVIDER_BINARY:-}" ]]; then
+  service_args=(--service-runtime "${CCCC_SERVICE_RUNTIME:?Set the local runtime receipt}"
+                --provider-binary "${CCCC_PROVIDER_BINARY:?Set the matching binary}")
+fi
+pixi install
+test -x "$HOUMAO_MGR"
+test -x "$HOUMAO_CCCC"
 curl -fsS "$CCCC_ENDPOINT/api/v1/health" >/dev/null
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" show-manifest \
-  --manifest "$MANIFEST" --problem "$PROBLEM_ID" > "$EVIDENCE/manifest-resolved.json"
-
-for ROLE in lead algo kernel profiler; do
-  pixi run python "$FIXTURE" check \
-    --pool-slot "$ROLE" --mode web --surface manager --live \
-    > "$EVIDENCE/$ROLE-check.json" || exit 1
+mkdir -p "$REPO_ROOT/tmp/cuda-coop" "$REPO_ROOT/tmp/instructional-tests"
+RUN_TMP=$(mktemp -d "$REPO_ROOT/tmp/cuda-coop/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXXXX")
+RUN_ID=${RUN_TMP##*/}
+RUN_LINK="$REPO_ROOT/tmp/instructional-tests/$RUN_ID"
+git check-ignore -q "$RUN_TMP"
+git check-ignore -q "$RUN_LINK"
+ln -sT "$RUN_TMP" "$RUN_LINK"
+EVIDENCE="$RUN_TMP/evidence/agent-cccc-cuda-coop/$CASE"
+RUN_META="$RUN_TMP/run-meta.json"
+mkdir -p "$EVIDENCE" "$RUN_TMP/runtime" "$RUN_TMP/scripts"
+peers=(peer-a peer-b peer-c peer-d)
+cleanup() {
+  if [[ -s "$RUN_META" ]]; then
+    pixi run python "$LAB" stop --run-meta "$RUN_META" > "$EVIDENCE/stop.json"
+  else
+    for peer in "${peers[@]}"; do
+      if [[ -s "$EVIDENCE/$peer-prepare.json" ]]; then
+        dir=$(jq -er '.run_dir' "$EVIDENCE/$peer-prepare.json")
+        pixi run python "$FIXTURE" stop --run-dir "$dir" > "$EVIDENCE/$peer-stop.json" || continue
+      fi
+    done
+  fi
+}
+trap cleanup EXIT
+pixi run python "$LAB" show-manifest "${problem_args[@]}" > "$EVIDENCE/manifest-resolved.json"
+model=$(jq -er '.team_model' "$EVIDENCE/manifest-resolved.json")
+pixi run python "$FIXTURE" check --pool-key "$HOUMAO_TEST_MODEL" --mode web --surface manager --live > "$EVIDENCE/pool-check.json"
+jq -e --arg model "$model" '.configuration.model == $model' "$EVIDENCE/pool-check.json" >/dev/null
+for peer in "${peers[@]}"; do
+  prompt="$RUN_TMP/runtime/$peer.md"
+  { cat "$BUNDLE_ROOT/helpers/prompts/common.md"; echo; cat "$BUNDLE_ROOT/helpers/prompts/$peer.md"; } > "$prompt"
+  pixi run python "$FIXTURE" prepare --pool-slot "$peer" --mode web --surface manager \
+    --prompt-mode unattended --tmux-server new --role "$peer" --system-prompt-file "$prompt" \
+    --run-root "$RUN_TMP/runtime/$peer" > "$EVIDENCE/$peer-prepare.json"
+  dir=$(jq -er '.run_dir' "$EVIDENCE/$peer-prepare.json")
+  pixi run python "$FIXTURE" launch --run-dir "$dir" > "$EVIDENCE/$peer-launch.json"
 done
-```
-
-The fixture preflight probes the configured API route or validates the selected native-login import. Review the output for each role before preparation.
-
-Prepare, launch, and seed all four managed Web agents. The fixture applies the reasoning preset from each selected pool entry during preparation when that entry declares one.
-
-```bash
-for ROLE in lead algo kernel profiler; do
-  mkdir -p "$RUN_TMP/runtime/runs-$ROLE"
-  pixi run python "$FIXTURE" prepare \
-    --pool-slot "$ROLE" --mode web --surface manager \
-    --prompt-mode unattended --tmux-server new \
-    --role "cuda-$ROLE" --system-prompt-file "$BUNDLE_ROOT/helpers/roles/$ROLE.md" \
-    --run-root "$RUN_TMP/runtime/runs-$ROLE" > "$EVIDENCE/$ROLE-prepare.json" || exit 1
-  RUN_DIR="$(jq -er '.run_dir' "$EVIDENCE/$ROLE-prepare.json")" || exit 1
-  pixi run python "$FIXTURE" launch --run-dir "$RUN_DIR" \
-    > "$EVIDENCE/$ROLE-launch.json" || exit 1
-  pixi run python "$FIXTURE" prompt \
-    --run-dir "$RUN_DIR" --prompt "Confirm your role is $ROLE and reply with the single word ready." \
-    > "$EVIDENCE/$ROLE-seed.json" || exit 1
-done
-
-export RUN_LEAD="$(jq -r '.run_dir' "$EVIDENCE/lead-prepare.json")"
-export RUN_ALGO="$(jq -r '.run_dir' "$EVIDENCE/algo-prepare.json")"
-export RUN_KERNEL="$(jq -r '.run_dir' "$EVIDENCE/kernel-prepare.json")"
-export RUN_PROFILER="$(jq -r '.run_dir' "$EVIDENCE/profiler-prepare.json")"
-```
-
-Provision the four-actor CCCC Group, seed the shared CUDA workspace from `manifest.toml`, register operator recovery mailboxes, and attach all four gateways preserving native bodies:
-
-```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" configure \
-  --manifest "$MANIFEST" --problem "$PROBLEM_ID" \
-  --run-lead "$RUN_LEAD" --run-algo "$RUN_ALGO" \
-  --run-kernel "$RUN_KERNEL" --run-profiler "$RUN_PROFILER" \
-  --endpoint "$CCCC_ENDPOINT" \
-  --service-runtime "$CCCC_SERVICE_RUNTIME" --provider-binary "$CCCC_PROVIDER_BINARY" \
-  --private-root "$CCCC_PRIVATE_ROOT" --workspace-dir "$WORKSPACE_DIR" \
+pixi run python "$LAB" configure "${problem_args[@]}" --endpoint "$CCCC_ENDPOINT" \
+  --private-root "$CCCC_PRIVATE_ROOT" "${service_args[@]}" \
   --run-meta "$RUN_META" --evidence-root "$EVIDENCE" > "$EVIDENCE/configure.json"
 ```
 
 ## Doctor
 
-Run Doctor before the first scenario drive, on every fresh launch, and after any failed or surprising drive:
-
 ```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" doctor \
-  --run-meta "$RUN_META" | tee "$EVIDENCE/doctor.json"
+pixi run python "$LAB" doctor --run-meta "$RUN_META" > "$EVIDENCE/doctor.json" 2> "$EVIDENCE/doctor.stderr"
+pixi run python "$LAB" delivery --run-meta "$RUN_META" --policy batch --quiet-interval 6 --max-wait 15 > "$EVIDENCE/delivery.json"
 ```
 
-Doctor exits zero only when the selected `manifest.toml` problem and seeded workspace files exist, `nvidia-smi` / `nvcc` / `ncu` / `nsys` are healthy, the CCCC service identity and health check pass, all four gateways and native bodies are healthy and unchanged from pre-attachment snapshots, all four CCCC bindings are connected to the same four-member Group, and all four operator recovery mailboxes are registered.
-
-`configure` records each role's `pool_key` and `pool_slot` under `model_pool` in `run-meta.json`. Doctor checks them against the prepared fixture and prints both fields under `agents.<role>`.
+Require four distinct managed sessions, actor identities, bindings, and workdirs in one fresh group. Doctor checks the group roster at every gateway, model selection, readiness, native body identity across attachment, GPU, and seeded files. Confirm that the batch policy became active on all four bindings. The six- and fifteen-second settings govern batching. They impose no speaking schedule or end-to-end latency requirement.
 
 ## Drive
 
-Set the effective delivery policy across all four agents (default from `manifest.toml` is timed push batching so multi-peer updates arrive in compact request fences without turn thrashing):
-
 ```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" delivery \
-  --run-meta "$RUN_META" --role all --policy batch --quiet-interval 6 --max-wait 15 \
-  > "$EVIDENCE/delivery.json"
+window_exit=0
+pixi run python "$LAB" run-window --run-meta "$RUN_META" > "$EVIDENCE/window.json" 2> "$EVIDENCE/window.stderr" || window_exit=$?
+collection_exit=0
+pixi run python "$LAB" collect --run-meta "$RUN_META" > "$EVIDENCE/collect.json" 2> "$EVIDENCE/collect.stderr" || collection_exit=$?
 ```
 
-Kick off the optimization task by sending one organic operator prompt to `lead` (see the scenario files under `cases/`). Let the four agents coordinate autonomously over CCCC chat, then wait for quiescence via `wait-idle` rather than a blind fixed sleep. Never relay messages on behalf of agents or hand-hold CCCC CLI commands in operator prompts.
+`run-window` saves initial journal offsets, file hashes, queue state, and empty group history. It submits the same kernel assignment with the same absolute deadline to all four peers concurrently. The five minutes start at dispatch. Inspect each native journal for the identical kickoff and report any dispatch skew. During the window the tester observes gateway health, bindings, and queues using read-only calls. Let the clock run through silence, idle periods, and active work. The tester sends zero follow-ups and performs zero queue pops or acknowledgments.
+
+At 300 seconds the helper records journal end offsets and freezes the available source files, then requests an interrupt on each run-owned session. It records capture times and rejects source files that changed after the deadline. `collect` copies the bounded native journal excerpts and reads each actor’s paginated history and each sender’s delivery receipts before teardown. Filter by the release and cutoff timestamps. A receipt retrieved later may describe later work. Record an uncertain boundary when native append times or pre-cutoff journal offsets cannot establish which side of the deadline a record belongs to. The timestamp inside the CCCC fence identifies the original send. For a post-cutoff binding check, keep the observation time and the interrupt time distinct.
 
 ## Evidence
 
-Keep the preflight and configuration JSON under `$EVIDENCE`. Store the scenario-specific proof under `$EVIDENCE/<scenario-slug>/`.
+Store raw evidence in `$EVIDENCE`, accessible through the operator link. Keep it owner-private. Operator views may contain scoped handles and native tool arguments. Cite redacted identifiers or file and row references in the report.
 
-| Artifact | Required evidence |
+| Question | Evidence |
 | --- | --- |
-| `manifest-resolved.json` / `configure.json` | Resolved problem ID, GPU arch, four distinct managed agents, per-role model pool selections, CCCC Group/Actor/binding identities, and preserved native-body snapshots. |
-| `{lead,algo,kernel,profiler}-check.json` | Model pool key and successful fixture preflight for each role before preparation. |
-| `doctor.json` / `delivery.json` | Healthy CUDA toolchain, verified CCCC provider, connected four-member group bindings, and active delivery settings. |
-| `submitted-solution.cu` / `solution-diff.patch` | Exact `solution.cu` produced by the team and unified diff against the problem's starter baseline. |
-| `independent-verify.json` / `ncu-summary.txt` | Runner-owned compile and execution of ONLY `submitted-solution.cu` against the untouched locked `driver.cu` with `-DEXTENDED_SHAPES=1`, proving untouched workspace files, input immutability, numerical accuracy on visible + extended shapes, solo L2-flushed CUDA-event speedup, and `ncu` Speed-of-Light metrics. |
-| `cccc-history.json` / `participation-summary.json` | Native CCCC Group history proving all four actors actively participated, with message counts, multi-recipient sends, and threaded replies. |
-| `transcript-{lead,algo,kernel,profiler}-*.jsonl` | Native Web agent transcripts with actual tool calls (`houmao-cccc`, `nvcc`, `ncu`/`nsys`, file edits). |
-| `channel-audit.json` | Zero Houmao peer mail, CCCC Mail, or CCCC provider-admin tool calls across all four agents. |
-| `stop.json` | Clean shutdown of all four agents and private tmux servers, revocation of all four grants, verified Group deletion, credential removal, and surviving evidence root. |
+| Did four peers get a fair start? | `manifest-resolved.json`, `pool-check.json`, four prepare and launch receipts, `configure.json`, `doctor.json`, `delivery.json`, `window/baseline.json`, `window/history-before.json`, `window/release.json`, `window/kickoffs.json`, and the four native kickoff rows |
+| What did the tester observe? | `window/*-observations.jsonl` records host timestamps, status, binding identity, and available non-consuming queue snapshots. Each sample also records journal byte offsets, which can confirm that a row existed before cutoff. Compare each actor’s final read-only `window/communication/<peer>/binding-after.json` to its initial binding before teardown. Inspect any gaps, disconnects, and changes in binding or session identity. |
+| What happened to each attempted send? | Sender tool call and result, `window/communication/<peer>/history.json`, `deliveries-*.json` in the sender’s evidence, and the recipient’s native journal excerpt under `window/communication/<peer>/runtime/homes/`. `window/collection.json` lists capture errors. |
+| What was available at the deadline? | `window/timer.json`, `window/cutoff.json`, `window/cutoff/<peer>/`, and `window/interrupts.json`. Capture times bound any uncertainty at the deadline. |
+| Which CUDA implementations worked? | `window/cuda-results.json` maps peers to source hashes and locked-file mismatches. Under `window/cuda/<sha256>/`, `independent-verify.json` records the clean build and driver result, including workload timings. `solution-diff.patch` shows the change from the starter. |
+
+### Grading Communication
+
+Start with actual send and reply attempts in the four sender journals, including errors before an event was stored. Merge copies of a stored event by `event_id`. For each intended recipient, record the sender, operation or event ID, destination, send time, receipt attempts and states, native journal location, and observed delivery time. Resolve recipients from the actual send/reply addressing and group membership. Visibility in a history query alone cannot establish delivery.
+
+Match each receipt to a native CCCC input fence or a successful consuming **peer** tool result using the actor, sender, timestamp, mode, and text. Confirm reply linkage when present. Count a logical message once per intended recipient. Distinguish receipt retries from duplicate native deliveries. Check the other journals for misroutes, including in multi-recipient sends. Count user-input errors, service rejections, accepted events, confirmed recipients, late or still-pending deliveries, missing evidence, wrong recipients, and unexplained duplicates separately. Record the delay where timestamps support it and whether the recipient appeared busy. If a peer reads content through history or a non-consuming peek, record that the message was visible to that peer. Count it separately from a gateway handoff or a consuming read. Re-reading history creates no duplicate handoff.
+
+Report confirmed and attempted directed routes out of 12. For a communication `PASS`, require at least one independently confirmed in-window peer delivery, all valid in-scope attempts accounted for, exactly one intact native handoff per intended recipient within the window, and zero evidenced unintended deliveries or channel outages. Unsent routes remain unexercised. A pending send near the cutoff or a gap in capture can leave delivery unverified. A confirmed service rejection of a valid send, wrong recipient, corrupted payload, unexplained duplicate, outage, or loss warrants `FAIL` with its evidence. When the evidence establishes no such failure, an executed run with insufficient traffic or unresolved evidence receives `FAIL (insufficient evidence)` under the case verdict convention. Attribute a transport defect only when a valid attempt or observed outage and its independent evidence establish the failure. Report malformed peer commands as agent usability findings. Kernel correctness, speedup, how many peers spoke, and adherence to a personality have no weight in the communication verdict.
 
 ## Cleanup
 
-Always stop run-owned resources and confirm surviving evidence:
+Collect communication evidence before deleting the group. Stop only this run’s four sessions and private sockets. Verify each distinct frozen source once on the idle GPU against the authoritative driver and header. If an agent survives cleanup, resolve its recorded run-owned process before timing kernels.
 
 ```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" stop \
-  --run-meta "$RUN_META" | tee "$EVIDENCE/stop.json"
-find "$EVIDENCE" -type f | sort > "$EVIDENCE/evidence-check.txt"
+trap - EXIT
+cleanup_exit=0
+cleanup || cleanup_exit=$?
+cuda_exit=0
+if (( cleanup_exit == 0 )) && [[ -s "$EVIDENCE/window/cutoff.json" ]]; then
+  pixi run python "$LAB" verify-cuda --run-meta "$RUN_META" --verify-dir "$RUN_TMP/runtime/verify" \
+  > "$EVIDENCE/verify.json" 2> "$EVIDENCE/verify.stderr" || cuda_exit=$?
+else
+  cuda_exit=125
+fi
+jq -n --argjson w "$window_exit" --argjson c "$collection_exit" --argjson s "$cleanup_exit" --argjson v "$cuda_exit" '{window:$w,collection:$c,cleanup:$s,cuda:$v}' > "$EVIDENCE/exit-codes.json"
+find "$EVIDENCE" -type f ! -name evidence-check.txt | sort > "$EVIDENCE/evidence-check.txt"
 ```
 
-`stop` disconnects all four receivers, stops only the four recorded agents and verified private tmux servers, revokes the four recorded grants, deletes and verifies absence of the run Group, deletes the four external credential files, and leaves `evidence/` untouched.
+Inspect `stop.json` for all four stop receipts, run-owned tmux cleanup, grant revocations, group absence, and credential removal. Record any residue and its exact owner. Keep the evidence, run metadata, and all cited artifacts. Runtime builds can be discarded after verification. On an interrupted or partial launch, the exit trap uses the metadata or the individual fixture receipts to clean up. Preserve the failed step’s diagnostics and assign `BLOCKED` if setup prevented a valid drive. Use `VERIFIED-UNREACHABLE` for a demonstrated unavailable external prerequisite.
 
-If an agent wedges and operator recovery is required, capture diagnostic evidence first, mark the scenario failed/blocked, and only then invoke:
+### Run Report
 
-```bash
-pixi run python "$BUNDLE_ROOT/helpers/cuda_coop_lab.py" recovery-post \
-  --run-meta "$RUN_META" --role lead --confirm-operator-recovery \
-  --subject "Operator recovery" --body "Stop current work and become ready for shutdown."
-```
+After cleanup, write a redacted Markdown report to the operator’s explicit destination, otherwise under `IMSIGHT_SKILL_OUTPUT_DIR` if set (relative paths resolve from the checkout root). The default is `$REPO_ROOT/.imsight-arts/project-mgr/agent-driven-testing/reports/$RUN_ID.md`. Include checkout and tool versions, model and pool key, group and window, attempted sends, recipient-level outcomes, route coverage, timing uncertainty, and one communication verdict for the case. Cite one concrete end-to-end trace or the first failed checkpoint. Record CUDA results, interference, cleanup, and usability issues separately. Both cases remain draft until a live report supports promotion.
 
 ## Helpers
 
-| Helper | Invocation | Purpose |
-| --- | --- | --- |
-| `manifest.toml` | `--manifest tests/instructional/agent-cccc-cuda-coop/manifest.toml` | Problem catalog (`default_problem = "gdn_prefill"`, selectable `gdn_prefill` or `fused_moe`), CUDA tool config, delivery defaults, and four Web slots. |
-| `helpers/cuda_coop_lab.py` | `pixi run python tests/instructional/agent-cccc-cuda-coop/helpers/cuda_coop_lab.py --help` | Manifest resolution, four-agent CCCC provisioning, CUDA workspace seeding, Doctor, delivery control, prompting, quiescence wait, independent locked-driver verification (`-DEXTENDED_SHAPES=1` + `ncu`), transcript/participation/channel audit, recovery, and cleanup. |
-| `helpers/roles/{lead,algo,kernel,profiler}.md` | `fixture.py prepare --system-prompt-file ...` | Four specialized CUDA engineering roles enforcing CCCC-chat-only peer communication and clear workspace ownership. |
-| `helpers/problems/gdn_prefill/` | Selected via `manifest.toml` (`gdn_prefill`, default) | Standalone pure-CUDA Gated Delta Net prefill problem (`kernel_api.cuh`, locked `driver.cu`, starter `solution_starter.cu`, `Makefile`, `design-brief.md`). |
-| `helpers/problems/fused_moe/` | Selected via `manifest.toml` (`fused_moe`) | Standalone pure-CUDA Fused Top-K MoE SwiGLU block problem (`kernel_api.cuh`, locked `driver.cu`, starter `solution_starter.cu`, `Makefile`, `design-brief.md`). |
-
-## Case Index
-
-| Case | Capability tags | User-visible behavior |
-| --- | --- | --- |
-| [four-agent-cuda-coop.md](cases/four-agent-cuda-coop.md) | `multi-agent`, `web`, `cccc-chat`, `cuda`, `manifest` | Four agents collaborate exclusively over CCCC chat to analyze, implement, profile (`nvcc`/`ncu`), and optimize the default manifest problem (`gdn_prefill`) with independent locked-driver verification. |
-| [manifest-problem-switch.md](cases/manifest-problem-switch.md) | `multi-agent`, `web`, `cccc-chat`, `cuda`, `manifest` | Selecting Problem 2 (`fused_moe`) through `manifest.toml` switches the seeded CUDA workspace, locked driver, and four-agent optimization workflow cleanly without harness edits. |
+`pixi run python "$LAB" --help` lists the manifest, setup, observation, verification, and teardown commands invoked above. The common system prompt supplies CCCC usage. The four private additions describe research preferences. The CUDA fixtures and problem selection live alongside the harness. [Prompts](helpers/prompts/) · [CUDA fixtures](helpers/problems/) · [Manifest](manifest.toml)
