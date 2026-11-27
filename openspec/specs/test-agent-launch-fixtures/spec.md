@@ -336,17 +336,17 @@ Automated coverage SHALL use `--tmux-server new` to exercise two managed fixture
 
 ### Requirement: Local tmux-backed fixtures default to the Houmao server
 
-Managed fixture launches and fixture-owned raw TUI or Web launches SHALL select `houmao-default` unless preparation explicitly selects `--tmux-server new`. Managed fixtures SHALL express the choice in their launch profile. Raw headless launches SHALL remain process-only. Passive launches SHALL use the addressed server’s own socket policy.
+Managed fixture launches and fixture-owned raw TUI or Web launches for providers other than Hermes SHALL select `houmao-default` unless preparation explicitly selects `--tmux-server new`. Local tmux-backed Hermes fixtures SHALL use an isolated `new` server. Managed fixtures SHALL express the choice in their launch profile. Raw headless launches SHALL remain process-only. Passive launches SHALL use the addressed server’s own socket policy.
 
 #### Scenario: Managed fixtures share the default server
 
-- **WHEN** two local managed fixtures with separate initially empty registries launch without a tmux override in the same owner scope
+- **WHEN** two local managed fixtures for a provider other than Hermes with separate initially empty registries launch without a tmux override in the same owner scope
 - **THEN** each uses a profile selecting `houmao-default`
 - **AND THEN** their run metadata records distinct owned sessions on the same concrete socket
 
 #### Scenario: A raw tmux-backed fixture uses the default server
 
-- **WHEN** a raw terminal or Web fixture launches without a tmux override
+- **WHEN** a raw terminal or Web fixture for a provider other than Hermes launches without a tmux override
 - **THEN** its owned session starts on the owner’s Houmao default socket
 - **AND THEN** the fixture keeps selected provider credentials out of shared tmux state
 
@@ -370,6 +370,24 @@ Fixture follow-up and cleanup SHALL use the captured agent or verify the run’s
 - **WHEN** the caller’s enclosing tmux socket differs from the run’s saved socket
 - **THEN** fixture checks and terminal operations use the saved binding for that run
 
+#### Scenario: A Stopped Manager Fixture Resumes the Same Runtime
+
+- **WHEN** an operator relaunches a captured manager fixture through the manager and the captured runtime has a newer verified active generation
+- **THEN** the next fixture prompt or stop uses that generation of the same runtime
+- **AND THEN** the fixture refreshes its lifecycle snapshot while retaining the captured ownership and prior evidence
+- **AND THEN** an existing run with verifiable legacy metadata remains usable
+
+#### Scenario: Stop Confirms the Captured Runtime Is Already Stopped
+
+- **WHEN** the fixture confirms that its captured manager runtime is stopped
+- **THEN** stop succeeds without sending another lifecycle operation
+
+#### Scenario: A Reused Agent ID Cannot Redirect Fixture Operations
+
+- **WHEN** the captured identity resolves to a replacement runtime, an incomplete lifecycle transition, or authority that the fixture cannot verify
+- **THEN** the fixture reports the ownership or lifecycle problem before prompting or stopping
+- **AND THEN** it leaves the stored identity and existing evidence available for follow-up
+
 ### Requirement: Hermes Fixtures Qualify Each Supported Run Mode
 
 The fixture workflow SHALL support separate raw and managed Hermes verification for tui, service, and headless. A run SHALL record the selected model and route, resolved command, and observed per-mode evidence without secrets.
@@ -377,9 +395,10 @@ The fixture workflow SHALL support separate raw and managed Hermes verification 
 #### Scenario: Hermes Qualification Exercises an Isolated Local Runtime
 
 - **WHEN** a developer selects a supported Hermes mode and a controlled self-hosted test configuration
-- **THEN** raw and managed lanes use independently isolated homes and exact workspace and model inputs
-- **AND THEN** each lane resolves `hermes` from PATH in its execution context
-- **AND THEN** the TUI lane uses an isolated tmux server
+- **THEN** each lane uses separate home state and exact workspace and model inputs
+- **AND THEN** raw runs resolve `hermes` from PATH and use private standalone homes
+- **AND THEN** managed runs select a prepared fixture owner and use separate named profiles on its shared gateway
+- **AND THEN** each local tmux-backed Hermes run uses an isolated tmux server
 - **AND THEN** an unavailable fixture or provider route is recorded separately from a passing qualification
 
 ### Requirement: Manager fixture preparation applies birth-time reasoning levels across supported clients
@@ -446,3 +465,84 @@ Hermes fixture qualification SHALL verify explicit reasoning projection on a mai
 - **WHEN** qualification sends main-model prompts through fixtures launched with `xhigh` and with reasoning explicitly disabled
 - **THEN** the peer observes top-level `reasoning_effort` values of `xhigh` and `none`, respectively
 - **AND THEN** the qualification records the observed effort without credentials
+
+### Requirement: Manager Fixture Failures Identify Private Diagnostics
+
+When a manager command fails during fixture operation, the fixture SHALL report its exit status and the path to its private diagnostic when saved. Public errors SHALL omit raw command arguments, prompt content, credentials, and raw provider diagnostics.
+
+#### Scenario: A Manager Prompt Fails
+
+- **WHEN** the manager returns a failure for a fixture prompt
+- **THEN** fixture error output retains its structured error message and includes the manager exit code and exact saved diagnostic path
+- **AND THEN** the exact run identifies its owner-only diagnostic, which redacts credential values
+
+#### Scenario: The Initial Prompt Fails After Birth
+
+- **WHEN** a manager fixture captures a verified launch identity and its initial prompt fails
+- **THEN** the failure retains that identity for scoped cleanup and reports the prompt diagnostic
+- **AND THEN** prompt output cannot replace the captured launch authority
+
+### Requirement: Managed Fixture Qualification Verifies Maximum Unattended Permissions
+
+Qualification SHALL observe the effective maximum qualified native posture across the supported managed provider and run-mode combinations. Qualification SHALL distinguish observed native behavior from configuration intent and record unsupported combinations and missing prerequisites separately from passes.
+
+#### Scenario: Each Managed Mode Uses Its Own Qualified Native Controls
+
+- **WHEN** a fixture qualifies unattended launch for a supported managed provider and mode
+- **THEN** it records the observed native permission posture and verifies representative work without operator approval
+- **AND THEN** it exercises the same launch policy on explicit relaunch where that mode supports relaunch
+
+#### Scenario: Conflicting Settings Fail Before Replacing a Runtime
+
+- **WHEN** qualification supplies an authored permission setting that conflicts with unattended maximum permissions
+- **THEN** the maintained launch path reports the conflict before starting a provider or replacing a running agent
+- **AND THEN** an equivalent supported setting remains usable through `as_is`
+
+### Requirement: Managed Hermes Fixtures Qualify Native Approval and Mail Behavior
+
+Managed Hermes qualification SHALL exercise unattended TUI, service, and headless tool handling, manual TUI approval observation, and the live Stalwart mail round trip. The result SHALL identify each lane's native evidence, provider build, and unavailable prerequisites without exposing credentials or approval payloads.
+
+#### Scenario: A Live Unattended TUI Completes the Stalwart Notifier Round
+
+- **WHEN** a verified unattended Hermes TUI receives a Stalwart mail notifier prompt that invokes an otherwise approval-gated command
+- **THEN** the TUI handles the command without operator input
+- **AND THEN** the sender receives the expected reply and mailbox state confirms that the recipient archived the request
+
+#### Scenario: The ACP Service Completes a Structured Edit
+
+- **WHEN** an unattended managed Hermes ACP service receives a prompt that uses a native structured file-edit tool
+- **THEN** qualification verifies the native tool call and its expected file effect without operator approval or fallback to terminal redirection
+- **AND THEN** controlled protocol checks distinguish a qualified one-time tool grant from a refusal or cancelled user interaction
+
+#### Scenario: A Finite Headless Client Continues With Unattended Permissions
+
+- **WHEN** qualification sends approval-gated work to an unattended headless fixture and then continues its verified conversation
+- **THEN** both turns settle through finite structured CLI evidence without an operator and retain the same logical conversation
+
+#### Scenario: A Manual TUI Reports a Verified Pending Approval
+
+- **WHEN** a managed `as_is` Hermes TUI is waiting at a native tool approval
+- **THEN** qualification observes the safe pending state and closed readiness, with terminal attachment reported separately
+- **AND THEN** state clears the indicator after verified settlement
+
+### Requirement: Managed Hermes Fixtures Qualify Shared Prepared Installations
+
+The managed Hermes fixture SHALL support multiple workers in one explicitly selected, test-owned execution context and prepared Hermes root while tracking a separate profile, workspace, project link, and runtime generation per worker. The qualification SHALL record provider version and dependency, lifecycle, and authority evidence without secrets.
+
+#### Scenario: Fresh Worker Starts Reuse the Prepared Runtime
+
+- **WHEN** a fixture prepares one installation and launches named-profile workers from two separate projects in that execution context
+- **THEN** qualification checks one current gateway and prepared dependency selection across Service, TUI, and Headless
+- **AND THEN** evidence confirms worker launch, a managed prompt, and exact relaunch perform no dependency installation or private environment rebuild
+
+#### Scenario: Workers Preserve Distinct Authority on the Shared Host
+
+- **WHEN** two live profiles run simultaneous work with distinct synthetic credentials and approval postures
+- **THEN** qualification verifies native credential and permission selection, session attribution, and signed managed-self operations for each profile
+- **AND THEN** it verifies that copied selectors, sibling activity, and stale caller evidence cannot control or sign as the other profile
+
+#### Scenario: One Profile Stops, Recovers, and Is Removed
+
+- **WHEN** a fixture stops, exactly relaunches, then explicitly removes one worker
+- **THEN** it verifies stop retains its home and link, relaunch uses the saved native conversation, and cleanup removes both owned artifacts
+- **AND THEN** shared gateway and sibling readiness are verified before the fixture separately retires its test-owned host

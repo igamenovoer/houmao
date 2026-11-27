@@ -59,6 +59,10 @@ houmao-mgr admin cleanup runtime sessions [OPTIONS]
 houmao-mgr admin cleanup runtime builds [OPTIONS]
 ```
 
+Hermes named-profile cleanup reports the canonical native profile and project home link separately. A saved runtime session keeps both available for relaunch. Stop the worker and explicitly clean up its retained session before removing the build. Cleanup uses Hermes to delete the parked profile and settle its routing identity, then unlinks the recorded project entry. If either step is incomplete, the command retains the build record so the same cleanup can be retried. `--dry-run` checks eligibility for both artifacts and reports changed links or unreleased native reservations.
+
+For a worker recorded under the earlier standalone layout, use its saved identity to inspect it, stop it, and clean it up. Start a fresh project launch to move to a named profile. Conversations from the standalone home cannot be resumed in the new layout.
+
 | Option | Description |
 |---|---|
 | `--runtime-root PATH` | Optional runtime root override. Defaults to the project-aware runtime root. |

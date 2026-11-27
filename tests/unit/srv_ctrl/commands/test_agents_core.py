@@ -253,7 +253,8 @@ def test_manager_launch_checks_only_explicit_timings(
         tool=tool,
     )
     monkeypatch.setattr(
-        "houmao.srv_ctrl.commands.agents.core.resolve_hermes_executable", lambda **_: tmp_path
+        "houmao.srv_ctrl.commands.agents.core.load_prepared_hermes_installation",
+        lambda **_: SimpleNamespace(root=tmp_path),
     )
     prepare = Mock(side_effect=RuntimeError("reached brain preparation"))
     monkeypatch.setattr("houmao.srv_ctrl.commands.agents.core.validate_brain_inputs", prepare)
@@ -2702,12 +2703,12 @@ def test_codex_service_below_minimum_leaves_force_predecessor_intact(
 
 @pytest.mark.parametrize(
     ("mode", "error"),
-    [("service", "Hermes was not found on PATH in execution context"), ("web", "does not support")],
+    [("service", "needs owner preparation"), ("web", "does not support")],
 )
 def test_hermes_launch_preflight_preserves_existing_runtime(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, mode: str, error: str
 ) -> None:
-    """Refuse unsupported modes and a missing executable before touching the predecessor."""
+    """Refuse unsupported modes and missing owner preparation before touching the predecessor."""
 
     from houmao.srv_ctrl.commands.agents import core
 
@@ -2733,6 +2734,7 @@ def test_hermes_launch_preflight_preserves_existing_runtime(
         return target
 
     monkeypatch.setattr(core, "resolve_native_launch_target", hermes_target)
+    monkeypatch.delenv("HOUMAO_HERMES_INSTALLATION_ROOT", raising=False)
     predecessor = runtime / "existing"
     predecessor.mkdir(parents=True)
     manifest = predecessor / "manifest.json"
@@ -2762,8 +2764,7 @@ def test_hermes_launch_preflight_preserves_existing_runtime(
             force_mode="clean",
         )
     if mode == "service":
-        assert f"in execution context {workdir}" in str(raised.value)
-        assert "command -v hermes" in str(raised.value)
+        assert "HOUMAO_HERMES_INSTALLATION_ROOT" in str(raised.value)
     assert manifest.read_text(encoding="utf-8") == "existing manifest"
     assert list(runtime.iterdir()) == [predecessor]
     for probe in probes:

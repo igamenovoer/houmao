@@ -52,6 +52,8 @@ from houmao.execution.models import (
 )
 
 from houmao.ag_ui.models import AgUiEventPublishRequest, AgUiEventPublishResponse
+from houmao.agents.hermes_profile import HERMES_STANDALONE_RELAUNCH_REFUSAL
+from houmao.agents.hermes_profile_cleanup import stop_hermes_from_saved_session
 from houmao.agents.mailbox_runtime_models import FilesystemMailboxResolvedConfig, MailboxChannel
 from houmao.agents.mailbox_runtime_support import (
     LiveGatewayBindingResolution,
@@ -3276,6 +3278,15 @@ def _recover_verified_broken_active_record(
     )
     require_same_recovery_record(current, load_managed_agent_record_by_agent_id(current.agent_id))
     require_same_recovery_manifest(manifest, _read_recovery_manifest(current))
+    if current.identity.tool == "hermes":
+        if manifest is None:
+            raise SessionManifestError("The recorded Hermes shutdown authority is unavailable.")
+        try:
+            stop_hermes_from_saved_session(Path(current.runtime.manifest_path), manifest)
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise SessionManifestError(
+                f"Could not retire the recorded Hermes owner: {exc}"
+            ) from exc
     if session_id is not None:
         from houmao.execution.tmux import tmux_server_scope
 
@@ -3426,6 +3437,18 @@ def relaunch_managed_agent(
         response = _executor_model(target, "relaunch", HoumaoManagedAgentActionResponse, arguments)
         assert target.executor_locator is not None
         return response.model_copy(update={"execution_context": target.executor_locator.binding})
+
+    if target.record is not None and target.record.identity.tool == "hermes":
+        try:
+            saved = load_registry_mode_authority(target.record)
+        except (OSError, SessionManifestError) as exc:
+            raise click.ClickException(str(exc)) from exc
+        if saved.launch_plan.hermes_profile is None:
+            return HoumaoManagedAgentActionResponse(
+                success=False,
+                tracked_agent_id=target.identity.tracked_agent_id,
+                detail=HERMES_STANDALONE_RELAUNCH_REFUSAL,
+            )
 
     if target.mode in {"local_degraded", "local_stale"}:
         assert target.record is not None

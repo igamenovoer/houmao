@@ -2,13 +2,13 @@
 
 Status: draft
 
-Agent-driven live verification for Houmao-managed Hermes agents running against a real self-hosted Qwen 3.8 OpenAI-compatible Chat Completions endpoint with `xhigh` thinking. The suite covers all three managed Hermes run modes (`service`, `headless`, `tui`), `agent.reasoning_effort` projection and provenance, role and skill loading, multi-agent home isolation and same-home daemon adoption, local filesystem (`offline`) mailbox round trips with atomic unread-summary verification, and real Stalwart JMAP (`online`) mailbox round trips.
+Agent-driven live verification for Houmao-managed Hermes agents running against a real self-hosted Qwen 3.8 OpenAI-compatible Chat Completions endpoint with `xhigh` thinking. The suite covers Service, Headless, and TUI, reasoning and role projection, isolated named profiles on a shared gateway, and offline and Stalwart mailbox round trips.
 
 ## Baseline Preconditions & Isolation
 
 - Realwork checkout: Houmao repository root on `devel` (`$REPO_ROOT`, resolved via `git rev-parse --show-toplevel`).
 - **Manager binary.** Build or sync the workspace environment with `pixi install` and point `HOUMAO_MGR` at `$REPO_ROOT/.pixi/envs/default/bin/houmao-mgr`.
-- **Hermes CLI on PATH.** `command -v hermes` must succeed in the selected execution context. Houmao resolves Hermes solely through `PATH` and rejects `--executable` overrides that bypass `PATH`.
+- **Prepared test owner.** Prepare stock Hermes in a dedicated private directory under the repository's ignored `tmp/` tree. Select it with `HOUMAO_TEST_HERMES_OWNER_ROOT`. The parallel isolation case requires a root dedicated to that case so its teardown can verify every test profile is gone. [Hermes Owner Setup](../../../docs/reference/run-phase/hermes-owner-setup.md)
 - **Model pool (`Qwen 3.8` with `xhigh` thinking).** Configure an owner-private (`0600`) external model pool at `${XDG_DATA_HOME:-$HOME/.local/share}/houmao/test-fixtures/model-pool.toml` (or set `HOUMAO_TEST_MODEL_POOL`) with a `client = "hermes"`, `case = "self-hosted"` entry pointing to your Qwen 3.8 Chat Completions server and an external `0600` env file supplying a non-empty `HOUMAO_TEST_SELF_HOSTED_API_KEY`. Set `HOUMAO_TEST_MODEL` to that pool key (or override individual slots with `HOUMAO_TEST_MODEL_A` / `HOUMAO_TEST_MODEL_B`). See [Test-Agent Fixture Tools](../../../scripts/agents/test-fixtures/README.md#hermes).
 
 ```toml
@@ -26,7 +26,7 @@ reasoning_effort = "xhigh"
 - **Local filesystem mailbox (`offline`).** Requires no external service. The mail scenario initializes both fixture registries against the run-owned store under `$RUN_TMP/runtime/mailbox` and joins both agents to that shared root.
 - **Stalwart mail service (`online`, Scenario 6 only).** Treats any selected Stalwart deployment (default `http://127.0.0.1:10080/.well-known/jmap`) as shared infrastructure. The suite never starts, stops, resets, or reconfigures Stalwart; it provisions two uniquely prefixed run-owned accounts with verified sending identities and Archive roles, and deprovisions only those recorded principals during cleanup. If no live Stalwart service or private `service.json` is configured, mark Scenario 6 `VERIFIED-UNREACHABLE` rather than mocking Stalwart.
 - **Project-local temporary root.** `$REPO_ROOT/tmp/instructional-tests/<test-slug>/` (Git-ignored). Every per-run script (`scripts/`), disposable fixture state (`runtime/`), `run-meta.json`, and surviving proof artifact (`evidence/agent-hermes/<scenario-slug>/`) lives inside this directory with `0700` permissions.
-- **Tmux and daemon isolation.** Clear `TMUX`, `TMUX_PANE`, and `TMUX_TMPDIR` before every command. Hermes fixtures require `--tmux-server new`, giving every agent an isolated tmux socket, private `HERMES_HOME`, private `HERMES_GATEWAY_LOCK_DIR`, private `registry/`, and private `runtime/`. Never kill processes by bare name or touch the caller's default tmux server.
+- **Tmux and gateway ownership.** Clear `TMUX`, `TMUX_PANE`, and `TMUX_TMPDIR` before every command. Each worker has an isolated tmux socket and a distinct `HERMES_HOME` under the selected owner. The test owner shares a registry, runtime, and native gateway across workers. Teardown uses the recorded test-host identity.
 - **Concurrency.** Distinct `<test-slug>` runs isolate filesystem and tmux state safely, though concurrent `xhigh` runs against the same single-GPU Qwen 3.8 server may serialize on inference latency. Do not double-drive a single launched agent.
 
 ## Launch
@@ -45,12 +45,14 @@ export HOUMAO_MGR="${HOUMAO_MGR:-$REPO_ROOT/.pixi/envs/default/bin/houmao-mgr}"
 export RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-agent-hermes"
 export RUN_TMP="$REPO_ROOT/tmp/instructional-tests/$RUN_ID"
 export EVIDENCE="$RUN_TMP/evidence/agent-hermes"
+# Prepare this installation once with the linked owner setup instructions.
+export HOUMAO_TEST_HERMES_OWNER_ROOT="${HOUMAO_TEST_HERMES_OWNER_ROOT:-$RUN_TMP/hermes-owner}"
 
 mkdir -p "$RUN_TMP/scripts" "$RUN_TMP/runtime" "$EVIDENCE"
 git check-ignore -q "$RUN_TMP" || { echo "RUN_TMP is not Git-ignored" >&2; exit 1; }
 chmod 700 "$RUN_TMP"
 test -x "$HOUMAO_MGR"
-command -v hermes >/dev/null || { echo "hermes missing from PATH" >&2; exit 1; }
+test -d "$HOUMAO_TEST_HERMES_OWNER_ROOT"
 
 pixi run python "$FIXTURE" list-models > "$EVIDENCE/model-pool-list.json"
 pixi run python "$FIXTURE" check --pool-slot a --mode service --surface manager --live \
@@ -71,7 +73,7 @@ pixi run python "$LAB" doctor \
   | tee "$EVIDENCE/doctor.json"
 ```
 
-Add `--run-dir "$RUN_B"` for dual-agent scenarios, `--mailbox-root "$RUN_TMP/runtime/mailbox"` for the offline mail scenario, and `--mail-config "$MAIL_CONFIG"` for the Stalwart online mail scenario. `doctor` exits zero only when `houmao-mgr` and `hermes` resolve cleanly, every agent reports `availability=available`, every recorded Hermes daemon PID is alive, every actual managed launch home's `config.yaml` declares `agent.reasoning_effort: xhigh` and `agent.disabled_toolsets: [browser, computer_use]`, and any configured mailbox bindings and Stalwart JMAP identities are healthy.
+Add `--run-dir "$RUN_B"` for dual-agent scenarios, `--mailbox-root "$RUN_TMP/runtime/mailbox"` for the offline mail scenario, and `--mail-config "$MAIL_CONFIG"` for the Stalwart online mail scenario. `doctor` qualifies the selected runtime, checks agent availability and the recorded gateway PID, inspects the actual profile's reasoning and tool settings, and verifies any configured mail services.
 
 ## Drive
 
@@ -100,11 +102,11 @@ Save every artifact under `$RUN_TMP/evidence/agent-hermes/<scenario-slug>/`. Cle
 | `offline-*.json` | Run-local filesystem mailbox setup, `peek` non-mutation proof, message list/archive state, and SQLite `unread_count == 0` thread summaries. |
 | `provision.json`, `stalwart-*.json` | Run-owned Stalwart accounts, JMAP inbox/archive observations, `inReplyTo`/`references` threading, and post-cleanup principal absence. |
 | `transcript-*/` | Sanitized Hermes runtime artifacts (`stdout.jsonl`, `stderr.log`, `hermes-request.json`, `hermes-native-admission.json`, and home snapshot). |
-| `stop.json`, `evidence-check.txt` | Scoped stop receipts confirming zero surviving run-owned daemon PIDs, cleaned Stalwart principals, and surviving evidence inventory. |
+| `stop.json`, `host-retired.json`, `evidence-check.txt` | Profile stop receipts, exact test-host retirement after profile cleanup, and surviving evidence inventory. |
 
 ## Cleanup
 
-Stop only the runs recorded by this session, verify zero surviving daemon PIDs, clean any provisioned Stalwart principals, and verify `evidence/` survives:
+Stop the runs recorded by this session and verify their profiles are parked. Stop keeps the shared host available for other profiles. Clean any provisioned Stalwart principals and keep the evidence directory.
 
 ```bash
 pixi run python "$LAB" stop \
@@ -115,6 +117,8 @@ find "$EVIDENCE" -type f | sort > "$EVIDENCE/evidence-check.txt"
 ```
 
 Pass additional `--run-dir` flags for every launched run in the session, and `--mail-config "$MAIL_CONFIG"` when Stalwart accounts were provisioned (add `--keep-accounts` only if intentionally retaining accounts for post-mortem review, then clean up with `stalwart-deprovision`).
+
+To retire the test host, use the [isolation case cleanup](cases/multi-agent-isolation-and-daemon-ownership.md#remove-the-profiles-and-retire-the-host) after removing every retained worker profile in the selected owner root.
 
 ## Helpers
 
@@ -128,8 +132,8 @@ Pass additional `--run-dir` flags for every launched run in the session, and `--
 | Case | Capability Tags | User-Visible Behavior |
 | --- | --- | --- |
 | [service-lifecycle-and-reasoning.md](cases/service-lifecycle-and-reasoning.md) | `hermes-service`, `acp`, `reasoning-xhigh`, `guardrails` | Default managed Hermes launches in `service` mode with `xhigh` reasoning projected to the real launch home, completes multi-turn workspace and skill work, survives exact relaunch and ACP interrupt, and enforces mode, tool-posture, and redaction guardrails. |
-| [headless-continuation-and-boundaries.md](cases/headless-continuation-and-boundaries.md) | `hermes-headless`, `jsonl`, `continuation`, `guardrails` | Finite Hermes CLI workers continue one verified session across PIDs, accept literal multiline/metacharacter stdin, survive exact relaunch, refuse unattributable interrupts and `latest` selection, and reject missing-`PATH` launches cleanly. |
+| [headless-continuation-and-boundaries.md](cases/headless-continuation-and-boundaries.md) | `hermes-headless`, `jsonl`, `continuation`, `guardrails` | Finite Hermes CLI workers continue one verified session across PIDs, accept literal stdin, survive exact relaunch, and reject an unprepared owner. |
 | [tui-native-control-and-detachment.md](cases/tui-native-control-and-detachment.md) | `hermes-tui`, `ink`, `native-rpc`, `detachment` | Managed Hermes Ink runs in an isolated tmux pane with structured native RPC, valid durable admission receipts, busy refusal, human-turn queue tracking, Ink detachment without losing native settlement, session-switch reporting, and parser-op refusal. |
-| [multi-agent-isolation-and-daemon-ownership.md](cases/multi-agent-isolation-and-daemon-ownership.md) | `multi-agent`, `isolation`, `daemon-adoption` | Two managed Hermes agents isolate homes, lock dirs, daemons, and stop operations; Houmao adopts an independently started same-home daemon and ignores foreign-home daemons. |
+| [multi-agent-isolation-and-daemon-ownership.md](cases/multi-agent-isolation-and-daemon-ownership.md) | `multi-agent`, `isolation`, `shared-gateway` | Two projects share qualified dependencies and a native host, with separate profiles, sessions, workspaces, and scoped retirement. |
 | [mail-local-fs-round-trip.md](cases/mail-local-fs-round-trip.md) | `multi-agent`, `offline-mail`, `filesystem`, `notifier` | Two managed Hermes agents (`service` + `tui`) exchange local filesystem email via `offline` notifiers and `houmao-process-emails-via-gateway`, preserving `peek` non-mutation, atomic `unread_count == 0` archive summaries, and negative notifier guardrails. |
 | [mail-stalwart-online-round-trip.md](cases/mail-stalwart-online-round-trip.md) | `multi-agent`, `online-mail`, `stalwart`, `jmap`, `notifier` | Two managed Hermes agents (`service` + `tui`) exchange real threaded email over Stalwart JMAP with `online` notifiers, dual-channel `offline`/`online` isolation, and clean run-owned principal deprovisioning. |

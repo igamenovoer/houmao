@@ -199,7 +199,7 @@ Direct easy-instance override SHALL NOT rewrite the stored specialist or project
 - **AND THEN** the stored project profile still records `2` as its reusable default
 
 ### Requirement: Project-backed Kimi unattended launch delegates to maintained automatic posture
-When a selected Kimi specialist or Kimi-backed project profile resolves `launch.prompt_mode: unattended`, `houmao-mgr project agents launch` SHALL delegate to the managed native launch path in a way that lets downstream Kimi launch policy and runtime force Kimi auto permission mode.
+When a selected Kimi specialist or Kimi-backed project profile resolves `launch.prompt_mode: unattended`, `houmao-mgr project agents launch` SHALL delegate to the managed native launch path in a way that lets the selected downstream Kimi adapter establish native `auto` and reject a conflicting effective permission value.
 
 #### Scenario: Acceptance criteria
 
@@ -227,6 +227,12 @@ When a selected Kimi specialist or Kimi-backed project profile resolves `launch.
 - **AND WHEN** an operator runs `houmao-mgr project agents launch --specialist writer --name writer-1`
 - **THEN** the command delegates to native launch with as-is prompt mode
 - **AND THEN** it does not request Kimi auto permission mode through launch policy or runtime startup refresh
+
+#### Scenario: Kimi project launch reports a conflicting effective permission setting
+
+- **WHEN** an unattended Kimi specialist or project profile resolves an effective `manual` or `yolo` permission setting
+- **THEN** project launch reports the conflict through the shared permission validation before provider start or replacement
+- **AND THEN** an omitted or matching setting continues to use the requested qualified run mode
 
 ### Requirement: `project agents launch` derives provider from one specialist and launches one runtime instance
 `houmao-mgr project agents launch --specialist <specialist> --name <instance>` SHALL launch one managed agent by resolving the stored specialist definition from the active project-local catalog and delegating to the existing native managed-agent launch flow.
@@ -256,7 +262,7 @@ The command SHALL NOT expose or require a separate launch-time workspace-trust b
 
 The delegated native launch SHALL proceed without a Houmao-managed workspace trust confirmation prompt.
 
-Easy instance launch SHALL delegate the resolved prompt mode and authored tool settings to the native launch flow. `unattended` SHALL fill omitted permission defaults through the selected provider strategy. `as_is` SHALL use the native baseline for omitted permission settings. Both modes SHALL honor effective supported authored values.
+Easy instance launch SHALL delegate the resolved prompt mode and authored tool settings to the native launch flow. `unattended` SHALL require the qualified maximum native permission posture and reject conflicting effective permission settings. `as_is` SHALL honor supported authored permissions and use the native baseline for omissions. Supported settings unrelated to permission posture SHALL follow existing precedence in both modes.
 
 #### Scenario: Easy instance launch uses overlay-local runtime and jobs defaults
 - **WHEN** an active project overlay resolves as `/repo/.houmao`
@@ -292,9 +298,15 @@ Easy instance launch SHALL delegate the resolved prompt mode and authored tool s
 - **AND THEN** it does not inject a separate yolo-style startup override on top of the stored `as_is` posture
 
 #### Scenario: An unattended specialist includes an authored sandbox override
-- **WHEN** a specialist uses unattended defaults and supplies a supported native sandbox value in its tool parameters
+- **WHEN** an unattended specialist supplies a native sandbox value that conflicts with the selected provider's unattended posture
+- **THEN** the delegated launch reports the sandbox conflict and directs the operator to `as_is` for supported custom permissions
+- **AND THEN** the command starts no provider and leaves an existing instance intact
+
+#### Scenario: An as-is specialist retains a supported custom sandbox
+
+- **WHEN** an `as_is` specialist supplies a supported nondefault native sandbox value in its tool parameters
 - **THEN** the delegated launch applies that sandbox value
-- **AND THEN** omitted permission fields use their versioned unattended defaults
+- **AND THEN** omitted permission fields use the provider's native baseline
 
 ### Requirement: `project agents launch` supports project-profile-backed launch
 `houmao-mgr project agents launch` SHALL support selecting a reusable project profile through `--profile <profile>`.

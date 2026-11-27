@@ -6,42 +6,21 @@ Define how Houmao builds, launches, controls, and observes managed Hermes agents
 
 ## Requirements
 
-### Requirement: Managed Hermes Launch Resolves the Command on PATH
-
-Houmao SHALL determine Hermes executable availability solely with `command -v hermes` in the selected execution context. A successful lookup SHALL allow launch of the requested supported mode using the resolved command. A failed lookup SHALL report that Hermes is missing from PATH before changing the managed home or existing runtime.
-
-#### Scenario: Hermes Is on PATH
-
-- **WHEN** an operator selects a supported Hermes mode and `command -v hermes` succeeds in the selected execution context
-- **THEN** Houmao attempts startup with the resolved command and its selected backend
-- **AND THEN** a successful startup publishes the same managed identity for manager and gateway controls
-
-#### Scenario: Hermes Is Missing From PATH
-
-- **WHEN** the selected execution context cannot find `hermes` on PATH
-- **THEN** Houmao reports the missing command and identifies the context where PATH must be corrected
-- **AND THEN** the managed home and any existing runtime remain intact
-
-#### Scenario: Hermes Startup Fails
-
-- **WHEN** the resolved command fails to start the selected mode or its native connection fails to initialize
-- **THEN** Houmao reports the startup failure for that mode using the available diagnostics
-
 ### Requirement: Hermes State and Configuration Belong to the Managed Agent
 
-Houmao SHALL bind the selected agent to an isolated Hermes home, gateway rendezvous scope, and explicit workspace. It SHALL project its role, selected skills, tool policy, model route, and privately referenced credentials into native configuration while keeping its existing managed identity.
+Houmao SHALL bind the selected agent to a distinct canonical Hermes named profile, separate native state, and explicit workspace. It SHALL project the role, selected skills, tool policy, model route, and privately referenced credentials into that profile while retaining the managed identity.
 
 #### Scenario: Two Agents Have Separate Homes
 
-- **WHEN** two Hermes agents launch under one OS user
-- **THEN** each binds a separate home, daemon, session store, workspace, and selected configuration and credential source
+- **WHEN** two managed Hermes agents launch under the same prepared execution-owner root
+- **THEN** each binds its selected workspace and a separate named profile, session store, configuration, and credential source on the shared gateway
 - **AND THEN** their runtime inputs and histories remain separately addressable
 
 #### Scenario: A Managed Role and Skill Pack Are Selected
 
 - **WHEN** an operator launches a managed agent from a profile with a role and managed skills
 - **THEN** Hermes reads the effective role through its native identity input and discovers the selected skills through its own skill loader
-- **AND THEN** Houmao's self-identity and gateway access reach the owned execution context
+- **AND THEN** Houmao's self-identity and gateway access reach the owned execution context and exact managed profile
 
 #### Scenario: Browser and Desktop Control Are Excluded
 
@@ -51,58 +30,64 @@ Houmao SHALL bind the selected agent to an isolated Hermes home, gateway rendezv
 
 ### Requirement: Hermes Lifecycle Verifies the Owned Native Authority
 
-Houmao SHALL bind managed execution to its recorded Hermes home and selected logical session. It SHALL record the daemon incarnation and runtime generation for lifecycle operations and turn evidence. Gateway detach or client loss SHALL preserve accepted work. After a daemon replacement, Houmao SHALL reconcile existing work using attributable evidence before reopening admission.
+Houmao SHALL record and verify the execution owner, gateway incarnation, served profile identity and home, workspace, logical session, and managed generation. It SHALL attribute native work to that binding. Gateway detach or client loss SHALL preserve accepted work. Recovery SHALL reconcile existing work before reopening admission.
 
 #### Scenario: Houmao Gateway Reattaches During an Accepted Turn
 
-- **WHEN** the Houmao gateway restarts while its Hermes daemon remains available
-- **THEN** the gateway recovers status through the same managed owner and does not dispatch another prompt
-- **AND THEN** a terminal event from another session, authority incarnation, or admission cannot settle the original request
+- **WHEN** the Houmao gateway restarts while the same managed Hermes profile remains available
+- **THEN** the gateway recovers status through the same managed authority and does not dispatch another prompt
+- **AND THEN** a terminal event from another profile, session, authority incarnation, or admission cannot settle the original request
 
 #### Scenario: Hermes Restarts After Admission
 
-- **WHEN** the owned Hermes daemon exits after accepting managed work
+- **WHEN** the shared Hermes gateway exits after accepting managed work
 - **THEN** Houmao preserves the recorded admission and the distinction between queued and started work
-- **AND THEN** any native recovery of a persisted queue entry is observed as the original admission
-- **AND THEN** unresolved execution stays uncertain without a fresh managed submission
+- **AND THEN** recovery verifies the replacement gateway, exact served profile, and saved conversation before admitting new work
+- **AND THEN** any native recovery of a persisted queue entry is observed as the original admission, while unresolved execution stays uncertain without a fresh managed submission
 
 #### Scenario: Exact Relaunch Has No Matching Session
 
-- **WHEN** the manager verifies a requested saved logical session before launch and finds that it is missing or belongs to another home or workspace
+- **WHEN** the manager verifies a requested saved logical session and finds it missing or belonging to another profile, home, or workspace
 - **THEN** the manager refuses exact continuation before submission
 - **AND THEN** it does not move the workspace, select a recent conversation, or create a replacement conversation
 
 #### Scenario: Operator Stops One of Two Managed Hermes Agents
 
-- **WHEN** stop targets one Hermes agent whose daemon was started or adopted by Houmao
-- **THEN** Houmao verifies the targeted process identities, stops those processes, and preserves the record needed for explicit relaunch
-- **AND THEN** another agent's daemon, conversation, and terminal remain available
+- **WHEN** stop targets one named-profile worker on a shared gateway
+- **THEN** Houmao verifies the targeted profile and its owned clients, settles the worker's active work or reports unresolved settlement, and retains the binding for explicit relaunch
+- **AND THEN** the shared gateway and the other agent's profile, conversation, and terminal remain available
 
 ### Requirement: Hermes Daemon Ownership Follows the Managed Launch Home
 
-Houmao SHALL manage the daemon launched for the exact standalone Hermes home it created and recorded. It SHALL start a daemon when needed and adopt any existing daemon launched for that home without seeking consent or notifying its starter. Independent use of the managed home has undefined behavior.
+The shared Hermes gateway SHALL run from the selected prepared root for the execution owner. Houmao SHALL establish or adopt only a verified gateway for that exact root and verify native service of the exact recorded named profile before granting worker authority. Worker lifecycle SHALL control the worker's own profile and clients.
 
 #### Scenario: The Managed Home Has No Daemon
 
-- **WHEN** Houmao needs native execution and the managed home has no daemon
-- **THEN** Houmao starts one directly or through the native client's local startup and records its verified process identity
+- **WHEN** Houmao needs native execution and the selected prepared root has no qualified gateway
+- **THEN** it establishes one gateway for the root, verifies its identity, and binds the worker through that gateway
+- **AND THEN** concurrent first launches converge on that same gateway
 
 #### Scenario: A Daemon Is Already Running in the Managed Home
 
-- **WHEN** Houmao finds a daemon whose launch home matches the recorded managed home, including one a user or native client started
-- **THEN** Houmao adopts its verified process identity regardless of its starter
-- **AND THEN** normal readiness still requires the protocol capabilities used by the selected mode
+- **WHEN** Houmao finds a qualified gateway launched for the selected prepared root
+- **THEN** Houmao reuses its verified process identity and separately verifies that the worker's recorded profile and required capabilities are served
 
 #### Scenario: A Native Client Starts a Same-Home Replacement
 
-- **WHEN** a daemon exits during client attachment and native local startup brings up a replacement for the same managed home
-- **THEN** Houmao adopts the replacement and records its process identity
-- **AND THEN** previously admitted requests retain their original evidence and reconcile before new work is accepted
+- **WHEN** a native client starts a replacement gateway for the exact prepared root during attachment
+- **THEN** Houmao verifies the replacement and makes each managed profile recover its own native authority before accepting new work
+- **AND THEN** the old gateway's evidence cannot settle a new operation
 
 #### Scenario: A Discovered Daemon Has a Different Launch Home
 
-- **WHEN** discovery finds a gateway launched for a different home, even if it serves the managed home as a secondary profile
-- **THEN** Houmao leaves that daemon outside managed control and reports native availability only after verifying a connection to a daemon launched for the recorded home
+- **WHEN** discovery finds an unrelated gateway or a gateway whose launch root does not match the recorded prepared root
+- **THEN** Houmao rejects that gateway for shared profile control and leaves it outside the managed lifecycle
+
+#### Scenario: A Recorded Standalone Worker Is Retired
+
+- **WHEN** an operator stops or explicitly cleans a Hermes worker recorded under the former standalone layout
+- **THEN** Houmao uses the recorded standalone ownership and exact process identity
+- **AND THEN** a request to continue that conversation in the new named-profile layout fails before stopping the predecessor or changing its home
 
 ### Requirement: Hermes TUI Uses Native Structured Control
 
@@ -126,6 +111,32 @@ Hermes TUI mode SHALL expose a real Hermes terminal through tmux and use verifie
 - **WHEN** a caller requests terminal-parser history, automatic key dispatch, or another parser-specific operation from a Hermes TUI
 - **THEN** the operation reports unsupported
 - **AND THEN** qualified terminal handoff and structured control remain available
+
+#### Scenario: A Direct Manager Prompt Uses the Native Owner
+
+- **WHEN** a local or delegated manager prompt selects a current Hermes TUI generation with a ready pinned conversation
+- **THEN** the manager and gateway use the same owner admission and Hermes native submit path
+- **AND THEN** the manager correlates its result to its original owner claim and exact durable native admission
+- **AND THEN** submission and settlement work when the gateway is detached or Ink is absent or displaying another conversation
+
+#### Scenario: Manager and Gateway Compete for the Owner Slot
+
+- **WHEN** a manager prompt and a gateway prompt compete for the same pinned conversation and managed generation
+- **THEN** the shared owner slot admits at most one prompt while its outcome remains unresolved
+- **AND THEN** the refused caller reports that work is outstanding before sending input
+
+#### Scenario: Manager Wait Reports Exact Terminal or Known Admission Evidence
+
+- **WHEN** the manager waits for a submitted Hermes TUI prompt
+- **THEN** it reports completion, failure, or interruption only from a terminal receipt attributable to that request
+- **AND THEN** if its bounded wait expires with verified queue acceptance or native handoff, it reports that acceptance under the original request ID
+- **AND THEN** if admission cannot be established, it reports uncertainty and retains the evidence for reconciliation without replaying the prompt
+
+#### Scenario: A Direct Manager Prompt Finds the Pinned Conversation Busy
+
+- **WHEN** the pinned conversation is busy at the final native readiness check or the selected owner is unavailable
+- **THEN** the manager reports the native refusal or unavailable authority before sending input
+- **AND THEN** a failed pre-admission attempt does not leave an unresolved slot that prevents the next qualified prompt
 
 ### Requirement: Hermes TUI Preserves Queued Receipts After the Idle Check
 
@@ -163,12 +174,12 @@ For an ordinary Hermes TUI prompt, Houmao SHALL check fresh native session readi
 
 ### Requirement: Hermes Service Uses Persistent ACP
 
-Hermes service mode SHALL own a persistent `hermes acp` client and its verified Hermes daemon. The adapter SHALL negotiate the protocol and bind the exact logical session before publishing readiness. It SHALL correlate prompt settlement, reverse interactions, and cancellation to the current operation.
+Hermes service mode SHALL own one persistent `hermes acp` client for the selected profile. It SHALL negotiate ACP and bind the exact logical session on the verified shared gateway before publishing readiness. Prompt settlement, reverse interactions, interruption, and edit policy SHALL remain scoped to the current operation and bound session.
 
 #### Scenario: Two Prompts Use the Same ACP Service
 
 - **WHEN** consecutive requests are admitted to the same healthy service
-- **THEN** both use the same ACP process, daemon, and bound session
+- **THEN** both use the same ACP process, verified gateway incarnation, profile, and bound session
 - **AND THEN** resume-time replay remains historical evidence
 
 #### Scenario: ACP Requests an Approval
@@ -177,20 +188,45 @@ Hermes service mode SHALL own a persistent `hermes acp` client and its verified 
 - **THEN** the owner responds using the authorized native policy and an advertised option while it continues to drain protocol output
 - **AND THEN** unqualified client facilities or unanswered user interactions do not silently grant access
 
+#### Scenario: Unattended Service Establishes the Broadest Qualified Native Edit Mode
+
+- **WHEN** an unattended service starts or explicitly relaunches and verifies its ACP session
+- **THEN** the owner confirms the broadest qualified native edit mode on that session before publishing readiness
+- **AND THEN** ordinary supported file edits can proceed with the full scope that Hermes permits for the selected execution identity
+- **AND THEN** a peer that cannot establish that mode produces an explicit compatibility failure
+
+#### Scenario: An Unattended Tool Permission Is Attributable
+
+- **WHEN** an unattended ACP peer sends a supported tool-permission request for the bound profile, session, and current uncancelled operation
+- **AND WHEN** the request offers one qualifying one-time allow option with an unambiguous option identifier
+- **THEN** Houmao selects that advertised one-time option while continuing to drain the active turn
+- **AND THEN** the response creates no persistent grant and preserves native hard denials
+
+#### Scenario: ACP Cannot Authorize the Reverse Interaction
+
+- **WHEN** a reverse interaction concerns another profile or session, concerns a cancelled or inactive operation, lacks a qualifying permission request or option, or asks for clarification, model or provider change, or another non-tool decision
+- **THEN** Houmao leaves it ungranted using the applicable refusal or cancellation response
+- **AND THEN** Houmao supplies no fabricated answer or consent
+
+#### Scenario: As-Is Service Leaves Native Approval in Effect
+
+- **WHEN** the selected ACP launch requests `as_is`
+- **THEN** the owner preserves the selected native edit mode and does not apply unattended automatic tool grants
+
 #### Scenario: ACP Disconnects During Work
 
 - **WHEN** the ACP process or stream disappears after a prompt may have been submitted
-- **THEN** the owner reports uncertainty until it verifies the exact native outcome
+- **THEN** the owner reports uncertainty until it verifies the exact profile's native outcome
 - **AND THEN** viewer exit is insufficient evidence of cancellation
 
 ### Requirement: Hermes Headless Uses a Finite Structured CLI Client
 
-Every accepted Hermes headless turn SHALL use one finite `hermes chat` CLI client with literal input and structured JSONL output. Houmao SHALL verify the logical session ID and workspace before continuation and pass that ID unchanged to stock `--resume`, which uses Hermes's native lookup behavior. Houmao SHALL retain raw turn artifacts and publish attributable semantic events separately.
+Every accepted Hermes headless turn SHALL use one finite `hermes chat` CLI client with literal input and structured JSONL output. Houmao SHALL verify the exact named profile, logical session ID, and workspace before continuation. It SHALL select that profile and pass the ID unchanged to stock `--resume`, which uses Hermes's native lookup behavior. Houmao SHALL retain raw turn artifacts and publish attributable semantic events separately.
 
 #### Scenario: Two Headless Prompts Continue the Same Session
 
 - **WHEN** the second prompt explicitly continues the first native conversation and Hermes resolves the verified ID
-- **THEN** Houmao starts a new CLI process with `--resume <full-id>` in the verified workspace
+- **THEN** Houmao starts `hermes --profile <profile> chat` with `--resume <full-id>` in the verified workspace
 - **AND THEN** the model sees the earlier turn and the client accepts multiline input literally
 
 #### Scenario: The CLI Reports a Different Session After Verification
@@ -246,3 +282,107 @@ A durable Hermes TUI receipt SHALL settle an owner prompt attempt only when it s
 #### Scenario: A queued receipt stays queued
 - **WHEN** a complete receipt proves that the native session queued the prompt
 - **THEN** recovery retains the original admission and its queued status until attributable evidence changes it
+
+### Requirement: Managed Hermes Applies the Maximum Qualified Unattended Approval Posture
+
+At managed start and explicit relaunch, Houmao SHALL establish the maximum qualified native approval posture for the selected unattended Hermes mode and verified home. Native hard denials and authority checks SHALL remain in effect. Unsupported approval behavior SHALL fail explicitly before readiness. `as_is` SHALL preserve the selected native approval policy.
+
+#### Scenario: Unattended TUI Runs an Approval-Gated Command Without an Operator
+
+- **WHEN** a fresh or explicitly relaunched unattended Hermes TUI runs a tool action that normally requires recoverable command approval
+- **THEN** the verified native execution applies the unattended approval policy without waiting for an operator or an attached Ink viewer
+- **AND THEN** attempts covered by native hard denials still fail
+
+#### Scenario: Unattended Headless Continues the Verified Conversation
+
+- **WHEN** an unattended finite Hermes turn executes in a fresh or explicitly relaunched managed runtime
+- **THEN** the finite client uses its qualified unattended command-approval policy and the verified exact conversation
+- **AND THEN** both the first turn and an exact continuation can execute an otherwise approval-gated command without human input
+
+#### Scenario: Unattended Service Preserves Its Native Command-Approval Posture
+
+- **WHEN** a fresh or explicitly relaunched unattended Hermes service executes a tool action normally subject to recoverable command approval
+- **THEN** the verified native execution applies the unattended approval policy without waiting for an operator
+- **AND THEN** native hard denials remain in effect and other managed agents retain their own approval policies
+
+#### Scenario: As-Is Start Uses the Selected Native Policy
+
+- **WHEN** the selected Hermes launch requests `as_is`
+- **THEN** the start or explicit relaunch uses the selected native approval policy without retaining Houmao-generated unattended settings as authored policy
+
+#### Scenario: Observation Leaves the Live Approval Policy Intact
+
+- **WHEN** an authorized caller observes or controls an already-live Hermes runtime without requesting explicit lifecycle start or relaunch
+- **THEN** the operation leaves the managed approval posture intact
+
+### Requirement: Hermes TUI Reports Pending Native Approval
+
+Houmao SHALL expose a safe optional `control.approval_pending` indicator from current structured approval evidence for the exact managed Hermes TUI session and execution. A verified pending approval SHALL keep the turn active and new prompt admission closed. The indicator SHALL omit the approval payload and remain unknown when the evidence is unavailable or invalid.
+
+#### Scenario: A Manual Approval Remains Pending With Ink Detached
+
+- **WHEN** the verified native execution for an `as_is` managed TUI awaits recoverable tool approval
+- **THEN** manager, gateway, and passive-server state report pending approval and closed prompt admission independently of the Ink attachment
+- **AND THEN** the response omits the native command, description, option values, file content, and other private approval data
+
+#### Scenario: Native Settlement Clears the Pending Indicator
+
+- **WHEN** current native evidence confirms the approval is resolved or withdrawn
+- **THEN** state reports `control.approval_pending` as false and derives readiness from the remaining native work
+
+#### Scenario: Other Prompts and Stale Approval Evidence Are Excluded
+
+- **WHEN** native state contains a clarification, a queued prompt, or an approval from another execution generation
+- **THEN** that evidence alone does not establish a pending approval for the managed execution
+- **AND THEN** an unverified session or malformed approval evidence leaves the indicator unknown
+
+### Requirement: Managed Hermes Uses an Already Prepared Installation
+
+Houmao SHALL select one operator-configured Hermes root and qualified installed runtime in the selected execution context. Launch, relaunch, and prompt execution SHALL use the prepared dependency environment. Installation, dependency synchronization, and dependency changes SHALL require separate owner-authorized preparation.
+
+#### Scenario: Fresh Workers Share Prepared Dependencies
+
+- **WHEN** two workers launch from distinct projects in the same configured execution context
+- **THEN** both use their own named profiles and the same prepared Hermes dependency environment
+- **AND THEN** neither worker launch starts dependency installation, creates a private Python environment, or mutates the shared installation selection
+- **AND THEN** a successful startup publishes the same managed identity for manager and gateway controls
+
+#### Scenario: Prepared Installation Is Missing or Incompatible
+
+- **WHEN** the configured installation is missing, stale, or lacks the required shared-profile, client, or caller-proof capabilities
+- **THEN** Houmao fails preflight with the selected context and actionable preparation guidance
+- **AND THEN** it leaves existing profiles, running workers, and project home links intact
+
+#### Scenario: Worker Settings Require Unprepared Dependencies
+
+- **WHEN** a worker's effective settings request a dependency unavailable in the prepared installation
+- **THEN** launch refuses with owner-side preparation guidance before creating or replacing a worker binding
+
+#### Scenario: Hermes Startup Fails
+
+- **WHEN** qualified native startup fails for the selected mode or its native connection fails to initialize
+- **THEN** Houmao reports the startup failure for that mode using the available diagnostics
+
+### Requirement: Managed Hermes Lifecycle Preserves Profile Attribution
+
+Houmao SHALL scope native start, readiness, stop, relaunch, rollback, and recovery to the recorded profile on its qualified shared gateway. It SHALL apply credentials and the selected approval posture to that profile and verify their effective scope before readiness.
+
+#### Scenario: Workers Use Different Credentials and Approval Modes
+
+- **WHEN** two served profiles select different native settings, credentials, or approval postures
+- **THEN** each uses its own selected inputs
+- **AND THEN** an unavailable credential, approval mode, or profile binding fails explicitly without falling back to the root or a sibling profile
+- **AND THEN** a native approval, file-edit grant, model change, or turn event only affects the profile and session for which it was established
+
+#### Scenario: Stop and Relaunch Reuse an Owned Profile
+
+- **WHEN** Houmao stops a worker whose home remains available for reuse
+- **THEN** it closes that worker's admission, settles or reports unresolved owned work, and parks that profile
+- **AND THEN** the home, workspace binding, and project link remain available for explicit relaunch
+- **AND THEN** exact continuation requires verification of the saved session in that profile and workspace
+
+#### Scenario: Concurrent Launch or Failed Publication
+
+- **WHEN** launches share an owner root or a new launch fails after reserving a profile
+- **THEN** Houmao serializes shared gateway acquisition and profile creation as required and publishes only verified worker bindings
+- **AND THEN** rollback releases only the failed launch's acquired authority and artifacts and reports incomplete settlement

@@ -143,7 +143,6 @@ from .backends.headless_base import (
 from .backends.kimi_headless import KimiHeadlessSession
 from houmao.agents.hermes_configuration import (
     hermes_owned_environment_name,
-    resolve_hermes_executable,
 )
 from houmao.agents.realm_controller.backends.dsh_headless import DshHeadlessSession
 from houmao.agents.realm_controller.backends.hermes_headless import HermesHeadlessSession
@@ -276,7 +275,7 @@ from houmao.agents.realm_controller.run_modes import (
     resolve_run_mode,
 )
 from houmao.agents.realm_controller.hermes_self import (
-    HERMES_DETACHED_SELF_BACKENDS,
+    hermes_daemon_self_supported,
     refresh_hermes_daemon_authority,
 )
 from houmao.agents.realm_controller.startup_rollback import (
@@ -2073,7 +2072,9 @@ class RuntimeSessionController:
             self.m_registry_handoff_generation = None
         else:
             published = publish_live_agent_record(record)
-        if self.launch_plan.backend in HERMES_DETACHED_SELF_BACKENDS:
+        if hermes_daemon_self_supported(
+            self.launch_plan.backend, named_profile=self.launch_plan.hermes_profile is not None
+        ):
             try:
                 refresh_hermes_daemon_authority(self.manifest_path, published, self.launch_plan)
             except SessionManifestError as exc:
@@ -2282,10 +2283,10 @@ def start_runtime_session(
     tool = str(manifest.get("inputs", {}).get("tool", ""))
     selected_backend = resolve_run_mode(tool, mode=mode, backend=backend).backend
     if tool == "hermes":
-        try:
-            resolve_hermes_executable(working_directory=working_directory)
-        except (OSError, ValueError) as exc:
-            raise LaunchPlanError(str(exc)) from exc
+        if manifest.get("runtime", {}).get("hermes_profile") is None:
+            raise LaunchPlanError(
+                "Build a fresh managed Hermes named profile before starting a worker."
+            )
         if any(hermes_owned_environment_name(name) for name in (launch_env_overrides or {})):
             raise SessionManifestError(
                 "Hermes provider and native environment controls are Houmao-owned."
@@ -2842,6 +2843,13 @@ def _resume_runtime_session_controller(
             f"({sorted(_STOPPED_SESSION_RELAUNCH_BACKENDS)}), got {backend!r}."
         )
     if stopped_revival:
+        if (
+            manifest_payload.tool == "hermes"
+            and manifest_payload.launch_plan.hermes_profile is None
+        ):
+            from houmao.agents.hermes_profile import HERMES_STANDALONE_RELAUNCH_REFUSAL
+
+            raise SessionManifestError(HERMES_STANDALONE_RELAUNCH_REFUSAL)
         preflight_launch_permissions(load_brain_manifest(brain_manifest_path), backend=backend)
     agent_def_dir = _launch_definition_path(manifest_payload, agent_def_dir)
     memory = _memory_from_manifest_payload(payload=manifest_payload)
@@ -3488,6 +3496,7 @@ def _restore_runtime_launch_plan(
         public_env=public_env,
         private_env_var_names=private_names,
         previous_public_env_var_names=masked_names,
+        hermes_profile=saved.hermes_profile,
         launch_policy_provenance=LaunchPolicyProvenance(**provenance.model_dump())
         if provenance is not None
         else None,
@@ -3524,6 +3533,10 @@ def _resolve_relaunch_chat_session_selection(
 ) -> RelaunchChatSessionSelection:
     """Resolve relaunch chat-session policy from CLI override, profile provenance, or default."""
 
+    if controller.launch_plan.tool == "hermes" and controller.launch_plan.hermes_profile is None:
+        from houmao.agents.hermes_profile import HERMES_STANDALONE_RELAUNCH_REFUSAL
+
+        raise ValueError(HERMES_STANDALONE_RELAUNCH_REFUSAL)
     if requested is not None:
         return requested
     profile_selection = _launch_profile_relaunch_chat_session_selection(controller.launch_plan)
@@ -4234,6 +4247,11 @@ def _build_provider_start_launch_plan_for_relaunch(
 ) -> LaunchPlan:
     """Rebuild a provider-start launch plan for one local tmux-backed relaunch."""
 
+    if controller.launch_plan.tool == "hermes" and controller.launch_plan.hermes_profile is None:
+        raise SessionManifestError(
+            "An existing standalone Hermes worker cannot relaunch into a named profile. "
+            "Start a fresh worker with a new Hermes build."
+        )
     if controller.agent_def_dir is None:
         raise SessionManifestError(
             "Local provider relaunch requires a persisted agent-definition directory."
@@ -4297,6 +4315,8 @@ def _build_provider_start_launch_plan_for_relaunch(
             session_root=controller.manifest_path.parent,
         )
     )
+    if updated_launch_plan.hermes_profile != controller.launch_plan.hermes_profile:
+        raise SessionManifestError("The saved managed Hermes profile binding has changed.")
     updated_launch_plan = _launch_plan_with_memory(
         updated_launch_plan,
         memory=controller_memory,

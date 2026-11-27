@@ -90,6 +90,7 @@ def test_runtime_launch_checks_only_explicit_timings(
             "inputs": {"tool": tool},
             "runtime": {
                 "launch_executable": tool,
+                "hermes_profile": {} if tool == "hermes" else None,
                 "launch_contract": {
                     "adapter_defaults": {"args": []},
                     "requested_overrides": {"preset": None, "direct": None},
@@ -97,7 +98,6 @@ def test_runtime_launch_checks_only_explicit_timings(
             },
         },
     )
-    monkeypatch.setattr(runtime, "resolve_hermes_executable", lambda **_: tmp_path / "hermes")
     monkeypatch.setattr(runtime, "validate_dsh_launch_version", lambda **_: None)
     prepare = Mock(side_effect=SessionManifestError("reached owner identity"))
     monkeypatch.setattr(runtime, "_resolve_start_session_identity", prepare)

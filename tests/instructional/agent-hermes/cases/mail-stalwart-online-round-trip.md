@@ -159,7 +159,7 @@ pixi run python "$LAB" stop --run-dir "$RUN_JMAP_A" --run-dir "$RUN_JMAP_B" \
   - For `TAG2`: `a-archive-final.json` and `b-archive-final.json` confirm both request and reply are archived (`read == true`, `archived == true`), `a-inbox-cleared.json` confirms `count == 0`, and exactly `1` reply exists from `$ONLINE_ADDR_B` with matching `inReplyTo`/`references` (zero reply-loop duplicates).
   - Agent B's retained gateway authorization records show two `mail.reply` handoffs for the selected online binding. Each handoff identifies verified self for the current managed generation.
   - `a-offline-notifier-after.json` still reports `enabled == true`, `interval_seconds == 45`, `mode == "any_inbox"`, and `appendix_text == "offline-sentinel-appendix"` after disabling the `online` notifier.
-  - Both redaction audits report `leak_count == 0`; `stop.json` records `surviving_daemon_pids == []` and `stalwart_cleanup.verified_absent == true`.
+  - Both redaction audits report `leak_count == 0`. `stop.json` records both profiles parked and `stalwart_cleanup.verified_absent == true`.
 - **Qualitative checks:**
   - Inspect the delivered Stalwart replies and captured transcripts (`transcript-a/`, `transcript-b/`) to confirm `agent-b` answered `TAG1` with `confirmed` and `TAG2` with `amber-44` from `station.txt`, used the gateway mailbox API through `houmao-process-emails-via-gateway`, and `agent-a` archived the confirmation cleanly without triggering an extra reply.
 

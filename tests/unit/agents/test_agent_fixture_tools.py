@@ -1079,9 +1079,12 @@ def manager_fixture_authority(
     root.mkdir(mode=0o700)
     workdir = root / "workdir"
     workdir.mkdir()
-    manifest_path = root / "manifest.json"
+    owner = root / "test-owner"
+    runtime = owner / "fixture-owner/runtime"
+    runtime.mkdir(parents=True)
+    manifest_path = runtime / "manifest.json"
     manifest_path.touch()
-    registry_root = str(root / "registry")
+    registry_root = str(owner / "fixture-owner/registry")
     socket_path = str(root / "isolated.sock")
     identity = {
         "agent_id": "fixture-owner",
@@ -1099,6 +1102,7 @@ def manager_fixture_authority(
         "run_dir": str(root),
         "workdir": str(workdir),
         "project_dir": str(workdir),
+        "hermes_owner_root": str(owner),
         "executable": sys.executable,
         "configuration": {"client": "hermes", "mode": "service", "surface": "manager"},
         "backend": "hermes_service",
@@ -1110,7 +1114,9 @@ def manager_fixture_authority(
     fixture_prepare.write_json(root / "run.json", run)
     fixture_prepare.write_json(root / "private-env.json", {"HERMES_API_KEY": "fixture-key"})
     binding = SimpleNamespace(
+        context_id="fixture-context",
         registry_root=registry_root,
+        runtime_root=str(runtime),
         tmux_socket=socket_path,
         model_dump=lambda **_: {"context_id": "fixture-context", "registry_root": registry_root},
     )
@@ -1130,6 +1136,14 @@ def manager_fixture_authority(
         registry_generation_id=record.generation_id,
         registry_launch_authority="runtime",
         runtime=SimpleNamespace(session_id="fixture-runtime", execution_binding=binding),
+        launch_plan=SimpleNamespace(
+            hermes_profile=SimpleNamespace(
+                prepared_root=owner,
+                context_id=binding.context_id,
+                project_home_link=workdir / ".houmao/runtime/homes/example",
+                model_dump=lambda **_: {"context_id": binding.context_id},
+            )
+        ),
         tmux=SimpleNamespace(socket_path=socket_path, session_name=identity["tmux_session_name"]),
         native_surface=None,
     )
@@ -1151,6 +1165,15 @@ def manager_fixture_authority(
     monkeypatch.setattr(fixture_launch, "load_managed_agent_record_by_agent_id", load_record)
     monkeypatch.setattr(fixture_launch, "require_active_managed_control_manifest", fence)
     monkeypatch.setattr(fixture_launch, "resolve_hermes_executable", lambda **_: sys.executable)
+    monkeypatch.setattr(fixture_launch, "selected_owner_root", lambda path: path)
+    monkeypatch.setattr(
+        fixture_launch,
+        "qualify_owner",
+        lambda root: SimpleNamespace(
+            root=root, executable=sys.executable, evidence=SimpleNamespace(version="0.23.4")
+        ),
+    )
+    monkeypatch.setattr(fixture_launch, "observe_profile", lambda *_: {"profile": "example"})
     monkeypatch.setattr(
         fixture_launch, "load_session_manifest", lambda _path: SimpleNamespace(payload={})
     )
@@ -1170,6 +1193,83 @@ def manager_fixture_authority(
         ),
     )
     return scenario
+
+
+def test_hermes_fixture_retirement_uses_recorded_process_descriptor(
+    fixture_prepare: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A matching native identity can retire only through the pinned process descriptor."""
+
+    owner = importlib.import_module("fixturelib.hermes_owner")
+    root = tmp_path / "hermes"
+    source = root / "fixture-owner/host.json"
+    host = SimpleNamespace(pid=345, birth_token="proc:123", instance_id="native-incarnation")
+    fixture_prepare.write_json(source, vars(host))
+    deleted = root / "profiles/.deleted"
+    deleted.mkdir(parents=True)
+    (deleted / "retired-worker").touch()
+    available = iter((host, host, None))
+    daemon = SimpleNamespace(discover=lambda: next(available))
+    monkeypatch.setattr(owner, "qualify_owner", lambda _: object())
+    monkeypatch.setattr(owner, "_root_daemon", lambda _: daemon)
+    descriptor = os.open(os.devnull, os.O_RDONLY)
+    effects: list[tuple[str, int, int]] = []
+
+    def pidfd_open(pid: int) -> int:
+        effects.append(("pin", pid, descriptor))
+        return descriptor
+
+    observer = SimpleNamespace(
+        register=lambda fd, mask: effects.append(("watch", fd, mask)),
+        poll=lambda _: [(descriptor, owner.select.POLLIN)],
+    )
+    monkeypatch.setattr(owner.os, "pidfd_open", pidfd_open, raising=False)
+    monkeypatch.setattr(
+        owner, "_signal_worker", lambda fd, signum: effects.append(("signal", fd, signum))
+    )
+    monkeypatch.setattr(owner.select, "poll", lambda: observer)
+    retired = owner.retire_owner(root)
+    assert retired["host_exited"] and retired["retired_host"] == vars(host)
+    assert not source.exists()
+    assert (deleted / "retired-worker").is_file()
+    assert effects == [
+        ("pin", host.pid, descriptor),
+        ("signal", descriptor, owner.signal.SIGTERM),
+        ("watch", descriptor, owner.select.POLLIN),
+    ]
+
+
+def test_hermes_fixture_retirement_preserves_other_profiles(
+    fixture_prepare: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retained native profile blocks fixture host teardown before any signal."""
+
+    owner = importlib.import_module("fixturelib.hermes_owner")
+    (tmp_path / "profiles/retained").mkdir(parents=True)
+    monkeypatch.setattr(owner, "qualify_owner", lambda _: object())
+    with pytest.raises(fixture_prepare.FixtureError, match="Remove every named fixture profile"):
+        owner.retire_owner(tmp_path)
+
+
+def test_hermes_fixture_live_check_observes_native_independently(
+    manager_fixture_authority: SimpleNamespace,
+    fixture_launch: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Retain both observations when the manager's headline availability differs."""
+
+    case = manager_fixture_authority
+    case.record.lifecycle.state = "active"
+    monkeypatch.setattr(
+        fixture_launch, "manager_root_call", lambda *_a, **_k: {"availability": "unavailable"}
+    )
+    report = fixture_launch.check_run(case.root, live=True)
+    assert report["native_state"] == {
+        "mode": "service",
+        "availability": "unavailable",
+        "profile": "example",
+        "native_availability": "verified",
+    }
 
 
 def test_manager_fixture_follows_verified_relaunch_and_stops_once(

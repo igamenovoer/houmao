@@ -68,6 +68,13 @@ Internal object-style route traces MAY appear for diagnostics, but SHALL NOT rep
 - **AND THEN** the prompt states that the public entrypoint controls protected traversal
 - **AND THEN** the prompt does not present a protected file or logical id as a standalone native skill trigger
 
+#### Scenario: Hermes receives routed mailbox guidance
+
+- **WHEN** both public siblings are installed and Houmao generates mailbox guidance for a managed Hermes session
+- **THEN** it tells Hermes to call `skill_view` for `houmao-agent-entrypoint` and provides the operation's mailbox route
+- **AND THEN** the public entrypoint verifies self before delegating with the current actor and mailbox context to `houmao-shared-routines`
+- **AND THEN** only that sibling selects and loads the protected child, without asking Hermes to look up or manage the child as a public skill
+
 #### Scenario: Agent pack is unavailable
 - **WHEN** the gateway cannot find the public managed-agent entrypoint
 - **THEN** the generated prompt uses the supported mailbox API fallback

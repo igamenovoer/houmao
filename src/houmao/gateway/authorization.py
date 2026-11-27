@@ -221,13 +221,19 @@ class GatewayAuthorizer:
         operation_id: str,
         target: GatewayTarget,
         listener_id: str,
-        current_self: GatewaySelfKey | None = None,
+        resolve_self: Callable[[], GatewaySelfKey | None] | None = None,
     ) -> AuthorizationDecision:
         """Order one exact mutation admission against concurrent policy updates."""
 
         with self.m_store.transaction() as transaction:
+            current_self = None
             if decision.actor.kind == "self":
-                if transaction.load_self(target.incarnation) != current_self:
+                current_self = resolve_self() if resolve_self is not None else None
+                if (
+                    current_self is None
+                    or transaction.load_self(target.incarnation)
+                    != current_self.retained_registration()
+                ):
                     raise GatewayAccessError(401, "invalid_proof")
             current = self.require_current(
                 transaction.snapshot,

@@ -7,7 +7,7 @@ An operator runs a managed Hermes agent in `headless` mode (`hermes chat --onesh
 - `h1-multi-turn-finite-workers`: two turns execute in separate finite CLI processes while reusing one verified logical `session_id`, preserving `agent.reasoning_effort: xhigh` and writing separate `stdout.jsonl` and `stderr.log` turn artifacts.
 - `h2-multiline-metacharacter-stdin`: turn 2 supplies multiline input containing `$()`, backticks, single/double quotes, and `$HOME` literally through stdin, and the agent persists the exact literal string into a workspace file without shell expansion while recalling turn-1 context.
 - `h3-exact-relaunch-turn3`: exact relaunch with the recorded `session_id` completes turn 3 in the same conversation and workspace.
-- `h4-negative-interrupt-latest-and-missing-path`: `interrupt` on headless returns an explicit refusal without corrupting the bound session; `relaunch --chat-session-mode tool_last_or_new` fails explicitly; running `fixture.py prepare` with `PATH` excluding `hermes` fails cleanly without mutating any existing managed home.
+- `h4-negative-interrupt-latest-and-unprepared-owner`: Headless `interrupt` and `relaunch --chat-session-mode tool_last_or_new` return explicit refusals. Preparing against an unprepared test owner leaves the current profile intact.
 
 ## How to get to it (user POV)
 
@@ -65,11 +65,10 @@ pixi run python "$LAB" manager --run-dir "$RUN_HL" --allow-error -- \
   relaunch --chat-session-mode tool_last_or_new \
   > "$CASE_EVIDENCE/negative-tool-last.json"
 
-env -i HOME="$HOME" PATH="/usr/bin:/bin" \
-  pixi run python "$FIXTURE" prepare \
+pixi run python "$FIXTURE" prepare \
   --pool-slot a --mode headless --surface manager --tmux-server new \
-  --run-root "$RUN_TMP/runtime/neg-no-hermes" \
-  > "$CASE_EVIDENCE/negative-missing-path.txt" 2>&1 || echo "missing_path_exit=$?" > "$CASE_EVIDENCE/negative-missing-path-exit.txt"
+  --hermes-owner-root "$RUN_TMP/unprepared-owner" --run-root "$RUN_TMP/runtime/neg-no-hermes" \
+  > "$CASE_EVIDENCE/negative-unprepared-owner.txt" 2>&1 || echo "unprepared_owner_exit=$?" > "$CASE_EVIDENCE/negative-unprepared-owner-exit.txt"
 
 AFTER_HASH="$(find "$(jq -er '.managed_home' "$CASE_EVIDENCE/home-snapshot-after-turn2.json")" -maxdepth 2 -type f -exec sha256sum {} + | sort)"
 test "$BEFORE_HASH" = "$AFTER_HASH" && echo "home_unchanged=true" > "$CASE_EVIDENCE/negative-home-integrity.txt"
@@ -107,14 +106,14 @@ pixi run python "$LAB" stop --run-dir "$RUN_HL" --evidence-root "$EVIDENCE" \
   - `home-snapshot-final.json` records `len(headless_turns) == 3`, with identical non-empty `session_id` across all three turns, `turn_index` strictly `1, 2, 3`, `exitcode == 0`, `stdout_exists == true`, `stderr_exists == true`, and `result_frame.exit_code == 0` with `result_frame.session_id == "$HL_SID"` and `result_frame.error` falsy.
   - `literal.txt` contains the verbatim substring `$(echo NOT_EXPANDED) ` `` `uname` `` `"$HOME"` (zero shell expansion of `$HOME` or `uname`) plus `quartz-ridge-42`.
   - `negative-interrupt.json` reports refusal/error (`ok == false` or `status == "error"`) stating an attributable native admission is required, and does not alter `session_id`.
-  - `negative-tool-last.json` reports refusal/error; `negative-missing-path-exit.txt` records non-zero exit with diagnostic mentioning `hermes` missing from `PATH`; `negative-home-integrity.txt` confirms `home_unchanged=true`.
-  - `redaction-audit.json` exits `0` (`leak_count == 0`); `stop.json` records `surviving_daemon_pids == []`.
+  - `negative-tool-last.json` reports refusal. The unprepared owner returns a nonzero exit and an owner preparation diagnostic. `negative-home-integrity.txt` confirms `home_unchanged=true`.
+  - `redaction-audit.json` exits `0` (`leak_count == 0`). `stop.json` records `profile_parked == true`.
 - **Qualitative checks:**
   - Inspect `prompt-turn2.json`, `prompt-turn3.json`, and `transcript/runtime-artifacts/*/stdout.jsonl` to confirm genuine multi-turn recall of `quartz-ridge-42` and `literal.txt` across separate finite processes and exact relaunch.
 
 ## Gotchas
 
-- `hermes` must not be present in `/usr/bin` or `/bin` when running `negative-missing-path`; if `hermes` is installed system-wide under `/usr/bin`, construct a temporary empty `PATH` directory containing only `pixi`'s required shims (without `hermes`) so `command -v hermes` genuinely fails.
+- Choose an unused scratch path for the unprepared-owner check.
 - Each headless turn has a 300-second dispatch deadline; keep prompts focused so `xhigh` thinking completes comfortably within that window.
 
 ## Blinding and Transcript Checks

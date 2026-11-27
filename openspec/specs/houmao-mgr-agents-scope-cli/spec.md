@@ -873,7 +873,7 @@ At minimum, `agents self` SHALL expose:
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-Tmux-backed commands SHALL resolve the owning tmux session. Supported headless self commands SHALL accept their verified runtime-owned manifest locator without tmux.
+Commands that act on a terminal SHALL verify the owning tmux session. Supported headless self commands SHALL accept their verified runtime-owned manifest locator without tmux. Hermes service and TUI self commands that use native runtime authority SHALL accept verified detached daemon callers.
 
 `agents self` commands SHALL NOT accept `--agent-id`, `--agent-name`, or `--current-session` because the target is the current managed-agent identity by definition.
 
@@ -909,3 +909,9 @@ Tmux-backed commands SHALL resolve the owning tmux session. Supported headless s
 - **THEN** the help output lists current-session `prompt`, `interrupt`, and `relaunch`
 - **AND THEN** it omits manual adoption and destructive lifecycle commands `stop` and `cleanup`
 - **AND THEN** the documentation directs selected-agent stopped/degraded relaunch recovery, stop, and cleanup to `houmao-mgr agents single --agent-id <id> ...` or `houmao-mgr agents single --agent-name <name> ...`
+
+#### Scenario: A Detached Hermes Tool Uses the Self Scope
+
+- **WHEN** a current managed Hermes service or TUI tool invokes `agents self identity`, `agents self state`, or a supported self mail command outside tmux
+- **THEN** the command targets the verified current managed runtime without accepting an explicit agent selector
+- **AND THEN** terminal-specific operations continue to require their own supported authority

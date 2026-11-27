@@ -21,11 +21,15 @@ from houmao.agents.realm_controller.backends.tmux_runtime import (
 from houmao.agents.realm_controller.boundary_models import SessionManifestPayloadV4
 from houmao.agents.realm_controller.errors import SessionManifestError
 from houmao.agents.realm_controller.hermes_self import (
-    HERMES_DETACHED_SELF_BACKENDS,
     HermesSelfLocator,
+    hermes_daemon_self_supported,
     read_hermes_self_locator,
     require_hermes_daemon_caller,
     require_live_hermes_daemon_authority,
+)
+from houmao.agents.realm_controller.hermes_tool_origin import (
+    HERMES_TOOL_ORIGIN_ENV,
+    require_hermes_tool_origin,
 )
 from houmao.agents.realm_controller.manifest import (
     default_manifest_path,
@@ -53,6 +57,7 @@ class VerifiedSelfManifest:
     path: Path
     payload: SessionManifestPayloadV4
     record: ManagedAgentRegistryRecordV3
+    native_authority: str | None = None
 
     @property
     def manifest_path(self) -> Path:
@@ -90,6 +95,8 @@ def _resolve_self_manifest() -> VerifiedSelfManifest:
         ):
             raise ValueError("The Hermes self locator names a different daemon incarnation.")
         require_hermes_daemon_caller(daemon)
+        if daemon.gateway_root is not None:
+            require_hermes_tool_origin(daemon, os.environ.get(HERMES_TOOL_ORIGIN_ENV))
 
         # A relaunch may replace the manifest or registry while ancestry is being checked.
         current_path, current = _read_confined_self_manifest(str(path))
@@ -99,7 +106,12 @@ def _resolve_self_manifest() -> VerifiedSelfManifest:
             or require_live_hermes_daemon_authority(current_path, current) != daemon
         ):
             raise ValueError("The managed Hermes owner changed during self resolution.")
-        return _verify_self_generation(current_path, current, authority.agent_id)
+        return _verify_self_generation(
+            current_path,
+            current,
+            authority.agent_id,
+            native_authority=daemon.fingerprint if daemon.gateway_root is not None else None,
+        )
 
     owner = _self_tmux_session()
     published_agent_id = None
@@ -124,6 +136,8 @@ def _resolve_self_manifest() -> VerifiedSelfManifest:
                 pointer = record.runtime.manifest_path
 
     path, payload = _read_confined_self_manifest(pointer)
+    if payload.launch_plan.hermes_profile is not None:
+        raise ValueError("Self lookup requires origin from the managed Hermes tool session.")
     authority = _verify_self_generation(path, payload, published_agent_id)
     registry_tmux = (
         authority.record.terminal.socket_path,
@@ -162,7 +176,7 @@ def _detached_hermes_manifest() -> (
     """Locate a detached Hermes daemon's candidate without reading its tmux hints."""
 
     home_value = os.environ.get("HERMES_HOME")
-    if not home_value or os.environ.get("TMUX"):
+    if not home_value or (os.environ.get("TMUX") and not os.environ.get(HERMES_TOOL_ORIGIN_ENV)):
         return None
     home = Path(home_value)
     locator = read_hermes_self_locator(home)
@@ -176,10 +190,13 @@ def _detached_hermes_manifest() -> (
         if locator is not None
         else None
     )
-    if payload.backend not in HERMES_DETACHED_SELF_BACKENDS and locator is None:
+    supported = hermes_daemon_self_supported(
+        payload.backend, named_profile=payload.launch_plan.hermes_profile is not None
+    )
+    if not supported and locator is None:
         return None
     if (
-        payload.backend not in HERMES_DETACHED_SELF_BACKENDS
+        not supported
         or payload.launch_plan.home_selector.home_path != str(home)
         or locator is not None
         and (
@@ -193,7 +210,11 @@ def _detached_hermes_manifest() -> (
 
 
 def _verify_self_generation(
-    path: Path, payload: SessionManifestPayloadV4, published_agent_id: str | None
+    path: Path,
+    payload: SessionManifestPayloadV4,
+    published_agent_id: str | None,
+    *,
+    native_authority: str | None = None,
 ) -> VerifiedSelfManifest:
     """Verify shared owner and registry authority before checking caller provenance."""
 
@@ -234,7 +255,9 @@ def _verify_self_generation(
         != registry_tmux
     ):
         raise ValueError("The self manifest tmux binding does not match the live registry record.")
-    return VerifiedSelfManifest(path=path, payload=payload, record=record)
+    return VerifiedSelfManifest(
+        path=path, payload=payload, record=record, native_authority=native_authority
+    )
 
 
 def _self_tmux_session() -> tuple[str, str] | None:

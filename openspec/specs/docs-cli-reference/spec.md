@@ -72,7 +72,7 @@ The `houmao-mgr` reference SHALL describe the public command tree, scoped agent 
 
 #### Scenario: Reader sees agents scope cardinality rules
 - **WHEN** a reader opens the `houmao-mgr agents` reference
-- **THEN** the page explains that `agents global` is for zero-or-many local managed-agent operations, `agents single` is for exactly one explicitly selected local managed agent, and `agents self` is for the one local managed agent held by the caller's current tmux session
+- **THEN** the page explains that `agents global` is for zero-or-many local managed-agent operations, `agents single` is for exactly one explicitly selected local managed agent, and `agents self` is for the caller's one verified current managed agent
 - **AND THEN** the page explains that `agents external` manages external-agent registry/reference onboarding without local lifecycle authority
 
 #### Scenario: Reader can discover internal brain and credential command families
@@ -94,7 +94,7 @@ The `houmao-mgr` reference SHALL describe the public command tree, scoped agent 
 #### Scenario: Reader can find explicit single and self mail targeting rules
 - **WHEN** a reader looks up managed-agent mail commands
 - **THEN** the CLI reference documents `resolve-live`, `list`, `read`, `archive`, and the other mailbox follow-up commands in the single and self mail families
-- **AND THEN** the reader can see that `agents single mail` uses a group-level explicit selector while `agents self mail` resolves the current managed tmux session
+- **AND THEN** the reader can see that `agents single mail` uses a group-level explicit selector while `agents self mail` uses the verified current runtime, including supported detached Hermes tools
 - **AND THEN** the page explains that `resolve-live` returns structured mailbox data rather than mailbox-specific shell export
 
 #### Scenario: Reader can find managed-agent mail result-strength guidance
@@ -126,6 +126,12 @@ The `houmao-mgr` reference SHALL describe the public command tree, scoped agent 
 - **THEN** the page shows that `project credentials claude` and `internals native-agent credentials claude` use `--auth-token`, `--oauth-token`, `--config-dir`
 - **AND THEN** the page shows that `project specialist create --tool claude` uses `--claude-auth-token`, `--claude-oauth-token`, `--claude-config-dir`
 - **AND THEN** the page states that both surfaces accept the same credential semantics
+
+#### Scenario: A Hermes Tool Uses Self Commands Outside Tmux
+
+- **WHEN** a reader looks up `agents self identity` or self mail from a Hermes service or TUI tool
+- **THEN** the reference explains that Houmao verifies the tool against its current managed Hermes daemon
+- **AND THEN** the reference distinguishes daemon-backed self commands from terminal operations that require a live owning surface
 
 ### Requirement: CLI reference lists only retained server binaries
 The CLI reference SHALL present `houmao-passive-server` as the retained server binary.
@@ -349,12 +355,12 @@ The CLI reference SHALL distinguish explicit gateway targets from the current ma
 - **WHEN** a reader opens `docs/reference/cli/agents-gateway.md` or `docs/reference/cli.md`
 - **THEN** the reference shows `houmao-mgr agents single --agent-id <id> gateway ...` and `houmao-mgr agents single --agent-name <name> gateway ...` for explicit targets
 - **AND THEN** it defines `--pair-port` as the `agents single` pair-authority override and identifies lower-level `--gateway-port` as controlling the listener
-- **AND THEN** the `agents-gateway` page explains outside-tmux selection through `agents single` and inside-tmux targeting through `agents self`
+- **AND THEN** the `agents-gateway` page explains explicit selection through `agents single` and verified current-runtime targeting through `agents self`
 
 #### Scenario: CLI reference page lists the tmux-session selector and targeting boundary
 - **WHEN** a reader opens `docs/reference/cli/agents-gateway.md`
 - **THEN** the option tables and synopsis show `agents single --agent-id <id> gateway ...`, `agents single --agent-name <name> gateway ...`, and `agents self gateway ...`
-- **AND THEN** the page explains that `agents single` is for explicit outside-tmux targeting while `agents self` is for the owning tmux session
+- **AND THEN** the page explains that `agents single` takes an explicit target and `agents self` uses the verified current runtime, including supported detached Hermes tools
 
 #### Scenario: Top-level CLI guidance explains the port rule for tmux-session targeting
 - **WHEN** a reader checks `docs/reference/cli.md` for gateway targeting rules
@@ -645,7 +651,7 @@ The CLI reference SHALL document scoped mail discovery, processing, completion, 
 
 - **WHEN** a reader opens the `agents single ... mail` or `agents self mail` reference
 - **THEN** the page covers `resolve-live`, `status`, `list`, `peek`, `read`, `send`, `post`, `reply`, `mark`, `move`, and `archive` and identifies the applicable binding and authority for each
-- **AND THEN** it explains explicit selection and current-session selection inside the owning managed tmux session
+- **AND THEN** it explains explicit selection and self selection through the owning managed tmux session or a verified detached Hermes daemon
 - **AND THEN** it describes `resolve-live` structured output with a mailbox binding and optional `gateway.base_url`, without mailbox-specific shell exports
 
 #### Scenario: Reader Processes Mail

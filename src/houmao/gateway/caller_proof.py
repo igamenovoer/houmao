@@ -43,6 +43,7 @@ class _PendingChallenge:
 
     challenge: GatewayChallenge
     deadline: float
+    native_authority: str | None
 
 
 class CallerProofs:
@@ -74,6 +75,7 @@ class CallerProofs:
         generation_id = None
         enrollment_id = None
         revision = None
+        native_authority = None
         if candidate is not None:
             if (
                 payload.request.method,
@@ -94,6 +96,7 @@ class CallerProofs:
                 binding = self._self(target, key_id)
                 generation_id = binding.generation_id
                 revision = binding.registration_revision
+                native_authority = binding.native_authority
         challenge = GatewayChallenge(
             challenge_id=secrets.token_urlsafe(32),
             issuer=issuer,
@@ -117,7 +120,7 @@ class CallerProofs:
             if len(self.m_challenges) >= _CHALLENGE_CAPACITY:
                 raise GatewayAccessError(429, "challenge_capacity")
             self.m_challenges[challenge.challenge_id] = _PendingChallenge(
-                challenge, now + CHALLENGE_LIFETIME_SECONDS
+                challenge, now + CHALLENGE_LIFETIME_SECONDS, native_authority
             )
         return challenge
 
@@ -134,7 +137,8 @@ class CallerProofs:
 
         if challenge_id is None or signature is None:
             raise GatewayAccessError(401, "invalid_proof")
-        challenge = self._consume(challenge_id, signature)
+        pending = self._consume(challenge_id, signature)
+        challenge = pending.challenge
         target = self.target()
         if (
             challenge.target != target
@@ -155,7 +159,7 @@ class CallerProofs:
             return FirstEnrollment(
                 target, self.m_listener_id, state.policy_id, state.roster_revision, candidate
             )
-        return self._caller(challenge, signature, state)
+        return self._caller(pending, signature, state)
 
     def target(self) -> GatewayTarget:
         """Resolve current authority and verify its precise owner domain."""
@@ -166,15 +170,17 @@ class CallerProofs:
         return target
 
     def _caller(
-        self, challenge: GatewayChallenge, signature: str, state: PolicySnapshot
+        self, pending: _PendingChallenge, signature: str, state: PolicySnapshot
     ) -> AuthorizationActor:
         """Require the current enrollment or managed self generation named by proof."""
 
+        challenge = pending.challenge
         if challenge.generation_id is not None:
             binding = self._self(challenge.target, challenge.key_id)
             if (
                 binding.generation_id != challenge.generation_id
                 or binding.registration_revision != challenge.revision
+                or binding.native_authority != pending.native_authority
                 or not self._valid(binding.public_key, challenge, signature)
             ):
                 raise GatewayAccessError(401, "invalid_proof")
@@ -201,7 +207,7 @@ class CallerProofs:
             raise GatewayAccessError(401, "invalid_proof")
         return binding
 
-    def _consume(self, challenge_id: str, signature: str) -> GatewayChallenge:
+    def _consume(self, challenge_id: str, signature: str) -> _PendingChallenge:
         """Remove the challenge before any subsequent verification or effect."""
 
         if len(challenge_id) != 43 or not 1 <= len(signature) <= MAX_SIGNATURE_HEADER:
@@ -210,7 +216,7 @@ class CallerProofs:
             pending = self.m_challenges.pop(challenge_id, None)
         if pending is None or pending.deadline <= time.monotonic():
             raise GatewayAccessError(401, "invalid_proof")
-        return pending.challenge
+        return pending
 
     @staticmethod
     def _valid(public_key: str, challenge: GatewayChallenge, signature: str) -> bool:

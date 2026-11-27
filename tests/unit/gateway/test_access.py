@@ -103,6 +103,46 @@ def _proof(signer: PrivateKey, challenge: GatewayChallenge) -> dict[str, str]:
     }
 
 
+def test_self_challenge_and_handoff_expire_on_native_authority_change(
+    authority: _Authority,
+) -> None:
+    """Changing the served profile fences old work under the unchanged key and generation."""
+
+    registration = authority.store.load_self(authority.target.incarnation)
+    assert registration is not None
+    native = "a" * 64
+    policy = GatewayAccessPolicy(
+        store=authority.store,
+        target=lambda: authority.target,
+        current_self=lambda: registration.model_copy(update={"native_authority": native}),
+        listener_id="fixture-listener",
+    )
+    signer = authority.self_signer()
+    requested = GatewayChallengeRequest(
+        purpose="caller", request=REQUEST, key_id=registration.key_id
+    )
+    challenge = policy.issue(ISSUER, requested)
+    grant = policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, challenge))
+    assert isinstance(grant, GatewayGrant)
+    policy.handoff(grant, operation_id="first-effect")
+
+    queued = policy.issue(ISSUER, requested)
+    native = "b" * 64
+    with pytest.raises(GatewayAccessError) as rejected_challenge:
+        policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, queued))
+    assert rejected_challenge.value.code == "invalid_proof"
+    assert not policy.revalidate(grant)
+    with pytest.raises(GatewayAccessError) as rejected_grant:
+        policy.handoff(grant, operation_id="stale-effect")
+    assert rejected_grant.value.code == "invalid_proof"
+    assert policy.handoff_evidence("stale-effect") is None
+
+    ready = policy.issue(ISSUER, requested)
+    current = policy.admit((STATUS,), issuer=ISSUER, request=REQUEST, **_proof(signer, ready))
+    assert isinstance(current, GatewayGrant)
+    policy.handoff(current, operation_id="current-effect")
+
+
 def _registration(
     policy: GatewayAccessPolicy, key: GatewayAdminKey, signer: PrivateKey
 ) -> FirstEnrollment:

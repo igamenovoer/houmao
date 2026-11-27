@@ -91,6 +91,7 @@ class HermesAcpServiceProvider:
             workspace=config.working_directory,
             env=config.environment,
             root=config.root,
+            profile=config.hermes_profile,
         )
         self.m_daemon_identity: HermesDaemonIdentity | None = None
         self.m_connection: DshAcpConnection | None = None
@@ -107,10 +108,15 @@ class HermesAcpServiceProvider:
         """Open ACP and verify the native workspace before publishing readiness."""
 
         config = self.m_config
+        shared = config.hermes_profile is not None
         if config.arguments != ["acp"]:
             raise BackendExecutionError("Hermes service requires the native ACP command")
         try:
-            self.m_daemon_identity = self.m_daemon.ensure(unattended=self.m_unattended)
+            self.m_daemon_identity = (
+                self.m_daemon.ensure(unattended=self.m_unattended, start_shared_host=False)
+                if shared
+                else self.m_daemon.ensure(unattended=self.m_unattended)
+            )
             if config.session_id is not None:
                 self.m_daemon.resolve_session(config.session_id)
         except HermesApprovalCompatibilityError as exc:
@@ -125,10 +131,18 @@ class HermesAcpServiceProvider:
                 config.root / "provider-stderr.log", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
             )
             self.m_log = os.fdopen(descriptor, "w", encoding="utf-8", buffering=1)
+            command, environment = (
+                self.m_daemon.native_command(["acp"])
+                if shared
+                else (
+                    [config.executable, "acp"],
+                    hermes_daemon_environment(config.home_path, config.environment),
+                )
+            )
             self.m_connection = DshAcpConnection.from_command(
-                [config.executable, "acp"],
+                command,
                 cwd=config.working_directory,
-                env=hermes_daemon_environment(config.home_path, config.environment),
+                env=environment,
                 request_handler=self._handle_request,
                 notification_sink=self._retain_notification,
                 stderr_sink=self._append_diagnostic,
@@ -176,7 +190,7 @@ class HermesAcpServiceProvider:
             adopted = self.m_daemon.discover()
         except (BackendExecutionError, OSError, ValueError) as exc:
             raise ServiceStartupCompatibilityError(ServiceStartupCheck.HERMES_SESSION) from exc
-        if adopted is None:
+        if adopted is None or (shared and adopted != self.m_daemon_identity):
             raise ServiceStartupCompatibilityError(ServiceStartupCheck.HERMES_DAEMON)
         if self.m_unattended and adopted != self.m_daemon_identity:
             try:
@@ -419,7 +433,10 @@ class HermesAcpServiceProvider:
         finally:
             try:
                 if self.m_daemon_identity is not None:
-                    self.m_daemon.stop()
+                    if self.m_config.hermes_profile is None:
+                        self.m_daemon.stop()
+                    else:
+                        self.m_daemon.stop(expected=self.m_daemon_identity)
             finally:
                 if self.m_log is not None:
                     self.m_log.close()

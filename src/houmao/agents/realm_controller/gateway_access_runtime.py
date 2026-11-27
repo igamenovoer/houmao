@@ -13,12 +13,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from houmao.agents.realm_controller.backends.tmux_runtime import TmuxCommandError, list_tmux_panes
 from houmao.agents.realm_controller.errors import RetiredJoinedSessionError, SessionManifestError
-from houmao.agents.realm_controller.hermes_self import require_live_hermes_daemon_authority
+from houmao.agents.realm_controller.hermes_self import (
+    HERMES_DETACHED_SELF_BACKENDS,
+    require_live_hermes_daemon_authority,
+)
 from houmao.agents.realm_controller.manifest import (
     load_registry_mode_authority,
     load_session_manifest,
     parse_session_manifest_payload,
 )
+from houmao.agents.realm_controller.registry_models import ManagedAgentRegistryRecordV3
 from houmao.agents.realm_controller.registry_storage import (
     is_live_agent_record_fresh,
     load_managed_agent_record_by_agent_id,
@@ -53,6 +57,7 @@ class GatewayRuntimeAccess:
     target: GatewayTarget
     private_root: Path
     store: AuthorizationStore
+    uses_named_hermes_profile: bool = False
 
     @property
     def owner(self) -> GatewayOwner:
@@ -85,25 +90,26 @@ class GatewayRuntimeAccess:
     def require_live_generation(self) -> None:
         """Verify that the active registry and primary runtime still match this manifest."""
 
+        self._require_live_native_authority()
+
+    def _require_live_native_authority(self) -> str | None:
+        """Return an authority fingerprint for a currently served named Hermes profile."""
+
         self.require_current()
-        record = load_managed_agent_record_by_agent_id(
-            self.owner.agent_id,
-            env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: self.execution_binding.registry_root},
-        )
+        record = self._require_active_registration()
         if (
-            record is None
-            or record.lifecycle.state != "active"
-            or not is_live_agent_record_fresh(record)
-            or record.generation_id != self.target.incarnation
-            or Path(record.runtime.manifest_path) != self.manifest_path
-            or record.execution_binding != self.execution_binding
+            record.identity.backend in HERMES_DETACHED_SELF_BACKENDS
+            or record.identity.backend == "hermes_headless"
         ):
-            raise SessionManifestError("Current gateway runtime generation is unavailable.")
-        if record.identity.backend in {"hermes_service", "hermes_tui"}:
             payload = load_registry_mode_authority(record)
-            require_live_hermes_daemon_authority(self.manifest_path, payload)
-            self.require_current()
-            return
+            if (
+                record.identity.backend in HERMES_DETACHED_SELF_BACKENDS
+                or payload.launch_plan.hermes_profile is not None
+            ):
+                authority = require_live_hermes_daemon_authority(self.manifest_path, payload)
+                self.require_current()
+                self._require_active_registration()
+                return authority.fingerprint if authority.gateway_root is not None else None
         if record.terminal.current_session_name is None:
             raise SessionManifestError("Current gateway runtime generation is unavailable.")
         try:
@@ -118,15 +124,52 @@ class GatewayRuntimeAccess:
             for pane in panes
         ):
             raise SessionManifestError("Current gateway runtime generation is unavailable.")
+        return None
+
+    def _require_active_registration(self) -> ManagedAgentRegistryRecordV3:
+        """Confirm the current registry still admits the selected generation."""
+
+        record = load_managed_agent_record_by_agent_id(
+            self.owner.agent_id,
+            env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: self.execution_binding.registry_root},
+        )
+        if (
+            record is None
+            or record.lifecycle.state != "active"
+            or not is_live_agent_record_fresh(record)
+            or record.generation_id != self.target.incarnation
+            or Path(record.runtime.manifest_path) != self.manifest_path
+            or record.execution_binding != self.execution_binding
+        ):
+            raise SessionManifestError("Current gateway runtime generation is unavailable.")
+        return record
 
     def current_self(self) -> GatewaySelfKey | None:
         """Resolve public proof evidence only for the live current generation."""
 
         try:
-            self.require_live_generation()
+            native = self._require_live_native_authority()
         except SessionManifestError:
             return None
-        return self.store.load_self(self.target.incarnation)
+        binding = self.store.load_self(self.target.incarnation)
+        if binding is not None and native is not None:
+            return binding.model_copy(update={"native_authority": native})
+        return binding
+
+    def require_self_caller(self, binding: GatewaySelfKey) -> None:
+        """Allow a shared Hermes signing key only for its verified routed tool caller."""
+
+        if binding.native_authority is None:
+            return
+        from houmao.agents.realm_controller.self_manifest import resolve_self_manifest
+
+        selected = resolve_self_manifest()
+        if (
+            selected.path != self.manifest_path
+            or selected.record.generation_id != self.target.incarnation
+            or selected.native_authority != binding.native_authority
+        ):
+            raise SessionManifestError("Current Hermes self signer is unavailable.")
 
     def load_self_signer(self) -> tuple[GatewaySelfKey, Ed25519PrivateKey]:
         """Resolve this verified live target and load its exact owner-private signing key."""
@@ -134,7 +177,10 @@ class GatewayRuntimeAccess:
         binding = self.current_self()
         if binding is None:
             raise GatewayAccessError(503, "self_authorization_unavailable")
-        return binding, self.store.load_self_signer(self.target.incarnation, expected=binding)
+        self.require_self_caller(binding)
+        return binding, self.store.load_self_signer(
+            self.target.incarnation, expected=binding.retained_registration()
+        )
 
 
 def _owner_access(
@@ -171,6 +217,7 @@ def gateway_access_for_manifest(manifest_path: Path) -> GatewayRuntimeAccess:
         target=GatewayTarget(owner=owner, incarnation=payload.registry_generation_id),
         private_root=root,
         store=AuthorizationStore(root, owner),
+        uses_named_hermes_profile=payload.launch_plan.hermes_profile is not None,
     )
 
 
@@ -267,7 +314,7 @@ def save_gateway_deployment(manifest_path: Path, deployment: GatewayDeployment) 
 def owner_gateway_client_binding(
     manifest_path: Path, *, port: int, private: bool, prefer_self: bool = False
 ) -> tuple[GatewayClientBinding | None, str | None]:
-    """Select explicit admin authority or the current self key for an owner-local call."""
+    """Select admin, tool self, or policy-governed unsigned owner-local access."""
 
     access = gateway_access_for_manifest(manifest_path)
     deployment = load_gateway_deployment(manifest_path)
@@ -283,7 +330,7 @@ def owner_gateway_client_binding(
             ),
             generation,
         )
-    if not private and not prefer_self:
+    if not prefer_self and (not private or access.uses_named_hermes_profile):
         return None, generation
     if access.current_self() is None:
         raise SessionManifestError("Current self signing authority is unavailable.")

@@ -20,7 +20,7 @@ The gateway reference SHALL include a page at `docs/reference/gateway/operations
 - Email processing flow: how the notifier polls open work in the selected backend's authoritative Inbox through the mailbox adapter. The page SHALL cover eligible-work digests, gateway prompt readiness, optional pre-notification compaction, prompt formatting, and eligibility checks at gateway queue admission and dispatch.
 - Current compaction behavior: when `pre_notification_context_action=compact` is enabled, the current implementation runs compaction at most once for a currently eligible mail item while that item remains eligible for the configured notifier mode.
 - Current repeat-notification behavior: unchanged open Inbox snapshots MAY still produce later notifier prompts on later polling cycles while those messages remain eligible, but repeated wake-up prompts do not imply repeated compaction for the same continuously eligible mail item.
-- Native mailbox-skill guidance: notifier prompts tell supported agents to use installed runtime-home Houmao mailbox skills through native invocation or explicit skill names rather than by opening `skills/.../SKILL.md` paths.
+- Native mailbox-skill guidance covers the public `houmao-agent-entrypoint`, the installed `houmao-shared-routines` sibling, and the mailbox API fallback when either sibling is unavailable.
 - Archive-after-processing guidance: notifier prompts advertise current mailbox capabilities and use the authorized archive completion path. Agents use runtime archive when the binding permits it. On protected bindings, they report successfully processed messages for independently authorized owner archive through the backend. Mark-read changes read state.
 - Integration with the gateway lifecycle: when the notifier starts or stops relative to gateway attach and gateway shutdown, and how it interacts with the gateway's request queue and TUI state tracking.
 
@@ -55,6 +55,13 @@ The page SHALL be derived from `gateway_service.py` mail-notifier methods and `g
 - **WHEN** a reader studies the notifier reference to understand how the wake-up prompt uses mailbox skills
 - **THEN** the page explains native installed-skill invocation guidance for supported tools
 - **AND THEN** it does not describe `SKILL.md` paths as the ordinary operational contract for notifier-driven mailbox rounds
+
+#### Scenario: Reader can follow the Hermes public skill route
+
+- **WHEN** a reader needs to understand Hermes notifier or ordinary mailbox routing
+- **THEN** the reference shows `skill_view(name="houmao-agent-entrypoint")` and distinguishes `process-emails-via-gateway` for notifier rounds from `agent-email-comms` for ordinary mail
+- **AND THEN** it explains that verified self precedes delegation through `houmao-shared-routines`, which loads the selected protected child
+- **AND THEN** it documents the notifier round's supplied gateway URL, channel, expected binding ID, and the selected-channel API fallback
 
 #### Scenario: Reader understands archive as the notifier workflow completion action
 

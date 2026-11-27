@@ -656,6 +656,14 @@ def test_hermes_pool_and_direct_prepares_project_equivalent_reasoning(
 
     reports = []
     prepare = importlib.import_module("fixturelib.prepare")
+    if surface == "manager":
+        owner = tmp_path / "owner"
+        owner.mkdir(mode=0o700)
+        common.extend(["--hermes-owner-root", str(owner)])
+        monkeypatch.setattr(prepare, "selected_owner_root", lambda path: path)
+        monkeypatch.setattr(
+            prepare, "initialize_owner", lambda _: SimpleNamespace(executable=str(executable))
+        )
     for args in (direct, pooled):
         assert pool_cli.main([*common, *args]) == 0
         report = json.loads(capsys.readouterr().out)
@@ -665,6 +673,7 @@ def test_hermes_pool_and_direct_prepares_project_equivalent_reasoning(
             native_config = yaml.safe_load((run_root / "home/config.yaml").read_text())
             assert native_config["agent"]["reasoning_effort"] == "xhigh"
         else:
+            assert report["hermes_owner_root"] == str(owner)
             project = run_root / "workdir"
             setup = project / ".houmao/agents/tools/hermes/setups/fixture/tool-params.yaml"
             assert yaml.safe_load(setup.read_text()) == {
@@ -685,6 +694,16 @@ def test_hermes_pool_and_direct_prepares_project_equivalent_reasoning(
     assert pool_report["configuration"] == direct_report["configuration"]
     assert pool_report["pool_key"] == "hermes"
     assert pool_report["run_dir"] != direct_report["run_dir"]
+    if surface == "manager":
+        launch = importlib.import_module("fixturelib.launch")
+        monkeypatch.setattr(launch, "selected_owner_root", lambda path: path)
+        environments = [
+            launch.run_environment(prepare.load_run(Path(report["run_dir"]))) for report in reports
+        ]
+        for name in ("HOUMAO_GLOBAL_REGISTRY_DIR", "HOUMAO_GLOBAL_RUNTIME_DIR"):
+            assert environments[0][name] == environments[1][name]
+        overlay = "HOUMAO_PROJECT_OVERLAY_DIR"
+        assert environments[0][overlay] != environments[1][overlay]
 
 
 def test_pool_prepare_honors_explicit_executable_override(

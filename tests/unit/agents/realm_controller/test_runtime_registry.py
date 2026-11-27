@@ -292,6 +292,8 @@ def test_kimi_web_provider_relaunch_probes_updated_executable(
         memory_root=None,
         launch_plan=SimpleNamespace(
             backend="kimi_web",
+            tool="kimi",
+            hermes_profile=None,
             working_directory=tmp_path,
             mailboxes=None,
             execution_binding=None,

@@ -22,9 +22,12 @@ from houmao.agents.hermes_configuration import (
     resolve_hermes_executable,
     write_hermes_role,
 )
+from houmao.agents.hermes_installation import PreparedHermesEvidence, PreparedHermesInstallation
+from houmao.agents.hermes_profile import HermesProfileBinding, require_hermes_profile_home
 from houmao.agents.model_selection import ModelConfig, ModelReasoningConfig
 from houmao.agents.launch_policy import cli as launch_policy_cli
 from houmao.agents.realm_controller.errors import BackendExecutionError, SessionManifestError
+from houmao.agents.realm_controller.backends.hermes_native import HermesDaemon
 from houmao.agents.realm_controller.gateway_models import GatewayTuiTrackingTimingOverridesV1
 from houmao.agents.realm_controller.models import BackendKind, LaunchPlan, RoleInjectionPlan
 from houmao.agents.realm_controller.runtime import RuntimeSessionController, start_runtime_session
@@ -32,7 +35,35 @@ from houmao.execution.tmux_selection import ResolvedTmuxServer
 
 
 @pytest.fixture()
-def build_request(tmp_path: Path) -> BuildRequest:
+def prepared_hermes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PreparedHermesInstallation:
+    """Use private prepared-runtime evidence and an isolated local owner in builder tests."""
+
+    root = tmp_path / "prepared"
+    root.mkdir(mode=0o700)
+    executable = root / "hermes"
+    lock_dir = root / "gateway-locks"
+    lock_dir.mkdir(mode=0o700)
+    installation = PreparedHermesInstallation(
+        root,
+        str(executable),
+        lock_dir,
+        PreparedHermesEvidence("a" * 40, "0.23.4", root / "environment", "test"),
+        root / "node",
+    )
+    for module in (
+        "houmao.agents.brain_builder",
+        "houmao.agents.realm_controller.launch_plan",
+        "houmao.agents.realm_controller.backends.hermes_native",
+    ):
+        monkeypatch.setattr(
+            f"{module}.load_prepared_hermes_installation", lambda *_, **__: installation
+        )
+    monkeypatch.setenv("HOUMAO_GLOBAL_REGISTRY_DIR", str(tmp_path / "registry"))
+    return installation
+
+
+@pytest.fixture()
+def build_request(tmp_path: Path, prepared_hermes: PreparedHermesInstallation) -> BuildRequest:
     """Seed the shipped Hermes adapter and an explicit fake provider binding."""
 
     definitions = tmp_path / "definitions"
@@ -78,7 +109,7 @@ def test_hermes_path_lookup_requires_only_an_executable(tmp_path: Path) -> None:
 
 
 def test_hermes_build_projects_native_route_roles_and_skills(build_request: BuildRequest) -> None:
-    """Write the private route and copy skills while keeping credentials external."""
+    """Publish one parked named profile with a private native credential projection."""
 
     result = build_brain_home(build_request)
     config_path = result.home_path / "config.yaml"
@@ -112,7 +143,14 @@ def test_hermes_build_projects_native_route_roles_and_skills(build_request: Buil
         assert not projected_skill.is_symlink()
     for path in (config_path, result.manifest_path, result.launch_helper_path):
         assert "synthetic-secret" not in path.read_text(encoding="utf-8")
-    assert not (result.home_path / ".env").exists()
+    binding = HermesProfileBinding.model_validate(result.manifest["runtime"]["hermes_profile"])
+    require_hermes_profile_home(binding)
+    assert result.home_path.is_symlink() and result.home_path.resolve() == binding.profile_home
+    assert (binding.profile_home / "gateway.parked").is_file()
+    dotenv = result.home_path / ".env"
+    assert stat.S_IMODE(dotenv.stat().st_mode) == 0o600
+    assert dotenv.read_text() == f"{HERMES_API_KEY_ENV}='synthetic-secret'\n"
+    assert config["plugins"]["enabled"] == ["houmao-tool-origin"]
     assert HERMES_API_KEY_ENV in result.manifest["credentials"]["env_contract"]["selected_env_vars"]
 
 
@@ -145,23 +183,83 @@ def test_hermes_approval_projection_restores_authored_baseline(tmp_path: Path) -
     }
 
 
-def test_hermes_launch_helper_applies_resolved_approval_policy(
-    build_request: BuildRequest, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("missing_link", [False, True])
+def test_hermes_projects_share_the_prepared_root_and_keep_distinct_links(
+    build_request: BuildRequest, tmp_path: Path, missing_link: bool
 ) -> None:
-    """The generated helper's CLI path projects policy before handing off to Hermes."""
+    """Qualify independent project entries and retained native homes in one context."""
 
-    brain = build_brain_home(replace(build_request, operator_prompt_mode="as_is"))
-    executable = tmp_path / "hermes"
-    executable.write_text("#!/bin/sh\nexit 1\n")
-    executable.chmod(0o700)
+    first_request = replace(build_request, hermes_project_homes_dir=tmp_path / "alpha" / "homes")
+    second_request = replace(
+        build_request, home_id="other", hermes_project_homes_dir=tmp_path / "beta" / "homes"
+    )
+    first = build_brain_home(first_request)
+    second = build_brain_home(second_request)
+    first_binding, second_binding = [
+        HermesProfileBinding.model_validate(result.manifest["runtime"]["hermes_profile"])
+        for result in (first, second)
+    ]
+    assert first_binding.context_id == second_binding.context_id
+    assert first_binding.prepared_root == second_binding.prepared_root
+    assert first_binding.profile_home != second_binding.profile_home
+    assert first.home_path.parent == first_request.hermes_project_homes_dir
+    assert second.home_path.parent == second_request.hermes_project_homes_dir
+    saved_conversation = first_binding.profile_home / "retained-session"
+    saved_conversation.write_text("fixture conversation")
+    if missing_link:
+        first_binding.project_home_link.unlink()
+
+    retained = build_brain_home(replace(first_request, reuse_home=True))
+    assert (
+        retained.manifest["runtime"]["hermes_profile"]
+        == first.manifest["runtime"]["hermes_profile"]
+    )
+    assert saved_conversation.read_text() == "fixture conversation"
+    assert first_binding.project_home_link.resolve() == first_binding.profile_home
+    assert second_binding.project_home_link.resolve() == second_binding.profile_home
+
+
+def test_hermes_rejects_changed_link_without_mutating_retained_profile(
+    build_request: BuildRequest, tmp_path: Path
+) -> None:
+    """A replaced project link cannot authorize reuse of either native profile."""
+
+    result = build_brain_home(build_request)
+    binding = HermesProfileBinding.model_validate(result.manifest["runtime"]["hermes_profile"])
+    before = (binding.profile_home / "config.yaml").read_bytes()
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    result.home_path.unlink()
+    result.home_path.symlink_to(unrelated)
+
+    with pytest.raises(ValueError, match="project entry differs"):
+        build_brain_home(replace(build_request, reuse_home=True))
+
+    assert result.home_path.resolve() == unrelated
+    assert before == (binding.profile_home / "config.yaml").read_bytes()
+
+
+def test_hermes_launch_helper_applies_resolved_approval_policy(
+    build_request: BuildRequest,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prepared_hermes: PreparedHermesInstallation,
+) -> None:
+    """Verify the qualified approval policy and pass the exact named profile to Ink."""
+
+    brain = build_brain_home(build_request)
+    profile = HermesProfileBinding.model_validate(brain.manifest["runtime"]["hermes_profile"])
+    executable = prepared_hermes.executable
     monkeypatch.setenv("PATH", str(tmp_path))
     env_file = brain.home_path / "test-selected.env"
     env_file.write_text(f"{HERMES_API_KEY_ENV}=synthetic-secret\n")
 
     def exec_native(command: str, args: list[str], env: dict[str, str]) -> None:
-        assert command == str(executable)
-        assert args == [str(executable), "--tui"]
+        assert command == executable
+        assert args == [executable, "--profile", profile.profile_name, "--tui"]
         assert env["HERMES_NONINTERACTIVE"] == "1"
+        assert env["HERMES_DISABLE_LAZY_INSTALLS"] == "1"
+        assert env[HERMES_LOCK_DIR_ENV] == str(prepared_hermes.lock_dir)
         assert (
             yaml.safe_load((brain.home_path / "config.yaml").read_text())["approvals"]["mode"]
             == "off"
@@ -169,6 +267,8 @@ def test_hermes_launch_helper_applies_resolved_approval_policy(
         raise RuntimeError("native exec reached")
 
     monkeypatch.setattr(launch_policy_cli.os, "execve", exec_native)
+    ensure = Mock()
+    monkeypatch.setattr(HermesDaemon, "ensure", ensure)
     with pytest.raises(RuntimeError, match="native exec reached"):
         launch_policy_cli.main(
             [
@@ -190,6 +290,7 @@ def test_hermes_launch_helper_applies_resolved_approval_policy(
                 "--tui",
             ]
         )
+    ensure.assert_called_once_with(unattended=True)
 
 
 @pytest.mark.parametrize(
@@ -255,23 +356,26 @@ def test_hermes_build_rejects_invalid_reasoning_default_before_preparing_home(
     assert not (build_request.runtime_root / "homes").exists()
 
 
-def test_hermes_path_only_command_reaches_native_startup(
-    build_request: BuildRequest, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_hermes_prepared_command_reaches_shared_startup(
+    build_request: BuildRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    prepared_hermes: PreparedHermesInstallation,
 ) -> None:
-    """Use the workspace's executable and surface failures from the native process."""
+    """Start with the owner's installation and omit profile credentials from the host."""
 
     workspace = tmp_path / "workspace"
-    bin_dir = workspace / "bin"
-    bin_dir.mkdir(parents=True)
-    executable = bin_dir / "hermes"
+    workspace.mkdir()
+    executable = Path(prepared_hermes.executable)
     calls = tmp_path / "native-calls"
     executable.write_text(
         "#!/bin/sh\n"
         f"printf '%s\\n' \"$*\" >> {shlex.quote(str(calls))}\n"
-        "[ \"$*\" = 'gateway run --external-supervisor' ] || exit 78\n"
-        '[ "$HERMES_MANAGED_API_KEY" = synthetic-secret ] || exit 79\n'
+        "[ \"$*\" = 'gateway run --external-supervisor --no-supervise' ] || exit 78\n"
+        '[ -z "$HERMES_MANAGED_API_KEY" ] || exit 79\n'
         '[ -z "$OPENAI_API_KEY$HERMES_CONFIG_PATH" ] || exit 80\n'
-        '[ -n "$HOUMAO_AGENT_ID" ] || exit 81\n'
+        '[ -z "$HOUMAO_AGENT_ID" ] || exit 81\n'
+        '[ "$GATEWAY_MULTIPLEX_PROFILES:$HERMES_DISABLE_LAZY_INSTALLS" = "1:1" ] || exit 82\n'
         'printf \'%s\\n\' "$PWD" "$HERMES_HOME" > "$HERMES_HOME/native-start"\n'
         "printf 'Synthetic native startup diagnostic\\n' >&2\n"
         "exit 37\n",
@@ -292,7 +396,7 @@ def test_hermes_path_only_command_reaches_native_startup(
     monkeypatch.delenv("TMUX_PANE", raising=False)
 
     brain = build_brain_home(build_request)
-    runtime = tmp_path / "sessions"
+    runtime = build_request.runtime_root
     startup = {
         "agent_def_dir": build_request.agent_def_dir,
         "brain_manifest_path": brain.manifest_path,
@@ -309,15 +413,18 @@ def test_hermes_path_only_command_reaches_native_startup(
         with pytest.raises(SessionManifestError, match="controls are Houmao-owned"):
             start_runtime_session(**startup, launch_env_overrides={name: "unqualified"})
         assert not calls.exists()
-        assert not runtime.exists()
-    with pytest.raises(BackendExecutionError, match=r"Hermes daemon exited with status 37") as exc:
+    with pytest.raises(
+        BackendExecutionError, match=r"Hermes shared gateway exited with status 37"
+    ) as exc:
         start_runtime_session(**startup)
-    assert calls.read_text(encoding="utf-8").splitlines() == ["gateway run --external-supervisor"]
-    assert (brain.home_path / "native-start").read_text(encoding="utf-8").splitlines() == [
-        str(workspace),
-        str(brain.home_path),
+    assert calls.read_text(encoding="utf-8").splitlines() == [
+        "gateway run --external-supervisor --no-supervise"
     ]
-    [log] = runtime.rglob("hermes-daemon.log")
+    assert (prepared_hermes.root / "native-start").read_text(encoding="utf-8").splitlines() == [
+        str(prepared_hermes.root),
+        str(prepared_hermes.root),
+    ]
+    log = prepared_hermes.root / ".houmao-host" / "hermes-daemon.log"
     assert log.read_text(encoding="utf-8") == "Synthetic native startup diagnostic\n"
     assert str(log) in str(exc.value)
     assert stat.S_IMODE(log.stat().st_mode) == 0o600

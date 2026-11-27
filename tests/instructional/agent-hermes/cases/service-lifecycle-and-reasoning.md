@@ -130,7 +130,7 @@ pixi run python "$LAB" stop --run-dir "$RUN_SVC" --evidence-root "$EVIDENCE" \
   - `negative-stale-relaunch.json` reports failure/refusal without altering `native_session_id` or `summary.txt`; `relaunch-exact.json` succeeds and `home-snapshot-relaunch.json` preserves `native_session_id == "$NATIVE_SID"` with `binding_method == "session/load"`.
   - `interrupt-receipt.json` succeeds and `state-after-interrupt.json` returns to idle/available without hanging past the cancel timeout.
   - `redaction-audit.json` exits `0` with `leak_count == 0`.
-  - `stop.json` records `surviving_daemon_pids == []` and all cited evidence files survive on disk.
+  - `stop.json` records `profile_parked == true` and all cited evidence files survive on disk.
 - **Qualitative checks:**
   - Inspect `prompt-turn1.json`, `prompt-turn2.json`, `summary-after-turn2.txt`, and `transcript/` to confirm the agent genuinely used workspace tools to read `inventory.csv` and write `summary.txt`, recognized `fixture-probe`, and honestly reported that browser automation is unavailable rather than fabricating a screenshot or attempting lazy browser installation.
   - Inspect `prompt-turn3.json` to confirm turn 3 accurately recalls `copper-harbor` and `50` from the resumed session without echoing raw binding-time history replay as duplicate turn-3 output.

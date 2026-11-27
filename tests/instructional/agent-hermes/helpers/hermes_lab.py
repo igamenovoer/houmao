@@ -44,6 +44,11 @@ from houmao.mailbox.stalwart_models import JmapMetadataQuery
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 FIXTURE_SCRIPT = REPO_ROOT / "scripts/agents/test-fixtures/fixture.py"
+sys.path.insert(0, str(FIXTURE_SCRIPT.parent))
+
+from fixturelib.hermes_owner import owner_environment, qualify_owner, selected_owner_root  # noqa: E402
+from fixturelib.config import FixtureError  # noqa: E402
+
 DEFAULT_MANAGER = REPO_ROOT / ".pixi/envs/default/bin/houmao-mgr"
 _TMUX_ENV_KEYS = ("TMUX", "TMUX_PANE", "TMUX_TMPDIR")
 _STATIC_SECRET_MARKERS = (
@@ -101,6 +106,11 @@ def run_env(run_dir: Path, *, mailbox_root: Path | None = None) -> dict[str, str
             "HOUMAO_CLI_PRINT_STYLE": "json",
         }
     )
+    run_file = run_dir / "run.json"
+    if run_file.is_file():
+        run = read_json(run_file, label="fixture run")
+        if owner := run.get("hermes_owner_root"):
+            env.update(owner_environment(selected_owner_root(Path(owner))))
     return env
 
 
@@ -208,6 +218,11 @@ def _resolve_manifest(run: dict[str, Any]) -> tuple[Path | None, dict[str, Any]]
     if not isinstance(identity, dict) or not isinstance(identity.get("manifest_path"), str):
         return None, {}
     path = Path(identity["manifest_path"])
+    scope = Path(run["run_dir"])
+    if owner := run.get("hermes_owner_root"):
+        scope = selected_owner_root(Path(owner)) / "fixture-owner/runtime"
+    if path.resolve() != path or not path.is_relative_to(scope):
+        raise LabError("Captured manifest is outside the fixture runtime scope.")
     if not path.is_file():
         return path, {}
     return path, read_json(path, label="session manifest")
@@ -217,8 +232,13 @@ def _resolve_managed_home(run_dir: Path, run: dict[str, Any], manifest: dict[str
     """Locate the actual managed launch home (distinct from the preview home)."""
 
     launch_plan = manifest.get("launch_plan")
-    if isinstance(launch_plan, dict) and isinstance(launch_plan.get("home_path"), str):
-        return Path(launch_plan["home_path"])
+    if isinstance(launch_plan, dict):
+        profile = launch_plan.get("hermes_profile")
+        if isinstance(profile, dict) and isinstance(profile.get("profile_home"), str):
+            return Path(profile["profile_home"])
+        selector = launch_plan.get("home_selector")
+        if isinstance(selector, dict) and isinstance(selector.get("home_path"), str):
+            return Path(selector["home_path"])
     homes_dir = run_dir / "runtime/homes"
     if homes_dir.is_dir():
         candidates = sorted(path for path in homes_dir.iterdir() if path.is_dir())
@@ -241,13 +261,19 @@ def _inspect_single_run(run_dir: Path) -> dict[str, Any]:
 
     run = load_run(run_dir)
     manifest_path, manifest = _resolve_manifest(run)
+    runtime_artifacts = manifest_path.parent if manifest_path else run_dir / "runtime"
     managed_home = _resolve_managed_home(run_dir, run, manifest)
     config = _read_yaml_file(managed_home / "config.yaml")
     skills_dir = managed_home / "skills"
     skills = (
         sorted(p.name for p in skills_dir.iterdir() if p.is_dir()) if skills_dir.is_dir() else []
     )
-    brain_manifests = sorted((run_dir / "runtime/manifests").glob("*.yaml"))
+    brain_manifest = manifest.get("brain_manifest_path")
+    brain_manifests = (
+        [Path(brain_manifest)]
+        if isinstance(brain_manifest, str)
+        else sorted((run_dir / "runtime/manifests").glob("*.yaml"))
+    )
     reasoning_provenance: Any = None
     if brain_manifests:
         bm = _read_yaml_file(brain_manifests[-1]) or {}
@@ -258,7 +284,7 @@ def _inspect_single_run(run_dir: Path) -> dict[str, Any]:
             if isinstance(np, dict):
                 reasoning_provenance = np.get("reasoning")
 
-    daemon_files = sorted((run_dir / "runtime").rglob("hermes-daemon.json"))
+    daemon_files = sorted(runtime_artifacts.rglob("hermes-daemon.json"))
     daemon_records: list[dict[str, Any]] = []
     for path in daemon_files:
         record = read_json(path, label="hermes-daemon.json")
@@ -279,10 +305,10 @@ def _inspect_single_run(run_dir: Path) -> dict[str, Any]:
 
     acp_bindings = [
         read_json(path, label="hermes-acp-binding.json")
-        for path in sorted((run_dir / "runtime").rglob("hermes-acp-binding.json"))
+        for path in sorted(runtime_artifacts.rglob("hermes-acp-binding.json"))
     ]
     tui_admissions: list[dict[str, Any]] = []
-    for path in sorted((run_dir / "runtime").rglob("hermes-native-admission.json")):
+    for path in sorted(runtime_artifacts.rglob("hermes-native-admission.json")):
         rec = read_json(path, label="hermes-native-admission.json")
         tui_admissions.append(
             {
@@ -301,7 +327,7 @@ def _inspect_single_run(run_dir: Path) -> dict[str, Any]:
         )
 
     headless_turns: list[dict[str, Any]] = []
-    for path in sorted((run_dir / "runtime").rglob("hermes-request.json")):
+    for path in sorted(runtime_artifacts.rglob("hermes-request.json")):
         turn_dir = path.parent
         req = read_json(path, label="hermes-request.json")
         exitcode_path = turn_dir / "exitcode"
@@ -349,7 +375,10 @@ def _inspect_single_run(run_dir: Path) -> dict[str, Any]:
         "agent_id": run["identity"]["agent_id"],
         "backend": run.get("backend"),
         "manifest_path": str(manifest_path) if manifest_path else None,
+        "runtime_artifacts": str(runtime_artifacts),
         "managed_home": str(managed_home),
+        "profile_parked": (managed_home / "gateway.parked").is_file(),
+        "hermes_profile": (manifest.get("launch_plan") or {}).get("hermes_profile"),
         "config_yaml": config,
         "soul_md_present": (managed_home / "SOUL.md").is_file(),
         "projected_skills": skills,
@@ -463,20 +492,22 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     mgr_ver = subprocess.run(
         [str(manager_path()), "--version"], capture_output=True, text=True, check=True
     ).stdout.strip()
-    hermes_path = shutil.which("hermes")
-    if not hermes_path:
-        raise LabError("`hermes` is not on PATH.")
-    hermes_ver = subprocess.run(
-        [hermes_path, "--version"], capture_output=True, text=True, check=False
-    ).stdout.strip()
+    owner = selected_owner_root(
+        Path(load_run(Path(args.run_dir[0]).resolve())["hermes_owner_root"])
+        if args.run_dir
+        else None
+    )
+    installed = qualify_owner(owner)
 
     report: dict[str, Any] = {
         "observed_at_utc": utc_now(),
         "repo_head": head,
         "houmao_mgr": str(manager_path()),
         "houmao_mgr_version": mgr_ver,
-        "hermes_executable": hermes_path,
-        "hermes_version": hermes_ver,
+        "hermes_executable": installed.executable,
+        "hermes_version": installed.evidence.version,
+        "hermes_build": installed.evidence.build,
+        "hermes_owner_root": str(owner),
         "runs": {},
     }
     failures: list[str] = []
@@ -485,6 +516,8 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     for item in args.run_dir:
         run_dir = Path(item).resolve()
         snap = _inspect_single_run(run_dir)
+        if (snap.get("hermes_profile") or {}).get("prepared_root") != str(owner):
+            failures.append(f"{run_dir.name}: used a different prepared Hermes owner")
         agent_id = snap["agent_id"]
         env = run_env(run_dir, mailbox_root=mailbox_root)
         state = manager_call(env, ["agents", "single", "--agent-id", agent_id, "state"])
@@ -1175,6 +1208,7 @@ def cmd_capture_transcript(args: argparse.Namespace) -> None:
     api_key = priv.get("HERMES_MANAGED_API_KEY", "")
     snap = _inspect_single_run(run_dir)
     write_json(dest / "home-snapshot.json", snap, mode=0o600)
+    runtime_artifacts = Path(snap["runtime_artifacts"])
 
     copied: list[str] = []
     for pattern in (
@@ -1183,8 +1217,8 @@ def cmd_capture_transcript(args: argparse.Namespace) -> None:
         "hermes-request.json",
         "hermes-native-admission.json",
     ):
-        for src in sorted((run_dir / "runtime").rglob(pattern)):
-            rel = src.relative_to(run_dir / "runtime")
+        for src in sorted(runtime_artifacts.rglob(pattern)):
+            rel = src.relative_to(runtime_artifacts)
             out_path = dest / "runtime-artifacts" / rel
             out_path.parent.mkdir(parents=True, exist_ok=True)
             text = src.read_text(encoding="utf-8", errors="replace")
@@ -1202,7 +1236,7 @@ def cmd_capture_transcript(args: argparse.Namespace) -> None:
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
-    """Stop recorded fixture runs, verify daemon exit, and optionally clean Stalwart accounts."""
+    """Stop recorded fixture profiles and optionally clean Stalwart accounts."""
 
     stopped: dict[str, Any] = {}
     for raw in args.run_dir:
@@ -1219,10 +1253,12 @@ def cmd_stop(args: argparse.Namespace) -> None:
             check=False,
         )
         still_alive = [pid for pid in before_daemons if _pid_alive(pid)]
+        snapshot = _inspect_single_run(run_dir)
         stopped[run_dir.name] = {
             "returncode": proc.returncode,
             "previous_live_daemon_pids": before_daemons,
             "surviving_daemon_pids": still_alive,
+            "profile_parked": snapshot["profile_parked"],
             "stdout": proc.stdout.strip(),
             "stderr": proc.stderr.strip(),
         }
@@ -1396,7 +1432,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         args.func(args)
-    except (LabError, StalwartError) as exc:
+    except (FixtureError, LabError, StalwartError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, indent=2), file=sys.stderr)
         return 1
     return 0

@@ -3,36 +3,6 @@
 ## Purpose
 Define the gateway-owned mail notifier control and polling contract for shared mailbox sessions.
 ## Requirements
-### Requirement: Gateway notifier prompts use native mailbox-skill invocation and never surface skill-document paths
-When a gateway notifier wake-up prompt tells an agent to use installed Houmao mailbox skills, that prompt SHALL use tool-native mailbox-skill invocation guidance or explicit Houmao skill names and SHALL NOT instruct the agent to open `SKILL.md` paths from the copied project or from any visible skill directory.
-
-#### Scenario: Acceptance criteria
-
-- **GIVEN** a case covered by this requirement
-- **THEN** the applicable criteria below hold
-
-For notifier prompts that assume Houmao mailbox skills are installed:
-- Claude-facing prompts SHALL invoke or reference the installed Houmao mailbox skill through Claude's native skill surface and SHALL NOT point the agent at `skills/.../SKILL.md`.
-- Codex-facing prompts SHALL use Codex-native installed-skill triggering for the current round and SHALL NOT point the agent at `skills/.../SKILL.md` or copied project skill paths.
-- Gemini-facing prompts SHALL reference the installed Houmao mailbox skill by name and SHALL NOT point the agent at `.agents/skills/.../SKILL.md` for ordinary wake-up rounds.
-
-The prompt MAY still provide the current gateway base URL and the exact `/v1/mail/*` routes for the round, but those routes SHALL complement native installed-skill guidance rather than replace it with a skill-document path workflow.
-
-#### Scenario: Codex notifier prompt uses a native installed-skill trigger
-- **WHEN** the gateway renders a wake-up prompt for a mailbox-enabled Codex session with installed Houmao mailbox skills
-- **THEN** the prompt uses Codex-native installed-skill invocation guidance for `houmao-process-emails-via-gateway`
-- **AND THEN** it does not mention `skills/mailbox/.../SKILL.md` or copied project-local skill paths
-
-#### Scenario: Claude notifier prompt avoids project-local skill-document paths
-- **WHEN** the gateway renders a wake-up prompt for a mailbox-enabled Claude session with installed Houmao mailbox skills
-- **THEN** the prompt directs Claude to use the installed Houmao mailbox skill through the native Claude skill surface
-- **AND THEN** it does not mention `skills/.../SKILL.md` as the operational contract for that round
-
-#### Scenario: Gemini notifier prompt uses skill name rather than installed-path prompting
-- **WHEN** the gateway renders a wake-up prompt for a mailbox-enabled Gemini session with installed Houmao mailbox skills
-- **THEN** the prompt directs Gemini to use the installed `houmao-process-emails-via-gateway` skill by name
-- **AND THEN** it does not require `.agents/skills/.../SKILL.md` path lookup for the ordinary notifier-driven round
-
 ### Requirement: Gateway mail notifier keeps notification bookkeeping separate from mailbox read state
 The gateway SHALL treat notification bookkeeping and mailbox read state as separate concerns.
 
@@ -120,7 +90,7 @@ The gateway mail notifier SHALL inspect open work in the bound mailbox backend's
 
 ### Requirement: Gateway notifier wake-up prompts instruct archive-after-processing workflow
 
-When the gateway mail notifier enqueues an internal reminder for open Inbox work, the prompt SHALL announce that the current session has Inbox mail. It SHALL direct the agent to use the installed `houmao-process-emails-via-gateway` skill, list Inbox work through the gateway mailbox API, process relevant mail, follow the binding's authorized completion path for successfully processed messages, and stop after the round.
+When the gateway mail notifier enqueues a reminder for open Inbox work, the prompt SHALL announce Inbox mail and select the public processing route when both required public skills are installed. It SHALL direct the agent to list Inbox work through the gateway mailbox API, process relevant mail, follow the binding's authorized completion path for successfully processed messages, and stop after the round.
 
 #### Scenario: Acceptance criteria
 
@@ -672,7 +642,7 @@ Gateway mail-notifier prompt rendering SHALL NOT contain Gemini-specific skill i
 
 #### Scenario: Maintained notifier providers exclude Gemini
 - **WHEN** notifier guidance is rendered for a maintained provider
-- **THEN** it uses the applicable Claude, Codex, or Kimi contract
+- **THEN** it uses the applicable native skill guidance for that provider
 - **AND THEN** no Gemini prompt branch is selectable
 ### Requirement: Both mail channels preserve periodic reminder semantics
 Each enabled channel SHALL continue periodic reminders while mode-eligible inbox work remains, even when that work is unchanged. Duplicate suppression SHALL apply to overlapping attempts or repeated admission within one reminder cycle, not permanent per-message notification history. Body readiness and existing queue-admission gates SHALL coordinate both channels.
@@ -882,3 +852,32 @@ The channel SHALL be explicit and SHALL be `offline` or `online`. Each channel S
 - **WHEN** a caller stores non-empty `appendix_text` and later sends `DELETE /v1/mail-notifier/{channel}`
 - **THEN** the gateway disables notifier polling
 - **AND THEN** later `GET /v1/mail-notifier/{channel}` responses still return the previously stored appendix text
+
+### Requirement: Gateway notifier prompts use public native mailbox entrypoints
+
+With both managed-agent routing siblings installed, a notifier prompt SHALL direct the agent to `houmao-agent-entrypoint` using the tool's native skill interface. It SHALL supply the processing route, current gateway base URL, selected `offline` or `online` channel, and current expected binding ID. It SHALL keep private skill files and protected child lookups out of the prompt.
+
+#### Scenario: Codex notifier prompt uses a native installed-skill trigger
+
+- **WHEN** the gateway renders a wake-up prompt for a mailbox-enabled Codex session with installed Houmao mailbox skills
+- **THEN** the prompt uses Codex-native installed-skill invocation for `houmao-agent-entrypoint process-emails-via-gateway`
+- **AND THEN** it does not mention `skills/mailbox/.../SKILL.md` or copied project-local skill paths
+
+#### Scenario: Claude notifier prompt avoids project-local skill-document paths
+
+- **WHEN** the gateway renders a wake-up prompt for a mailbox-enabled Claude session with installed Houmao mailbox skills
+- **THEN** the prompt directs Claude to use the installed public `houmao-agent-entrypoint` through the native Claude skill surface
+- **AND THEN** it does not mention `skills/.../SKILL.md` as the operational contract for that round
+
+#### Scenario: Hermes opens the public mailbox entrypoint
+
+- **WHEN** a managed Hermes session has both public skill siblings and receives a notifier prompt
+- **THEN** the prompt instructs Hermes to load `houmao-agent-entrypoint` with `skill_view` and select `process-emails-via-gateway` with the current gateway URL, channel, and expected binding ID
+- **AND THEN** it leaves the protected child to delegation through `houmao-shared-routines` after verified self
+- **AND THEN** it identifies `agent-email-comms` as the public entrypoint route for ordinary mail outside the notified round
+
+#### Scenario: An incomplete skill installation uses the selected mailbox API
+
+- **WHEN** either required public skill sibling is missing from the target session
+- **THEN** the prompt uses the supported mailbox API fallback for the supplied gateway URL, channel, and expected binding ID
+- **AND THEN** it omits native skill lookup and makes no claim that the protected routine is available

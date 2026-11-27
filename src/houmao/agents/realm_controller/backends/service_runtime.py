@@ -33,6 +33,8 @@ from houmao.agents.realm_controller.backends.headless_runner import (
     _pinned_worker,
     _signal_worker,
 )
+from houmao.agents.hermes_profile import HermesProfileBinding
+from houmao.agents.realm_controller.backends.hermes_native import HermesDaemon
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     cleanup_tmux_session,
     create_tmux_session,
@@ -90,6 +92,7 @@ class ServiceOwnerConfig(BaseModel):
     generation_id: str
     service_incarnation: str
     session_id: str | None = None
+    hermes_profile: HermesProfileBinding | None = None
 
 
 @dataclass(frozen=True)
@@ -446,6 +449,9 @@ class ManagedServiceSession:
         root = self._owner_root(incarnation)
         root.mkdir(parents=True, mode=0o700)
         root.parent.chmod(0o700)
+        shared = self._shared_hermes(root)
+        if shared is not None:
+            shared.ensure_shared_host()
         name = tmux_session_name or f"HOUMAO-service-{incarnation[:12]}"
         with self._socket_scope():
             environment = detached_tool_environment(self.plan.env, session_name=name)
@@ -466,6 +472,7 @@ class ManagedServiceSession:
             generation_id=identity["generation"],
             service_incarnation=incarnation,
             session_id=session_id,
+            hermes_profile=self.plan.hermes_profile,
         )
         path = root / "startup.json"
         write_service_record(path, config)
@@ -568,6 +575,7 @@ class ManagedServiceSession:
             _stop_service_process(descriptor.owner_pid, descriptor.owner_birth_token)
             _stop_service_process(descriptor.native_pid, descriptor.native_birth_token)
             _remove_retired_service_socket(descriptor)
+            self._park_shared_hermes(root)
             return
         startup_path = root / "startup-owner.json"
         if not startup_path.is_file():
@@ -582,6 +590,21 @@ class ManagedServiceSession:
         ):
             raise BackendExecutionError("Managed service startup owner could not be verified")
         _stop_service_process(startup["pid"], startup["birth_token"])
+        self._park_shared_hermes(root)
+
+    def _shared_hermes(self, root: Path) -> HermesDaemon | None:
+        """Bind this managed profile independently of the per-agent supervisor process."""
+
+        if self.backend != "hermes_service" or self.plan.hermes_profile is None:
+            return None
+        return HermesDaemon.from_launch_plan(self.plan, root)
+
+    def _park_shared_hermes(self, root: Path) -> None:
+        """Confirm selected profile teardown even if its supervisor already exited."""
+
+        shared = self._shared_hermes(root)
+        if shared is not None:
+            shared.stop()
 
     def _read_descriptor(self, incarnation: str, *, generation: str) -> ServiceDescriptor:
         """Read the exact private descriptor without following a replacement socket."""
@@ -893,6 +916,7 @@ class ManagedServiceSession:
                     break
                 time.sleep(0.05)
             _remove_retired_service_socket(descriptor)
+            self._park_shared_hermes(self._owner_root(state.service_incarnation))
             if self.m_force_cleanup:
                 with self._socket_scope():
                     if tmux_session_exists(
@@ -919,6 +943,10 @@ class ManagedServiceSession:
                 status="error",
                 action="relaunch",
                 detail="Service relaunch requires new or its exact recorded native session",
+            )
+        if self.backend == "hermes_service" and self.plan.hermes_profile is None:
+            return SessionControlResult(
+                "error", "relaunch", "Standalone Hermes requires a fresh managed launch."
             )
         force_cleanup, self.m_force_cleanup = self.m_force_cleanup, False
         previous = self.state

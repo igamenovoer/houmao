@@ -32,6 +32,7 @@ from fixturelib.config import (
     resolve_config,
     validate_reasoning_level,
 )
+from fixturelib.hermes_owner import qualify_owner, retire_owner, selected_owner_root
 from fixturelib.launch import (
     check_run,
     interrupt_run,
@@ -107,6 +108,11 @@ def add_case_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-url")
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--descriptor", type=Path)
+    parser.add_argument(
+        "--hermes-owner-root",
+        type=Path,
+        help="Select the prepared test-owned Hermes root under repository tmp/",
+    )
     parser.add_argument(
         "--context-window",
         type=int,
@@ -194,6 +200,10 @@ def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
     commands = parser.add_subparsers(dest="command", required=True)
     peer = commands.add_parser("chat-peer", help="Serve a controlled local Chat Completions peer")
     peer.add_argument("--state-dir", type=Path, required=True)
+    retire_hermes = commands.add_parser(
+        "retire-hermes-owner", help="Retire the exact test Hermes host after profile cleanup"
+    )
+    retire_hermes.add_argument("--hermes-owner-root", type=Path)
     discover = commands.add_parser("discover-auth", help="Read-only bounded native auth discovery")
     importer = commands.add_parser(
         "import-auth", help="Copy an explicitly selected native auth source"
@@ -450,7 +460,11 @@ def main(argv: list[str] | None = None) -> int:
                 raise FixtureError("--run-dir conflicts with model pool selection")
             if args.no_system_skills:
                 raise FixtureError("Omit --run-dir to select --no-system-skills")
+            if args.hermes_owner_root is not None:
+                raise FixtureError("Prepared runs use their captured Hermes test owner")
             payload = check_run(args.run_dir, live=args.live)
+        elif args.command == "retire-hermes-owner":
+            payload = retire_owner(selected_owner_root(args.hermes_owner_root))
         elif args.command == "launch":
             payload = launch_run(
                 args.run_dir, prompt=args.prompt, passive_url=args.passive_url, timeout=args.timeout
@@ -471,6 +485,11 @@ def main(argv: list[str] | None = None) -> int:
             selection = selected_pool_entry(args)
             pool_key, entry = selection if selection is not None else (None, None)
             config = selected_configuration(args, entry=entry)
+            if args.hermes_owner_root is not None and (config.client, config.surface) != (
+                "hermes",
+                "manager",
+            ):
+                raise FixtureError("--hermes-owner-root requires a managed Hermes fixture")
             if args.command == "prepare":
                 run = prepare_run(
                     config,
@@ -484,6 +503,7 @@ def main(argv: list[str] | None = None) -> int:
                     tmux_server=args.tmux_server,
                     pool_key=pool_key,
                     pool_slot=args.pool_slot,
+                    hermes_owner_root=args.hermes_owner_root,
                 )
                 payload = public_run(run)
             else:
@@ -499,6 +519,10 @@ def main(argv: list[str] | None = None) -> int:
                 if args.live:
                     if entry is None:
                         raise FixtureError("Live check requires --run-dir or model pool selection")
+                    if config.client == "hermes" and config.surface == "manager":
+                        prepared = qualify_owner(selected_owner_root(args.hermes_owner_root))
+                        payload["hermes_owner_root"] = str(prepared.root)
+                        payload["client_version"] = prepared.evidence.version
                     payload["live"] = probe_configuration(config)
         print(json.dumps(payload, sort_keys=True, indent=2))
         return 0

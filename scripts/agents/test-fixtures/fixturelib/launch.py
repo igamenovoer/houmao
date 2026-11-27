@@ -48,6 +48,12 @@ from houmao.owned_paths import HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR, resolve_regis
 
 from fixturelib.auth import private_write, validate_native_bundle, write_json
 from fixturelib.config import FixtureError, ResolvedConfig
+from fixturelib.hermes_owner import (
+    observe_profile,
+    owner_environment,
+    qualify_owner,
+    selected_owner_root,
+)
 from fixturelib.prepare import (
     ManagedCommandError,
     command_environment,
@@ -89,6 +95,8 @@ def run_environment(run: dict[str, Any]) -> dict[str, str]:
         tmux_socket_path=legacy_socket,
         process_env=owner_launch_baseline(os.environ) if hermes else None,
     )
+    if owner := run.get("hermes_owner_root"):
+        env.update(owner_environment(selected_owner_root(Path(owner))))
     if run["configuration"]["mode"] == "tui":
         env[f"HOUMAO_HOOK_OBSERVATION_{run['configuration']['client'].upper()}"] = "1"
     return env
@@ -175,6 +183,7 @@ def public_run(run: dict[str, Any]) -> dict[str, Any]:
         "usage",
         "client_version",
         "native_state",
+        "hermes_owner_root",
     )
     return {key: run[key] for key in fields if key in run}
 
@@ -669,16 +678,27 @@ def _captured_manifest_path(run: dict[str, Any]) -> Path:
     if not isinstance(raw_path, str) or not raw_path:
         raise FixtureError("Managed fixture has no captured manifest authority")
     path = Path(raw_path)
-    if not path.is_absolute() or path.resolve() != path or not path.is_relative_to(run["run_dir"]):
+    scope = Path(run["run_dir"])
+    if owner := run.get("hermes_owner_root"):
+        scope = selected_owner_root(Path(owner)) / "fixture-owner/runtime"
+    if not path.is_absolute() or path.resolve() != path or not path.is_relative_to(scope):
         raise FixtureError("Managed fixture manifest lies outside the private run")
     return path
+
+
+def _fixture_registry(run: dict[str, Any]) -> Path:
+    """Select the private run registry or the shared test owner registry."""
+
+    if owner := run.get("hermes_owner_root"):
+        return selected_owner_root(Path(owner)) / "fixture-owner/registry"
+    return Path(run["run_dir"]) / "registry"
 
 
 def _manager_lineage(run: dict[str, Any], manifest: SessionManifestPayloadV4) -> dict[str, Any]:
     """Check that the manifest belongs to the fixture and return its stable owner facts."""
 
     config = run["configuration"]
-    registry_root = str(Path(run["run_dir"]) / "registry")
+    registry_root = str(_fixture_registry(run))
     binding = manifest.runtime.execution_binding
     if (
         manifest.agent_id != run["identity"].get("agent_id")
@@ -694,10 +714,25 @@ def _manager_lineage(run: dict[str, Any], manifest: SessionManifestPayloadV4) ->
         or (binding.tmux_socket is not None and binding.tmux_socket != manifest.tmux.socket_path)
     ):
         raise FixtureError("Managed fixture runtime does not match the captured owner and identity")
-    return {
+    lineage = {
         "session_id": manifest.runtime.session_id,
         "execution_binding": binding.model_dump(mode="json"),
     }
+    if owner := run.get("hermes_owner_root"):
+        profile = manifest.launch_plan.hermes_profile
+        root = selected_owner_root(Path(owner))
+        if (
+            profile is None
+            or binding.runtime_root != str(root / "fixture-owner/runtime")
+            or profile.prepared_root != root
+            or profile.context_id != binding.context_id
+            or not profile.project_home_link.is_relative_to(run["project_dir"])
+        ):
+            raise FixtureError(
+                "Managed Hermes fixture did not bind its project and shared test owner"
+            )
+        lineage["hermes_profile"] = profile.model_dump(mode="json")
+    return lineage
 
 
 def _record_managed_tmux(run: dict[str, Any]) -> None:
@@ -718,6 +753,9 @@ def _record_managed_tmux(run: dict[str, Any]) -> None:
     run["tmux_socket_path"] = manifest.tmux.socket_path
     run["manager_lineage"] = lineage
     identity["generation_id"] = manifest.registry_generation_id
+    if owner := run.get("hermes_owner_root"):
+        root = selected_owner_root(Path(owner))
+        run["native_state"] = observe_profile(root, manifest, qualify_owner(root))
 
 
 def _select_manager_fixture(
@@ -736,7 +774,7 @@ def _select_manager_fixture(
     agent_id = identity.get("agent_id")
     if not isinstance(agent_id, str) or not agent_id:
         raise FixtureError("Managed fixture has no captured agent identity")
-    registry = Path(run["run_dir"]) / "registry"
+    registry = _fixture_registry(run)
     if registry.resolve() != registry:
         raise FixtureError("Managed fixture registry lies outside the private run")
     try:
@@ -889,7 +927,15 @@ def launch_run(
     if config["surface"] == "raw" and config["mode"] == "headless" and not prompt:
         raise FixtureError("Raw headless launch requires --prompt")
     available = True
-    if config["client"] == "hermes":
+    if config["client"] == "hermes" and config["surface"] == "manager":
+        owner = run.get("hermes_owner_root")
+        if not owner:
+            raise FixtureError("Prepare a new managed Hermes fixture with a selected test owner")
+        prepared = qualify_owner(selected_owner_root(Path(owner)))
+        if run["executable"] != prepared.executable:
+            raise FixtureError("The prepared Hermes fixture executable has changed")
+        run["client_version"] = prepared.evidence.version
+    elif config["client"] == "hermes":
         try:
             run["executable"] = resolve_hermes_executable(
                 environment=run_environment(run), working_directory=Path(run["workdir"])
@@ -1375,7 +1421,16 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
     root = Path(run["run_dir"])
     config = run["configuration"]
     missing = []
-    if config["client"] == "hermes":
+    owner = run.get("hermes_owner_root")
+    installation = None
+    if owner:
+        try:
+            installation = qualify_owner(selected_owner_root(Path(owner)))
+        except FixtureError:
+            if live:
+                raise
+            missing.append("prepared_hermes_installation")
+    elif config["client"] == "hermes":
         try:
             resolve_hermes_executable(working_directory=Path(run["workdir"]))
         except ValueError:
@@ -1405,10 +1460,19 @@ def check_run(path: Path, *, live: bool = False) -> dict[str, Any]:
             env = run_environment(run)
             if config["client"] == "hermes":
                 state = manager_root_call([*scope, "state"], env=env)
-                run["native_state"] = {
+                native_state = {
                     "mode": config["mode"],
                     "availability": state.get("availability"),
                 }
+                if installation is not None:
+                    with command_environment(env):
+                        _, authority = _select_manager_fixture(run)
+                    if authority.record.lifecycle.state == "active":
+                        native_state.update(
+                            observe_profile(installation.root, authority.payload, installation)
+                        )
+                        native_state["native_availability"] = "verified"
+                run["native_state"] = native_state
             else:
                 status = manager_root_call([*scope, "gateway", "status"], env=env)
                 if status.get("gateway_health") == "healthy" and status.get("gateway_port"):

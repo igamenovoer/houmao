@@ -348,6 +348,9 @@ class AuthorizationActor(_AuthorizationModel):
     enrollment_id: Identifier | None = None
     generation_id: Identifier | None = None
     self_registration_revision: Annotated[int, Field(ge=1)] | None = None
+    self_native_authority: Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     transport_issuer: Identifier | None = None
     transport_member: Identifier | None = None
     transport_binding: Identifier | None = None
@@ -364,6 +367,7 @@ class AuthorizationActor(_AuthorizationModel):
                     self.enrollment_id,
                     self.generation_id,
                     self.self_registration_revision,
+                    self.self_native_authority,
                 )
             ):
                 raise ValueError("mail actor requires independent transport evidence")
@@ -380,8 +384,10 @@ class AuthorizationActor(_AuthorizationModel):
             or (self.generation_id is not None) != (self.kind == "self")
         ):
             raise ValueError("actor has incomplete or inconsistent credential evidence")
-        if self.self_registration_revision is not None and self.kind != "self":
-            raise ValueError("registration revision requires managed-self evidence")
+        if (
+            self.self_registration_revision is not None or self.self_native_authority is not None
+        ) and self.kind != "self":
+            raise ValueError("native and registration authority requires managed-self evidence")
         return self
 
     @classmethod
@@ -405,6 +411,7 @@ class AuthorizationActor(_AuthorizationModel):
             key_id=binding.key_id,
             generation_id=binding.generation_id,
             self_registration_revision=binding.registration_revision,
+            self_native_authority=binding.native_authority,
         )
 
 

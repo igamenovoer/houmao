@@ -163,29 +163,40 @@ def _exec_hermes(
     from houmao.agents.hermes_configuration import (
         HERMES_API_KEY_ENV,
         hermes_runtime_environment,
-        project_hermes_approval_policy,
-        resolve_hermes_executable,
+        require_hermes_profile_credential,
     )
+    from houmao.agents.hermes_profile import read_hermes_profile_record, require_hermes_profile_home
     from houmao.agents.launch_env import owner_launch_baseline
-    from houmao.agents.realm_controller.errors import LaunchPlanError
+    from houmao.agents.realm_controller.backends.hermes_native import HermesDaemon
+    from houmao.agents.realm_controller.errors import BackendExecutionError, LaunchPlanError
     from houmao.agents.realm_controller.loaders import parse_env_file
 
     try:
+        profile = read_hermes_profile_record(home)
+        require_hermes_profile_home(profile)
+        if any(arg.partition("=")[0] == "--profile" for arg in args):
+            raise ValueError("The managed launch helper selects the recorded Hermes profile.")
         credentials = parse_env_file(env_file)
         environment = owner_launch_baseline(os.environ)
         environment.update({name: os.environ[name] for name in env_names if name in os.environ})
         environment.pop(HERMES_API_KEY_ENV, None)
         if HERMES_API_KEY_ENV in credentials:
             environment[HERMES_API_KEY_ENV] = credentials[HERMES_API_KEY_ENV]
-        native_environment = hermes_runtime_environment(home, environment)
-        executable = resolve_hermes_executable(
-            environment=native_environment, working_directory=workspace
+        require_hermes_profile_credential(home, environment)
+        daemon = HermesDaemon.from_inputs(
+            executable=str(profile.executable),
+            home=home,
+            workspace=workspace,
+            env=hermes_runtime_environment(home, environment),
+            root=home / ".houmao-launch-helper",
+            profile=profile,
         )
-        project_hermes_approval_policy(home, operator_prompt_mode)
+        daemon.ensure(unattended=operator_prompt_mode == "unattended")
+        command, native_environment = daemon.native_command(args)
         if operator_prompt_mode == "unattended" and ("--tui" in args or "tui" in args[:1]):
             native_environment["HERMES_NONINTERACTIVE"] = "1"
-        os.execve(executable, [executable, *args], native_environment)
-    except (OSError, LaunchPlanError, ValueError) as exc:
+        os.execve(command[0], command, native_environment)
+    except (BackendExecutionError, OSError, LaunchPlanError, ValueError) as exc:
         raise SystemExit(str(exc)) from None
 
 

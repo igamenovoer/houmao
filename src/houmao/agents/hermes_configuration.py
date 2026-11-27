@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import stat
 import tempfile
 
 import yaml
@@ -25,7 +26,14 @@ _UNATTENDED_APPROVALS = {
     "single_query_mode": "approve",
     "unattended_mode": "approve",
 }
-_NATIVE_ENV_PREFIXES = ("HERMES_", "OPENAI_", "OPENROUTER_", "ANTHROPIC_", "DEEPSEEK_")
+_NATIVE_ENV_PREFIXES = (
+    "HERMES_",
+    "HOUMAO_HERMES_",
+    "OPENAI_",
+    "OPENROUTER_",
+    "ANTHROPIC_",
+    "DEEPSEEK_",
+)
 
 
 def resolve_hermes_executable(
@@ -98,13 +106,14 @@ def prepare_hermes_home(
     role_prompt: str,
     operator_prompt_mode: OperatorPromptMode = "unattended",
     reasoning_effort: HermesReasoningEffort | None = None,
+    tool_origin_broker: Path | None = None,
 ) -> None:
     """Project the custom Chat Completions route, effort, and native role file."""
 
     agent: dict[str, object] = {"disabled_toolsets": ["browser", "computer_use"]}
     if reasoning_effort is not None:
         agent["reasoning_effort"] = reasoning_effort
-    config = {
+    config: dict[str, object] = {
         "model": {
             "default": model_name,
             "provider": "custom",
@@ -117,9 +126,48 @@ def prepare_hermes_home(
         "security": {"allow_lazy_installs": False},
         "approvals": dict(_APPROVAL_BASELINE),
     }
+    if tool_origin_broker is not None:
+        from houmao.agents.realm_controller.hermes_tool_origin import (
+            enable_hermes_tool_origin_hook,
+            install_hermes_tool_origin_hook,
+        )
+
+        enable_hermes_tool_origin_hook(config)
+        install_hermes_tool_origin_hook(home_path, broker_socket=tool_origin_broker)
     _write_private_text(home_path / HERMES_CONFIG_FILENAME, yaml.safe_dump(config, sort_keys=False))
     project_hermes_approval_policy(home_path, operator_prompt_mode)
     write_hermes_role(home_path, role_prompt)
+
+
+def write_hermes_profile_credential(home: Path, selected_environment: Mapping[str, str]) -> None:
+    """Project only the selected model credential into the native profile's private dotenv."""
+
+    _write_private_text(home / ".env", _hermes_profile_credential_text(selected_environment))
+
+
+def require_hermes_profile_credential(home: Path, selected_environment: Mapping[str, str]) -> None:
+    """Confirm native and client launches use the same selected profile credential."""
+
+    expected = _hermes_profile_credential_text(selected_environment).encode("utf-8")
+    descriptor = os.open(home / ".env", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or info.st_uid != os.geteuid()
+            or info.st_mode & 0o077
+            or stream.read(len(expected) + 1) != expected
+        ):
+            raise ValueError(
+                "Hermes profile credentials differ from the selected bundle. Rebuild the parked profile to update them."
+            )
+
+
+def _hermes_profile_credential_text(selected_environment: Mapping[str, str]) -> str:
+    """Encode the selected credential for Hermes's non-interpolating dotenv reader."""
+
+    credential = selected_hermes_key(selected_environment).replace("\\", "\\\\").replace("'", "\\'")
+    return f"{HERMES_API_KEY_ENV}='{credential}'\n"
 
 
 def hermes_unattended_approval_policy() -> dict[str, str]:

@@ -51,7 +51,12 @@ from houmao.gateway.access import (
     validate_gateway_base_url,
 )
 from houmao.gateway._access_sshsig import key_fingerprint
-from houmao.gateway.access_models import MANAGED_SELF_PATH, ManagedSelfChange, ProofPurpose
+from houmao.gateway.access_models import (
+    MANAGED_SELF_PATH,
+    GatewaySelfKey,
+    ManagedSelfChange,
+    ProofPurpose,
+)
 from houmao.gateway.authorization import GatewayAuthorizer
 from houmao.gateway.authorization_catalog import (
     DEFAULT_FALLBACK_SET,
@@ -927,6 +932,7 @@ def _retained_actor(
     path: str,
     body: bytes,
     signer: Path | PrivateKey | None,
+    self_registration: GatewaySelfKey | None = None,
 ) -> tuple[GatewayAccessPolicy, AuthorizationActor]:
     """Bind local retained admission to the same request and proof as HTTP ingress."""
 
@@ -954,6 +960,8 @@ def _retained_actor(
             key_id=key_fingerprint(public_key_text(private_key.public_key())),
         ),
     )
+    if self_registration is not None and self_registration.native_authority is not None:
+        access.require_self_caller(self_registration)
     return policy, policy.authenticate(
         issuer="owner-retained",
         request=request,
@@ -1246,13 +1254,14 @@ def change_own_managed_self(operation: Literal["rotate", "revoke"], retained: bo
             expected_revision=_self_revision(access),
         )
         if retained:
-            _, signer = access.load_self_signer()
+            registration, signer = access.load_self_signer()
             policy, actor = _retained_actor(
                 access,
                 method="PUT",
                 path=MANAGED_SELF_PATH,
                 body=change.model_dump_json().encode(),
                 signer=signer,
+                self_registration=registration,
             )
             result = policy.change_self_registration(
                 actor, change, require_live_target=access.require_live_generation

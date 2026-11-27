@@ -1,165 +1,112 @@
-# Multi-Agent Home Isolation and Daemon Ownership
+# Multi-Agent Isolation and Shared Gateway Ownership
 
-Two managed Hermes agents launch under the same OS user with separate private homes, rendezvous lock directories, workspaces, and daemons. Stopping one agent terminates only its own daemon while the second agent continues working. Independently starting a daemon inside the first agent's recorded managed home causes Houmao to adopt that exact process identity on relaunch and stop it cleanly, while a daemon launched for a separate foreign home remains outside managed control.
+Launch two Hermes workers from separate projects under one prepared test owner. Check shared native gateway and dependency identity, independent profiles and workspaces, and exact continuation after one worker stops. Follow the [suite setup](../README.md#launch) to select the prepared root and model pool.
 
-## Sub-cases
-
-- `m1-dual-agent-isolation`: two concurrent Hermes agents (`agent-a` and `agent-b`) bind distinct `HERMES_HOME`, `HERMES_GATEWAY_LOCK_DIR`, daemon PIDs, and `instance_id`s, and run independent workspace tasks without cross-talk.
-- `m2-scoped-stop-preserves-peer`: stopping `agent-a` terminates `agent-a`'s verified daemon PID while `agent-b`'s daemon PID stays alive and completes a follow-up turn.
-- `m3-same-home-daemon-adoption`: starting `hermes gateway run --external-supervisor` independently inside `agent-a`'s recorded `HERMES_HOME` causes `agent-a` relaunch to adopt that exact PID and stop it cleanly via managed `stop`.
-- `m4-negative-foreign-home-untouched`: a separately started Hermes daemon in an unrelated third home (`foreign-home`) is never adopted, contacted, or stopped by `agent-a` or `agent-b` lifecycle operations.
-
-## How to get to it (user POV)
-
-- The operator launches two Hermes `service` agents into separate fixture run roots under `$RUN_TMP/runtime/`, inspects both managed homes with `hermes_lab.py inspect-home`, stops `agent-a`, verifies `agent-b` remains live, starts a same-home daemon in `agent-a`'s home plus a foreign-home daemon in a separate scratch home, relaunches `agent-a`, and verifies exact PID adoption and scoped cleanup.
-
-## Driving it with hermes_lab
-
-Preconditions:
-
-- `fixture.py check --pool-slot a --mode service --surface manager --live` and `--pool-slot b` both exit `0`.
-- `CASE_EVIDENCE="$EVIDENCE/multi-agent-isolation-and-daemon-ownership"` exists (`mkdir -p "$CASE_EVIDENCE"`).
-
-- **Prepare and launch `agent-a` and `agent-b` (`m1`).**
+## Launch Two Projects
 
 ```bash
-pixi run python "$FIXTURE" prepare \
-  --pool-slot a --mode service --surface manager \
-  --prompt-mode unattended --tmux-server new --reasoning-level 5 \
-  --role hermes-a --system-prompt-file "$BUNDLE_ROOT/helpers/roles/hermes-worker.md" \
-  --run-root "$RUN_TMP/runtime/runs-iso-a" > "$CASE_EVIDENCE/a-prepare.json"
-export RUN_ISO_A="$(jq -er '.run_dir' "$CASE_EVIDENCE/a-prepare.json")"
-
-pixi run python "$FIXTURE" prepare \
-  --pool-slot b --mode service --surface manager \
-  --prompt-mode unattended --tmux-server new --reasoning-level 5 \
-  --role hermes-b --system-prompt-file "$BUNDLE_ROOT/helpers/roles/hermes-worker.md" \
-  --run-root "$RUN_TMP/runtime/runs-iso-b" > "$CASE_EVIDENCE/b-prepare.json"
-export RUN_ISO_B="$(jq -er '.run_dir' "$CASE_EVIDENCE/b-prepare.json")"
-
+CASE_EVIDENCE="$EVIDENCE/multi-agent-isolation-and-daemon-ownership"
+mkdir -p "$CASE_EVIDENCE"
+for slot in a b; do
+  mode=service
+  if [ "$slot" = b ]; then mode=tui; fi
+  pixi run python "$FIXTURE" prepare \
+    --pool-slot "$slot" --surface manager --mode "$mode" \
+    --hermes-owner-root "$HOUMAO_TEST_HERMES_OWNER_ROOT" \
+    --tmux-server new --prompt-mode unattended --reasoning-level 5 \
+    --system-prompt-file "$BUNDLE_ROOT/helpers/roles/hermes-worker.md" \
+    --run-root "$RUN_TMP/runtime/isolation-$slot" > "$CASE_EVIDENCE/$slot-prepare.json"
+done
+RUN_ISO_A="$(jq -er '.run_dir' "$CASE_EVIDENCE/a-prepare.json")"
+RUN_ISO_B="$(jq -er '.run_dir' "$CASE_EVIDENCE/b-prepare.json")"
 pixi run python "$FIXTURE" launch --run-dir "$RUN_ISO_A" > "$CASE_EVIDENCE/a-launch.json"
 pixi run python "$FIXTURE" launch --run-dir "$RUN_ISO_B" > "$CASE_EVIDENCE/b-launch.json"
-pixi run python "$LAB" doctor --run-dir "$RUN_ISO_A" --run-dir "$RUN_ISO_B" --expected-effort xhigh \
-  > "$CASE_EVIDENCE/doctor.json"
+pixi run python "$FIXTURE" check --run-dir "$RUN_ISO_A" --live > "$CASE_EVIDENCE/a-native.json"
+pixi run python "$FIXTURE" check --run-dir "$RUN_ISO_B" --live > "$CASE_EVIDENCE/b-native.json"
+jq -e -s '
+  .[0] as $a | .[1] as $b |
+  $a.native_state as $x | $b.native_state as $y |
+  $x.availability == "available" and $y.availability == "available" and
+  $x.prepared_root == $y.prepared_root and $x.context_id == $y.context_id and
+  $x.host == $y.host and $x.build == $y.build and
+  $x.dependency_environment == $y.dependency_environment and
+  $x.dependency_stamp == $y.dependency_stamp and
+  $x.profile_id != $y.profile_id and $x.project_home_link != $y.project_home_link and
+  $x.workspace != $y.workspace and $x.session_id != $y.session_id and
+  $x.generation_id != $y.generation_id and $a.tmux_socket_path != $b.tmux_socket_path
+' "$CASE_EVIDENCE/a-native.json" "$CASE_EVIDENCE/b-native.json" > "$CASE_EVIDENCE/shared-owner-check.json"
+```
+
+For each worker, compare the native evidence against the launch report and the actual project link. The live check independently redeems a profile-scoped native ticket, verifies the exact session and workspace, and checks the prepared dependency selection.
+
+```bash
+for slot in a b; do
+  link="$(jq -er '.native_state.project_home_link' "$CASE_EVIDENCE/$slot-native.json")"
+  profile="$(jq -er '.native_state.profile_id' "$CASE_EVIDENCE/$slot-native.json")"
+  test -L "$link" && test "$(readlink -f "$link")" = "$profile"
+  jq -e -s '.[0].identity.generation_id == .[1].native_state.generation_id' \
+    "$CASE_EVIDENCE/$slot-launch.json" "$CASE_EVIDENCE/$slot-native.json" >/dev/null
+done
 
 pixi run python "$FIXTURE" prompt --run-dir "$RUN_ISO_A" \
-  --prompt "Write alpha-anchor to whoami.txt in your workspace and reply with alpha-anchor." \
-  > "$CASE_EVIDENCE/a-turn1.json"
+  --prompt "Write alpha-anchor to whoami.txt in your workspace." > "$CASE_EVIDENCE/a-prompt.json"
 pixi run python "$FIXTURE" prompt --run-dir "$RUN_ISO_B" \
-  --prompt "Write beta-anchor to whoami.txt in your workspace and reply with beta-anchor." \
-  > "$CASE_EVIDENCE/b-turn1.json"
-
-pixi run python "$LAB" inspect-home --run-dir "$RUN_ISO_A" > "$CASE_EVIDENCE/a-home-before.json"
-pixi run python "$LAB" inspect-home --run-dir "$RUN_ISO_B" > "$CASE_EVIDENCE/b-home-before.json"
+  --prompt "Write beta-anchor to whoami.txt in your workspace." > "$CASE_EVIDENCE/b-prompt.json"
+test "$(cat "$RUN_ISO_A/workdir/whoami.txt")" = "alpha-anchor"
+test "$(cat "$RUN_ISO_B/workdir/whoami.txt")" = "beta-anchor"
 ```
 
-- **Stop `agent-a` and verify `agent-b` stays unaffected (`m2`).**
+## Stop and Resume One Profile
 
 ```bash
-export PID_A_1="$(jq -er '.daemons[-1].pid' "$CASE_EVIDENCE/a-home-before.json")"
-export PID_B_1="$(jq -er '.daemons[-1].pid' "$CASE_EVIDENCE/b-home-before.json")"
-export HOME_A="$(jq -er '.managed_home' "$CASE_EVIDENCE/a-home-before.json")"
-export SID_A="$(jq -er '.acp_bindings[-1].native_session_id' "$CASE_EVIDENCE/a-home-before.json")"
+SID_A="$(jq -er '.native_state.session_id' "$CASE_EVIDENCE/a-native.json")"
+pixi run python "$FIXTURE" stop --run-dir "$RUN_ISO_A" > "$CASE_EVIDENCE/a-stop.json"
+pixi run python "$LAB" inspect-home --run-dir "$RUN_ISO_A" > "$CASE_EVIDENCE/a-parked.json"
+jq -e '.profile_parked' "$CASE_EVIDENCE/a-parked.json" >/dev/null
+pixi run python "$FIXTURE" check --run-dir "$RUN_ISO_B" --live > "$CASE_EVIDENCE/b-after-a-stop.json"
+jq -e -s '.[0].native_state == .[1].native_state' \
+  "$CASE_EVIDENCE/b-native.json" "$CASE_EVIDENCE/b-after-a-stop.json" >/dev/null
 
-pixi run python "$LAB" stop --run-dir "$RUN_ISO_A" --evidence-root "$EVIDENCE" \
-  > "$CASE_EVIDENCE/a-stop-1.json"
-pixi run python "$FIXTURE" prompt --run-dir "$RUN_ISO_B" \
-  --prompt "Read whoami.txt in your workspace and confirm its contents in one line." \
-  > "$CASE_EVIDENCE/b-turn2-after-a-stop.json"
-pixi run python "$LAB" inspect-home --run-dir "$RUN_ISO_B" > "$CASE_EVIDENCE/b-home-after-a-stop.json"
-```
-
-- **Start an independent same-home daemon in `HOME_A` plus a foreign-home daemon (`m3`, `m4`).** Use the exact `HERMES_MANAGED_API_KEY` from `private-env.json` only inside the child process environment (never print it):
-
-```bash
-export FOREIGN_HOME="$RUN_TMP/runtime/foreign-hermes-home"
-mkdir -p "$FOREIGN_HOME" && chmod 700 "$FOREIGN_HOME"
-cp "$HOME_A/config.yaml" "$FOREIGN_HOME/config.yaml"
-cp "$HOME_A/SOUL.md" "$FOREIGN_HOME/SOUL.md"
-
-python3 - "$RUN_ISO_A" "$HOME_A" "$FOREIGN_HOME" "$CASE_EVIDENCE/external-daemons.json" <<'PY'
-import json, os, shutil, subprocess, sys, time
-from pathlib import Path
-
-run_a, home_a, foreign_home, out_path = [Path(p) for p in sys.argv[1:5]]
-priv = json.loads((run_a / "private-env.json").read_text(encoding="utf-8"))
-hermes = shutil.which("hermes")
-assert hermes
-
-def start_daemon(home: Path, log_name: str) -> int:
-    env = {
-        "PATH": os.environ.get("PATH", os.defpath),
-        "HOME": os.environ.get("HOME", ""),
-        "HERMES_HOME": str(home),
-        "HERMES_GATEWAY_LOCK_DIR": str(home / ".houmao-gateway-locks"),
-        "HERMES_MANAGED_API_KEY": priv["HERMES_MANAGED_API_KEY"],
-    }
-    log_file = (home / log_name).open("ab")
-    proc = subprocess.Popen(
-        [hermes, "gateway", "run", "--external-supervisor"],
-        cwd=str(run_a / "workdir"),
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=log_file,
-        stderr=log_file,
-        start_new_session=True,
-    )
-    return proc.pid
-
-pid_same = start_daemon(home_a, "adopted-test.log")
-pid_foreign = start_daemon(foreign_home, "foreign-test.log")
-deadline = time.monotonic() + 30
-while time.monotonic() < deadline:
-    if (home_a / "gateway.sock").exists() or (home_a / "gateway.sock.path").exists():
-        if (foreign_home / "gateway.sock").exists() or (foreign_home / "gateway.sock.path").exists():
-            break
-    time.sleep(0.2)
-Path(out_path).write_text(
-    json.dumps({"same_home_pid": pid_same, "foreign_home_pid": pid_foreign}, indent=2) + "\n",
-    encoding="utf-8",
-)
-PY
-
-export ADOPTED_PID="$(jq -er '.same_home_pid' "$CASE_EVIDENCE/external-daemons.json")"
-export FOREIGN_PID="$(jq -er '.foreign_home_pid' "$CASE_EVIDENCE/external-daemons.json")"
-```
-
-- **Relaunch `agent-a`, verify exact PID adoption, then stop `agent-a` and verify `FOREIGN_PID` is untouched (`m3`, `m4`).**
-
-```bash
 pixi run python "$LAB" manager --run-dir "$RUN_ISO_A" -- \
-  relaunch --chat-session-mode exact --chat-session-id "$SID_A" \
-  > "$CASE_EVIDENCE/a-relaunch-adopt.json"
-pixi run python "$LAB" inspect-home --run-dir "$RUN_ISO_A" > "$CASE_EVIDENCE/a-home-adopted.json"
-pixi run python "$FIXTURE" prompt --run-dir "$RUN_ISO_A" \
-  --prompt "Read whoami.txt and confirm the anchor word." \
-  > "$CASE_EVIDENCE/a-turn2-adopted.json"
-
-pixi run python "$LAB" stop --run-dir "$RUN_ISO_A" --run-dir "$RUN_ISO_B" --evidence-root "$EVIDENCE" \
-  > "$CASE_EVIDENCE/stop.json"
-
-kill -0 "$ADOPTED_PID" 2>/dev/null && echo "adopted_alive=true" || echo "adopted_alive=false" > "$CASE_EVIDENCE/post-stop-pids.txt"
-kill -0 "$FOREIGN_PID" 2>/dev/null && echo "foreign_alive_before_manual_clean=true" >> "$CASE_EVIDENCE/post-stop-pids.txt" || echo "foreign_alive_before_manual_clean=false" >> "$CASE_EVIDENCE/post-stop-pids.txt"
-kill -TERM "$FOREIGN_PID" 2>/dev/null || true
+  relaunch --chat-session-mode exact --chat-session-id "$SID_A" > "$CASE_EVIDENCE/a-relaunch.json"
+pixi run python "$FIXTURE" check --run-dir "$RUN_ISO_A" --live > "$CASE_EVIDENCE/a-native-resumed.json"
+jq -e -s '
+  .[0].native_state as $a | .[1].native_state as $b |
+  $a.session_id == $b.session_id and $a.profile_id == $b.profile_id and
+  $a.host == $b.host and $a.dependency_stamp == $b.dependency_stamp and
+  $a.generation_id != $b.generation_id and $a.authority_epoch != $b.authority_epoch
+' "$CASE_EVIDENCE/a-native.json" "$CASE_EVIDENCE/a-native-resumed.json" >/dev/null
 ```
 
-## Expected Outcome
+## Remove the Profiles and Retire the Host
 
-- **Quantified checks:**
-  - `a-home-before.json` and `b-home-before.json` have disjoint `managed_home`, disjoint `daemons[-1].pid` (`PID_A_1 != PID_B_1`), and disjoint `daemons[-1].instance_id`.
-  - `$RUN_ISO_A/workdir/whoami.txt` contains `alpha-anchor` and `$RUN_ISO_B/workdir/whoami.txt` contains `beta-anchor` with zero cross-contamination.
-  - `a-stop-1.json` reports `surviving_daemon_pids == []`; `b-home-after-a-stop.json` retains `daemons[-1].pid == PID_B_1` (`pid_alive == true`) and `b-turn2-after-a-stop.json` succeeds.
-  - `a-home-adopted.json` records `daemons[-1].pid == ADOPTED_PID` (exact adoption of the pre-started same-home daemon) and `a-turn2-adopted.json` completes.
-  - `post-stop-pids.txt` confirms `adopted_alive=false` and `foreign_alive_before_manual_clean=true` (Houmao stopped the adopted same-home daemon and left the foreign-home daemon completely untouched), before our test teardown cleanly sends `SIGTERM` to `FOREIGN_PID`.
-- **Qualitative checks:**
-  - Inspect `b-turn2-after-a-stop.json` and `a-turn2-adopted.json` to confirm each agent reports only its own workspace anchor (`beta-anchor` vs. `alpha-anchor`) with coherent session continuity.
+Stop each recorded worker, remove its retained session, and preview the build cleanup before applying it. Use only this case's dedicated owner runtime. Retire the host after every named profile in that installation has been removed.
 
-## Gotchas
+```bash
+OWNER_RUNTIME="$HOUMAO_TEST_HERMES_OWNER_ROOT/fixture-owner/runtime"
+OWNER_REGISTRY="$HOUMAO_TEST_HERMES_OWNER_ROOT/fixture-owner/registry"
+for slot in a b; do
+  run_dir="$(jq -er '.run_dir' "$CASE_EVIDENCE/$slot-prepare.json")"
+  pixi run python "$FIXTURE" stop --run-dir "$run_dir" > "$CASE_EVIDENCE/$slot-final-stop.json"
+  pixi run python "$LAB" manager --run-dir "$run_dir" -- cleanup session \
+    > "$CASE_EVIDENCE/$slot-session-cleanup.json"
+  HOUMAO_GLOBAL_REGISTRY_DIR="$OWNER_REGISTRY" HOUMAO_HERMES_INSTALLATION_ROOT="$HOUMAO_TEST_HERMES_OWNER_ROOT" \
+    "$HOUMAO_MGR" --print-json admin cleanup runtime builds --runtime-root "$OWNER_RUNTIME" --dry-run \
+    > "$CASE_EVIDENCE/$slot-build-preview.json"
+  HOUMAO_GLOBAL_REGISTRY_DIR="$OWNER_REGISTRY" HOUMAO_HERMES_INSTALLATION_ROOT="$HOUMAO_TEST_HERMES_OWNER_ROOT" \
+    "$HOUMAO_MGR" --print-json admin cleanup runtime builds --runtime-root "$OWNER_RUNTIME" \
+    > "$CASE_EVIDENCE/$slot-build-cleanup.json"
+  link="$(jq -er '.native_state.project_home_link' "$CASE_EVIDENCE/$slot-native.json")"
+  profile="$(jq -er '.native_state.profile_id' "$CASE_EVIDENCE/$slot-native.json")"
+  test ! -e "$profile" && test ! -L "$link"
+  if [ "$slot" = a ]; then
+    pixi run python "$FIXTURE" check --run-dir "$RUN_ISO_B" --live \
+      > "$CASE_EVIDENCE/b-after-a-cleanup.json"
+  fi
+done
+pixi run python "$FIXTURE" retire-hermes-owner \
+  --hermes-owner-root "$HOUMAO_TEST_HERMES_OWNER_ROOT" > "$CASE_EVIDENCE/host-retired.json"
+jq -e '.host_exited' "$CASE_EVIDENCE/host-retired.json" >/dev/null
+```
 
-- Always record `FOREIGN_PID` in `external-daemons.json` and terminate it with `kill -TERM "$FOREIGN_PID"` at the end of the scenario (even on failure) so no orphan daemon survives in `$RUN_TMP/runtime/foreign-hermes-home`.
-- Wait for both `gateway.sock` (or `gateway.sock.path`) files to appear before running `relaunch` so the pre-started daemon has finished listening.
-
-## Blinding and Transcript Checks
-
-- Keep `eval`, `test`, `judge`, `rubric`, `benchmark`, `candidate`, and `arena` out of prompts and workspace files.
-- Verify daemon ownership from `hermes-daemon.json`, `/proc/<pid>`, and `whoami.txt` rather than agent self-reports.
+Keep the evidence and prepared installation. The retirement command verifies the saved native PID, process birth, and gateway incarnation before signaling through a pinned process descriptor. It refuses while any named profile remains in the selected root.

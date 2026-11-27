@@ -227,7 +227,7 @@ class GatewayAccessPolicy:
             operation_id=(uuid4().hex if operation_id is None else owner_handoff_id(operation_id)),
             target=self.m_proofs.target(),
             listener_id=self.m_listener_id,
-            current_self=self._self_for(grant.actor),
+            resolve_self=lambda: self._self_for(grant.actor),
         )
 
     def handoff_evidence(self, operation_id: str) -> GatewayGrant | None:
@@ -376,16 +376,17 @@ class GatewayAccessPolicy:
             raise GatewayAccessError(403, "insufficient_authority")
         if require_current_target is not None:
             require_current_target()
+        current_self = self._self_for(grant.actor)
+        if current_self is not None and (
+            current_self.retained_registration() != transaction.load_self(grant.target.incarnation)
+        ):
+            raise GatewayAccessError(401, "invalid_proof")
         self.m_authorizer.require_current(
             transaction.snapshot,
             grant,
             target=self.m_proofs.target(),
             listener_id=self.m_listener_id,
-            current_self=(
-                transaction.load_self(grant.target.incarnation)
-                if grant.actor.kind == "self"
-                else None
-            ),
+            current_self=current_self,
         )
 
     def change_self_registration(
@@ -409,7 +410,13 @@ class GatewayAccessPolicy:
                 raise GatewayAccessError(409, "authorization_target_conflict")
             binding = transaction.load_self(target.incarnation)
             if actor.kind == "self":
-                if binding is None or actor != AuthorizationActor.from_self(binding):
+                current = self._self_for(actor)
+                if (
+                    binding is None
+                    or current is None
+                    or binding != current.retained_registration()
+                    or actor != AuthorizationActor.from_self(current)
+                ):
                     raise GatewayAccessError(401, "invalid_proof")
                 transaction.require_self_signer(binding)
             else:

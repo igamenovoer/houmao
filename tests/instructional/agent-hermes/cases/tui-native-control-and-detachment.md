@@ -202,7 +202,7 @@ pixi run python "$LAB" stop --run-dir "$RUN_TUI" --evidence-root "$EVIDENCE" \
   - `negative-parser-history.json` and `negative-send-keys.json` both return unsupported errors (`ok == false`), while `state-after-parser-negatives.json` retains `owner_available == true`.
   - `state-during-human.json` reports `can_accept_prompt_now == false`; `busy-refusal.json` returns an explicit refusal (`ok == false`) without dispatching a second prompt.
   - `state-while-detached.json` reports `terminal_attachment == "detached"` and `owner_available == true`; `prompt-detach.json` settles with completed status and `detach-proof.txt` contains `detached-ok`.
-  - `state-after-switch.json` reports `terminal_attachment == "other_session"` while `native_session_id == "$TUI_NATIVE_SID"`; `redaction-audit.json` has `leak_count == 0`; `stop.json` has `surviving_daemon_pids == []`.
+  - `state-after-switch.json` reports `terminal_attachment == "other_session"` while `native_session_id == "$TUI_NATIVE_SID"`. `redaction-audit.json` has `leak_count == 0` and `stop.json` has `profile_parked == true`.
 - **Qualitative checks:**
   - Match the request ID in `prompt-pinned-after-switch.json` to the native admission in `transcript/` and confirm it used the original session ID. Confirm `recall.txt` contains `velvet-compass-7`.
 

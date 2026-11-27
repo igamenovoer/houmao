@@ -560,6 +560,8 @@ Notifier validation failures SHALL return HTTP `422`. Attempts to enable notifie
 
 Shared mailbox route validation failures SHALL return HTTP `422`. Summary status SHALL remain a normal empty-binding response when neither slot is configured. Lifecycle calls selecting an absent binding SHALL fail explicitly. Unqualified lifecycle routes SHALL NOT infer a channel. Protected mailbox routes SHALL apply caller authority and binding checks on loopback and broader listeners.
 
+For an admitted `POST /v1/mail/{channel}/list` request that fails body validation, the gateway SHALL return structured `detail` entries with error types and schema-defined locations. Unknown body keys SHALL use `["body"]` as the location. The response SHALL give fixed guidance to use `read_state: "unread"` to list unread mail when a body field is unsupported. Validation responses SHALL omit submitted values, arbitrary field names, raw validator messages, and raw request bodies.
+
 Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the terminal-mutation slot solely to report current gateway health, core status, reminder state, notifier status, or shared mailbox state.
 
 #### Scenario: Reminder registration uses the live gateway HTTP surface
@@ -598,6 +600,24 @@ Read-oriented HTTP endpoints and mailbox read routes SHALL NOT consume the termi
 
 - **WHEN** an admitted request refers to a gateway instance, agent generation, or resource binding that changes before the protected effect
 - **THEN** the gateway refuses the request and leaves the replacement untouched
+
+#### Scenario: An admitted mail-list request uses an unsupported body field
+
+- **WHEN** an admitted caller submits a mail-list request to the offline or online channel with an unsupported body key such as `unread_only`
+- **THEN** the gateway returns HTTP 422 with a detail entry for the unsupported field at `["body"]`
+- **AND THEN** the response shows `read_state: "unread"` as the supported form for unread listing
+- **AND THEN** the response and diagnostic log omit the submitted key and value
+
+#### Scenario: A known mail-list field fails validation
+
+- **WHEN** an admitted caller supplies a value of the wrong type or outside the accepted set for a declared mail-list field
+- **THEN** the gateway returns HTTP 422 with the declared field path, such as `["body", "read_state"]`
+- **AND THEN** it omits the supplied value and raw validator message
+
+#### Scenario: A mail-list request fails proof before validation
+
+- **WHEN** a mail-list request provides invalid proof or omits required proof
+- **THEN** the gateway returns HTTP 401 with the applicable challenge information before returning any body validation guidance
 
 ### Requirement: Gateway status separates gateway health, upstream-agent state, recovery, admission, surface eligibility, and execution state
 The gateway SHALL publish a structured status model that separates gateway health from managed-agent connectivity, recovery state, request-admission state, and native-surface readiness.

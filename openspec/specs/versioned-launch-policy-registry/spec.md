@@ -76,7 +76,7 @@ Credential-readiness metadata SHALL remain separate from unattended-compatibilit
 
 A launch policy strategy SHALL define the ordered actions that must be applied before provider start to satisfy the requested prompt policy for the resolved working directory and runtime home.
 
-Those actions SHALL run after the selected setup baseline has been projected into the runtime home for the selected tool. They SHALL apply the resolved user-configurable values and derive the declared reserved values. Authored conflicts with reserved launch inputs SHALL fail explicitly.
+After setup projection, the actions SHALL apply the validated unattended permission posture and other resolved values, and derive reserved values. Effective permission conflicts and authored reserved inputs SHALL fail before provider-start actions.
 
 #### Scenario: Acceptance criteria
 
@@ -103,10 +103,9 @@ Provider-specific complex behavior SHALL be exposed through stable hook ids refe
 - **AND THEN** later actions observe the results of earlier actions for the same runtime home and working directory
 
 #### Scenario: Codex strategy actions can canonicalize conflicting config-override args
-- **WHEN** caller-supplied launch overrides set a supported native Codex approval value that differs from the unattended default
-- **AND WHEN** no authored higher-priority approval field supersedes it
-- **THEN** the final startup configuration applies that approval value
-- **AND THEN** the strategy emits a consistent native setting
+- **WHEN** lower-priority launch arguments set a native Codex approval value and a higher-priority authored field resolves the same setting to `never`
+- **THEN** the final unattended startup configuration uses `never`
+- **AND THEN** the superseded alias is absent from the final command
 
 #### Scenario: Strategy-owned runtime paths are declared explicitly
 - **WHEN** a developer inspects a maintained launch policy strategy
@@ -122,7 +121,7 @@ For Codex unattended launch strategies, the registry-owned startup surface SHALL
 - **GIVEN** a case covered by this requirement
 - **THEN** the applicable criteria below hold
 
-The strategy SHALL project the effective approval and sandbox settings through the highest qualified native startup precedence. It SHALL preserve recognized authored approval and sandbox values and fill omitted fields with the versioned defaults. Final arguments SHALL agree with the runtime-home projection even when project-local `.codex/config.toml` contains a different value.
+The strategy SHALL project `never` approval and `danger-full-access` sandbox through the highest qualified native startup precedence. An omitted field or a normalized effective authored value equal to the strategy value SHALL use the same projection. A different effective authored value SHALL fail validation before provider start or managed takeover. Final arguments SHALL agree with the runtime-home projection even when project-local `.codex/config.toml` contains a different value.
 
 #### Scenario: Codex strategy exposes CLI override ownership for startup policy
 - **WHEN** a developer inspects a Codex unattended strategy entry
@@ -130,14 +129,20 @@ The strategy SHALL project the effective approval and sandbox settings through t
 - **AND THEN** runtime-home `config.toml` remains a supported projection of those resolved values
 
 #### Scenario: Codex strategy appends final approval and sandbox overrides
-- **WHEN** unattended launch resolves an authored `sandbox_mode` of `read-only` and the approval setting is omitted
-- **THEN** the final Codex CLI config arguments use `read-only` and the unattended approval default
+- **WHEN** an unattended Codex launch has omitted or matching effective approval and sandbox inputs
+- **THEN** the final Codex CLI config arguments use `never` and `danger-full-access`
 - **AND THEN** the copied runtime config and final launch arguments agree
 
 #### Scenario: Codex strategy keeps secrets out of emitted CLI config overrides
 - **WHEN** the runtime resolves a compatible Codex unattended strategy for an env-only provider launch
 - **THEN** strategy-emitted CLI config overrides contain only non-secret settings
 - **AND THEN** they omit API keys, auth JSON, OAuth tokens, cookies, and bearer tokens
+
+#### Scenario: Codex unattended launch rejects an effective restrictive sandbox
+
+- **WHEN** the effective authored Codex sandbox is `read-only` during unattended launch
+- **THEN** validation identifies the conflicting sandbox and directs the operator to `as_is` for custom permissions
+- **AND THEN** provider start and managed takeover have no effect
 
 ### Requirement: Unattended strategy compatibility failures are explicit
 
@@ -172,7 +177,7 @@ The launch-policy registry SHALL include maintained Kimi Code unattended strateg
 
 Both strategies SHALL declare their minimal provider-ready inputs, evidence, startup surfaces, v2-engine requirement, native `SYSTEM.md` projection, pre-launch actions, and validation. Credential readiness SHALL remain separate from permission and role-prompt compatibility.
 
-Kimi headless uses the native prompt entrypoint's automatic permission behavior and SHALL exclude incompatible permission flags. Kimi TUI SHALL apply the resolved permission mode at fresh or resumed provider start and use `--auto` for the unattended default. The launch SHALL establish policy through supported native startup surfaces without submitting a conversational command.
+Kimi headless uses the native prompt entrypoint's automatic permission behavior and SHALL exclude incompatible permission flags. Kimi TUI SHALL use `--auto` for every unattended fresh or resumed provider start. Kimi ACP and Web SHALL establish `auto` on the bound native session at provider start and explicit relaunch. The launch SHALL establish policy through supported native startup surfaces without submitting a conversational command.
 
 #### Scenario: Maintainer inspects Kimi native-prompt strategy metadata
 - **WHEN** a maintainer inspects a Kimi headless or local-interactive strategy
@@ -188,7 +193,7 @@ Kimi headless uses the native prompt entrypoint's automatic permission behavior 
 - **THEN** the registry selects the applicable minimum-version strategy for headless or TUI
 
 #### Scenario: Headless and resumed TUI commands remain valid
-- **WHEN** an unattended Kimi launch with no authored permission override selects headless or resumes a TUI
+- **WHEN** an unattended Kimi launch selects headless or resumes a TUI with omitted or matching effective permission inputs
 - **THEN** headless excludes incompatible permission flags
 - **AND THEN** the resumed TUI uses `--auto` alongside its native continuation selector
 
@@ -202,11 +207,11 @@ Kimi headless uses the native prompt entrypoint's automatic permission behavior 
 - **AND THEN** it declares policy projection at startup
 
 #### Scenario: Kimi headless strategy rejects prompt-mode-incompatible launch args
-- **WHEN** an authored permission setting requires behavior incompatible with Kimi's native prompt entrypoint
+- **WHEN** an effective authored Kimi permission setting requires behavior incompatible with native headless `auto`, including a requested `manual` or `yolo`
 - **THEN** launch rejects that setting before invoking the provider
 
 #### Scenario: Kimi resumed TUI keeps native auto mode
-- **WHEN** an unattended Kimi TUI launch omits a permission override and resumes an existing session
+- **WHEN** an unattended Kimi TUI launch resumes an existing session using omitted or matching effective permission inputs
 - **THEN** the launch command applies native `--auto` with its continuation selector before managed input
 
 #### Scenario: Unknown Kimi version does not silently use maintained strategy
@@ -214,8 +219,8 @@ Kimi headless uses the native prompt entrypoint's automatic permission behavior 
 - **THEN** the registry fails launch with a compatibility diagnostic
 
 #### Scenario: Kimi TUI strategy owns automatic permission config
-- **WHEN** an unattended Kimi TUI launch resolves the auto default or a supported authored permission setting
-- **THEN** the selected fresh or resumed launch applies the resolved value through a qualified native startup surface
+- **WHEN** an unattended Kimi TUI launch resolves the qualified `auto` posture
+- **THEN** the selected fresh or resumed launch applies `auto` through a qualified native startup surface
 - **AND THEN** unrelated provider, model, OAuth, skill, and telemetry configuration remains intact
 
 ### Requirement: Launch-policy registry contains no Gemini strategies or hooks
@@ -253,7 +258,7 @@ When a managed launch requires a role or system prompt, launch policy SHALL sele
 
 ### Requirement: Unattended supplies versioned native permission defaults
 
-Each maintained unattended strategy SHALL declare the most permissive supported permission and approval defaults for its tool version and backend. It SHALL apply each default only to an omitted field. Effective launch diagnostics SHALL identify resolved permission values and their source without exposing credentials.
+Each maintained unattended strategy SHALL establish the most permissive qualified native permission posture that runs without routine operator approval for its tool version and backend. It SHALL accept omitted and matching effective permission values and reject conflicts before provider start or managed takeover. Effective launch diagnostics SHALL identify permission values and their source without exposing credentials.
 
 #### Scenario: No permission settings are supplied
 
@@ -263,13 +268,13 @@ Each maintained unattended strategy SHALL declare the most permissive supported 
 
 #### Scenario: Authored permission mode is intentionally interactive
 
-- **WHEN** a user requests unattended defaults and explicitly configures a supported mode that asks for approval
+- **WHEN** a user selects `as_is` and explicitly configures a supported native mode that asks for approval
 - **THEN** the native launch uses that mode
 - **AND THEN** diagnostics attribute the effective mode to the user's setting
 
 #### Scenario: The backend cannot apply a permission value
 
-- **WHEN** the detected tool or selected backend cannot honor an effective authored permission value
+- **WHEN** the detected tool or selected backend cannot establish the qualified unattended posture or honor an effective `as_is` permission value
 - **THEN** launch validation identifies the setting, version, and backend before provider start or managed takeover
 
 #### Scenario: As-is uses the selected native baseline
@@ -277,3 +282,27 @@ Each maintained unattended strategy SHALL declare the most permissive supported 
 - **WHEN** a launch requests `as_is` and omits a permission setting
 - **THEN** the launch uses the native baseline for that setting
 - **AND THEN** a prior Houmao-generated unattended value does not count as an authored override
+
+#### Scenario: Every maintained provider has a qualified unattended posture
+
+- **WHEN** Houmao resolves unattended provider start for a supported tool and run mode
+- **THEN** the native posture is `bypassPermissions` for Claude, `never` and `danger-full-access` for Codex, `auto` for Kimi, or `never` and `danger-full-access` for DSH
+- **AND THEN** Hermes selects its qualified native no-wait approval policy and, in ACP mode, its broadest qualified native edit mode
+- **AND THEN** native hard denials, administrative policy, and execution-owner boundaries still apply
+
+#### Scenario: An effective authored permission conflicts with unattended launch
+
+- **WHEN** the normalized effective permission input differs from the qualified unattended posture
+- **THEN** the launch reports the conflicting field, its source, the applicable native value, and `as_is` for supported custom settings
+- **AND THEN** startup policy leaves the existing home, runtime, and provider process intact
+
+#### Scenario: An effective authored permission matches unattended launch
+
+- **WHEN** the normalized effective permission input matches the qualified unattended posture
+- **THEN** the native projection and reported effective posture are identical to a launch that omits that field
+
+#### Scenario: A controlled strategy override retains unattended permission authority
+
+- **WHEN** a transient strategy selection override is used with an unattended launch
+- **THEN** the selected strategy still establishes the qualified maximum permission posture for the selected executable and backend
+- **AND THEN** an override unable to establish that posture fails before provider start or managed takeover

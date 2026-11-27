@@ -1,6 +1,6 @@
 # Managed Hermes
 
-Houmao resolves `hermes` on PATH in the selected execution context. The supported modes are `service`, `tui`, and `headless`. A launch without a mode selects `service`. Each agent gets a private Hermes home, configured workspace, and managed conversation. The launch profile selects the model and base URL for its Chat Completions route. The selected credential bundle supplies `HERMES_MANAGED_API_KEY`.
+Managed Hermes uses a prepared installation in the selected execution context. The supported modes are `service`, `tui`, and `headless`. A launch without a mode selects `service`. Each agent gets a private named-profile home, configured workspace, and managed conversation. The launch profile selects the model and base URL for its Chat Completions route. The selected credential bundle supplies `HERMES_MANAGED_API_KEY`. [Prepare the Owner Installation](hermes-owner-setup.md)
 
 ## Reasoning Effort
 
@@ -23,21 +23,25 @@ Houmao writes the selected value to `agent.reasoning_effort` in the private `$HE
 
 Unattended Hermes uses the native approval mode `off` and selects `approve` for finite query and unattended interactions. Houmao applies these settings to its private home and verifies the effective settings on the current daemon before accepting managed prompts. Native hard denials and execution-owner limits still apply. Select `as_is` to use Hermes's native approval behavior and custom settings.
 
-## Daemon and Home
+## Shared Gateway and Profile Lifecycle
 
-The agent's recorded Hermes launch home defines daemon ownership. Houmao starts a daemon when the home has none, or silently adopts the existing daemon regardless of who started it. Independent use of the managed home has undefined behavior. A daemon serving the managed home as a secondary profile belongs to its own launch home.
+The execution owner runs one shared Hermes gateway from its prepared root. Each worker has its own profile, credentials, session store, clients, and workspace. The project's `runtime/homes/<home-id>` entry links to the worker's canonical `<hermes-root>/profiles/<profile-name>` directory. Houmao verifies the host process and the selected profile's authority before requesting a native ticket. Two profiles on one host can have different authority epochs.
 
-Houmao checks the current process identity before managing it and keeps the loopback endpoint and one-use native tickets private. After a replacement starts in the same home, Houmao reconciles existing requests against their native admissions before handling new work. Detaching the Houmao gateway leaves daemon work running. Managed stop waits for the exact daemon to exit.
+Stopping a worker closes its managed clients, parks the profile, and verifies that Hermes released the profile reservation. A profile with unconfirmed release stays parked and retains its evidence. The shared host stays available for other workers and future launches. An exact relaunch verifies the saved conversation in the retained profile. Following a host replacement, Houmao reconciles existing admissions against that profile and session before accepting new work. Detaching the Houmao gateway leaves native work running.
 
-Tools running under the verified daemon for a current service or TUI generation can use `houmao-mgr agents self` for identity, state, and mailbox discovery, including when Ink is detached. The managed-home locator supports lookup after same-home adoption. Houmao checks the caller's process ancestry and the recorded native binding before using self authority. A launch or explicit relaunch publishes the evidence required for detached self verification.
+Recorded standalone agents retain their inspection, stop, and cleanup authority. Start a fresh managed worker to adopt the named-profile layout.
 
-`houmao-mgr agents self mail resolve-live` discovers the current mailbox and gateway binding. Mail operations through a live gateway use the existing managed-self key and grants. A stale daemon or generation causes the signed route to fail closed. Commands that control a terminal still require the owning terminal surface.
+Local shell tools launched by a current managed Hermes conversation can use `houmao-mgr agents self` for identity, state, and mailbox discovery, including when Ink is detached. The profile's native session hook gives each tool a short-lived proof bound to its served profile, conversation, and managed generation. Houmao verifies that origin and the live runtime before selecting the self signer. Use the command from the recorded conversation's tool. An operator shell, remote tool runner, or tool from a different conversation lacks this proof. A Headless turn that switches conversations must finish before tools in the new conversation can use managed self. A recorded standalone Service or TUI generation uses its existing daemon ownership evidence.
+
+`houmao-mgr agents self mail resolve-live` discovers the current mailbox and gateway binding. Mail operations through a live gateway use the current managed-self key and grants. Parking a profile or replacing its authority invalidates outstanding proofs and prevents pending self-authorized effects from using the old binding. Commands that control a terminal still require the owning terminal surface.
+
+Operator gateway requests use the configured admin signer when present. Without one, the gateway applies its policy for unsigned callers. Managed-self signing is reserved for tools with verified profile and session origin.
 
 ## Service
 
 Service mode runs `hermes acp` over private stdio. The persistent client negotiates ACP and binds the selected logical conversation before publishing readiness. History replay during binding stays out of the current prompt's results. Unattended service verifies the native `dont_ask` mode for the bound conversation. If a currently authorized prompt receives a supported tool permission request for that session, the client can grant the advertised one-time option. Unsupported, stale, or other interactions fail closed.
 
-Service interruption addresses the current ACP request. The matching result determines whether it completed or was cancelled. Loss of the ACP connection can leave work executing in the daemon. The owner retains the uncertain outcome and exact relaunch verifies the saved conversation. Stop closes the client and stops the daemon launched for the managed home.
+Service interruption addresses the current ACP request. The matching result determines whether it completed or was cancelled. Loss of the ACP connection can leave work executing in the shared host. The owner retains the uncertain outcome and exact relaunch verifies the saved conversation. Stop closes the client's ACP connection and retires that worker's native profile authority.
 
 ## Terminal
 
@@ -55,10 +59,10 @@ The manager waits within its request budget and returns the original Houmao `req
 
 ## Headless
 
-Headless uses one finite client process per turn. Houmao verifies the selected session and workspace, passes the full logical ID to the stock CLI, and supplies the literal prompt through private stdin.
+Headless verifies an initial conversation at managed launch and uses one finite client process per turn. Houmao verifies the selected profile, session, and workspace, passes the full logical ID to the stock CLI, and supplies the literal prompt through private stdin.
 
 ```text
-hermes chat --oneshot --query-file - --format stream-json --resume <native-id>
+hermes --profile <native-profile> chat --oneshot --query-file - --format stream-json --resume <native-id>
 ```
 
 The native CLI tries an ID lookup and can try a title if that lookup misses. Houmao uses the recorded native ID to request continuation. A result identifying a different logical session leaves settlement uncertain.

@@ -10,6 +10,15 @@ from pathlib import Path
 
 import click
 
+from houmao.agents.hermes_profile import HermesProfileBinding
+from houmao.agents.hermes_profile_cleanup import (
+    preview_hermes_profile_cleanup,
+    preview_hermes_project_link,
+    require_hermes_profile_quiescent,
+    settle_hermes_profile_cleanup,
+    unlink_hermes_project_home,
+)
+from houmao.agents.realm_controller.backends.hermes_native import hermes_profile_lifecycle_lock
 from houmao.agents.realm_controller.backends.tmux_runtime import (
     kill_tmux_session,
     probe_tmux_backed_authority,
@@ -269,6 +278,14 @@ def cleanup_managed_session(
     active_record = lifecycle_state == "active"
     session_name: str | None = None
     try:
+        profile = target.payload.launch_plan.hermes_profile if target.payload is not None else None
+        if profile is not None:
+            try:
+                require_hermes_profile_quiescent(profile)
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise SessionManifestError(
+                    "The recorded Hermes profile has unverified native release."
+                ) from exc
         binding = _cleanup_target_tmux_binding(target)
         socket_path: str | None = None
         if binding is not None:
@@ -645,8 +662,9 @@ def cleanup_runtime_builds(
 
     resolved_runtime_root = _resolve_effective_runtime_root(runtime_root)
     current_time = _coerce_now(now)
+    envelopes = discover_runtime_session_envelopes(resolved_runtime_root)
     preserved_brain_manifests, retired_build_paths = _preserved_session_build_paths(
-        runtime_root=resolved_runtime_root,
+        envelopes=envelopes,
         older_than_seconds=older_than_seconds,
         now=current_time,
     )
@@ -659,7 +677,53 @@ def cleanup_runtime_builds(
     preserved_actions: list[CleanupAction] = []
 
     seen_home_paths: set[Path] = set()
+    named_links: set[Path] = set()
     for manifest_path in sorted(_iter_files(manifests_dir)):
+        load_error = None
+        try:
+            manifest_payload = load_brain_manifest(manifest_path)
+        except (LaunchPlanError, SessionManifestError) as exc:
+            manifest_payload = None
+            load_error = exc
+        runtime_section = manifest_payload.get("runtime") if manifest_payload is not None else None
+        if isinstance(runtime_section, dict) and "hermes_profile" in runtime_section:
+            try:
+                profile = HermesProfileBinding.model_validate(runtime_section["hermes_profile"])
+                if (
+                    manifest_path.resolve() != manifest_path
+                    or runtime_section.get("home_path") != str(profile.profile_home)
+                    or runtime_section.get("runtime_root") != str(resolved_runtime_root)
+                    or runtime_section.get("home_id") != profile.project_home_link.name
+                    or manifest_path.stem != profile.project_home_link.name
+                ):
+                    raise ValueError("The build manifest differs from the recorded Hermes home.")
+            except (OSError, ValueError, RuntimeError):
+                named_links.add(homes_dir / manifest_path.stem)
+                blocked_actions.append(
+                    CleanupAction(
+                        artifact_kind="runtime_build_manifest",
+                        path=manifest_path,
+                        proposed_action="remove",
+                        reason="The Hermes profile binding in the build manifest is unverified.",
+                    )
+                )
+                continue
+            named_links.add(profile.project_home_link)
+            named_planned, named_applied, named_blocked, named_preserved = _cleanup_hermes_build(
+                profile=profile,
+                manifest_path=manifest_path,
+                runtime_root=resolved_runtime_root,
+                envelopes=envelopes,
+                older_than_seconds=older_than_seconds,
+                now=current_time,
+                dry_run=dry_run,
+            )
+            planned_actions.extend(named_planned)
+            applied_actions.extend(named_applied)
+            blocked_actions.extend(named_blocked)
+            preserved_actions.extend(named_preserved)
+            continue
+
         matching_home = (homes_dir / manifest_path.stem).resolve()
         if matching_home.exists():
             seen_home_paths.add(matching_home)
@@ -688,16 +752,14 @@ def cleanup_runtime_builds(
                 )
             continue
 
-        try:
-            manifest_payload = load_brain_manifest(manifest_path)
-        except (LaunchPlanError, SessionManifestError) as exc:
+        if load_error is not None:
             _plan_or_apply_build_paths(
                 candidates=[
                     CleanupAction(
                         artifact_kind="runtime_build_manifest",
                         path=manifest_path,
                         proposed_action="remove",
-                        reason=f"build manifest is invalid: {exc}",
+                        reason=f"build manifest is invalid: {load_error}",
                     ),
                     *(
                         [
@@ -722,7 +784,6 @@ def cleanup_runtime_builds(
             )
             continue
 
-        runtime_section = manifest_payload.get("runtime")
         home_path_value = (
             runtime_section.get("home_path") if isinstance(runtime_section, dict) else None
         )
@@ -799,6 +860,8 @@ def cleanup_runtime_builds(
         )
 
     for home_path in sorted(_iter_directories(homes_dir)):
+        if home_path in named_links:
+            continue
         resolved_home_path = home_path.resolve()
         if resolved_home_path in seen_home_paths:
             continue
@@ -847,6 +910,177 @@ def cleanup_runtime_builds(
         blocked_actions=blocked_actions,
         preserved_actions=preserved_actions,
     )
+
+
+def hermes_profile_has_runtime_reference(
+    profile: HermesProfileBinding,
+    manifest_path: Path,
+    envelopes: Sequence[RuntimeSessionEnvelope],
+    *,
+    ignoring_session: Path | None = None,
+) -> bool:
+    """Preserve named-profile homes while any saved runtime can still address them."""
+
+    for envelope in envelopes:
+        payload = envelope.payload
+        if payload is None or envelope.session_root == ignoring_session:
+            continue
+        if Path(payload.brain_manifest_path).resolve() == manifest_path:
+            return True
+        current = payload.launch_plan.hermes_profile
+        if current is not None and (
+            current.profile_home == profile.profile_home
+            or current.project_home_link == profile.project_home_link
+        ):
+            return True
+    return False
+
+
+def rollback_acquired_hermes_build(
+    *, profile: HermesProfileBinding, manifest_path: Path, runtime_root: Path
+) -> None:
+    """Release only this failed launch's fresh build after runtime rollback settles."""
+
+    if manifest_path != runtime_root / "manifests" / f"{profile.project_home_link.name}.yaml":
+        raise CleanupResolutionError("The acquired Hermes build is outside the selected runtime.")
+    _, _, blocked, preserved = _cleanup_hermes_build(
+        profile=profile,
+        manifest_path=manifest_path,
+        runtime_root=runtime_root,
+        envelopes=discover_runtime_session_envelopes(runtime_root),
+        older_than_seconds=0,
+        now=datetime.now(UTC),
+        dry_run=False,
+    )
+    if blocked or preserved:
+        raise CleanupResolutionError((blocked or preserved)[0].reason)
+
+
+def _cleanup_hermes_build(
+    *,
+    profile: HermesProfileBinding,
+    manifest_path: Path,
+    runtime_root: Path,
+    envelopes: Sequence[RuntimeSessionEnvelope],
+    older_than_seconds: int,
+    now: datetime,
+    dry_run: bool,
+) -> tuple[list[CleanupAction], list[CleanupAction], list[CleanupAction], list[CleanupAction]]:
+    """Keep build evidence until native identity and the separate link are both settled."""
+
+    planned: list[CleanupAction] = []
+    applied: list[CleanupAction] = []
+    blocked: list[CleanupAction] = []
+    preserved: list[CleanupAction] = []
+    targets = (
+        ("runtime_hermes_profile", profile.profile_home),
+        ("runtime_home_link", profile.project_home_link),
+        ("runtime_build_manifest", manifest_path),
+    )
+
+    def preserve(reason: str) -> None:
+        """Keep all three artifacts while a retained reference or age prevents cleanup."""
+
+        preserved.extend(CleanupAction(kind, path, "preserve", reason) for kind, path in targets)
+
+    if hermes_profile_has_runtime_reference(profile, manifest_path, envelopes):
+        preserve("Hermes build is still referenced by a retained runtime session.")
+    elif older_than_seconds > 0 and any(
+        (now - datetime.fromtimestamp(path.lstat().st_mtime, tz=UTC)).total_seconds()
+        < older_than_seconds
+        for _, path in targets
+        if os.path.lexists(path)
+    ):
+        preserve("Hermes build artifact is newer than `--older-than-seconds`.")
+    elif dry_run:
+        _apply_hermes_build_cleanup(
+            profile, targets, dry_run=True, actions=planned, blocked=blocked
+        )
+    else:
+        try:
+            with hermes_profile_lifecycle_lock(profile.prepared_root):
+                manifest = load_brain_manifest(manifest_path)
+                runtime = manifest.get("runtime", {})
+                if (
+                    manifest_path.resolve() != manifest_path
+                    or HermesProfileBinding.model_validate(runtime.get("hermes_profile")) != profile
+                ):
+                    raise ValueError("The saved Hermes build changed during cleanup.")
+                if hermes_profile_has_runtime_reference(
+                    profile, manifest_path, discover_runtime_session_envelopes(runtime_root)
+                ):
+                    preserve("Hermes build acquired a runtime reference during cleanup.")
+                else:
+                    _apply_hermes_build_cleanup(
+                        profile, targets, dry_run=False, actions=applied, blocked=blocked
+                    )
+        except (OSError, ValueError, RuntimeError) as exc:
+            blocked.append(
+                CleanupAction("runtime_build_manifest", manifest_path, "remove", str(exc))
+            )
+    return planned, applied, blocked, preserved
+
+
+def _apply_hermes_build_cleanup(
+    profile: HermesProfileBinding,
+    targets: tuple[tuple[str, Path], tuple[str, Path], tuple[str, Path]],
+    *,
+    dry_run: bool,
+    actions: list[CleanupAction],
+    blocked: list[CleanupAction],
+) -> None:
+    """Check both targets and retain the build record across incomplete cleanup."""
+
+    (profile_kind, profile_home), (link_kind, link_path), (manifest_kind, manifest_path) = targets
+    profile_action = None
+    link_present = None
+    try:
+        profile_action = (
+            preview_hermes_profile_cleanup(profile)
+            if dry_run
+            else settle_hermes_profile_cleanup(profile)
+        )
+    except (OSError, ValueError, RuntimeError) as exc:
+        blocked.append(CleanupAction(profile_kind, profile_home, "delete_native_profile", str(exc)))
+    else:
+        actions.append(
+            CleanupAction(
+                profile_kind, profile_home, profile_action, "Settle the recorded native profile."
+            )
+        )
+
+    try:
+        link_present = preview_hermes_project_link(profile)
+        if not dry_run and profile_action is not None and link_present:
+            unlink_hermes_project_home(profile)
+    except (OSError, ValueError, RuntimeError) as exc:
+        blocked.append(CleanupAction(link_kind, link_path, "unlink", str(exc)))
+        link_present = None
+    else:
+        if profile_action is None:
+            blocked.append(
+                CleanupAction(
+                    link_kind, link_path, "unlink", "Wait for native profile cleanup to settle."
+                )
+            )
+        else:
+            actions.append(
+                CleanupAction(
+                    link_kind,
+                    link_path,
+                    "unlink" if link_present else "absent",
+                    "Settle the recorded project home link.",
+                )
+            )
+
+    if profile_action is not None and link_present is not None:
+        if not dry_run:
+            manifest_path.unlink(missing_ok=True)
+        actions.append(
+            CleanupAction(
+                manifest_kind, manifest_path, "remove", "Both Hermes build artifacts are settled."
+            )
+        )
 
 
 def cleanup_runtime_logs(
@@ -1872,6 +2106,11 @@ def _payload_tmux_session_name(payload: SessionManifestPayloadV4) -> str | None:
 def _payload_is_live(payload: SessionManifestPayloadV4) -> bool:
     """Protect a runtime envelope until the owner scope confirms absence."""
 
+    if payload.launch_plan.hermes_profile is not None:
+        try:
+            require_hermes_profile_quiescent(payload.launch_plan.hermes_profile)
+        except (OSError, ValueError, RuntimeError):
+            return True
     session_name = _payload_tmux_session_name(payload)
     if session_name is None:
         return False
@@ -1940,7 +2179,7 @@ def _session_envelope_removable(
 
 def _preserved_session_build_paths(
     *,
-    runtime_root: Path,
+    envelopes: Sequence[RuntimeSessionEnvelope],
     older_than_seconds: int,
     now: datetime,
 ) -> tuple[set[Path], set[Path]]:
@@ -1948,7 +2187,7 @@ def _preserved_session_build_paths(
 
     preserved: set[Path] = set()
     retired: set[Path] = set()
-    for envelope in discover_runtime_session_envelopes(runtime_root):
+    for envelope in envelopes:
         if envelope.retirement is not None:
             for value in (envelope.retirement.brain_manifest_path, envelope.retirement.home_path):
                 if value is not None and Path(value).is_absolute():

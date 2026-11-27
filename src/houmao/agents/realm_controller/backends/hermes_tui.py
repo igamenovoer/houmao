@@ -27,7 +27,6 @@ from houmao.agents.realm_controller.backends.hermes_native import (
     HermesNativeError,
     HermesRpcRefused,
     HermesSessionSnapshot,
-    hermes_daemon_environment,
     read_hermes_evidence,
     write_hermes_evidence,
 )
@@ -246,7 +245,22 @@ class HermesTuiSession:
     def _start_view(self, name: str | None, *, native_session_id: str | None = None) -> None:
         """Verify the native destination before starting the Ink process."""
 
-        self.daemon.ensure(unattended=self._unattended())
+        identity = self.daemon.ensure(unattended=self._unattended())
+        try:
+            self._open_view(name, native_session_id, identity)
+        except BaseException:
+            if self.daemon.shared and current_runtime_startup() is None:
+                self.daemon.stop(expected=identity)
+            raise
+
+    def _open_view(
+        self,
+        name: str | None,
+        native_session_id: str | None,
+        identity: HermesDaemonIdentity,
+    ) -> None:
+        """Launch and attest one Ink client on the selected conversation."""
+
         launch_id = uuid4().hex
         if native_session_id is None:
             snapshot = self.daemon.create_session(source="tui", request_id=launch_id)
@@ -280,8 +294,8 @@ class HermesTuiSession:
                 attached_session_id = created.session_id
                 if attached_session_id is None:
                     raise HermesNativeError("Could not verify the Hermes terminal session.")
-                environment = hermes_daemon_environment(
-                    self.plan.home_path.resolve(), self.plan.env
+                command, environment = self.daemon.native_command(
+                    ["--tui", "--resume", snapshot.session_id]
                 )
                 if self._unattended():
                     environment["HERMES_NONINTERACTIVE"] = "1"
@@ -290,7 +304,7 @@ class HermesTuiSession:
                 argv, _ = prepare_private_provider_command(
                     session_root=launch_root,
                     environment=detached_tool_environment(environment, session_name=session_name),
-                    command=[self.plan.executable, "--tui", "--resume", snapshot.session_id],
+                    command=command,
                 )
                 publish_tmux_launch_environment(session_name=session_name, launch_plan=self.plan)
                 if tmux_command(
@@ -311,6 +325,10 @@ class HermesTuiSession:
                 )
                 if pane is None or pane.pane_dead:
                     raise HermesNativeError("Ink exited during terminal startup.")
+                if self.daemon.shared and (
+                    self.daemon.verify_shared_session(snapshot.session_id) != identity
+                ):
+                    raise HermesNativeError("Ink did not retain the verified Hermes profile.")
                 pid = pane.pane_pid
                 self.m_state = HermesTuiSessionState(
                     session_name=session_name,
@@ -426,9 +444,15 @@ class HermesTuiSession:
         path = self._turn_path(request_id)
         admission: HermesTuiAdmission | None = None
         try:
-            if not existing_only:
+            if not existing_only and self.daemon.shared:
+                self.daemon.recover_shared(
+                    self.state.native_session_id, unattended=self._unattended()
+                )
+            elif not existing_only:
                 self.daemon.ensure()
             with self.daemon.client() as native:
+                if self.daemon.shared:
+                    self.daemon.require_recorded_authority(native.identity)
                 current = self.daemon.resume_session(native, self.state.native_session_id)
                 if not current.ready:
                     raise OwnerAdmissionError(
@@ -765,7 +789,12 @@ class HermesTuiSession:
             )
             if request is not None:
                 admission = self.read_native_admission(request.request_id)
-            snapshot = self.daemon.resolve_session(self.state.native_session_id)
+            if self.daemon.shared:
+                with self.daemon.client() as native:
+                    self.daemon.require_recorded_authority(native.identity)
+                    snapshot = self.daemon.resume_session(native, self.state.native_session_id)
+            else:
+                snapshot = self.daemon.resolve_session(self.state.native_session_id)
             active_turn = _active_turn_id(snapshot)
             return ManagedControlObservationV1(
                 source="tui_native",
@@ -878,6 +907,8 @@ class HermesTuiSession:
             ):
                 raise HermesNativeError("The exact active Hermes admission is unavailable.")
             with self.daemon.client() as native:
+                if self.daemon.shared:
+                    self.daemon.require_recorded_authority(native.identity)
                 native.rpc(
                     "prompt.cancel",
                     session_id=admission.native_session_id,
@@ -928,7 +959,11 @@ class HermesTuiSession:
         except (OSError, ValueError, BackendExecutionError, TmuxCommandError) as exc:
             return SessionControlResult("error", "terminate", str(exc))
         return SessionControlResult(
-            "ok", "terminate", "Stopped the managed Hermes terminal and daemon."
+            "ok",
+            "terminate",
+            "Stopped the managed Hermes terminal and profile."
+            if self.daemon.shared
+            else "Stopped the managed Hermes terminal and daemon.",
         )
 
     def relaunch(
@@ -938,6 +973,10 @@ class HermesTuiSession:
 
         selected = chat_session or RelaunchChatSessionSelection(mode="new")
         previous = self.state
+        if not self.daemon.shared:
+            return SessionControlResult(
+                "error", "relaunch", "Standalone Hermes requires a fresh managed launch."
+            )
         if selected.mode != "new" and (
             selected.mode != "exact" or selected.session_id != previous.native_session_id
         ):
@@ -945,9 +984,8 @@ class HermesTuiSession:
                 "error", "relaunch", "Hermes relaunch requires new or the exact saved ID."
             )
         try:
-            if selected.session_id is not None:
-                self.daemon.ensure()
-                self.daemon.resolve_session(selected.session_id)
+            if selected.session_id is not None and self.daemon.discover() is not None:
+                self.daemon.verify_shared_session(selected.session_id)
             stopped = self.terminate()
             if stopped.status != "ok":
                 return SessionControlResult("error", "relaunch", stopped.detail)

@@ -17,7 +17,8 @@ from unittest.mock import Mock
 import pytest
 from click.testing import CliRunner
 
-from houmao.agents.realm_controller import hermes_self, self_manifest
+from houmao.agents.hermes_profile import HermesProfileBinding
+from houmao.agents.realm_controller import hermes_self, hermes_tool_origin, self_manifest
 from houmao.agents.realm_controller.agent_identity import (
     AGENT_DEF_DIR_ENV_VAR,
     AGENT_ID_ENV_VAR,
@@ -72,6 +73,7 @@ def _isolated_self_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "TMUX",
         "TMUX_PANE",
         "HERMES_HOME",
+        hermes_tool_origin.HERMES_TOOL_ORIGIN_ENV,
         AGENT_ID_ENV_VAR,
         AGENT_MANIFEST_PATH_ENV_VAR,
         AGENT_DEF_DIR_ENV_VAR,
@@ -89,6 +91,8 @@ def _publish_manifest(
     generation: str = "generation-1",
     previous_generation: str | None = None,
     agent_id: str = "agent-id",
+    session_key: str = "session-id",
+    profile_root: Path | None = None,
 ) -> Path:
     """Publish a complete synthetic session with no role or gateway files."""
 
@@ -110,14 +114,30 @@ def _publish_manifest(
         if backend == "kimi_acp"
         else "claude"
     )
+    profile = None
+    if profile_root is not None:
+        profile = HermesProfileBinding(
+            prepared_root=profile_root,
+            profile_home=profile_root / "profiles" / agent_id,
+            profile_name=agent_id,
+            context_id=binding.context_id,
+            gateway_lock_dir=profile_root / "gateway-locks",
+            project_home_link=root / "homes" / agent_id,
+            installation_build="a" * 40,
+            profile_owner_id=agent_id,
+            executable=profile_root / "bin" / "hermes",
+            broker_socket=hermes_tool_origin.hermes_tool_origin_socket(
+                profile_root, binding.context_id
+            ),
+        )
     plan = LaunchPlan(
         backend=backend,
         tool=tool,
-        executable=tool,
+        executable=str(profile.executable) if profile is not None else tool,
         args=[],
         working_directory=tmp_path,
         home_env_var="HERMES_HOME" if tool == "hermes" else "CLAUDE_CONFIG_DIR",
-        home_path=root / "home",
+        home_path=profile.profile_home if profile is not None else root / "home",
         env={"PROVIDER_TOKEN": "private-fixture-value"},
         env_var_names=["PROVIDER_TOKEN"],
         role_injection=RoleInjectionPlan(
@@ -125,6 +145,7 @@ def _publish_manifest(
         ),
         metadata={"tmux_socket_path": socket},
         execution_binding=binding,
+        hermes_profile=profile,
         native_surface_kind=(
             "web"
             if backend == "dsh_web"
@@ -152,10 +173,10 @@ def _publish_manifest(
         )
     if backend in {"kimi_acp", "hermes_service"}:
         service_state = ManagedServiceSessionState(
-            runtime_session_id="session-id",
+            runtime_session_id=session_key,
             generation_id=generation,
             service_incarnation="provider-owner",
-            native_session_id="native",
+            native_session_id=f"native-{agent_id}" if profile is not None else "native",
             working_directory=str(tmp_path),
             tmux_session_name="owner-session",
             tmux_pane_id="%1",
@@ -173,11 +194,11 @@ def _publish_manifest(
             "tmux_session_id": "$2",
             "tmux_socket_path": socket,
             "hint_directory": str(root / "hint"),
-            "native_session_id": "native",
+            "native_session_id": f"native-{agent_id}" if profile is not None else "native",
             "home": str(plan.home_path),
             "working_directory": str(tmp_path),
         }
-    path = default_manifest_path(root, backend, "session-id")
+    path = default_manifest_path(root, backend, session_key)
     manifest = build_session_manifest_payload(
         SessionManifestRequest(
             launch_plan=plan,
@@ -186,7 +207,7 @@ def _publish_manifest(
             backend_state=backend_state,
             agent_name="agent-name",
             agent_id=agent_id,
-            session_id="session-id",
+            session_id=session_key,
             tmux_session_name="owner-session",
             agent_def_dir=tmp_path / "missing-definitions",
             registry_generation_id=generation,
@@ -382,8 +403,9 @@ def _prepare_hermes_evidence(
     """Record the verified native daemon and ACP binding used by lifecycle publication."""
 
     payload = parse_session_manifest_payload(json.loads(path.read_text()), source=str(path))
+    profile = payload.launch_plan.hermes_profile
     home = Path(payload.launch_plan.home_selector.home_path)
-    home.mkdir(mode=0o700, exist_ok=True)
+    home.mkdir(mode=0o700, parents=True, exist_ok=True)
     assert (execution := payload.runtime.execution_binding) is not None
     record = load_managed_agent_record_by_agent_id(
         payload.agent_id, env={HOUMAO_GLOBAL_REGISTRY_DIR_ENV_VAR: execution.registry_root}
@@ -410,8 +432,9 @@ def _prepare_hermes_evidence(
         birth_token=birth,
         instance_id="daemon-incarnation",
         authority_epoch=1,
-        profile_id="native-profile",
+        profile_id=str(home) if profile is not None else "native-profile",
         websocket_url="ws://127.0.0.1:1",
+        gateway_root=profile.prepared_root if profile is not None else None,
     )
     write_hermes_evidence(
         binding.root / "hermes-daemon.json",
@@ -422,9 +445,65 @@ def _prepare_hermes_evidence(
             "birth_token": birth,
             "instance_id": identity.instance_id,
             "authority_epoch": identity.authority_epoch,
+            **(
+                {"gateway_root": str(profile.prepared_root), "profile_id": str(home)}
+                if profile is not None
+                else {}
+            ),
         },
     )
     return payload, record, binding, identity
+
+
+def test_shared_hermes_tools_cannot_copy_a_sibling_locator(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same daemon and ancestry cannot turn one native session's proof into another."""
+
+    root = tmp_path / "prepared"
+    path_a = _publish_manifest(
+        tmp_path, "hermes_tui", agent_id="worker-a", session_key="runtime-a", profile_root=root
+    )
+    path_b = _publish_manifest(
+        tmp_path, "hermes_service", agent_id="worker-b", session_key="runtime-b", profile_root=root
+    )
+    authority = {}
+    pid = os.getpid()
+    for path in (path_a, path_b):
+        payload, _, binding, daemon = _prepare_hermes_evidence(path, pid)
+        hermes_self.publish_hermes_daemon_authority(path, payload, daemon)
+        authority[binding.home] = daemon
+
+    monkeypatch.setattr(
+        hermes_self.HermesDaemon,
+        "from_inputs",
+        lambda **kwargs: SimpleNamespace(verify_shared_session=lambda _: authority[kwargs["home"]]),
+    )
+    scope = hermes_tool_origin._BrokerScope(
+        root, binding.execution_binding.context_id, pid, daemon.birth_token
+    )
+    secret = b"broker-test-key"
+
+    def request(payload: dict[str, object]) -> object:
+        """Use the broker's real issued proof and its live persisted authority lookup."""
+
+        return hermes_tool_origin._handle_request(scope, secret, pid, payload)
+
+    monkeypatch.setattr(hermes_tool_origin, "_query", lambda _, payload: (pid, request(payload)))
+    proofs = []
+    for name, path in (("worker-a", path_a), ("worker-b", path_b)):
+        home = root / "profiles" / name
+        proof = request({"op": "issue", "home": str(home), "session": f"native-{name}"})
+        assert isinstance(proof, str)
+        proofs.append(proof)
+        monkeypatch.setenv("HERMES_HOME", str(home))
+        monkeypatch.setenv(AGENT_MANIFEST_PATH_ENV_VAR, str(path))
+        monkeypatch.setenv(hermes_tool_origin.HERMES_TOOL_ORIGIN_ENV, proof)
+        assert self_manifest.resolve_self_manifest().path == path
+
+    monkeypatch.setenv(hermes_tool_origin.HERMES_TOOL_ORIGIN_ENV, proofs[0])
+    with pytest.raises(ValueError, match="Hermes tool origin is unavailable"):
+        self_manifest.resolve_self_manifest()
 
 
 @pytest.mark.parametrize("backend", ["hermes_service", "hermes_tui"])

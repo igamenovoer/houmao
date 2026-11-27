@@ -379,8 +379,8 @@ Those commands SHALL not reinterpret raw provider artifacts as canonical semanti
 #### Scenario: Scoped selection follows the chosen identity
 - **WHEN** a caller runs a scoped mail command
 - **THEN** `agents single` requires `--agent-id` or `--agent-name` before `mail` and preserves that explicit target inside another managed session
-- **AND THEN** `agents self` uses `HOUMAO_MANIFEST_PATH` and then `HOUMAO_AGENT_ID` for current-agent discovery
-- **AND THEN** self targeting fails outside a resolvable owning session without guessing from cwd or shell state
+- **AND THEN** `agents self` uses the verified current runtime, including its owning tmux session or a supported runtime-owned locator and native authority
+- **AND THEN** self targeting fails when managed authority cannot be verified
 
 #### Scenario: The CLI selects mailbox authority for the resolved agent
 - **WHEN** a command has resolved the managed agent
@@ -412,7 +412,7 @@ Those commands SHALL not reinterpret raw provider artifacts as canonical semanti
 
 #### Scenario: Outside-tmux mail discovery fails without explicit selectors
 - **WHEN** an operator runs `houmao-mgr agents self mail resolve-live` outside tmux
-- **AND WHEN** the command is not given `--agent-id` or `--agent-name`
+- **AND WHEN** the caller has no verified managed runtime authority
 - **THEN** the command fails explicitly
 - **AND THEN** it does not guess a managed-agent target from cwd, gateway listener bindings, or ambient shell state
 
@@ -441,6 +441,12 @@ Those commands SHALL not reinterpret raw provider artifacts as canonical semanti
 - **AND WHEN** `abc123` resolves through pair authority
 - **THEN** `houmao-mgr` dispatches that mailbox action through the supported pair-owned mail authority
 - **AND THEN** the operator does not need to discover or address the pair-owned gateway endpoint directly
+
+#### Scenario: A Detached Hermes Tool Resolves and Uses Its Own Mailbox
+
+- **WHEN** an authorized tool of a current managed Hermes TUI or service runs `agents self mail resolve-live` outside tmux
+- **THEN** the command reports the current agent's mailbox binding and available gateway discovery data without explicit selectors
+- **AND THEN** its supported follow-up operations use the selected binding and the established self authorization
 
 ### Requirement: `houmao-mgr agents mailbox` exposes local late mailbox registration commands
 The maintained `agents single` and `agents self` scopes SHALL expose `mailbox offline status|join|leave` for an existing locally controlled body. Join SHALL select a configured local registry or explicit authorized remote registry connection. The command SHALL not require body relaunch, grant remote lifecycle authority, or provide force/stash address takeover. Explicit leave SHALL preserve the online binding.

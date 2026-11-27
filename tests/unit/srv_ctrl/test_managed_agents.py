@@ -3415,6 +3415,7 @@ def test_relaunch_managed_agent_uses_local_controller() -> None:
 def test_relaunch_managed_agent_revives_stopped_local_record() -> None:
     stopped_record = SimpleNamespace(
         lifecycle=SimpleNamespace(state="stopped"),
+        identity=SimpleNamespace(tool="codex"),
     )
     calls: list[object] = []
     selection = RelaunchChatSessionSelection(mode="tool_last_or_new")
@@ -3447,12 +3448,39 @@ def test_relaunch_managed_agent_revives_stopped_local_record() -> None:
     assert calls == [stopped_record, selection]
 
 
+def test_standalone_hermes_exact_relaunch_refuses_before_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reject a cross-layout continuation before retiring the predecessor."""
+
+    target = ManagedAgentTarget(
+        mode="local_stale",
+        agent_ref="published-alpha",
+        identity=_managed_identity(),
+        record=SimpleNamespace(identity=SimpleNamespace(tool="hermes")),
+    )
+    monkeypatch.setattr(
+        managed_agents_module,
+        "load_registry_mode_authority",
+        lambda _: SimpleNamespace(launch_plan=SimpleNamespace(hermes_profile=None)),
+    )
+    monkeypatch.setattr(
+        managed_agents_module, "_relaunch_degraded_or_stale_local_managed_agent", pytest.fail
+    )
+    response = relaunch_managed_agent(
+        target, relaunch_chat_session=RelaunchChatSessionSelection(mode="exact", session_id="old")
+    )
+    assert not response.success
+    assert "standalone home" in response.detail
+    assert "fresh project launch" in response.detail
+
+
 def test_relaunch_managed_agent_prefers_local_authority_for_passive_pair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _FakePassivePairClient()
     identity = client.m_state.identity
-    record = SimpleNamespace(identity=SimpleNamespace(backend="houmao_server_rest"))
+    record = SimpleNamespace(identity=SimpleNamespace(backend="houmao_server_rest", tool="codex"))
     calls: list[object] = []
     controller = SimpleNamespace(
         relaunch=lambda: (

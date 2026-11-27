@@ -236,8 +236,9 @@ def test_client_signs_with_verified_sqlite_registration(
 
 
 @pytest.mark.parametrize("backend", ["hermes_tui", "hermes_service"])
+@pytest.mark.parametrize("named", [False, True])
 def test_detached_hermes_gateway_self_mail_proof(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, named: bool
 ) -> None:
     """Sign and authorize mail against live daemon authority with a detached terminal."""
 
@@ -257,6 +258,7 @@ def test_detached_hermes_gateway_self_mail_proof(
         target=target,
         private_root=private_root,
         store=store,
+        uses_named_hermes_profile=named,
     )
     record = SimpleNamespace(
         identity=SimpleNamespace(backend=backend),
@@ -268,13 +270,17 @@ def test_detached_hermes_gateway_self_mail_proof(
     )
     payload = object()
     live = True
+    verified_path = manifest
 
-    def daemon_authority(path: Path, selected: object) -> None:
+    def daemon_authority(path: Path, selected: object) -> SimpleNamespace:
         """Represent the native verifier at the exact gateway proof boundary."""
 
         assert path == manifest and selected is payload
         if not live:
             raise SessionManifestError("Current Hermes daemon authority is unavailable.")
+        return SimpleNamespace(gateway_root=tmp_path if named else None, fingerprint="b" * 64)
+
+    from houmao.agents.realm_controller import self_manifest
 
     monkeypatch.setattr(gateway_access_runtime, "gateway_access_for_manifest", lambda _: access)
     monkeypatch.setattr(gateway_access_runtime, "load_gateway_deployment", lambda _: None)
@@ -286,6 +292,19 @@ def test_detached_hermes_gateway_self_mail_proof(
     monkeypatch.setattr(
         gateway_access_runtime, "require_live_hermes_daemon_authority", daemon_authority
     )
+    monkeypatch.setattr(
+        self_manifest,
+        "resolve_self_manifest",
+        lambda: SimpleNamespace(path=verified_path, record=record, native_authority="b" * 64),
+    )
+    operator, operator_generation = gateway_access_runtime.owner_gateway_client_binding(
+        manifest, port=port, private=True
+    )
+    assert operator_generation == target.incarnation
+    if named:
+        assert operator is None
+    else:
+        assert operator is not None and operator.managed_self_manifest_path == str(manifest)
     binding, generation = gateway_access_runtime.owner_gateway_client_binding(
         manifest, port=port, private=True, prefer_self=True
     )
@@ -322,6 +341,14 @@ def test_detached_hermes_gateway_self_mail_proof(
     monkeypatch.setattr(client, "_open_request", respond)
     assert client.request_json("POST", path, body={}) == {"messages": []}
     assert calls == [f"{issuer}/v1/auth/challenge", f"{issuer}{path}"]
+
+    if named:
+        calls.clear()
+        verified_path = tmp_path / "sibling" / "manifest.json"
+        with pytest.raises(GatewayHttpError, match="Gateway signer binding is unavailable"):
+            client.caller_proof_headers("POST", path, b"{}")
+        assert calls == []
+        verified_path = manifest
 
     proof = client.caller_proof_headers("POST", path, b"{}")
     live = False

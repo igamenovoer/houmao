@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from houmao.agents.hermes_profile import HermesProfileBinding
 from houmao.execution.context import parse_execution_binding
 from houmao.execution.models import ExecutionBindingV1
 
@@ -287,6 +288,9 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
     metadata: JsonObject
     mailboxes: MailboxesPayloadV1
     launch_policy_provenance: LaunchPolicyProvenanceV1 | None = None
+    hermes_profile: HermesProfileBinding | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("tool", "executable", "working_directory")
     @classmethod
@@ -305,6 +309,15 @@ class LaunchPlanPayloadV1(_StrictBoundaryModel):
             raise ValueError("launch plan native surface differs from the selected mode")
         if self.mode == "web" and self.native_surface_kind != "web":
             raise ValueError("web mode requires a native Web surface")
+        if self.hermes_profile is not None and (
+            self.tool != "hermes"
+            or self.execution_binding is None
+            or self.hermes_profile.context_id != self.execution_binding.context_id
+            or str(self.hermes_profile.profile_home) != self.home_selector.home_path
+            or self.home_selector.env_var != "HERMES_HOME"
+            or str(self.hermes_profile.executable) != self.executable
+        ):
+            raise ValueError("The Hermes profile differs from the launch plan's owner or home")
         return self
 
 

@@ -270,6 +270,19 @@ The runtime SHALL bind each active `managed-self` key to the target, execution c
 - **THEN** proof tied to the earlier revision cannot authorize that effect
 - **AND THEN** the new key must obtain proof for the current target and listener
 
+#### Scenario: A Verified Hermes Daemon Supplies Live Self Authority
+
+- **WHEN** an authorized tool of a still-current recorded standalone Hermes Service or TUI worker uses its gateway
+- **AND WHEN** the recorded native daemon remains live for the same managed generation while its terminal view is absent
+- **THEN** the self client and receiving ingress can use the existing generation's registered proof
+- **AND THEN** proof remains bound to the original target, execution context, listener, and registration revision
+
+#### Scenario: A Stale Daemon Cannot Keep Self Proof Live
+
+- **WHEN** a retained Hermes record names a departed or replaced daemon incarnation or a stale managed generation
+- **THEN** the signing client and receiving ingress refuse managed-self authority from that record
+- **AND THEN** terminal or supervisor liveness cannot substitute for matching native authority
+
 ### Requirement: State and client proofs use explicit sources
 
 Retained policy and file-based signing material SHALL use owner-verified, bounded storage outside project checkouts. Unsafe ownership, permissions, symlinks, duplicates, and malformed values SHALL fail validation. Peer signers SHALL come from explicit protected source configuration independently of the selected destination. Other enrolled callers SHALL also select signers explicitly.
@@ -646,3 +659,24 @@ File requests SHALL use direct SSHSIG v2 proof or authorized unsigned admission 
 - **WHEN** a publication admitted through a default awaits handoff and the target replaces that default
 - **THEN** the earlier admission cannot publish, even if the group is selected again
 - **AND THEN** the candidate remains available for a fresh authorized attempt
+
+### Requirement: Hermes Managed-Self Access Requires Current Profile Authority
+
+For named-profile Hermes workers, Houmao SHALL require the current verified served-profile binding before loading a self signer or admitting a signed self effect. It SHALL match the requested target, execution context, managed generation, gateway incarnation, profile authority, and registration revision. The signing client SHALL additionally verify profile-specific native caller origin.
+
+#### Scenario: Concurrent Workers Sign Their Own Operations
+
+- **WHEN** two current tool callers from different profiles on one verified Hermes gateway invoke their own protected Houmao operations
+- **THEN** each signs with the key registered for its own managed generation and target listener
+- **AND THEN** proof from one worker cannot grant an effect on the sibling's gateway
+
+#### Scenario: Shared Host Survives a Worker Stop
+
+- **WHEN** the shared Hermes gateway remains live but one selected profile is parked, replaced, or no longer has current binding evidence
+- **THEN** the signing client and receiving ingress refuse that worker's stale self authority even while a sibling continues to sign
+
+#### Scenario: Profile Authority Changes After Challenge Admission
+
+- **WHEN** a self-authorized effect is pending and the selected worker's generation or profile authority changes before execution
+- **THEN** current authority checks reject the stale effect
+- **AND THEN** successful native reattachment can use only current authorized identity and evidence

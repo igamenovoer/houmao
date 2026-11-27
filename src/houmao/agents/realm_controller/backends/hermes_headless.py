@@ -25,7 +25,7 @@ from houmao.agents.realm_controller.backends.hermes_headless_protocol import (
 )
 from houmao.agents.realm_controller.backends.hermes_native import (
     HermesDaemon,
-    hermes_daemon_environment,
+    HermesDaemonIdentity,
 )
 from houmao.agents.realm_controller.backends.service_runtime import write_service_record
 from houmao.agents.realm_controller.errors import (
@@ -38,6 +38,9 @@ from houmao.agents.realm_controller.startup_rollback import (
     stop_owned_startup_child,
 )
 from houmao.agents.realm_controller.manifest import commit_hermes_headless_completion
+from houmao.agents.realm_controller.hermes_self import (
+    publish_verified_hermes_daemon_for_generation,
+)
 from houmao.agents.realm_controller.models import (
     HeadlessTurnSessionSelection,
     LaunchPlan,
@@ -68,9 +71,12 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
             launch_plan, session_manifest_path.parent / "hermes-native"
         )
         fresh = state is None and not execution_is_read_only()
-        if fresh:
-            self.m_daemon.ensure(unattended=hermes_unattended_launch(launch_plan.metadata))
+        identity: HermesDaemonIdentity | None = None
         try:
+            if fresh:
+                identity = self.m_daemon.ensure(
+                    unattended=hermes_unattended_launch(launch_plan.metadata)
+                )
             super().__init__(
                 backend="hermes_headless",
                 launch_plan=launch_plan,
@@ -81,10 +87,17 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
                 tmux_session_name=tmux_session_name,
                 output_format="stream-json",
             )
+            if fresh and self.m_daemon.shared:
+                assert identity is not None
+                logical = self._start_shared_conversation(identity)
+                self._set_shared_cursor(logical)
         except BaseException:
-            if fresh and current_runtime_startup() is None and self.m_daemon.m_child is not None:
-                with suppress(OSError, subprocess.TimeoutExpired):
-                    stop_owned_startup_child(self.m_daemon.m_child)
+            if fresh and current_runtime_startup() is None:
+                if self.m_daemon.shared and identity is not None:
+                    self.m_daemon.stop(expected=identity)
+                elif self.m_daemon.m_child is not None:
+                    with suppress(OSError, subprocess.TimeoutExpired):
+                        stop_owned_startup_child(self.m_daemon.m_child)
             raise
 
     def send_prompt(
@@ -132,7 +145,7 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
         try:
             if self._manifest_identity() != (generation, runtime_id):
                 raise BackendExecutionError("Hermes headless generation changed before dispatch")
-            logical = self._prepare_conversation(
+            logical, shared_identity = self._prepare_conversation(
                 session_selection,
                 request_id=hashlib.sha256(f"{runtime_id}:{turn_id}".encode()).hexdigest(),
             )
@@ -144,10 +157,8 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
             staged = True
             session_name = self._require_tmux_session_name()
             pane = self._primary_tmux_pane_target()
-            entered_runner = True
-            result = self._runner.run(
-                command=[
-                    self._plan.executable,
+            command, environment = self.m_daemon.native_command(
+                [
                     "chat",
                     "--oneshot",
                     "--query-file",
@@ -156,8 +167,16 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
                     "stream-json",
                     "--resume",
                     logical,
-                ],
-                env=hermes_daemon_environment(self._plan.home_path, self._plan.env),
+                ]
+            )
+            if shared_identity is not None and self._state.session_id == logical:
+                publish_verified_hermes_daemon_for_generation(
+                    self._session_manifest_path, generation, shared_identity
+                )
+            entered_runner = True
+            result = self._runner.run(
+                command=command,
+                env=environment,
                 cwd=self._plan.working_directory,
                 turn_index=index,
                 output_format="stream-json",
@@ -178,6 +197,15 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
                 raise HeadlessTurnSettlementUnknown(
                     "Hermes client exit left native work unresolved"
                 )
+            if shared_identity is not None:
+                try:
+                    verified = self.m_daemon.verify_shared_session(logical)
+                except BackendExecutionError as exc:
+                    raise HeadlessTurnSettlementUnknown(
+                        "Hermes could not reverify the native profile after the turn"
+                    ) from exc
+                if verified != shared_identity:
+                    raise HeadlessTurnSettlementUnknown("Hermes changed native profile authority")
             try:
                 committed = commit_hermes_headless_completion(
                     self._session_manifest_path,
@@ -195,6 +223,11 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
             self._state.turn_index = index
             self._state.resume_selection_kind = "none"
             self._state.resume_selection_value = None
+            if shared_identity is not None:
+                with suppress(SessionManifestError):
+                    publish_verified_hermes_daemon_for_generation(
+                        self._session_manifest_path, generation, shared_identity
+                    )
             self._publish_tmux_session_environment()
             if claim is not None:
                 claim.finish("completed", evidence="headless_artifacts")
@@ -248,28 +281,75 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
     def terminate(self) -> SessionControlResult:
         """Stop the verified daemon and the selected managed terminal surface."""
 
+        result = super().terminate() if self.m_daemon.shared else None
+        if result is not None and result.status != "ok":
+            return result
         try:
             self.m_daemon.stop()
         except (BackendExecutionError, OSError) as exc:
             return SessionControlResult("error", "terminate", str(exc))
-        return super().terminate()
+        return result if result is not None else super().terminate()
 
     def relaunch(
         self, *, chat_session: RelaunchChatSessionSelection | None = None
     ) -> SessionControlResult:
         """Validate a selected continuation before altering the managed surface."""
 
+        if not self.m_daemon.shared:
+            return SessionControlResult(
+                "error", "relaunch", "Standalone Hermes requires a fresh managed launch."
+            )
+        identity: HermesDaemonIdentity | None = None
         try:
             if chat_session is not None and chat_session.mode == "tool_last_or_new":
                 raise BackendExecutionError(
                     "Hermes headless native latest selection is unsupported"
                 )
-            self.m_daemon.ensure(unattended=hermes_unattended_launch(self._plan.metadata))
-            if chat_session is not None and chat_session.session_id is not None:
-                self.m_daemon.resolve_session(chat_session.session_id)
+            selected = chat_session.session_id if chat_session is not None else None
+            saved = self._state.session_id or self._state.resume_selection_value
+            if selected is not None and selected != saved:
+                raise BackendExecutionError("Hermes headless requires the exact saved session")
+            if selected is not None and self.m_daemon.discover() is not None:
+                self.m_daemon.verify_shared_session(selected)
+            self.m_daemon.stop()
+            identity = self.m_daemon.ensure(
+                unattended=hermes_unattended_launch(self._plan.metadata)
+            )
+            logical = self._start_shared_conversation(identity, selected)
+            result = super().relaunch(chat_session=chat_session)
+            if result.status == "ok":
+                self._set_shared_cursor(logical)
+            else:
+                self.m_daemon.stop(expected=identity)
+            return result
         except (BackendExecutionError, OSError) as exc:
+            if identity is not None:
+                with suppress(BackendExecutionError, OSError):
+                    self.m_daemon.stop(expected=identity)
             return SessionControlResult("error", "relaunch", str(exc))
-        return super().relaunch(chat_session=chat_session)
+
+    def _start_shared_conversation(
+        self, identity: HermesDaemonIdentity, selected: str | None = None
+    ) -> str:
+        """Mount a new or exact retained session before publishing headless readiness."""
+
+        snapshot = (
+            self.m_daemon.resolve_session(selected)
+            if selected is not None
+            else self.m_daemon.create_session(source="oneshot", request_id=uuid.uuid4().hex)
+        )
+        if self.m_daemon.verify_shared_session(snapshot.session_id) != identity:
+            raise BackendExecutionError("Hermes did not verify the exact headless native session")
+        return snapshot.session_id
+
+    def _set_shared_cursor(self, logical: str) -> None:
+        """Expose the verified initial session to the manifest and native self broker."""
+
+        self._state.session_id = logical
+        self._state.resume_selection_kind = "none"
+        self._state.resume_selection_value = None
+        self._state.role_bootstrap_applied = True
+        self._publish_tmux_session_environment()
 
     def update_launch_plan(self, launch_plan: LaunchPlan) -> None:
         """Refresh at the same lifecycle seam as other headless providers."""
@@ -281,7 +361,7 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
 
     def _prepare_conversation(
         self, selection: HeadlessTurnSessionSelection | None, *, request_id: str
-    ) -> str:
+    ) -> tuple[str, HermesDaemonIdentity | None]:
         """Choose a full native ID and ensure the selected conversation is idle."""
 
         mode = selection.mode if selection is not None else "auto"
@@ -296,7 +376,14 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
             raise BackendExecutionError("Hermes headless requires a verified native conversation")
         if selected == "latest":
             raise BackendExecutionError("Hermes headless requires a full native session ID")
-        self.m_daemon.ensure()
+        identity = None
+        if self.m_daemon.shared:
+            identity = self.m_daemon.recover_shared(
+                self._state.session_id or self._state.resume_selection_value,
+                unattended=hermes_unattended_launch(self._plan.metadata),
+            )
+        else:
+            self.m_daemon.ensure()
         snapshot = (
             self.m_daemon.resolve_session(selected)
             if selected
@@ -304,7 +391,12 @@ class HermesHeadlessSession(HeadlessInteractiveSession):
         )
         if not snapshot.ready:
             raise BackendExecutionError("Hermes native conversation is busy or unresolved")
-        return snapshot.session_id
+        if (
+            identity is not None
+            and self.m_daemon.verify_shared_session(snapshot.session_id) != identity
+        ):
+            raise BackendExecutionError("Hermes changed native profile authority before dispatch")
+        return snapshot.session_id, identity
 
     def _manifest_identity(self) -> tuple[str, str]:
         """Read the current owner and any cursor recovered from earlier native output."""

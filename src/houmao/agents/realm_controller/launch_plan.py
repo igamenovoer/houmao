@@ -43,8 +43,16 @@ from houmao.agents.hermes_configuration import (
     HERMES_API_KEY_ENV,
     hermes_runtime_environment,
     project_hermes_approval_policy,
+    require_hermes_profile_credential,
     resolve_hermes_executable,
     write_hermes_role,
+)
+from houmao.agents.hermes_installation import load_prepared_hermes_installation
+from houmao.agents.hermes_profile import (
+    HERMES_PROFILE_PARKED,
+    HermesProfileBinding,
+    require_hermes_installation_context,
+    require_hermes_profile_home,
 )
 from houmao.agents.tool_params.dsh import DshPermissionParams
 from houmao.agents.launch_env import validate_persistent_env_records
@@ -198,13 +206,35 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         manifest, backend=request.backend
     )
     private_names = _credential_binding_names(manifest)
+    hermes_profile: HermesProfileBinding | None = None
     if tool == "hermes":
         if home_env_var != "HERMES_HOME":
             raise LaunchPlanError("Hermes requires the HERMES_HOME home selector")
         try:
-            if request.intent == "provider_start":
-                executable = resolve_hermes_executable(working_directory=request.working_directory)
             env_values = hermes_runtime_environment(home_path, env_values)
+            saved_profile = runtime.get("hermes_profile")
+            if saved_profile is not None:
+                hermes_profile = HermesProfileBinding.model_validate(saved_profile)
+                if home_path != hermes_profile.profile_home or executable != str(
+                    hermes_profile.executable
+                ):
+                    raise ValueError("Hermes launch inputs differ from the recorded named profile.")
+                if request.intent == "provider_start":
+                    installation = load_prepared_hermes_installation(
+                        hermes_profile.executable, expected_root=hermes_profile.prepared_root
+                    )
+                    if installation.evidence.build != hermes_profile.installation_build:
+                        raise ValueError(
+                            "The prepared Hermes build differs from the recorded named profile."
+                        )
+                    require_hermes_installation_context(
+                        installation.root, hermes_profile.context_id
+                    )
+                    require_hermes_profile_home(hermes_profile)
+                    require_hermes_profile_credential(home_path, env_values)
+                    env_values.update(installation.native_environment(home_path))
+            elif request.intent == "provider_start":
+                executable = resolve_hermes_executable(working_directory=request.working_directory)
         except (OSError, ValueError) as exc:
             raise LaunchPlanError(str(exc)) from exc
         env_var_names = sorted(env_values)
@@ -424,7 +454,9 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
             metadata["headless_output_format"] = "dsh-cli"
         env_var_names = sorted(env_values)
     if tool == "hermes":
-        if request.intent == "provider_start":
+        if request.intent == "provider_start" and (
+            hermes_profile is None or (home_path / HERMES_PROFILE_PARKED).is_file()
+        ):
             try:
                 metadata["hermes_approval_policy"] = project_hermes_approval_policy(
                     home_path, requested_operator_prompt_mode or "unattended"
@@ -538,6 +570,7 @@ def build_launch_plan(request: LaunchPlanRequest) -> LaunchPlan:
         launch_policy_provenance=launch_policy_result.provenance,
         native_surface_kind=human_surface_for_mode(mode),
         private_env_var_names=frozenset(private_names),
+        hermes_profile=hermes_profile,
     )
 
 

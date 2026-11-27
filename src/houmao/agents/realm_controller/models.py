@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
+from houmao.agents.hermes_profile import HermesProfileBinding
 from houmao.agents.launch_policy.models import LaunchPolicyProvenance
 from houmao.agents.mailbox_runtime_models import MailboxesResolvedConfig
 from houmao.agents.realm_controller.native_surface import NativeSurfaceKind
@@ -147,6 +148,8 @@ class LaunchPlan:
         Independent optional offline and online mailbox slot authorities.
     runtime_launch_environment_file:
         Relative name of the owner-private environment for this live session.
+    hermes_profile:
+        Owner binding for a managed Hermes named profile, when present.
     """
 
     backend: BackendKind
@@ -169,6 +172,7 @@ class LaunchPlan:
     public_env: dict[str, str] | None = field(default=None, repr=False)
     private_env_var_names: frozenset[str] = field(default_factory=frozenset)
     previous_public_env_var_names: frozenset[str] = field(default_factory=frozenset)
+    hermes_profile: HermesProfileBinding | None = None
 
     @property
     def mode(self) -> RunMode:
@@ -214,6 +218,11 @@ class LaunchPlan:
                 self.launch_policy_provenance.to_payload()
                 if self.launch_policy_provenance is not None
                 else None
+            ),
+            **(
+                {"hermes_profile": self.hermes_profile.model_dump(mode="json")}
+                if self.hermes_profile is not None
+                else {}
             ),
         }
 

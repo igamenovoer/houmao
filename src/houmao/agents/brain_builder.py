@@ -7,10 +7,13 @@ import json
 import os
 import shlex
 import shutil
+import stat
 import sys
+import tempfile
 import uuid
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -46,6 +49,15 @@ from houmao.agents.hermes_configuration import (
     hermes_owned_environment_name,
     prepare_hermes_home,
     selected_hermes_key,
+    write_hermes_profile_credential,
+)
+from houmao.agents.hermes_installation import load_prepared_hermes_installation
+from houmao.agents.hermes_profile import (
+    HERMES_PROFILE_PARKED,
+    HermesProfileBinding,
+    require_hermes_installation_context,
+    require_hermes_profile_home,
+    write_hermes_profile_record,
 )
 from houmao.agents.kimi_configuration import (
     KIMI_CONFIG_FILENAME,
@@ -85,7 +97,7 @@ from houmao.agents.kimi_system_prompt import (
     ensure_kimi_system_prompt,
     force_kimi_v2_engine_env,
 )
-from houmao.owned_paths import resolve_runtime_root
+from houmao.owned_paths import resolve_registry_root, resolve_runtime_root
 from houmao.agents.mailbox_runtime_support import (
     serialize_declarative_mailboxes_config,
 )
@@ -132,6 +144,7 @@ from houmao.project.overlay import (
     resolve_materialized_project_aware_agent_def_dir,
 )
 from houmao.project.catalog import ProjectCatalog
+from houmao.execution.context import current_execution_binding, observed_local_binding
 
 
 class BuildError(RuntimeError):
@@ -189,6 +202,7 @@ class BuildRequest:
     managed_prompt_header: dict[str, Any] | None = None
     houmao_system_prompt_layout: dict[str, Any] | None = None
     launch_profile_provenance: dict[str, Any] | None = None
+    hermes_project_homes_dir: Path | None = None
 
     def effective_setup(self) -> str:
         """Return the resolved setup identifier for the build."""
@@ -283,6 +297,7 @@ class BuildResult:
     launch_helper_path: Path
     launch_preview: str
     manifest: dict[str, Any]
+    acquired_hermes_profile: HermesProfileBinding | None = None
 
 
 def _load_mapping_file(path: Path) -> dict[str, Any]:
@@ -557,6 +572,7 @@ def _build_launch_helper(
     dsh_credential_env_file: Path | None = None,
     kimi_credential_env_file: Path | None = None,
     hermes_credential_env_file: Path | None = None,
+    hermes_profile: HermesProfileBinding | None = None,
 ) -> str:
     """Build one runtime launch helper script.
 
@@ -583,7 +599,9 @@ def _build_launch_helper(
 
     allowlist = _auth_env_names(adapter, None)
     args = " ".join(shlex.quote(arg) for arg in launch_args)
-    executable = shlex.quote(adapter.launch_executable)
+    executable = shlex.quote(
+        str(hermes_profile.executable) if hermes_profile is not None else adapter.launch_executable
+    )
     command_suffix = f" {args}" if args else ""
     project_root = Path(__file__).resolve().parents[3]
     pixi_manifest = project_root / "pixi.toml"
@@ -1019,13 +1037,178 @@ def _kimi_model_argument(args: tuple[str, ...]) -> str | None:
 def build_brain_home(request: BuildRequest) -> BuildResult:
     """Build a reusable home, resolving any requested agent identity once."""
 
+    if request.tool == "hermes":
+        return _build_hermes_profile(request)
+    return _build_brain_home(request)
+
+
+def _build_hermes_profile(request: BuildRequest) -> BuildResult:
+    """Stage a parked native profile before publishing its owned project entry."""
+
+    from houmao.agents.realm_controller.backends.hermes_native import (
+        HermesDaemon,
+        hermes_profile_lifecycle_lock,
+    )
+    from houmao.agents.realm_controller.hermes_tool_origin import hermes_tool_origin_socket
+    from houmao.agents.hermes_profile_cleanup import require_unused_hermes_profile_name
+
+    runtime_root = resolve_runtime_root(explicit_root=request.runtime_root)
+    installation = load_prepared_hermes_installation()
+    inputs = request.validated_inputs or validate_brain_inputs(request)
+    owner = current_execution_binding() or observed_local_binding(
+        working_directory=Path.cwd(),
+        runtime_root=runtime_root,
+        registry_root=resolve_registry_root(),
+        tmux_socket=None,
+    )
+    home_id = request.home_id or _generate_home_id("hermes")
+    if home_id in {".", ".."} or "/" in home_id or "\\" in home_id:
+        raise BuildError("Hermes home_id must name one entry in the project homes directory.")
+    homes = (request.hermes_project_homes_dir or runtime_root / "homes").absolute()
+    if homes.resolve() != homes:
+        raise BuildError("The managed Hermes project homes directory must be a canonical path.")
+    link = homes / home_id
+    manifest_path = runtime_root / "manifests" / f"{home_id}.yaml"
+    profiles = installation.root / "profiles"
+    profiles.mkdir(mode=0o700, exist_ok=True)
+    info = profiles.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+        raise BuildError("The prepared Hermes profiles directory must be private to its owner.")
+    mode = request.effective_existing_home_mode()
+    with hermes_profile_lifecycle_lock(installation.root):
+        require_hermes_installation_context(installation.root, owner.context_id)
+        if (
+            mode == MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE
+            and not manifest_path.is_symlink()
+            and manifest_path.is_file()
+        ):
+            existing = _load_mapping_file(manifest_path)
+            runtime = _require_mapping(existing, "runtime", where=str(manifest_path))
+            profile = HermesProfileBinding.model_validate(runtime.get("hermes_profile"))
+            if (
+                profile.project_home_link != link
+                or profile.context_id != owner.context_id
+                or profile.prepared_root != installation.root
+                or profile.installation_build != installation.evidence.build
+                or profile.executable != Path(installation.executable)
+            ):
+                raise BuildError("The retained Hermes profile differs from the selected owner.")
+            require_hermes_profile_home(profile, allow_missing_link=True)
+            HermesDaemon.from_inputs(
+                executable=installation.executable,
+                home=profile.profile_home,
+                workspace=Path.cwd(),
+                env={},
+                root=runtime_root,
+                profile=profile,
+            ).verify_profile_released()
+            retained = True
+        else:
+            if os.path.lexists(link) or os.path.lexists(manifest_path):
+                raise BuildError(f"Refusing to replace the existing project home entry {link}.")
+            if mode == MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE:
+                raise BuildError("A preserved Hermes home requires its recorded build manifest.")
+            profile_id = uuid.uuid4().hex
+            profile_name = f"houmao-{profile_id}"
+            profile = HermesProfileBinding(
+                prepared_root=installation.root,
+                profile_home=profiles / profile_name,
+                profile_name=profile_name,
+                context_id=owner.context_id,
+                gateway_lock_dir=installation.lock_dir,
+                project_home_link=link,
+                installation_build=installation.evidence.build,
+                profile_owner_id=profile_id,
+                executable=Path(installation.executable),
+                broker_socket=hermes_tool_origin_socket(installation.root, owner.context_id),
+            )
+            retained = False
+        require_unused_hermes_profile_name(profile)
+        staging = Path(tempfile.mkdtemp(prefix=".houmao-profile-", dir=profiles))
+        published = False
+        try:
+            stage = staging / "profile"
+            if retained:
+                shutil.copytree(profile.profile_home, stage, symlinks=True)
+            else:
+                stage.mkdir(mode=0o700)
+                (stage / HERMES_PROFILE_PARKED).touch(mode=0o600)
+            write_hermes_profile_record(stage, profile)
+            result = _build_brain_home(
+                request,
+                profile=profile,
+                stage=stage,
+                home_id=home_id,
+                validated=inputs,
+            )
+            require_hermes_installation_context(installation.root, owner.context_id, claim=True)
+            _publish_hermes_profile(profile, stage, result, retained=retained)
+            published = True
+            return replace(result, acquired_hermes_profile=None if retained else profile)
+        finally:
+            if published or not (staging / "retained").exists():
+                shutil.rmtree(staging)
+
+
+def _publish_hermes_profile(
+    profile: HermesProfileBinding, stage: Path, result: BuildResult, *, retained: bool
+) -> None:
+    """Publish the parked profile, link, and manifest and restore a failed replacement."""
+
+    home = profile.profile_home
+    link = profile.project_home_link
+    backup = stage.parent / "retained"
+    result.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if link.parent.resolve() != link.parent:
+        raise BuildError("The managed Hermes project homes directory changed.")
+    descriptor, temporary = tempfile.mkstemp(dir=result.manifest_path.parent, suffix=".yaml")
+    os.close(descriptor)
+    manifest_stage = Path(temporary)
+    home_published = link_published = False
+    try:
+        _write_mapping_file(manifest_stage, result.manifest)
+        if retained:
+            home.rename(backup)
+        elif os.path.lexists(home):
+            raise BuildError("The generated Hermes profile name is already in use.")
+        stage.rename(home)
+        home_published = True
+        if not retained or not os.path.lexists(link):
+            link.symlink_to(home, target_is_directory=True)
+            link_published = True
+        require_hermes_profile_home(profile)
+        manifest_stage.replace(result.manifest_path)
+    except BaseException:
+        if link_published and link.is_symlink() and Path(os.readlink(link)) == home:
+            link.unlink()
+        if home_published:
+            home.rename(stage)
+        if retained and backup.exists():
+            backup.rename(home)
+        raise
+    finally:
+        with suppress(FileNotFoundError):
+            manifest_stage.unlink()
+
+
+def _build_brain_home(
+    request: BuildRequest,
+    *,
+    profile: HermesProfileBinding | None = None,
+    stage: Path | None = None,
+    home_id: str | None = None,
+    validated: ValidatedBrainInputs | None = None,
+) -> BuildResult:
+    """Assemble launch state into the selected home or an unpublished Hermes staging path."""
+
     agent_def_dir = request.agent_def_dir.resolve()
     runtime_root = resolve_runtime_root(explicit_root=request.runtime_root)
     resolved_setup = request.effective_setup()
     resolved_auth = request.effective_auth()
     resolved_preset_path = request.effective_preset_path()
     resolved_preset_launch_overrides = request.effective_preset_launch_overrides()
-    inputs = request.validated_inputs or validate_brain_inputs(request)
+    inputs = validated or request.validated_inputs or validate_brain_inputs(request)
     adapter, setup_dir, auth_dir = inputs.adapter, inputs.setup_dir, inputs.auth_dir
     adapter_path = agent_def_dir / "tools" / request.tool / "adapter.yaml"
     dsh_config = (
@@ -1073,23 +1256,22 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         catalog=system_skill_catalog,
     )
 
-    home_id = request.home_id or _generate_home_id(request.tool)
+    home_id = home_id or request.home_id or _generate_home_id(request.tool)
     if "/" in home_id or "\\" in home_id:
         raise BuildError(f"home_id must not contain path separators: {home_id!r}")
 
     homes_dir = runtime_root / "homes"
     manifests_dir = runtime_root / "manifests"
-    home_path = homes_dir / home_id
-    if request.tool == "hermes" and home_path.is_symlink():
-        raise BuildError("A managed Hermes home requires its own directory.")
+    home_path = stage if stage is not None else homes_dir / home_id
+    canonical_home = profile.profile_home if profile is not None else home_path
     existing_home_mode = request.effective_existing_home_mode()
     managed_agent_name, managed_identity = _resolve_brain_creation_identity(
         request=request,
         existing_manifest_path=manifests_dir / f"{home_id}.yaml",
-        preserve_existing=home_path.exists() and request.reuse_home,
+        preserve_existing=canonical_home.exists() and request.reuse_home,
     )
 
-    if home_path.exists():
+    if stage is None and home_path.exists():
         if existing_home_mode == "reject":
             raise BuildError(
                 f"Refusing to reuse existing home (fresh-by-default): {home_path}. "
@@ -1098,13 +1280,10 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         if existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_CLEAN:
             _remove_existing_home_path(home_path)
 
-    home_path.mkdir(
-        parents=True,
-        exist_ok=existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE,
-        mode=0o700 if request.tool == "hermes" else 0o777,
-    )
-    if request.tool == "hermes":
-        home_path.chmod(0o700)
+    if stage is None:
+        home_path.mkdir(
+            parents=True, exist_ok=existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_KEEP_STALE
+        )
 
     _validate_relative_path(adapter.setup_destination, field="setup_projection.destination")
     setup_destination = home_path / adapter.setup_destination
@@ -1128,6 +1307,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
                 if reasoning_projection is not None
                 else None
             ),
+            tool_origin_broker=profile.broker_socket if profile is not None else None,
         )
     else:
         _copy_directory_contents(setup_dir, setup_destination, skip_names=skip_setup_names)
@@ -1208,6 +1388,8 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
     _validate_relative_path(adapter.auth_env_source, field="auth_projection.env.source")
     auth_env_file = auth_dir / adapter.auth_env_source
     env_values = _parse_env_file(auth_env_file)
+    if profile is not None:
+        write_hermes_profile_credential(home_path, env_values)
     _resolve_codex_api_routing(tool=request.tool, home_path=home_path, env_values=env_values)
     selected_env_names = [key for key in auth_env_names if key in env_values]
     derived_launch_env_records = _derive_tool_launch_env_records(
@@ -1314,13 +1496,17 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
 
     manifests_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = manifests_dir / f"{home_id}.yaml"
-    if existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_CLEAN and manifest_path.exists():
+    if (
+        stage is None
+        and existing_home_mode == MANAGED_LAUNCH_FORCE_MODE_CLEAN
+        and manifest_path.exists()
+    ):
         manifest_path.unlink(missing_ok=True)
     launch_helper_path = home_path / "launch.sh"
     resolved_operator_prompt_mode = _resolved_operator_prompt_mode(request.operator_prompt_mode)
 
     launch_preview = _build_launch_helper(
-        home_path=home_path,
+        home_path=canonical_home,
         helper_path=launch_helper_path,
         adapter=adapter,
         launch_args=[
@@ -1346,6 +1532,7 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         dsh_credential_env_file=auth_env_file if dsh_config is not None else None,
         kimi_credential_env_file=auth_env_file if request.tool == "kimi" else None,
         hermes_credential_env_file=auth_env_file if request.tool == "hermes" else None,
+        hermes_profile=profile,
     )
 
     construction_provenance: dict[str, object] = {
@@ -1390,7 +1577,9 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         "selected_packs": list(system_skill_sync_result.selected_pack_ids),
         "standalone_skills": list(system_skill_sync_result.standalone_skill_names),
         "projected_relative_dirs": list(system_skill_sync_result.projected_relative_dirs),
-        "config_path": str(system_skill_sync_result.config_path),
+        "config_path": str(
+            canonical_home / system_skill_sync_result.config_path.relative_to(home_path)
+        ),
         "owning_pack_ids_by_skill": {
             name: list(owner_ids)
             for name, owner_ids in system_skill_sync_result.owning_pack_ids_by_skill.items()
@@ -1420,13 +1609,15 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
         "runtime": {
             "runtime_root": str(runtime_root),
             "home_id": home_id,
-            "home_path": str(home_path),
-            "launch_helper": str(launch_helper_path),
+            "home_path": str(canonical_home),
+            "launch_helper": str(canonical_home / "launch.sh"),
             "launch_home_selector": {
                 "env_var": adapter.home_selector_env_var,
-                "value": str(home_path),
+                "value": str(canonical_home),
             },
-            "launch_executable": adapter.launch_executable,
+            "launch_executable": str(profile.executable)
+            if profile is not None
+            else adapter.launch_executable,
             "launch_contract": {
                 "adapter_defaults": adapter.launch_defaults.to_payload(),
                 "requested_overrides": {
@@ -1504,14 +1695,20 @@ def build_brain_home(request: BuildRequest) -> BuildResult:
             "id_provenance": managed_identity.provenance,
         }
 
-    _write_mapping_file(manifest_path, manifest)
+    if profile is not None:
+        manifest["runtime"]["hermes_profile"] = profile.model_dump(mode="json")
+    else:
+        _write_mapping_file(manifest_path, manifest)
 
+    public_home = profile.project_home_link if profile is not None else canonical_home
     return BuildResult(
         home_id=home_id,
-        home_path=home_path,
+        home_path=public_home,
         manifest_path=manifest_path,
-        launch_helper_path=launch_helper_path,
-        launch_preview=launch_preview,
+        launch_helper_path=public_home / "launch.sh",
+        launch_preview=shlex.quote(str(public_home / "launch.sh"))
+        if profile is not None
+        else launch_preview,
         manifest=manifest,
     )
 

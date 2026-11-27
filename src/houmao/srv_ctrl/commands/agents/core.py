@@ -28,11 +28,24 @@ import click
 from houmao.agents.definition_parser import resolve_explicit_or_named_preset_path
 from houmao.agents.brain_builder import (
     BuildRequest,
+    BuildResult,
     PrivateSkillProjection,
     build_brain_home,
     validate_brain_inputs,
 )
-from houmao.agents.hermes_configuration import resolve_hermes_executable
+from houmao.agents.hermes_installation import load_prepared_hermes_installation
+from houmao.agents.hermes_profile import (
+    HermesProfileBinding,
+    require_hermes_installation_context,
+    require_hermes_profile_home,
+)
+from houmao.agents.hermes_profile_cleanup import (
+    preview_hermes_profile_cleanup,
+    preview_hermes_project_link,
+    settle_hermes_profile_cleanup,
+    unlink_hermes_project_home,
+    verify_hermes_profile_cleanup_owner,
+)
 from houmao.agents.tool_params import parse_tool_params_cli_input
 from houmao.agents.launch_policy.models import OperatorPromptMode
 from houmao.agents.managed_launch_force import (
@@ -136,6 +149,7 @@ from houmao.agents.realm_controller.boundary_models import SessionManifestTmuxSe
 from houmao.agents.realm_controller.errors import (
     LaunchPlanError,
     LaunchPolicyResolutionError,
+    RuntimeStartupRollbackError,
     SessionManifestError,
 )
 from houmao.agents.realm_controller.models import (
@@ -147,11 +161,12 @@ from houmao.agents.realm_controller.registry_storage import (
     resolve_relaunchable_managed_agent_record_by_agent_id,
 )
 from houmao.agents.realm_controller.self_manifest import resolve_self_manifest
-from houmao.execution.context import current_execution_binding
+from houmao.execution.context import current_execution_binding, observed_local_binding
 from houmao.owned_paths import (
     HOUMAO_GLOBAL_MAILBOX_DIR_ENV_VAR,
     HOUMAO_GLOBAL_RUNTIME_DIR_ENV_VAR,
     resolve_mailbox_root,
+    resolve_registry_root,
     resolve_runtime_root,
 )
 from houmao.project.overlay import (
@@ -328,6 +343,8 @@ class _ManagedPredecessorHomeContext:
     session_root: Path | None
     mailbox_cleanup_paths: tuple[Path, ...]
     tmux_binding: SessionManifestTmuxSectionV1 | None = None
+    brain_manifest_path: Path | None = None
+    hermes_profile: HermesProfileBinding | None = None
 
 
 class ManagedTmuxPreflightError(click.ClickException):
@@ -418,6 +435,26 @@ def _load_managed_predecessor_home_context(
             "Managed preserved-home launch requires an existing preserved home path, but "
             f"`{predecessor_home_path}` is missing."
         )
+    profile = payload.launch_plan.hermes_profile if record.identity.tool == "hermes" else None
+    if (
+        requested_tool == record.identity.tool == "hermes"
+        and require_preserved_home_path
+        and profile is None
+    ):
+        raise RuntimeError(
+            "The saved Hermes home uses standalone ownership. Create a fresh project launch for a named profile."
+        )
+    if profile is not None and require_preserved_home_path:
+        saved_profile = predecessor_brain_manifest["runtime"].get("hermes_profile")
+        if (
+            HermesProfileBinding.model_validate(saved_profile) != profile
+            or predecessor_home_path != profile.profile_home
+            or brain_manifest_path
+            != predecessor_runtime_root / "manifests" / f"{predecessor_home_id}.yaml"
+        ):
+            raise RuntimeError(
+                "The preserved Hermes build differs from its recorded runtime owner."
+            )
 
     target: ManagedAgentTarget | None = None
     session_root: Path | None = None
@@ -427,8 +464,15 @@ def _load_managed_predecessor_home_context(
             agent_id=managed_launch_identity.agent_id,
             agent_name=None,
             port=None,
+            include_inactive=(
+                record.identity.tool == "hermes" and record.lifecycle.state == "stopped"
+            ),
         )
-        if target.mode != "local":
+        if target.mode != "local" and not (
+            target.mode == "local_stopped"
+            and record.identity.tool == "hermes"
+            and force_mode == "clean"
+        ):
             raise RuntimeError(
                 "Managed launch force takeover only supports locally owned agents. "
                 f"Managed agent `{managed_launch_identity.agent_name}` resolved to `{target.mode}` "
@@ -436,6 +480,15 @@ def _load_managed_predecessor_home_context(
             )
         session_root = runtime_owned_session_root_from_manifest_path(handle.path)
         if force_mode == "clean":
+            if profile is not None:
+                if record.lifecycle.state == "stopped":
+                    preview_hermes_profile_cleanup(profile)
+                    preview_hermes_project_link(profile)
+                else:
+                    verify_hermes_profile_cleanup_owner(profile)
+                _require_unshared_hermes_takeover_home(
+                    profile, brain_manifest_path, predecessor_runtime_root, session_root
+                )
             resolved_mailbox = resolved_mailbox_config_from_payload(
                 payload.launch_plan.mailboxes.offline.binding,
                 manifest_path=handle.path,
@@ -455,6 +508,8 @@ def _load_managed_predecessor_home_context(
         session_root=session_root,
         mailbox_cleanup_paths=mailbox_cleanup_paths,
         tmux_binding=payload.tmux,
+        brain_manifest_path=brain_manifest_path,
+        hermes_profile=profile,
     )
 
 
@@ -526,12 +581,24 @@ def _resolve_managed_predecessor_home_context(
             require_preserved_home_path=(reuse_home or force_mode == "keep-stale"),
         )
 
-    if not reuse_home:
+    if not reuse_home and force_mode != "clean":
         return None
 
     relaunchable_record = resolve_relaunchable_managed_agent_record_by_agent_id(
         managed_launch_identity.agent_id
     )
+    if not reuse_home:
+        if relaunchable_record is None or relaunchable_record.identity.tool != "hermes":
+            return None
+        return _load_managed_predecessor_home_context(
+            managed_launch_identity=managed_launch_identity,
+            record=relaunchable_record,
+            resolved_runtime_root=resolved_runtime_root,
+            requested_tool=requested_tool,
+            force_mode=force_mode,
+            require_same_tool=False,
+            require_preserved_home_path=False,
+        )
     if relaunchable_record is None:
         raise RuntimeError(
             "Managed launch `--reuse-home` requires one compatible stopped preserved home for "
@@ -554,7 +621,15 @@ def _validate_tmux_force_takeover(
 ) -> None:
     """Keep an existing-only server alive through an approved predecessor stop."""
 
-    if selected.allow_start or predecessor is None or predecessor.target is None:
+    if (
+        selected.allow_start
+        or predecessor is None
+        or predecessor.target is None
+        or (
+            predecessor.record.identity.tool == "hermes"
+            and predecessor.record.lifecycle.state == "stopped"
+        )
+    ):
         return
     binding = predecessor.tmux_binding
     if binding is None or binding.socket_path is None:
@@ -581,12 +656,13 @@ def _perform_managed_force_takeover(context: _ManagedPredecessorHomeContext) -> 
 
     if context.target is None:
         raise RuntimeError("Managed force takeover requires one live predecessor target.")
-    stop_result = stop_managed_agent(context.target)
-    if not stop_result.success:
-        raise RuntimeError(
-            "Failed to stop existing managed agent "
-            f"`{context.agent_name}` before replacement: {stop_result.detail}"
-        )
+    if context.record.identity.tool != "hermes" or context.record.lifecycle.state != "stopped":
+        stop_result = stop_managed_agent(context.target)
+        if not stop_result.success:
+            raise RuntimeError(
+                "Failed to stop existing managed agent "
+                f"`{context.agent_name}` before replacement: {stop_result.detail}"
+            )
     if resolve_live_agent_record_by_agent_id(context.agent_id) is not None:
         raise RuntimeError(
             "Existing managed agent "
@@ -596,6 +672,32 @@ def _perform_managed_force_takeover(context: _ManagedPredecessorHomeContext) -> 
     if context.force_mode != "clean":
         return
 
+    if context.hermes_profile is not None:
+        from houmao.agents.realm_controller.backends.hermes_native import (
+            hermes_profile_lifecycle_lock,
+        )
+
+        profile = context.hermes_profile
+        assert context.brain_manifest_path is not None
+        try:
+            with hermes_profile_lifecycle_lock(profile.prepared_root):
+                _require_unshared_hermes_takeover_home(
+                    profile, context.brain_manifest_path, context.runtime_root, context.session_root
+                )
+                settle_hermes_profile_cleanup(profile)
+                unlink_hermes_project_home(profile)
+                context.brain_manifest_path.unlink(missing_ok=True)
+        except (OSError, ValueError, RuntimeError) as exc:
+            raise RuntimeError(
+                f"The predecessor stopped, but its Hermes home cleanup is incomplete: {exc}"
+            ) from exc
+    elif context.record.identity.tool == "hermes":
+        if context.home_path != context.runtime_root / "homes" / context.home_id:
+            raise RuntimeError(
+                "The stopped standalone Hermes home is outside the managed build root."
+            )
+        _remove_force_takeover_path(context.home_path)
+
     for cleanup_path in _dedupe_force_takeover_paths(
         (
             context.session_root,
@@ -603,6 +705,36 @@ def _perform_managed_force_takeover(context: _ManagedPredecessorHomeContext) -> 
         )
     ):
         _remove_force_takeover_path(cleanup_path)
+
+
+def _require_unshared_hermes_takeover_home(
+    profile: HermesProfileBinding,
+    brain_manifest_path: Path,
+    runtime_root: Path,
+    session_root: Path | None,
+) -> None:
+    """Keep any other saved runtime's profile and project link through takeover."""
+
+    from houmao.srv_ctrl.commands.runtime_cleanup import (
+        discover_runtime_session_envelopes,
+        hermes_profile_has_runtime_reference,
+    )
+
+    if brain_manifest_path != runtime_root / "manifests" / f"{profile.project_home_link.name}.yaml":
+        raise RuntimeError("The predecessor Hermes build is outside the saved managed build root.")
+    saved = load_brain_manifest(brain_manifest_path)
+    runtime = saved.get("runtime", {})
+    if HermesProfileBinding.model_validate(runtime.get("hermes_profile")) != profile:
+        raise RuntimeError("The predecessor Hermes build differs from its recorded runtime owner.")
+    if hermes_profile_has_runtime_reference(
+        profile,
+        brain_manifest_path,
+        discover_runtime_session_envelopes(runtime_root),
+        ignoring_session=session_root,
+    ):
+        raise RuntimeError(
+            "Another retained runtime still references the predecessor Hermes profile."
+        )
 
 
 def _format_launch_policy_resolution_error(
@@ -838,6 +970,29 @@ def _with_launch_profile_skill_provenance(
     return payload
 
 
+def _settle_failed_hermes_build(result: BuildResult | None, failure: BaseException) -> str:
+    """Release a failed launch's fresh build or report its retained ownership evidence."""
+
+    if result is None or result.acquired_hermes_profile is None:
+        return ""
+    incomplete_runtime_cleanup = any(
+        note.startswith("Incomplete launch cleanup:") for note in getattr(failure, "__notes__", ())
+    )
+    if isinstance(failure, RuntimeStartupRollbackError) or incomplete_runtime_cleanup:
+        return f" Hermes build rollback remains pending. Evidence is at {result.manifest_path}."
+    from houmao.srv_ctrl.commands.runtime_cleanup import rollback_acquired_hermes_build
+
+    try:
+        rollback_acquired_hermes_build(
+            profile=result.acquired_hermes_profile,
+            manifest_path=result.manifest_path,
+            runtime_root=result.manifest_path.parent.parent,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        return f" Hermes build rollback is incomplete. Evidence is at {result.manifest_path}. {exc}"
+    return ""
+
+
 def launch_managed_agent_locally(
     *,
     agents: str,
@@ -921,6 +1076,7 @@ def launch_managed_agent_locally(
     resolved_backend_name = "unknown"
     predecessor_context: _ManagedPredecessorHomeContext | None = None
     takeover_completed = False
+    acquired_hermes_build: BuildResult | None = None
     memo_seed_application: LaunchProfileMemoSeedApplication | None = None
     instance_preparation: InstancePreparationResult | None = None
     private_workspace: PreparedPrivateWorkspace | None = None
@@ -994,11 +1150,10 @@ def launch_managed_agent_locally(
             else None
         )
         selection = resolve_run_mode(target.tool, mode=mode, entrypoint="project")
+        prepared_hermes = None
         if selection.tool == "hermes":
             try:
-                resolve_hermes_executable(
-                    environment=owner_env, working_directory=resolved_working_directory
-                )
+                prepared_hermes = load_prepared_hermes_installation(owner=owner_binding)
             except (OSError, ValueError) as exc:
                 raise click.ClickException(str(exc)) from exc
         resolved_backend = selection.backend
@@ -1043,6 +1198,31 @@ def launch_managed_agent_locally(
             force_mode=normalized_force_mode,
             reuse_home=reuse_home,
         )
+        if prepared_hermes is not None:
+            profile_owner = owner_binding or observed_local_binding(
+                working_directory=resolved_working_directory,
+                runtime_root=resolved_runtime_root,
+                registry_root=resolve_registry_root(),
+                tmux_socket=None,
+            )
+            require_hermes_installation_context(prepared_hermes.root, profile_owner.context_id)
+            if predecessor_context is not None and (
+                reuse_home or predecessor_context.force_mode == "keep-stale"
+            ):
+                profile = predecessor_context.hermes_profile
+                expected_link = project_roots.runtime_root / "homes" / predecessor_context.home_id
+                if (
+                    profile is None
+                    or profile.prepared_root != prepared_hermes.root
+                    or profile.installation_build != prepared_hermes.evidence.build
+                    or profile.executable != Path(prepared_hermes.executable)
+                    or profile.context_id != profile_owner.context_id
+                    or profile.project_home_link != expected_link
+                ):
+                    raise RuntimeError(
+                        "The retained Hermes profile differs from the selected owner."
+                    )
+                require_hermes_profile_home(profile, allow_missing_link=True)
         gateway_capabilities = gateway_backend_capabilities(resolved_backend)
         if (
             not gateway_capabilities.manager_launch_timings
@@ -1057,6 +1237,7 @@ def launch_managed_agent_locally(
         build_request = BuildRequest(
             agent_def_dir=target.agent_def_dir,
             runtime_root=resolved_runtime_root,
+            hermes_project_homes_dir=project_roots.runtime_root / "homes",
             tool=target.preset.tool,
             skills=effective_skill_names,
             private_skills=private_skill_projections,
@@ -1198,6 +1379,8 @@ def launch_managed_agent_locally(
                 launch_profile_provenance=effective_launch_profile_provenance,
             )
         )
+        if selection.tool == "hermes" and build_result.acquired_hermes_profile is not None:
+            acquired_hermes_build = build_result
         default_tmux_session_name = (
             predecessor_context.last_tmux_session_name
             if reuse_home and session_name is None and predecessor_context is not None
@@ -1251,6 +1434,7 @@ def launch_managed_agent_locally(
             if predecessor_context is not None and predecessor_context.target is not None
             else None,
         )
+        acquired_hermes_build = None
         if launch_profile_mail_notifier_appendix_text is not None:
             _seed_launch_profile_mail_notifier_appendix(
                 controller=controller,
@@ -1266,6 +1450,7 @@ def launch_managed_agent_locally(
                 runtime_backend=resolved_backend_name,
                 error=exc,
             )
+            + _settle_failed_hermes_build(acquired_hermes_build, exc)
         ) from exc
     except (
         OSError,
@@ -1293,7 +1478,7 @@ def launch_managed_agent_locally(
                         pass
             except (OSError, ValueError):
                 pass
-        detail = str(exc)
+        detail = str(exc) + _settle_failed_hermes_build(acquired_hermes_build, exc)
         if takeover_completed and predecessor_context is not None:
             detail = (
                 "Replacement launch failed after predecessor "
@@ -1301,6 +1486,10 @@ def launch_managed_agent_locally(
                 f"`--force {predecessor_context.force_mode}`: {detail}"
             )
         raise click.ClickException(detail) from exc
+    except BaseException as exc:
+        if incomplete := _settle_failed_hermes_build(acquired_hermes_build, exc):
+            exc.add_note(incomplete.strip())
+        raise
 
     return LocalManagedAgentLaunchResult(
         controller=controller,

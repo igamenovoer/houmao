@@ -1193,6 +1193,7 @@ class GatewayClient:
             presence = listener_id
         try:
             self_registration = None
+            authority = None
             signer: PrivateKey
             if binding.managed_self_manifest_path is not None:
                 from houmao.agents.realm_controller.gateway_access_runtime import (
@@ -1258,8 +1259,14 @@ class GatewayClient:
                 or not now < challenge.expires_at <= now + 120
             ):
                 raise ValueError("Challenge differs from the selected binding.")
+            if (
+                authority is not None
+                and self_registration is not None
+                and self_registration.native_authority is not None
+            ):
+                authority.require_self_caller(self_registration)
             signature = sshsig_header(sign_sshsig(signer, challenge.signing_bytes()))
-        except (ValueError, OSError):
+        except (ValueError, OSError, SessionManifestError):
             raise GatewayHttpError(
                 method=method, url=url, detail="Gateway challenge failed binding validation."
             ) from None

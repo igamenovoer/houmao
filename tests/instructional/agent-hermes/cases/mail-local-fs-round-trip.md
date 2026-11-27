@@ -161,13 +161,13 @@ pixi run python "$LAB" stop --run-dir "$RUN_FS_A" --run-dir "$RUN_FS_B" --eviden
   - `b-list-after-peek.json` still marks the operator-posted message `read == false` after `mail peek` (`peek` non-mutation).
   - After `agent-b` wakes and processes the operator message, `b-inbox-cleared-op.json` shows `0` matching Inbox items, `b-observe-after-op.json` shows the original archived and every affected SQLite thread summary row at `unread_count == 0`, and `b-notifier-status-op.json` records `last_notification_at_utc` later than enablement.
   - For `TOKEN2`, `a-observe-final.json` and `b-observe-final.json` show zero matching Inbox entries and exactly one reply from `$ADDR_FS_B` to `$ADDR_FS_A`. Match the reply's `thread_id` to rows from each recipient's `mailbox.sqlite` and check `unread_count == 0`.
-  - Both redaction audits pass (`leak_count == 0`) and `stop.json` records `surviving_daemon_pids == []`.
+  - Both redaction audits pass (`leak_count == 0`) and `stop.json` records both profiles parked.
 - **Qualitative checks:**
   - Inspect the delivered reply body in `a-observe-final.json` and the captured transcripts (`transcript-a/`, `transcript-b/`) to confirm `agent-a` and `agent-b` used the gateway mailbox API via `houmao-process-emails-via-gateway` (not raw edits inside `$OFFLINE_ROOT`), `agent-b` reported `indigo-91` accurately from `beacon.txt`, and `agent-a` archived the reply cleanly without sending an unnecessary follow-up.
 
 ## Gotchas
 
-- Both agents must receive `--mailbox-root "$OFFLINE_ROOT"` so `HOUMAO_GLOBAL_MAILBOX_DIR` resolves to the same run-local filesystem store while `HERMES_HOME`, `registry/`, `runtime/`, and tmux sockets stay isolated.
+- Both agents must receive `--mailbox-root "$OFFLINE_ROOT"` so `HOUMAO_GLOBAL_MAILBOX_DIR` resolves to the same run-local filesystem store. The worker profiles and tmux sockets remain separate.
 - Because `xhigh` thinking plus a 15-second notifier poll interval can take 60-150 seconds per hop, always rely on `offline-wait` timeouts rather than fixed sleeps.
 
 ## Blinding and Transcript Checks

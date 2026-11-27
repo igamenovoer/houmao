@@ -44,6 +44,7 @@ from fixturelib.config import (
     fixture_hermes_reasoning_effort,
     read_env_file,
 )
+from fixturelib.hermes_owner import initialize_owner, owner_environment, selected_owner_root
 
 _COMMAND_LOCK = threading.RLock()
 _FIXTURE_TMUX_SOCKET_ENV = "HOUMAO_FIXTURE_TMUX_SOCKET"
@@ -731,6 +732,7 @@ def prepare_run(
     tmux_server: FixtureTmuxMode | None = None,
     pool_key: str | None = None,
     pool_slot: str | None = None,
+    hermes_owner_root: Path | None = None,
 ) -> dict[str, Any]:
     """Prepare private native inputs and an optional managed project before launch."""
 
@@ -749,20 +751,28 @@ def prepare_run(
         tmux_server = "new" if config.client == "hermes" else "houmao-default"
     if config.client == "hermes" and tmux_server == "houmao-default":
         raise FixtureError("Hermes fixtures use an isolated tmux server")
+    managed_hermes = config.client == "hermes" and config.surface == "manager"
+    if hermes_owner_root is not None and not managed_hermes:
+        raise FixtureError("--hermes-owner-root requires a managed Hermes fixture")
     selection = config.selection()
     seed = (seed_root or REPO_ROOT / "tests/fixtures/plain-agent-def").resolve()
     prompt = (prompt_file or seed / "roles" / role / "system-prompt.md").resolve()
     if not prompt.is_file():
         raise FixtureError("Selected role prompt file is missing")
     hermes_effort = None
+    owner_root: Path | None = None
     if config.client == "hermes":
         hermes_effort = fixture_hermes_reasoning_effort(config.model_options.reasoning_effort)
         if executable not in {None, "hermes"}:
-            raise FixtureError("Select the Hermes fixture executable through PATH")
-        try:
-            resolved_executable = resolve_hermes_executable()
-        except ValueError as exc:
-            raise FixtureError(str(exc)) from None
+            raise FixtureError("Use the selected Hermes fixture installation's executable")
+        if managed_hermes:
+            owner_root = selected_owner_root(hermes_owner_root)
+            resolved_executable = initialize_owner(owner_root).executable
+        else:
+            try:
+                resolved_executable = resolve_hermes_executable()
+            except ValueError as exc:
+                raise FixtureError(str(exc)) from None
     else:
         resolved_executable = shutil.which(executable or config.client)
     if resolved_executable is None:
@@ -790,6 +800,8 @@ def prepare_run(
         metadata["pool_key"] = pool_key
     if pool_slot is not None:
         metadata["pool_slot"] = pool_slot
+    if owner_root is not None:
+        metadata["hermes_owner_root"] = str(owner_root)
     write_json(run_dir / "run.json", metadata)
     try:
         assets, values = _render_assets(
@@ -824,7 +836,10 @@ def prepare_run(
                 reasoning_effort=hermes_effort,
             )
             _copy_files(assets / "skills", home / "skills")
-            selected_env = hermes_runtime_environment(home, selected_env)
+            if owner_root is not None:
+                selected_env.pop(HOME_VARIABLE[config.client])
+            else:
+                selected_env = hermes_runtime_environment(home, selected_env)
             if config.surface == "raw" and config.mode == "tui":
                 tmp = run_dir / "tui-tmp"
                 private_directory(tmp)
@@ -833,6 +848,8 @@ def prepare_run(
                     selected_env["HERMES_NONINTERACTIVE"] = "1"
         write_json(run_dir / "private-env.json", selected_env)
         env = isolated_environment(selected_env, run_dir=run_dir)
+        if owner_root is not None:
+            env.update(owner_environment(owner_root))
         if config.client == "dsh":
             from houmao.agents.dsh_configuration import DshEffectiveToolParams, prepare_dsh_home
 

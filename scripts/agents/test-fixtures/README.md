@@ -170,7 +170,9 @@ Local managed fixtures and raw TUI or Web fixtures use the execution owner's sha
 
 ## Hermes
 
-Hermes fixtures resolve the `hermes` command from PATH and use explicit OpenAI-compatible Chat Completions inputs. Select `--case self-hosted` or `--case cloud-api` and an explicit credential env file or model-pool key. Each run gets private workspace, role, skill, and native-home inputs. Choose `--mode service` for persistent ACP, `--mode headless` for one-shot JSONL, or `--mode tui` for Ink. Raw and managed runs have separate homes. Tmux-backed Hermes fixtures use isolated tmux servers.
+Hermes fixtures use explicit OpenAI-compatible Chat Completions inputs. Select `--case self-hosted` or `--case cloud-api` and an explicit credential env file or model-pool key. Choose `--mode service` for persistent ACP, `--mode headless` for one-shot JSONL, or `--mode tui` for Ink. Tmux-backed Hermes fixtures use isolated tmux servers.
+
+Managed runs require `--hermes-owner-root` or `HOUMAO_TEST_HERMES_OWNER_ROOT` to select a private, prepared stock installation under the repository's ignored `tmp/` tree. Prepare the root once using the owner setup guide. The fixture uses one isolated Houmao registry and runtime in `<owner-root>/fixture-owner` across projects. Each run still owns its workspace, named native profile, project link, and tmux socket. The raw surface resolves stock `hermes` on PATH and uses a standalone fixture home. [Hermes Owner Setup](../../../docs/reference/run-phase/hermes-owner-setup.md)
 
 Set `--reasoning-effort xhigh` to select an exact native effort on either surface. Hermes accepts `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`. For manager fixtures, `--reasoning-level 5` stores the `xhigh` preset on the launch profile and takes precedence over the native default. Level `0` selects `none` explicitly. The Hermes fixture accepts manager levels `0` through `6`.
 
@@ -199,6 +201,7 @@ The peer writes the model, URL, and synthetic credential to the owner-private `p
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prepare \
   --client hermes --case self-hosted --model houmao-fixture-chat \
   --env-file tmp/hermes-qualification/peer/peer.env \
+  --hermes-owner-root tmp/hermes-qualification/owner \
   --mode headless --surface manager --reasoning-level 5 --run-root tmp/hermes-qualification/runs
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py launch --run-dir RUN_DIR
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py prompt --run-dir RUN_DIR --prompt 'First turn'
@@ -206,7 +209,9 @@ env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py
 env -u TMUX -u TMUX_PANE pixi run python scripts/agents/test-fixtures/fixture.py stop --run-dir RUN_DIR
 ```
 
-Replace `RUN_DIR` with the returned `run_dir`. For an independent stock Hermes run, prepare with `--surface raw --reasoning-effort xhigh` and the same case and env file. Raw headless takes its first prompt at launch with `--prompt`. Raw service launches stock ACP and records its private protocol stream. TUI waits for Ink to become ready and publishes its isolated pane. The `prompt` command submits input to that pane. Run `check --run-dir RUN_DIR --live` to verify live readiness. Compare the peer's private request history with the mode's native turn evidence. Record a provider or mode that cannot start as unavailable.
+Replace `RUN_DIR` with the returned `run_dir`. Run `check --run-dir RUN_DIR --live` to compare the saved launch binding with native host, profile, session, and dependency evidence. Prepare another run against the same owner root to exercise separate projects. Stop retains the native profile for relaunch. After explicit worker and build cleanup removes every named profile, `retire-hermes-owner --hermes-owner-root tmp/hermes-qualification/owner` verifies and retires the recorded test host.
+
+For a standalone stock run, prepare with `--surface raw --reasoning-effort xhigh` and the same case and env file. Raw Headless takes its first prompt at launch with `--prompt`. Raw Service launches ACP and records its private protocol stream. TUI waits for Ink to become ready and publishes its isolated pane. Compare the peer's private request history with the mode's native turn evidence.
 
 ## Qualification
 

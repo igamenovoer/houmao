@@ -92,6 +92,7 @@ class GatewaySelfKey(_AccessModel):
     generation_id: _Identifier
     public_key: str = Field(min_length=1, max_length=4096, repr=False)
     registration_revision: int = Field(ge=1)
+    native_authority: str | None = Field(default=None, exclude=True, repr=False)
 
     @field_validator("public_key")
     @classmethod
@@ -108,6 +109,13 @@ class GatewaySelfKey(_AccessModel):
         """Return the URL-safe fingerprint of this generation's public key."""
 
         return key_fingerprint(self.public_key)
+
+    def retained_registration(self) -> GatewaySelfKey:
+        """Return the key registration independently of a transient native binding."""
+
+        if self.native_authority is None:
+            return self
+        return self.model_copy(update={"native_authority": None})
 
 
 class ManagedSelfChange(_AccessModel):
